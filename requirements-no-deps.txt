@@ -1,0 +1,5 @@
+# These packages are required by TensorFlow, but they need to be installed
+# without their dependencies.
+# To install: python -m pip install --no-deps -r requirements.txt.
+keras_applications
+keras_preprocessing

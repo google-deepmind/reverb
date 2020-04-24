@@ -1,0 +1,379 @@
+// Copyright 2019 DeepMind Technologies Limited.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+#include "reverb/cc/replay_writer.h"
+
+#include <algorithm>
+#include <iterator>
+#include <string>
+#include <utility>
+
+#include "absl/container/flat_hash_set.h"
+#include "absl/strings/str_cat.h"
+#include "reverb/cc/platform/logging.h"
+#include "reverb/cc/schema.pb.h"
+#include "reverb/cc/support/grpc_util.h"
+#include "reverb/cc/tensor_compression.h"
+#include "tensorflow/core/framework/tensor.h"
+#include "tensorflow/core/framework/tensor_util.h"
+#include "tensorflow/core/lib/core/status.h"
+
+namespace deepmind {
+namespace reverb {
+namespace {
+
+bool IsTransientError(const tensorflow::Status& status) {
+  return tensorflow::errors::IsDeadlineExceeded(status) ||
+         tensorflow::errors::IsUnavailable(status) ||
+         tensorflow::errors::IsCancelled(status);
+}
+
+int PositiveModulo(int value, int divisor) {
+  if (divisor == 0) return value;
+
+  if ((value > 0) == (divisor > 0)) {
+    // value and divisor have the same sign.
+    return value % divisor;
+  } else {
+    // value and divisor have different signs.
+    return (value % divisor + divisor) % divisor;
+  }
+}
+
+}  // namespace
+
+ReplayWriter::ReplayWriter(
+    std::shared_ptr</* grpc_gen:: */ReplayService::StubInterface> stub,
+    int chunk_length, int max_timesteps, bool delta_encoded,
+    std::shared_ptr<internal::FlatSignatureMap> signatures)
+    : stub_(std::move(stub)),
+      chunk_length_(chunk_length),
+      max_timesteps_(max_timesteps),
+      delta_encoded_(delta_encoded),
+      signatures_(std::move(signatures)),
+      next_chunk_key_(NewID()),
+      episode_id_(NewID()),
+      index_within_episode_(0),
+      closed_(false),
+      inserted_dtypes_and_shapes_(max_timesteps) {}
+
+ReplayWriter::~ReplayWriter() {
+  if (!closed_) Close().IgnoreError();
+}
+
+tensorflow::Status ReplayWriter::AppendTimestep(
+    std::vector<tensorflow::Tensor> data) {
+  if (closed_) {
+    return tensorflow::errors::FailedPrecondition(
+        "Calling method AppendTimestep after Close has been called");
+  }
+  if (!buffer_.empty() && buffer_.front().size() != data.size()) {
+    return tensorflow::errors::InvalidArgument(
+        "Number of tensors per timestep was inconsistent. Previously ",
+        buffer_.front().size(), " now ", data.size());
+  }
+
+  // Store flattened signature into inserted_dtypes_and_shapes_
+  internal::DtypesAndShapes dtypes_and_shapes_t(0);
+  dtypes_and_shapes_t->reserve(data.size());
+  for (const auto& t : data) {
+    dtypes_and_shapes_t->push_back(
+        {t.dtype(), tensorflow::PartialTensorShape(t.shape())});
+  }
+  std::swap(dtypes_and_shapes_t,
+            inserted_dtypes_and_shapes_[insert_dtypes_and_shapes_location_]);
+  insert_dtypes_and_shapes_location_ =
+      (insert_dtypes_and_shapes_location_ + 1) % max_timesteps_;
+
+  buffer_.push_back(std::move(data));
+  if (buffer_.size() < chunk_length_) return tensorflow::Status::OK();
+
+  auto status = Finish();
+  if (!status.ok()) {
+    // Undo adding stuff to the buffer and undo the dtypes_and_shapes_ changes.
+    buffer_.pop_back();
+    insert_dtypes_and_shapes_location_ =
+        PositiveModulo(insert_dtypes_and_shapes_location_ - 1, max_timesteps_);
+    std::swap(dtypes_and_shapes_t,
+              inserted_dtypes_and_shapes_[insert_dtypes_and_shapes_location_]);
+  }
+  return status;
+}
+
+tensorflow::Status ReplayWriter::AddPriority(const std::string& table,
+                                             int num_timesteps,
+                                             double priority) {
+  if (closed_) {
+    return tensorflow::errors::FailedPrecondition(
+        "Calling method AddPriority after Close has been called");
+  }
+  if (num_timesteps > chunks_.size() * chunk_length_ + buffer_.size()) {
+    return tensorflow::errors::InvalidArgument(
+        "Argument `num_timesteps` is larger than number of buffered "
+        "timesteps.");
+  }
+  if (num_timesteps > max_timesteps_) {
+    return tensorflow::errors::InvalidArgument(
+        "`num_timesteps` must be <= `max_timesteps`");
+  }
+
+  const internal::DtypesAndShapes* dtypes_and_shapes = nullptr;
+  TF_RETURN_IF_ERROR(GetFlatSignature(table, &dtypes_and_shapes));
+  CHECK(dtypes_and_shapes != nullptr);
+  if (dtypes_and_shapes->has_value()) {
+    for (int t = 0; t < num_timesteps; ++t) {
+      // Subtract 1 from the location since it is currently pointing to the next
+      // write.
+      const int check_offset = PositiveModulo(
+          insert_dtypes_and_shapes_location_ - 1 - t, max_timesteps_);
+      const auto& dtypes_and_shapes_t =
+          inserted_dtypes_and_shapes_[check_offset];
+      REVERB_CHECK(dtypes_and_shapes_t.has_value())
+          << "Unexpected missing dtypes and shapes while calling AddPriority: "
+             "expected a value at index "
+          << check_offset << " (timestep offset " << t << ")";
+
+      if (dtypes_and_shapes_t->size() != (*dtypes_and_shapes)->size()) {
+        return tensorflow::errors::InvalidArgument(
+            "Unable to AddPriority to table ", table,
+            " because AppendTimestep was called with a tensor signature "
+            "inconsistent with table signature.  AppendTimestep for timestep "
+            "offset ",
+            t, " was called with ", dtypes_and_shapes_t->size(),
+            " tensors, but table requires ", (*dtypes_and_shapes)->size(),
+            " tensors per entry.  Table signature: ",
+            internal::DtypesShapesString(**dtypes_and_shapes));
+      }
+
+      for (int c = 0; c < dtypes_and_shapes_t->size(); ++c) {
+        const auto& signature_dtype_and_shape = (**dtypes_and_shapes)[c];
+        const auto& seen_dtype_and_shape = (*dtypes_and_shapes_t)[c];
+        if (seen_dtype_and_shape.dtype != signature_dtype_and_shape.dtype ||
+            !signature_dtype_and_shape.shape.IsCompatibleWith(
+                seen_dtype_and_shape.shape)) {
+          return tensorflow::errors::InvalidArgument(
+              "Unable to AddPriority to table ", table,
+              " because AppendTimestep was called with a tensor signature "
+              "inconsistent with table signature.  Saw a tensor at "
+              "timestep offset ",
+              t, " in (flattened) tensor location ", c, " with dtype ",
+              DataTypeString(seen_dtype_and_shape.dtype), " and shape ",
+              seen_dtype_and_shape.shape.DebugString(),
+              " but expected a tensor of dtype ",
+              DataTypeString(signature_dtype_and_shape.dtype),
+              " and shape compatible with ",
+              signature_dtype_and_shape.shape.DebugString(),
+              ".  (Flattened) table signature: ",
+              internal::DtypesShapesString(**dtypes_and_shapes));
+        }
+      }
+    }
+  }
+
+  int remaining = num_timesteps - buffer_.size();
+  int num_chunks =
+      remaining / chunk_length_ + (remaining % chunk_length_ ? 1 : 0);
+
+  // Don't use additional chunks if the entire episode is contained in the
+  // current buffer.
+  if (remaining < 0) {
+    num_chunks = 0;
+  }
+
+  PrioritizedItem item;
+  item.set_key(NewID());
+  item.set_table(table.data(), table.size());
+  item.set_priority(priority);
+  item.mutable_sequence_range()->set_length(num_timesteps);
+  item.mutable_sequence_range()->set_offset(
+      (chunk_length_ - (remaining % chunk_length_)) % chunk_length_);
+
+  for (auto it = std::next(chunks_.begin(), chunks_.size() - num_chunks);
+       it != chunks_.end(); it++) {
+    item.add_chunk_keys(it->chunk_key());
+  }
+  if (!buffer_.empty()) {
+    item.add_chunk_keys(next_chunk_key_);
+  }
+
+  pending_items_.push_back(item);
+
+  if (buffer_.empty()) {
+    auto status = WriteWithRetries();
+    if (!status.ok()) pending_items_.pop_back();
+    return status;
+  }
+
+  return tensorflow::Status::OK();
+}
+
+tensorflow::Status ReplayWriter::Close() {
+  if (closed_)
+    return tensorflow::errors::FailedPrecondition(
+        "Calling method Close after Close has been called");
+  if (!pending_items_.empty()) {
+    TF_RETURN_IF_ERROR(Finish());
+  }
+  if (stream_) {
+    stream_->WritesDone();
+    auto status = stream_->Finish();
+    if (!status.ok()) {
+      REVERB_LOG(REVERB_INFO) << "Received error when closing the stream: "
+                << FormatGrpcStatus(status);
+    }
+    stream_ = nullptr;
+  }
+  chunks_.clear();
+  closed_ = true;
+  return tensorflow::Status::OK();
+}
+
+tensorflow::Status ReplayWriter::Finish() {
+  SequenceRange sequence;
+  std::vector<tensorflow::Tensor> batched_tensors;
+  for (int i = 0; i < buffer_[0].size(); ++i) {
+    std::vector<tensorflow::Tensor> tensors(buffer_.size());
+    for (int j = 0; j < buffer_.size(); ++j) {
+      const tensorflow::Tensor& item = buffer_[j][i];
+      tensorflow::TensorShape shape = item.shape();
+      shape.InsertDim(0, 1);
+      REVERB_CHECK(tensors[j].CopyFrom(item, shape));
+    }
+    batched_tensors.emplace_back();
+    TF_RETURN_IF_ERROR(
+        tensorflow::tensor::Concat(tensors, &batched_tensors.back()));
+  }
+
+  ChunkData chunk;
+  chunk.set_chunk_key(next_chunk_key_);
+  chunk.mutable_sequence_range()->set_episode_id(episode_id_);
+  chunk.mutable_sequence_range()->set_start(index_within_episode_);
+  chunk.mutable_sequence_range()->set_end(index_within_episode_ +
+                                          buffer_.size() - 1);
+
+  if (delta_encoded_) {
+    batched_tensors = DeltaEncodeList(batched_tensors, true);
+    chunk.set_delta_encoded(true);
+  }
+
+  for (const auto& tensor : batched_tensors) {
+    CompressTensorAsProto(tensor, chunk.add_data());
+  }
+
+  chunks_.push_back(std::move(chunk));
+
+  auto status = WriteWithRetries();
+  if (status.ok()) {
+    index_within_episode_ += buffer_.size();
+    buffer_.clear();
+    next_chunk_key_ = NewID();
+    while ((chunks_.size() - 1) * chunk_length_ >= max_timesteps_) {
+      streamed_chunk_keys_.erase(chunks_.front().chunk_key());
+      chunks_.pop_front();
+    }
+  } else {
+    chunks_.pop_back();
+  }
+  return status;
+}
+
+tensorflow::Status ReplayWriter::WriteWithRetries() {
+  tensorflow::Status status;
+  while (true) {
+    if (WritePendingData()) return tensorflow::Status::OK();
+    stream_->WritesDone();
+    status = FromGrpcStatus(stream_->Finish());
+    stream_ = nullptr;
+    if (!IsTransientError(status)) break;
+  }
+  return status;
+}
+
+bool ReplayWriter::WritePendingData() {
+  if (!stream_) {
+    streamed_chunk_keys_.clear();
+    context_ = absl::make_unique<grpc::ClientContext>();
+    stream_ = stub_->InsertStream(context_.get(), &response_);
+  }
+
+  // Stream all chunks which are referenced by the pending items and haven't
+  // already been sent. After the items has been inserted we want the server
+  // to keep references only to the ones which the client still keeps
+  // around.
+  absl::flat_hash_set<uint64_t> item_chunk_keys;
+  for (const auto& item : pending_items_) {
+    for (uint64_t key : item.chunk_keys()) {
+      item_chunk_keys.insert(key);
+    }
+  }
+  std::vector<uint64_t> keep_chunk_keys;
+  for (const ChunkData& chunk : chunks_) {
+    if (item_chunk_keys.contains(chunk.chunk_key()) &&
+        !streamed_chunk_keys_.contains(chunk.chunk_key())) {
+      InsertStreamRequest request;
+      request.set_allocated_chunk(const_cast<ChunkData*>(&chunk));
+      grpc::WriteOptions options;
+      options.set_no_compression();
+      bool ok = stream_->Write(request, options);
+      request.release_chunk();
+      if (!ok) return false;
+      streamed_chunk_keys_.insert(chunk.chunk_key());
+    }
+    if (streamed_chunk_keys_.contains(chunk.chunk_key())) {
+      keep_chunk_keys.push_back(chunk.chunk_key());
+    }
+  }
+  while (!pending_items_.empty()) {
+    InsertStreamRequest request;
+    *request.mutable_item()->mutable_item() = pending_items_.front();
+    *request.mutable_item()->mutable_keep_chunk_keys() = {
+        keep_chunk_keys.begin(), keep_chunk_keys.end()};
+    if (!stream_->Write(request)) return false;
+    pending_items_.pop_front();
+  }
+
+  return true;
+}
+
+uint64_t ReplayWriter::NewID() {
+  return absl::Uniform<uint64_t>(bit_gen_, 0, UINT64_MAX);
+}
+
+tensorflow::Status ReplayWriter::GetFlatSignature(
+    absl::string_view table,
+    const internal::DtypesAndShapes** dtypes_and_shapes) const {
+  static const auto* empty_dtypes_and_shapes =
+      new internal::DtypesAndShapes(absl::nullopt);
+  if (!signatures_) {
+    // No signatures available, return an unknown set.
+    *dtypes_and_shapes = empty_dtypes_and_shapes;
+    return tensorflow::Status::OK();
+  }
+  auto iter = signatures_->find(table);
+  if (iter == signatures_->end()) {
+    std::vector<std::string> table_names;
+    for (const auto& table : *signatures_) {
+      table_names.push_back(absl::StrCat("'", table.first, "'"));
+    }
+    return tensorflow::errors::InvalidArgument(
+        "Unable to find signatures for table '", table,
+        "' in signature cache.  Available tables: [",
+        absl::StrJoin(table_names, ", "), "].");
+  }
+  *dtypes_and_shapes = &(iter->second);
+  return tensorflow::Status::OK();
+}
+
+}  // namespace reverb
+}  // namespace deepmind

@@ -1,0 +1,61 @@
+syntax = "proto3";
+
+package deepmind.reverb;
+
+import "reverb/cc/schema.proto";
+
+// Configs for reconstructing a distribution to its initial state.
+
+message PriorityTableCheckpoint {
+  // Name of the priority table.
+  string table_name = 1;
+
+  // Maximum number of items in the priority table.
+  // If an insert would result in this value getting exceeded, `remover` is used
+  // to select an item to remove before proceeding with the insert.
+  int64 max_size = 6;
+
+  // The maximum number of times an item can be sampled before being removed.
+  int32 max_times_sampled = 7;
+
+  // Items in the priority table ordered by `inserted_at` (asc).
+  // When loading a checkpoint the items should be added in the same order so
+  // position based distributions (e.g fifo) are reconstructed correctly.
+  repeated PrioritizedItem items = 2;
+
+  // Checkpoint of the associated rate limiter.
+  RateLimiterCheckpoint rate_limiter = 3;
+
+  // Options for constructing new samplers and removers of the correct type.
+  // Note that this does not include the state that they currently hold as it
+  // will be reproduced using the order of `items.
+  KeyDistributionOptions sampler = 4;
+  KeyDistributionOptions remover = 5;
+}
+
+message RateLimiterCheckpoint {
+  reserved 1;  // Deprecated field `name`.
+
+  // The average number of times each item should be sampled during its
+  // lifetime.
+  double samples_per_insert = 2;
+
+  // The minimum and maximum values the cursor is allowed to reach. The cursor
+  // value is calculated as `insert_count * samples_per_insert -
+  // sample_count`. If the value would go beyond these limits then the call is
+  // blocked until it can proceed without violating the constraints.
+  double min_diff = 3;
+  double max_diff = 4;
+
+  // The minimum number of inserts required before any sample operation.
+  int64 min_size_to_sample = 5;
+
+  // The total number of samples that occurred before the checkpoint.
+  int64 sample_count = 6;
+
+  // The total number of inserts that occurred before the checkpoint.
+  int64 insert_count = 7;
+
+  // The total number of deletes that occured before the checkpoint.
+  int64 delete_count = 8;
+}

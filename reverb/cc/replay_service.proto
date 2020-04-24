@@ -1,0 +1,129 @@
+syntax = "proto3";
+
+package deepmind.reverb;
+
+import "reverb/cc/schema.proto";
+
+service ReplayService {
+  // Writes all in-memory data to disk. We store the priority tables
+  // along with the chunks. On success, the path of the checkpoint is
+  // returned. On preemption, the last checkpoint will be used to restore the
+  // replay.
+  rpc Checkpoint(CheckpointRequest) returns (CheckpointResponse) {}
+
+  // Inserts chunks into the ChunkStore and items into priority tables. This
+  // operation is a stream that is called by `ReplayWriter`. A stream mesasage
+  // either inserts a chunk or an item into a priority table.
+  //
+  // Important: We keep a reference to each chunk that was written to
+  // the stream. When inserting an item into a priority table, this item is
+  // allowed to refer to any items that we keep references to. After inserting
+  // an item, we clear our references to all chunks which are not explictly
+  // specified in `keep_chunk_keys`. This means the typical
+  // order of stream messages is something like: [CHUNK C1] [CHUNK C2] [ITEM
+  // USING C1&C2 AND KEEP C2] [CHUNK C3] [ITEM USING C2&C3]
+  rpc InsertStream(stream InsertStreamRequest) returns (InsertStreamResponse) {}
+
+  // Changes the items in a priority table. The operations might be
+  // applied partially if an error occurs.
+  rpc MutatePriorities(MutatePrioritiesRequest)
+      returns (MutatePrioritiesResponse) {}
+
+  // Clears all items of a PriorityTable and resets its RateLimiter.
+  rpc Reset(ResetRequest) returns (ResetResponse) {}
+
+  // Samples items from a priority table. The client starts by requesting a
+  // fixed (or unlimited) number of samples from a specific table. Once
+  // received, the server starts streaming the requested samples. The first
+  // response of each sample contains info in addition to the first chunk of
+  // data. A typical response looks like: [INFO + CHUNK] [CHUNK] [CHUNK] [INFO +
+  // CHUNK] [CHUNK] ...
+  // The client is allowed at any time to send additional requests for more
+  // samples.
+  rpc SampleStream(stream SampleStreamRequest)
+      returns (stream SampleStreamResponse) {}
+
+  // Get updated information on all of the tables on the server.
+  rpc ServerInfo(ServerInfoRequest) returns (ServerInfoResponse) {}
+}
+
+message CheckpointRequest {}
+
+message CheckpointResponse {
+  // Path to disk where the checkpoint was written to.
+  string checkpoint_path = 1;
+}
+
+message InsertStreamRequest {
+  message PriorityInsertion {
+    // The item that should be inserted.
+    PrioritizedItem item = 1;
+
+    // Specifies which chunk keys are needed in the next request. This will
+    // result in an internal reference which prevents the chunks from deletion
+    // until the next priority insertion.
+    repeated uint64 keep_chunk_keys = 2;
+  }
+
+  oneof payload {
+    // Chunk that can be referenced by a PrioritizedItem.
+    ChunkData chunk = 1;
+
+    // Item for inserting into priority tables. The item must only reference
+    // chunks that has been sent been sent on the stream thus far and kept after
+    // previous insertion requests.
+    PriorityInsertion item = 2;
+  }
+}
+
+message InsertStreamResponse {}
+
+message MutatePrioritiesRequest {
+  // Name of the priority table that the operations below should be
+  // applied to. This field must be set.
+  string table = 1;
+
+  // All operations below are applied in the order that they are listed.
+  // Different operations can be set at the same time.
+
+  // Items to update. If an item does not exist, that item is ignored.
+  repeated KeyWithPriority updates = 2;
+
+  // Items to delete. If an item does not exist, that item is deleted.
+  repeated uint64 delete_keys = 3;
+}
+
+message MutatePrioritiesResponse {}
+
+message ServerInfoRequest {}
+
+message ServerInfoResponse {
+  Uint128 tables_state_id = 1;
+  repeated TableInfo table_info = 2;
+}
+
+message SampleStreamRequest {
+  // Name of the priority table that we should sample from.
+  string table = 1;
+
+  // The number of samples to stream. Defaults to infinite.
+  int64 num_samples = 2;
+}
+
+message SampleStreamResponse {
+  // First response item in the stream is info about the sample.
+  SampleInfo info = 1;
+
+  // Followed by at least one data response.
+  ChunkData data = 2;
+
+  // True if this is the last message in the sequence.
+  bool end_of_sequence = 3;
+}
+
+message ResetRequest {
+  // The table to reset.
+  string table = 1;
+}
+
+message ResetResponse {}

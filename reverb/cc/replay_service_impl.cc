@@ -1,0 +1,290 @@
+// Copyright 2019 DeepMind Technologies Limited.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+#include "reverb/cc/replay_service_impl.h"
+
+#include <list>
+#include <memory>
+#include <vector>
+
+#include "absl/container/flat_hash_map.h"
+#include "absl/container/flat_hash_set.h"
+#include "absl/strings/str_cat.h"
+#include "absl/time/time.h"
+#include "reverb/cc/checkpointing/interface.h"
+#include "reverb/cc/platform/logging.h"
+#include "reverb/cc/replay_service.grpc.pb.h"
+#include "reverb/cc/support/grpc_util.h"
+#include "reverb/cc/support/uint128.h"
+#include "tensorflow/core/lib/core/errors.h"
+#include "tensorflow/core/lib/core/status.h"
+
+namespace deepmind {
+namespace reverb {
+namespace {
+
+inline grpc::Status TableNotFound(absl::string_view name) {
+  return grpc::Status(grpc::StatusCode::NOT_FOUND,
+                      absl::StrCat("Priority table ", name, " was not found"));
+}
+
+inline grpc::Status Internal(const std::string& message) {
+  return grpc::Status(grpc::StatusCode::INTERNAL, message);
+}
+
+}  // namespace
+
+ReplayServiceImpl::ReplayServiceImpl(
+    std::vector<std::shared_ptr<PriorityTable>> priority_tables,
+    std::shared_ptr<CheckpointerInterface> checkpointer)
+    : checkpointer_(std::move(checkpointer)) {
+  if (checkpointer_ != nullptr) {
+    auto status = checkpointer_->LoadLatest(&chunk_store_, &priority_tables);
+    if (!tensorflow::errors::IsNotFound(status)) {
+      TF_CHECK_OK(status) << "Error when loading checkpoint: "
+                          << status.ToString();
+    }
+  }
+
+  for (auto& priority_table : priority_tables) {
+    priority_tables_[priority_table->name()] = std::move(priority_table);
+  }
+
+  tables_state_id_ = absl::MakeUint128(absl::Uniform<uint64_t>(rnd_),
+                                       absl::Uniform<uint64_t>(rnd_));
+}
+
+grpc::Status ReplayServiceImpl::Checkpoint(grpc::ServerContext* context,
+                                           const CheckpointRequest* request,
+                                           CheckpointResponse* response) {
+  if (checkpointer_ == nullptr) {
+    return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT,
+                        "no Checkpointer configured for the replay service.");
+  }
+
+  std::vector<PriorityTable*> tables;
+  for (auto& table : priority_tables_) {
+    tables.push_back(table.second.get());
+  }
+
+  auto status = checkpointer_->Save(std::move(tables), 1,
+                                    response->mutable_checkpoint_path());
+  if (!status.ok()) return ToGrpcStatus(status);
+
+  REVERB_LOG(REVERB_INFO) << "Stored checkpoint to "
+                          << response->checkpoint_path();
+  return grpc::Status::OK;
+}
+
+grpc::Status ReplayServiceImpl::InsertStream(
+    grpc::ServerContext* context,
+    grpc::ServerReader<InsertStreamRequest>* reader,
+    InsertStreamResponse* response) {
+  return InsertStreamInternal(context, reader, response);
+}
+
+grpc::Status ReplayServiceImpl::InsertStreamInternal(
+    grpc::ServerContext* context,
+    grpc::ServerReaderInterface<InsertStreamRequest>* reader,
+    InsertStreamResponse* response) {
+  absl::flat_hash_map<ChunkStore::Key, std::shared_ptr<ChunkStore::Chunk>>
+      chunks;
+  InsertStreamRequest request;
+
+  while (reader->Read(&request)) {
+    if (request.has_chunk()) {
+      ChunkStore::Key key = request.chunk().chunk_key();
+      std::shared_ptr<ChunkStore::Chunk> chunk =
+          chunk_store_.Insert(std::move(*request.mutable_chunk()));
+      if (!chunk) {
+        return grpc::Status(grpc::StatusCode::CANCELLED,
+                            "Service has been closed");
+      }
+      chunks[key] = std::move(chunk);
+    } else if (request.has_item()) {
+      PriorityTable::Item item;
+
+      auto push_or = [&chunks, &item](ChunkStore::Key key) -> grpc::Status {
+        auto it = chunks.find(key);
+        if (it == chunks.end()) {
+          return Internal(
+              absl::StrCat("Could not find sequence chunk ", key, "."));
+        }
+        item.chunks.push_back(it->second);
+        return grpc::Status::OK;
+      };
+
+      for (ChunkStore::Key key : request.item().item().chunk_keys()) {
+        auto status = push_or(key);
+        if (!status.ok()) return status;
+      }
+
+      const auto& table_name = request.item().item().table();
+      PriorityTable* priority_table = PriorityTableByName(table_name);
+      if (priority_table == nullptr) return TableNotFound(table_name);
+
+      item.item = *request.mutable_item()->mutable_item();
+
+      {
+        auto status = priority_table->InsertOrAssign(item);
+        if (!status.ok()) {
+          return ToGrpcStatus(status);
+        }
+      }
+
+      // Only keep specified chunks.
+      absl::flat_hash_set<int64_t> keep_keys{
+          request.item().keep_chunk_keys().begin(),
+          request.item().keep_chunk_keys().end()};
+      for (auto it = chunks.cbegin(); it != chunks.cend();) {
+        if (keep_keys.find(it->first) == keep_keys.end()) {
+          chunks.erase(it++);
+        } else {
+          ++it;
+        }
+      }
+      REVERB_CHECK_EQ(chunks.size(), keep_keys.size())
+          << "Kept less chunks than expected.";
+    }
+  }
+
+  return grpc::Status::OK;
+}
+
+grpc::Status ReplayServiceImpl::MutatePriorities(
+    grpc::ServerContext* context, const MutatePrioritiesRequest* request,
+    MutatePrioritiesResponse* response) {
+  PriorityTable* priority_table = PriorityTableByName(request->table());
+  if (priority_table == nullptr) return TableNotFound(request->table());
+
+  auto status = priority_table->MutateItems(
+      std::vector<KeyWithPriority>(request->updates().begin(),
+                                   request->updates().end()),
+      request->delete_keys());
+  if (!status.ok()) return ToGrpcStatus(status);
+  return grpc::Status::OK;
+}
+
+grpc::Status ReplayServiceImpl::Reset(grpc::ServerContext* context,
+                                      const ResetRequest* request,
+                                      ResetResponse* response) {
+  PriorityTable* priority_table = PriorityTableByName(request->table());
+  if (priority_table == nullptr) return TableNotFound(request->table());
+
+  auto status = priority_table->Reset();
+  if (!status.ok()) {
+    return ToGrpcStatus(status);
+  }
+  return grpc::Status::OK;
+}
+
+grpc::Status ReplayServiceImpl::SampleStream(
+    grpc::ServerContext* context,
+    grpc::ServerReaderWriter<SampleStreamResponse, SampleStreamRequest>*
+        stream) {
+  return SampleStreamInternal(context, stream);
+}
+
+grpc::Status ReplayServiceImpl::SampleStreamInternal(
+    grpc::ServerContext* context,
+    grpc::ServerReaderWriterInterface<SampleStreamResponse,
+                                      SampleStreamRequest>* stream) {
+  SampleStreamRequest request;
+  if (!stream->Read(&request)) {
+    return Internal("Could not read initial request");
+  }
+
+  do {
+    if (request.num_samples() <= 0) {
+      return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT,
+                          "`num_samples` must be > 0.");
+    }
+    PriorityTable* priority_table = PriorityTableByName(request.table());
+    if (priority_table == nullptr) return TableNotFound(request.table());
+
+    int count = 0;
+    while (!context->IsCancelled() && count++ != request.num_samples()) {
+      PriorityTable::SampledItem sample;
+      {
+
+        auto status = priority_table->Sample(&sample);
+        if (!status.ok()) {
+          return ToGrpcStatus(status);
+        }
+      }
+
+      for (int i = 0; i < sample.chunks.size(); i++) {
+        SampleStreamResponse response;
+        response.set_end_of_sequence(i + 1 == sample.chunks.size());
+
+        // Attach the info to the first message.
+        if (i == 0) {
+          *response.mutable_info()->mutable_item() = sample.item;
+          response.mutable_info()->set_probability(sample.probability);
+          response.mutable_info()->set_table_size(sample.table_size);
+        }
+
+        // We const cast to avoid copying the proto.
+        response.set_allocated_data(
+            const_cast<ChunkData*>(&sample.chunks[i]->data()));
+
+        grpc::WriteOptions options;
+        options.set_no_compression();  // Data is already compressed.
+        bool ok = stream->Write(response, options);
+        response.release_data();
+        if (!ok) {
+          return Internal("Failed to write to Sample stream.");
+        }
+
+        // We no longer need our chunk reference, so we free it.
+        sample.chunks[i] = nullptr;
+      }
+    }
+
+    request.Clear();
+  } while (stream->Read(&request));
+
+  return grpc::Status::OK;
+}
+
+PriorityTable* ReplayServiceImpl::PriorityTableByName(
+    absl::string_view name) const {
+  auto it = priority_tables_.find(name);
+  if (it == priority_tables_.end()) return nullptr;
+  return it->second.get();
+}
+
+void ReplayServiceImpl::Close() {
+  for (auto& table : priority_tables_) {
+    table.second->Close();
+  }
+}
+
+grpc::Status ReplayServiceImpl::ServerInfo(grpc::ServerContext* context,
+                                           const ServerInfoRequest* request,
+                                           ServerInfoResponse* response) {
+  for (const auto& iter : priority_tables_) {
+    *response->add_table_info() = iter.second->info();
+  }
+  *response->mutable_tables_state_id() = Uint128ToMessage(tables_state_id_);
+  return grpc::Status::OK;
+}
+
+absl::flat_hash_map<std::string, std::shared_ptr<PriorityTable>>
+ReplayServiceImpl::tables() const {
+  return priority_tables_;
+}
+
+}  // namespace reverb
+}  // namespace deepmind
