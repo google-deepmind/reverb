@@ -207,7 +207,7 @@ TableInfo PriorityTable::info() const {
   info.set_name(name_);
   info.set_max_size(max_size_);
   info.set_max_times_sampled(max_times_sampled_);
-  *info.mutable_rate_limiter_info() = rate_limiter_->info();
+  *info.mutable_rate_limiter_info() = rate_limiter_->Info(&mu_);
 
   if (signature_) {
     *info.mutable_signature() = *signature_;
@@ -374,6 +374,13 @@ bool PriorityTable::CanSample(int num_samples) const {
 bool PriorityTable::CanInsert(int num_inserts) const {
   absl::ReaderMutexLock lock(&mu_);
   return rate_limiter_->CanInsert(&mu_, num_inserts);
+}
+
+RateLimiterEventHistory PriorityTable::GetRateLimiterEventHistory(
+    size_t min_insert_event_id, size_t min_sample_event_id) const {
+  absl::ReaderMutexLock lock(&mu_);
+  return rate_limiter_->GetEventHistory(&mu_, min_insert_event_id,
+                                        min_sample_event_id);
 }
 
 }  // namespace reverb

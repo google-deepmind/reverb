@@ -2,6 +2,7 @@ syntax = "proto3";
 
 package deepmind.reverb;
 
+import "google/protobuf/duration.proto";
 import "google/protobuf/timestamp.proto";
 import "tensorflow/core/framework/tensor.proto";
 import "tensorflow/core/protobuf/struct.proto";
@@ -126,6 +127,24 @@ message TableInfo {
   int64 current_size = 7;
 }
 
+message RateLimiterCallStats {
+  // The number of calls that are currently blocked.
+  int64 pending = 1;
+
+  // The total number of completed calls.
+  int64 completed = 2;
+
+  // Out of the completed calls, how many of these were blocked for any amount
+  // of time.
+  int64 limited = 3;
+
+  // Total waiting time for all the COMPLETED calls.
+  google.protobuf.Duration completed_wait_time = 4;
+
+  // Total waiting time for all calls that are pending right now.
+  google.protobuf.Duration pending_wait_time = 5;
+}
+
 message RateLimiterInfo {
   // The average number of times each item should be sampled during its
   // lifetime.
@@ -140,6 +159,12 @@ message RateLimiterInfo {
 
   // The minimum number of inserts required before any sample operation.
   int64 min_size_to_sample = 4;
+
+  // Stats regarding the limiting of insert calls.
+  RateLimiterCallStats insert_stats = 5;
+
+  // Stats regarding the limiting of sample calls.
+  RateLimiterCallStats sample_stats = 6;
 }
 
 // Metadata about sampler or remover.  Describes its configuration.

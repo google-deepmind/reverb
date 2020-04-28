@@ -428,12 +428,35 @@ TEST(RateLimiterTest, BlocksSamplesIfDeleteBringsSizeBelowMinSize) {
 }
 
 TEST(RateLimiterTest, Info) {
-  EXPECT_THAT(RateLimiter(1, 1, 0, 5).info(),
-              EqualsProto("samples_per_insert: 1 min_size_to_sample: 1 "
-                          "min_diff: 0 max_diff: 5"));
-  EXPECT_THAT(RateLimiter(1.5, 14, -10, 5.3).info(),
-              EqualsProto("samples_per_insert: 1.5 min_size_to_sample: 14 "
-                          "min_diff: -10 max_diff: 5.3"));
+  absl::Mutex mu;
+  absl::ReaderMutexLock lock(&mu);
+
+  EXPECT_THAT(RateLimiter(1, 1, 0, 5).Info(&mu),
+              EqualsProto("samples_per_insert: 1 "
+                          "min_size_to_sample: 1 "
+                          "min_diff: 0 "
+                          "max_diff: 5 "
+                          "insert_stats: { "
+                          "  completed_wait_time: {} "
+                          "  pending_wait_time: {} "
+                          "} "
+                          "sample_stats: { "
+                          "  completed_wait_time: {} "
+                          "  pending_wait_time: {} "
+                          "}"));
+  EXPECT_THAT(RateLimiter(1.5, 14, -10, 5.3).Info(&mu),
+              EqualsProto("samples_per_insert: 1.5 "
+                          "min_size_to_sample: 14 "
+                          "min_diff: -10 "
+                          "max_diff: 5.3 "
+                          "insert_stats: { "
+                          "  completed_wait_time: {} "
+                          "  pending_wait_time: {} "
+                          "} "
+                          "sample_stats: { "
+                          "  completed_wait_time: {} "
+                          "  pending_wait_time: {} "
+                          "}"));
 }
 
 TEST(RateLimiterDeathTest, DiesIfMinSizeToSampleNonPositive) {

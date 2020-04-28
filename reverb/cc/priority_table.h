@@ -189,14 +189,20 @@ class PriorityTable {
 
   const std::string& name() const;
 
-  // Metadata about the table.
+  // Metadata about the table, including the current state of the rate limiter.
   TableInfo info() const;
 
   // Signature (if any) of the table.
   const absl::optional<tensorflow::StructuredValue>& signature() const;
 
-  // Cancels pending calls and marks object as closed. Object must be abandoned
-  // after `Close` called.
+  // Makes a copy of all COMPLETED rate limiter events since (inclusive)
+  // `min_X_event_id`.
+  RateLimiterEventHistory GetRateLimiterEventHistory(
+      size_t min_insert_event_id, size_t min_sample_event_id) const
+      ABSL_LOCKS_EXCLUDED(mu_);
+
+  // Cancels pending calls and marks object as closed. Object must be
+  // abandoned after `Close` called.
   void Close();
 
  private:
