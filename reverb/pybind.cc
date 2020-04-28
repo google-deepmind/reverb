@@ -260,7 +260,6 @@ tensorflow::Status GetTensorDtypeFromPyArray(
     NP_TO_TF_DTYPE_CASE(NPY_COMPLEX64, tensorflow::DT_COMPLEX64)
     NP_TO_TF_DTYPE_CASE(NPY_COMPLEX128, tensorflow::DT_COMPLEX128)
 
-    // TODO(b/154925823): String types are not supported
     NP_TO_TF_DTYPE_CASE(NPY_OBJECT, tensorflow::DT_STRING)
     NP_TO_TF_DTYPE_CASE(NPY_STRING, tensorflow::DT_STRING)
     NP_TO_TF_DTYPE_CASE(NPY_UNICODE, tensorflow::DT_STRING)
