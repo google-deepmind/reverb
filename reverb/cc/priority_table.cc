@@ -116,6 +116,9 @@ tensorflow::Status PriorityTable::InsertOrAssign(Item item) {
   TF_RETURN_IF_ERROR(rate_limiter_->AwaitCanInsert(&mu_));
 
   if (data_.contains(key)) {
+    // If the insert was transformed into an update while waiting we need to
+    // notify the limiter so it let another insert call to proceed.
+    rate_limiter_->MaybeSignalCondVars(&mu_);
     return UpdateItem(key, priority, /*diffuse=*/true);
   }
 
