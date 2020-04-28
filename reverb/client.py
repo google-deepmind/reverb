@@ -74,7 +74,7 @@ trajectories then the `insert`-method should be used.
 
 """
 
-from typing import Dict, List, Optional
+from typing import Any, Dict, Generator, List, Optional
 
 from absl import logging
 from reverb import errors
@@ -85,6 +85,108 @@ import tree
 
 from reverb.cc import schema_pb2
 from tensorflow.python.saved_model import nested_structure_coder  # pylint: disable=g-direct-tensorflow-import
+
+
+class Writer:
+  """Writer is used for streaming data of arbitrary length.
+
+  See ReverbClient.writer for documentation.
+  """
+
+  def __init__(self, internal_writer: pybind.ReplayWriter):
+    """Constructor for Writer (must only be called by ReverbClient.writer)."""
+    self._writer = internal_writer
+    self._closed = False
+
+  def __enter__(self) -> 'Writer':
+    if self._closed:
+      raise ValueError('Cannot reuse already closed Writer')
+    return self
+
+  def __exit__(self, *_):
+    self.close()
+
+  def __del__(self):
+    if not self._closed:
+      logging.warning(
+          'Writer-object deleted without calling .close explicitly.')
+
+  def append_timestep(self, timestep: Any):
+    """Appends a timestep to the internal buffer.
+
+    NOTE: Calling this method alone does not result in anything being inserted
+    into the replay. To trigger timestep insertion, `create_prioritized_item`
+    must be called so that the resulting sequence includes the timestep.
+
+    Consider the following example:
+
+    ```python
+
+        A, B, C = ...
+        client = Client(...)
+
+        with client.writer(max_sequence_length=2) as writer:
+          writer.append_timestep(A)  # A is added to the internal buffer.
+          writer.append_timestep(B)  # B is added to the internal buffer.
+
+          # The buffer is now full so when this is called C is added and A is
+          # removed from the internal buffer and since A was never referenced by
+          # a prioritized item it was never sent to the server.
+          writer.append_timestep(C)
+
+          # A sequence of length 1 is created referencing only C and thus C is
+          # sent to the server.
+          writer.create_prioritized_item('my_table', 1, 5.0)
+
+        # Writer is now closed and B was never referenced by a prioritized item
+        # and thus never sent to the server.
+
+    ```
+
+    Args:
+      timestep: The (possibly nested) structure to make available for new
+        prioritized items to reference.
+    """
+    self._writer.AppendTimestep(tree.flatten(timestep))
+
+  def create_prioritized_item(self, table: str, num_timesteps: int,
+                              priority: float):
+    """Creates a prioritized item and sends it to the ReplayService.
+
+    This method is what effectively makes data available for sampling. See the
+    docstring of `append_timestep` for an illustrative example of the behavior.
+
+    Args:
+      table: Name of the priority table to insert the item into.
+      num_timesteps: The number of most recently added timesteps that the new
+        item should reference.
+      priority: The priority used for determining the sample probability of the
+        new item.
+
+    Raises:
+      ValueError: If num_timesteps is < 1.
+      StatusNotOk: If num_timesteps is > than the timesteps currently available
+        in the buffer.
+    """
+    if num_timesteps < 1:
+      raise ValueError('num_timesteps (%d) must be a positive integer')
+    # TODO(b/154930410): Catch the StatusNotOk and raise a ValueError instead.
+    self._writer.AddPriority(table, num_timesteps, priority)
+
+  def close(self):
+    """Closes the stream to the ReplayService.
+
+    The method is automatically called when existing the contextmanager scope.
+
+    Note: Writer-object must be abandoned after this method called.
+
+    Raises:
+      ValueError: If already has been called.
+    """
+    if self._closed:
+      raise ValueError('close() has already been called on Writer.')
+    self._closed = True
+    self._writer.Close()
 
 
 class Client:
@@ -109,7 +211,7 @@ class Client:
     return self.__class__, (self._server_address,)
 
   @property
-  def server_address(self):
+  def server_address(self) -> str:
     return self._server_address
 
   def insert(self, data, priorities: Dict[str, float]):
@@ -142,7 +244,7 @@ class Client:
       max_sequence_length: int,
       delta_encoded: bool = False,
       chunk_length: int = None,
-  ):
+  ) -> Writer:
     """Constructs a writer with a `max_sequence_length` buffer.
 
     The writer can be used to stream data of any length. `max_sequence_length`
@@ -199,7 +301,10 @@ class Client:
         self._client.NewWriter(chunk_length, max_sequence_length,
                                delta_encoded))
 
-  def sample(self, table: str, num_samples=1):
+  def sample(
+      self,
+      table: str,
+      num_samples=1) -> Generator[List[replay_sample.ReplaySample], None, None]:
     """Samples `num_samples` items from table `table` of the Server.
 
     NOTE: This method should NOT be used for real training. TFClient (see
@@ -332,105 +437,3 @@ class Client:
       Absolute path to the saved checkpoint.
     """
     return self._client.Checkpoint()
-
-
-class Writer:
-  """Writer is used for streaming data of arbitrary length.
-
-  See ReverbClient.writer for documentation.
-  """
-
-  def __init__(self, internal_writer):
-    """Constructor for Writer (must only be called by ReverbClient.writer)."""
-    self._writer = internal_writer
-    self._closed = False
-
-  def __enter__(self):
-    if self._closed:
-      raise ValueError('Cannot reuse already closed Writer')
-    return self
-
-  def __exit__(self, *_):
-    self.close()
-
-  def __del__(self):
-    if not self._closed:
-      logging.warning(
-          'Writer-object deleted without calling .close explicitly.')
-
-  def append_timestep(self, timestep):
-    """Appends a timestep to the internal buffer.
-
-    NOTE: Calling this method alone does not result in anything being inserted
-    into the replay. To trigger timestep insertion, `create_prioritized_item`
-    must be called so that the resulting sequence includes the timestep.
-
-    Consider the following example:
-
-    ```python
-
-        A, B, C = ...
-        client = Client(...)
-
-        with client.writer(max_sequence_length=2) as writer:
-          writer.append_timestep(A)  # A is added to the internal buffer.
-          writer.append_timestep(B)  # B is added to the internal buffer.
-
-          # The buffer is now full so when this is called C is added and A is
-          # removed from the internal buffer and since A was never referenced by
-          # a prioritized item it was never sent to the server.
-          writer.append_timestep(C)
-
-          # A sequence of length 1 is created referencing only C and thus C is
-          # sent to the server.
-          writer.create_prioritized_item('my_table', 1, 5.0)
-
-        # Writer is now closed and B was never referenced by a prioritized item
-        # and thus never sent to the server.
-
-    ```
-
-    Args:
-      timestep: The (possibly nested) structure to make available for new
-        prioritized items to reference.
-    """
-    self._writer.AppendTimestep(tree.flatten(timestep))
-
-  def create_prioritized_item(self, table: str, num_timesteps: int,
-                              priority: float):
-    """Creates a prioritized item and sends it to the ReplayService.
-
-    This method is what effectively makes data available for sampling. See the
-    docstring of `append_timestep` for an illustrative example of the behavior.
-
-    Args:
-      table: Name of the priority table to insert the item into.
-      num_timesteps: The number of most recently added timesteps that the new
-        item should reference.
-      priority: The priority used for determining the sample probability of the
-        new item.
-
-    Raises:
-      ValueError: If num_timesteps is < 1.
-      StatusNotOk: If num_timesteps is > than the timesteps currently available
-        in the buffer.
-    """
-    if num_timesteps < 1:
-      raise ValueError('num_timesteps (%d) must be a positive integer')
-    # TODO(b/154930410): Catch the StatusNotOk and raise a ValueError instead.
-    self._writer.AddPriority(table, num_timesteps, priority)
-
-  def close(self):
-    """Closes the stream to the ReplayService.
-
-    The method is automatically called when existing the contextmanager scope.
-
-    Note: Writer-object must be abandoned after this method called.
-
-    Raises:
-      ValueError: If already has been called.
-    """
-    if self._closed:
-      raise ValueError('close() has already been called on Writer.')
-    self._closed = True
-    self._writer.Close()

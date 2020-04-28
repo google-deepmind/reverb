@@ -15,7 +15,7 @@
 
 """TFClient provides tf-ops for interacting with Reverb."""
 
-from typing import Any, Sequence, Optional
+from typing import Any, Callable, List, Optional, Sequence
 
 from reverb import replay_sample
 import tensorflow.compat.v1 as tf
@@ -178,11 +178,11 @@ class ReplayDataset(tf.data.Dataset):
         num_workers_per_iterator=self._num_workers_per_iterator,
         max_samples_per_stream=self._max_samples_per_stream)
 
-  def _inputs(self):
+  def _inputs(self) -> List[Any]:
     return []
 
   @property
-  def element_spec(self):
+  def element_spec(self) -> Any:
     return tree.map_structure(tf.TensorSpec, self._shapes, self._dtypes)
 
 
@@ -192,7 +192,7 @@ class TFClient:
   def __init__(self,
                server_address: str,
                shared_name: Optional[str] = None,
-               name='reverb'):
+               name: str = 'reverb'):
     """Creates the client TensorFlow handle.
 
     Args:
@@ -353,7 +353,8 @@ class TFClient:
 
 
 # TODO(b/148080741): switch to tree.apply_to_structure when it is available.
-def _apply_to_structure(branch_fn, leaf_fn, structure):
+def _apply_to_structure(branch_fn: Callable[[Any], Any],
+                        leaf_fn: Callable[[Any], Any], structure: Any) -> Any:
   """`apply_to_structure` applies branch_fn and leaf_fn to branches and leaves.
 
   This function accepts two separate callables depending on whether the
@@ -391,14 +392,14 @@ def _apply_to_structure(branch_fn, leaf_fn, structure):
   # pylint: enable=protected-access
 
 
-def _convert_lists_to_tuples(structure: Any):
+def _convert_lists_to_tuples(structure: Any) -> Any:
   return _apply_to_structure(
       branch_fn=lambda s: tuple(s) if isinstance(s, list) else s,
       leaf_fn=lambda s: s,
       structure=structure)
 
 
-def _is_tf1_runtime():
+def _is_tf1_runtime() -> bool:
   """Returns True if the runtime is executing with TF1.0 APIs."""
   # TODO(b/145023272): Update when/if there is a better way.
   return hasattr(tf, 'to_float')
