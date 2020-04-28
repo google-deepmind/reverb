@@ -18,7 +18,9 @@
 #include "gtest/gtest.h"
 #include "reverb/cc/platform/logging.h"
 
-namespace deepmind::reverb::internal{
+namespace deepmind {
+namespace reverb {
+namespace internal {
 namespace {
 
 
@@ -33,4 +35,6 @@ TEST(Net, PickUnusedPortOrDie) {
 }
 
 }  // namespace
-}  // namespace deepmind::reverb::internal
+}  // namespace internal
+}  // namespace reverb
+}  // namespace deepmind

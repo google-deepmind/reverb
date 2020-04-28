@@ -26,7 +26,9 @@
 
 #include "reverb/cc/platform/logging.h"
 
-namespace deepmind::reverb::internal {
+namespace deepmind {
+namespace reverb {
+namespace internal {
 namespace {
 bool IsPortAvailable(int* port, bool is_tcp) {
   const int protocol = is_tcp ? IPPROTO_TCP : 0;
@@ -133,4 +135,6 @@ int PickUnusedPortOrDie() {
   return 0;
 }
 
-}  // namespace deepmind::reverb::internal
+}  // namespace internal
+}  // namespace reverb
+}  // namespace deepmind

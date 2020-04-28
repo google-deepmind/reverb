@@ -15,8 +15,12 @@
 #ifndef REVERB_CC_TESTING_NET_H_
 #define REVERB_CC_TESTING_NET_H_
 
-namespace deepmind::reverb::internal{
+namespace deepmind {
+namespace reverb {
+namespace internal {
 int PickUnusedPortOrDie();
-}  // namespace deepmind::reverb::internal
+}
+}  // namespace reverb
+}  // namespace deepmind
 
 #endif  // REVERB_CC_TESTING_NET_H_
