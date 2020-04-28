@@ -242,7 +242,6 @@ class InsertOp : public tensorflow::OpKernel {
     tensorflow::OpInputList data;
     OP_REQUIRES_OK(context, context->input_list("data", &data));
 
-    // TODO(b/154929210): This can probably be avoided.
     std::vector<tensorflow::Tensor> tensors;
     for (const auto& i : data) {
       tensors.push_back(i);
