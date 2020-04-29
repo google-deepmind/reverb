@@ -170,7 +170,6 @@ class Writer:
     """
     if num_timesteps < 1:
       raise ValueError('num_timesteps (%d) must be a positive integer')
-    # TODO(b/154930410): Catch the StatusNotOk and raise a ValueError instead.
     self._writer.AddPriority(table, num_timesteps, priority)
 
   def close(self):
