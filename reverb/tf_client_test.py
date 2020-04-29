@@ -138,14 +138,38 @@ class UpdatePrioritiesOpTest(tf.test.TestCase):
         session.run(update_op)
 
   def testUpdatePriorities(self):
+    # Start with uniform distribution
+    for i in range(4):
+      self._client.insert([np.array([i], dtype=np.uint32)], {'dist': 1})
+
+    # Until we have recieved all 4 items.
+    items = {}
+    while len(items) < 4:
+      item = next(self._client.sample('dist'))[0]
+      items[item.info.key] = item.info.probability
+      self.assertEqual(item.info.probability, 0.25)
+
+    # Update the priority of one of the items.
+    update_key = next(iter(items.keys()))
     with self.session() as session:
       client = tf_client.TFClient(self._client.server_address)
       update_op = client.update_priorities(
-          tf.constant('dist'), tf.constant([1], dtype=tf.uint64),
-          tf.constant([1], dtype=tf.float64))
-      # TODO(b/154931002): Test that update is applied once Sample method is
-      # exposed.
+          table=tf.constant('dist'),
+          keys=tf.constant([update_key], dtype=tf.uint64),
+          priorities=tf.constant([3], dtype=tf.float64))
       self.assertEqual(None, session.run(update_op))
+
+    # The updated item now has priority 3 and the other 3 items have priority 1
+    # each. The probability of sampling the new item should thus be 50%. We
+    # sample until the updated item is seen and check that the probability (and
+    # thus the priority) has been updated.
+    for _ in range(1000):
+      item = next(self._client.sample('dist'))[0]
+      if item.info.key == update_key:
+        self.assertEqual(item.info.probability, 0.5)
+        break
+    else:
+      self.fail('Updated item was not found')
 
 
 class InsertOpTest(tf.test.TestCase):
