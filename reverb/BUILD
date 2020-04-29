@@ -50,7 +50,6 @@ reverb_pytype_library(
     srcs = ["client.py"],
     srcs_version = "PY3",
     strict_deps = True,
-    visibility = ["//visibility:public"],
     deps = [
         ":errors",
         ":pybind",
@@ -65,7 +64,6 @@ reverb_pytype_library(
     srcs = ["errors.py"],
     srcs_version = "PY3",
     strict_deps = True,
-    visibility = ["//visibility:public"],
     deps = [],
 )
 
@@ -74,7 +72,6 @@ reverb_pytype_library(
     srcs = ["server.py"],
     srcs_version = "PY3",
     strict_deps = True,
-    visibility = ["//visibility:public"],
     deps = [
         ":checkpointer",
         ":client",
@@ -121,7 +118,6 @@ reverb_pytype_library(
     srcs = ["tf_client.py"],
     srcs_version = "PY3",
     strict_deps = True,
-    visibility = ["//visibility:public"],
     deps = [
         ":replay_sample",
         "//reverb/cc/ops:gen_client_ops",
@@ -134,7 +130,6 @@ reverb_pytype_library(
     srcs = ["checkpointer.py"],
     srcs_version = "PY3",
     strict_deps = True,
-    visibility = ["//visibility:public"],
     deps = [":pybind"],
 )
 
@@ -143,7 +138,6 @@ reverb_pytype_library(
     srcs = ["reverb_types.py"],
     srcs_version = "PY3",
     strict_deps = True,
-    visibility = ["//visibility:public"],
     deps = [
         ":pybind",
         "//reverb/cc:schema_py_pb2",
