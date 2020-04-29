@@ -75,7 +75,7 @@ class SampleOpTest(tf.test.TestCase):
     super().tearDownClass()
     cls._server.stop()
 
-  def testSample(self):
+  def test_sets_meta_data_fields(self):
     input_data = [np.ones((81, 81), dtype=np.float64)]
     self._client.insert(input_data, {'dist': 1})
     with self.session() as session:
@@ -86,7 +86,7 @@ class SampleOpTest(tf.test.TestCase):
       self.assertEqual(sample.info.probability, 1)
       self.assertEqual(sample.info.table_size, 1)
 
-  def testSampleDtypeMismatchFails(self):
+  def test_dtype_mismatch_result_in_error_raised(self):
     data = [np.zeros((81, 81))]
     self._client.insert(data, {'dist': 1})
     with self.session() as session:
@@ -94,13 +94,13 @@ class SampleOpTest(tf.test.TestCase):
       with self.assertRaises(tf.errors.InternalError):
         session.run(client.sample('dist', [tf.float32]))
 
-  def testSampleForwardServerError(self):
+  def test_forwards_server_error(self):
     with self.session() as session:
       client = tf_client.TFClient(self._client.server_address)
       with self.assertRaises(tf.errors.NotFoundError):
         session.run(client.sample('invalid', [tf.float64]))
 
-  def testSampleRetryUntilOkOrFatal(self):
+  def test_retries_until_success_or_fatal_error(self):
     with self.session() as session:
       client = tf_client.TFClient(self._client.server_address)
       with futures.ThreadPoolExecutor(max_workers=1) as executor:
@@ -128,7 +128,7 @@ class UpdatePrioritiesOpTest(tf.test.TestCase):
     super().tearDownClass()
     cls._server.stop()
 
-  def testUpdatePrioritiesShapeMismatchFails(self):
+  def test_shape_result_in_error_raised(self):
     with self.session() as session:
       client = tf_client.TFClient(self._client.server_address)
       update_op = client.update_priorities(
@@ -137,7 +137,7 @@ class UpdatePrioritiesOpTest(tf.test.TestCase):
       with self.assertRaises(tf.errors.InvalidArgumentError):
         session.run(update_op)
 
-  def testUpdatePriorities(self):
+  def test_priority_update_is_applied(self):
     # Start with uniform distribution
     for i in range(4):
       self._client.insert([np.array([i], dtype=np.uint32)], {'dist': 1})
@@ -194,7 +194,7 @@ class InsertOpTest(tf.test.TestCase):
     super().setUp()
     self.data = [tf.constant([1, 2, 3], dtype=tf.int8)]
 
-  def testValidatesTablesHasRank1(self):
+  def test_checks_that_table_has_rank_1(self):
     client = tf_client.TFClient(self._client.server_address)
     priorities = tf.constant([1.0], dtype=tf.float64)
 
@@ -209,13 +209,13 @@ class InsertOpTest(tf.test.TestCase):
     with self.assertRaises(ValueError):
       client.insert(self.data, tf.constant('dist'), priorities)
 
-  def testValidatesTablesDtype(self):
+  def test_checks_dtype_of_table_argument(self):
     client = tf_client.TFClient(self._client.server_address)
     with self.assertRaises(ValueError):
       client.insert(self.data, tf.constant([1]),
                     tf.constant([1.0], dtype=tf.float64))
 
-  def testValidatesPrioritiesHasRank1(self):
+  def test_checks_that_priorities_argument_has_rank_1(self):
     client = tf_client.TFClient(self._client.server_address)
     data = [tf.constant([1, 2])]
     tables = tf.constant(['dist'])
@@ -231,19 +231,19 @@ class InsertOpTest(tf.test.TestCase):
     with self.assertRaises(ValueError):
       client.insert(data, tables, tf.constant(1.0, dtype=tf.float64))
 
-  def testValidatesPrioritiesDtype(self):
+  def test_checks_that_priorities_argument_has_dtype_float64(self):
     client = tf_client.TFClient(self._client.server_address)
     with self.assertRaises(ValueError):
       client.insert(self.data, tf.constant(['dist']),
                     tf.constant([1.0], dtype=tf.float32))
 
-  def testValidatesTablesAndPrioritiesHaveSameShape(self):
+  def test_checks_that_tables_and_priorities_arguments_have_same_shape(self):
     client = tf_client.TFClient(self._client.server_address)
     with self.assertRaises(ValueError):
       client.insert(self.data, tf.constant(['dist', 'dist2']),
                     tf.constant([1.0], dtype=tf.float64))
 
-  def testInsertSingleTable(self):
+  def test_single_table_insert(self):
     with self.session() as session:
       client = tf_client.TFClient(self._client.server_address)
       insert_op = client.insert(
@@ -261,7 +261,7 @@ class InsertOpTest(tf.test.TestCase):
       np.testing.assert_equal(
           np.array([1, 2, 3], dtype=np.int8), sample.data[0])
 
-  def testInsertMultiTable(self):
+  def test_multi_table_insert(self):
     with self.session() as session:
       client = tf_client.TFClient(self._client.server_address)
       insert_op = client.insert(
@@ -303,7 +303,7 @@ class DatasetTest(tf.test.TestCase, parameterized.TestCase):
     super().tearDownClass()
     cls._server.stop()
 
-  def _PopulateReplay(self, sequence_length=100, max_time_steps=None):
+  def _populate_replay(self, sequence_length=100, max_time_steps=None):
     max_time_steps = max_time_steps or sequence_length
     with self._client.writer(max_time_steps) as writer:
       for i in range(1000):
@@ -314,7 +314,7 @@ class DatasetTest(tf.test.TestCase, parameterized.TestCase):
           writer.create_prioritized_item(
               table='signatured', num_timesteps=sequence_length, priority=1)
 
-  def _SampleFrom(self, dataset, num_samples):
+  def _sample_from(self, dataset, num_samples):
     iterator = dataset.make_initializable_iterator()
     dataset_item = iterator.get_next()
     self.evaluate(iterator.initializer)
@@ -375,7 +375,7 @@ class DatasetTest(tf.test.TestCase, parameterized.TestCase):
           'want_error': ValueError,
       },
   )
-  def testSamplerParametersValidation(self, **kwargs):
+  def test_sampler_parameter_validation(self, **kwargs):
     client = tf_client.TFClient(self._client.server_address)
     dtypes = (tf.float32,)
     shapes = (tf.TensorShape([3, 3]),)
@@ -387,13 +387,13 @@ class DatasetTest(tf.test.TestCase, parameterized.TestCase):
     else:
       client.dataset('dist', dtypes, shapes, **kwargs)
 
-  def testIterate(self):
-    self._PopulateReplay()
+  def test_iterate(self):
+    self._populate_replay()
 
     client = tf_client.TFClient(self._client.server_address)
     dataset = client.dataset(
         table='dist', dtypes=(tf.float32,), shapes=(tf.TensorShape([3, 3]),))
-    got = self._SampleFrom(dataset, 10)
+    got = self._sample_from(dataset, 10)
     for sample in got:
       self.assertIsInstance(sample, replay_sample.ReplaySample)
       # A single sample is returned so the key should be a scalar int64.
@@ -401,8 +401,8 @@ class DatasetTest(tf.test.TestCase, parameterized.TestCase):
       np.testing.assert_array_equal(sample.data[0],
                                     np.zeros((3, 3), dtype=np.float32))
 
-  def testInconsistentSignatureSize(self):
-    self._PopulateReplay()
+  def test_inconsistent_signature_size(self):
+    self._populate_replay()
 
     client = tf_client.TFClient(self._client.server_address)
     dataset = client.dataset(
@@ -413,10 +413,10 @@ class DatasetTest(tf.test.TestCase, parameterized.TestCase):
         tf.errors.InvalidArgumentError,
         r'Inconsistent number of tensors requested from table \'signatured\'.  '
         r'Requested 5 tensors, but table signature shows 4 tensors.'):
-      self._SampleFrom(dataset, 10)
+      self._sample_from(dataset, 10)
 
-  def testIncompatibleSignatureDtype(self):
-    self._PopulateReplay()
+  def test_incomatible_signature_dtype(self):
+    self._populate_replay()
 
     client = tf_client.TFClient(self._client.server_address)
     dataset = client.dataset(
@@ -428,10 +428,10 @@ class DatasetTest(tf.test.TestCase, parameterized.TestCase):
         r'Requested incompatible tensor at flattened index 3 from table '
         r'\'signatured\'.  Requested \(dtype, shape\): \(int64, \[3,3\]\).  '
         r'Signature \(dtype, shape\): \(float, \[\?,\?\]\)'):
-      self._SampleFrom(dataset, 10)
+      self._sample_from(dataset, 10)
 
-  def testIncompatibleSignatureShape(self):
-    self._PopulateReplay()
+  def test_incompatible_signature_shape(self):
+    self._populate_replay()
 
     client = tf_client.TFClient(self._client.server_address)
     dataset = client.dataset(
@@ -441,10 +441,10 @@ class DatasetTest(tf.test.TestCase, parameterized.TestCase):
         r'Requested incompatible tensor at flattened index 3 from table '
         r'\'signatured\'.  Requested \(dtype, shape\): \(float, \[3\]\).  '
         r'Signature \(dtype, shape\): \(float, \[\?,\?\]\)'):
-      self._SampleFrom(dataset, 10)
+      self._sample_from(dataset, 10)
 
   @parameterized.parameters([1], [3], [10])
-  def testIncompatibleShapeWhenUsingSequenceLength(self, sequence_length):
+  def test_incompatible_shape_when_using_sequence_length(self, sequence_length):
     client = tf_client.TFClient(self._client.server_address)
     with self.assertRaises(ValueError):
       client.dataset(
@@ -466,11 +466,11 @@ class DatasetTest(tf.test.TestCase, parameterized.TestCase):
       ('signatured', 3, 5),
       ('signatured', 10, 10),
   )
-  def testIterateWithSequenceLength(
-      self, table_name, sequence_length, max_time_steps):
+  def test_iterate_with_sequence_length(self, table_name, sequence_length,
+                                        max_time_steps):
     # Also ensure we get sequence_length-shaped outputs when
     # writers' max_time_steps != sequence_length.
-    self._PopulateReplay(sequence_length, max_time_steps=max_time_steps)
+    self._populate_replay(sequence_length, max_time_steps=max_time_steps)
 
     client = tf_client.TFClient(self._client.server_address)
     dataset = client.dataset(
@@ -480,7 +480,7 @@ class DatasetTest(tf.test.TestCase, parameterized.TestCase):
         emit_timesteps=False,
         sequence_length=sequence_length)
 
-    got = self._SampleFrom(dataset, 10)
+    got = self._sample_from(dataset, 10)
     for sample in got:
       self.assertIsInstance(sample, replay_sample.ReplaySample)
 
@@ -497,8 +497,9 @@ class DatasetTest(tf.test.TestCase, parameterized.TestCase):
       ('signatured', 3),
       ('signatured', 10),
   )
-  def testIterateWithUnknownSequenceLength(self, table_name, sequence_length):
-    self._PopulateReplay(sequence_length)
+  def test_iterate_with_unknown_sequence_length(self, table_name,
+                                                sequence_length):
+    self._populate_replay(sequence_length)
 
     client = tf_client.TFClient(self._client.server_address)
     dataset = client.dataset(
@@ -515,7 +516,7 @@ class DatasetTest(tf.test.TestCase, parameterized.TestCase):
     self.assertIsNone(dataset_item.data[0].shape.as_list()[0], None)
 
     # Verify that once evaluated, the samples has the expected length.
-    got = self._SampleFrom(dataset, 10)
+    got = self._sample_from(dataset, 10)
     for sample in got:
       self.assertIsInstance(sample, replay_sample.ReplaySample)
 
@@ -530,10 +531,9 @@ class DatasetTest(tf.test.TestCase, parameterized.TestCase):
       ('signatured', 1, 2),
       ('signatured', 2, 1),
   )
-  def testValidatesSequenceLengthWhenTimestepsEmitted(self, table_name,
-                                                      actual_sequence_length,
-                                                      provided_sequence_length):
-    self._PopulateReplay(actual_sequence_length)
+  def test_checks_sequence_length_when_timesteps_emitted(
+      self, table_name, actual_sequence_length, provided_sequence_length):
+    self._populate_replay(actual_sequence_length)
 
     client = tf_client.TFClient(self._client.server_address)
     dataset = client.dataset(
@@ -544,13 +544,13 @@ class DatasetTest(tf.test.TestCase, parameterized.TestCase):
         sequence_length=provided_sequence_length)
 
     with self.assertRaises(tf.errors.InvalidArgumentError):
-      self._SampleFrom(dataset, 10)
+      self._sample_from(dataset, 10)
 
   @parameterized.named_parameters(
       dict(testcase_name='TableDist', table_name='dist'),
       dict(testcase_name='TableSignatured', table_name='signatured'))
-  def testIterateBatched(self, table_name):
-    self._PopulateReplay()
+  def test_iterate_batched(self, table_name):
+    self._populate_replay()
 
     client = tf_client.TFClient(self._client.server_address)
     dataset = client.dataset(
@@ -559,7 +559,7 @@ class DatasetTest(tf.test.TestCase, parameterized.TestCase):
         shapes=(tf.TensorShape([3, 3]),))
     dataset = dataset.batch(2, True)
 
-    got = self._SampleFrom(dataset, 10)
+    got = self._sample_from(dataset, 10)
     for sample in got:
       self.assertIsInstance(sample, replay_sample.ReplaySample)
 
@@ -569,7 +569,7 @@ class DatasetTest(tf.test.TestCase, parameterized.TestCase):
       np.testing.assert_array_equal(sample.data[0],
                                     np.zeros((2, 3, 3), dtype=np.float32))
 
-  def testIterateNestedAndBatched(self):
+  def test_iterate_nested_and_batched(self):
     with self._client.writer(100) as writer:
       for i in range(1000):
         writer.append_timestep({
@@ -608,7 +608,7 @@ class DatasetTest(tf.test.TestCase, parameterized.TestCase):
         'reward': tf.TensorSpec([], tf.int64),
     }
 
-    got = self._SampleFrom(dataset, 10)
+    got = self._sample_from(dataset, 10)
     self.assertLen(got, 10)
     for sample in got:
       self.assertIsInstance(sample, replay_sample.ReplaySample)
@@ -623,7 +623,7 @@ class DatasetTest(tf.test.TestCase, parameterized.TestCase):
       np.testing.assert_array_equal(transition['reward'],
                                     np.zeros([3, 10, 10], dtype=np.float32))
 
-  def testMultipleIterators(self):
+  def test_multiple_iterators(self):
     with self._client.writer(100) as writer:
       for i in range(10):
         writer.append_timestep([np.ones((81, 81), dtype=np.float32) * i])
@@ -653,7 +653,7 @@ class DatasetTest(tf.test.TestCase, parameterized.TestCase):
           batch_size)
       np.testing.assert_array_equal(got, want)
 
-  def testIterateOverBlobs(self):
+  def test_iterate_over_blobs(self):
     for _ in range(10):
       self._client.insert((np.ones([3, 3], dtype=np.int32)), {'dist': 1})
 
@@ -661,7 +661,7 @@ class DatasetTest(tf.test.TestCase, parameterized.TestCase):
     dataset = client.dataset(
         table='dist', dtypes=(tf.int32,), shapes=(tf.TensorShape([3, 3]),))
 
-    got = self._SampleFrom(dataset, 20)
+    got = self._sample_from(dataset, 20)
     self.assertLen(got, 20)
     for sample in got:
       self.assertIsInstance(sample, replay_sample.ReplaySample)
@@ -670,7 +670,7 @@ class DatasetTest(tf.test.TestCase, parameterized.TestCase):
       np.testing.assert_array_equal(sample.data[0],
                                     np.ones((3, 3), dtype=np.int32))
 
-  def testIterateOverBatchedBlobs(self):
+  def test_iterate_over_batched_blobs(self):
     for _ in range(10):
       self._client.insert((np.ones([3, 3], dtype=np.int32)), {'dist': 1})
 
@@ -680,7 +680,7 @@ class DatasetTest(tf.test.TestCase, parameterized.TestCase):
 
     dataset = dataset.batch(5)
 
-    got = self._SampleFrom(dataset, 20)
+    got = self._sample_from(dataset, 20)
     self.assertLen(got, 20)
     for sample in got:
       self.assertIsInstance(sample, replay_sample.ReplaySample)
@@ -688,7 +688,7 @@ class DatasetTest(tf.test.TestCase, parameterized.TestCase):
       np.testing.assert_array_equal(sample.data[0],
                                     np.ones((5, 3, 3), dtype=np.int32))
 
-  def testConvertsSpecListsIntoTuples(self):
+  def test_converts_spec_lists_into_tuples(self):
     for _ in range(10):
       data = [
           (np.ones([1, 1], dtype=np.int32),),
@@ -717,7 +717,7 @@ class DatasetTest(tf.test.TestCase, parameterized.TestCase):
             ],
         ])
 
-    got = self._SampleFrom(dataset, 10)
+    got = self._sample_from(dataset, 10)
 
     for sample in got:
       self.assertIsInstance(sample, replay_sample.ReplaySample)
@@ -730,7 +730,7 @@ class DatasetTest(tf.test.TestCase, parameterized.TestCase):
           ),
       ))
 
-  def testSessionIsClosedWhileOpPending(self):
+  def test_session_is_closed_while_op_pending(self):
     client = tf_client.TFClient(self._client.server_address)
     dataset = client.dataset(
         table='dist', dtypes=tf.float32, shapes=tf.TensorShape([]))
