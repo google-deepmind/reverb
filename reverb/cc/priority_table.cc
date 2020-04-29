@@ -127,7 +127,6 @@ tensorflow::Status PriorityTable::InsertOrAssign(Item item) {
   EncodeAsTimestampProto(absl::Now(), item.item.mutable_inserted_at());
   data_[key] = std::move(item);
 
-  // TODO(b/154929932): If these fail, the rate limiter becomes out of sync.
   TF_RETURN_IF_ERROR(sampler_->Insert(key, priority));
   TF_RETURN_IF_ERROR(remover_->Insert(key, priority));
 
