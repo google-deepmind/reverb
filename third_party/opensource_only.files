@@ -1,7 +1,7 @@
-reverb/cc/opensource/BUILD
-reverb/cc/opensource/protobuf.BUILD
-reverb/cc/opensource/pybind11.BUILD
-reverb/cc/opensource/toolchains/preconfig/ubuntu16.04/gcc7_manylinux2010/BUILD
-reverb/cc/opensource/toolchains/preconfig/ubuntu16.04/gcc7_manylinux2010/cc_toolchain_config.bzl
-reverb/cc/opensource/toolchains/preconfig/ubuntu16.04/gcc7_manylinux2010/dummy_toolchain.bzl
 reverb/cc/platform/default/BUILD
+third_party/BUILD
+third_party/protobuf.BUILD
+third_party/pybind11.BUILD
+third_party/toolchains/preconfig/ubuntu16.04/gcc7_manylinux2010/BUILD
+third_party/toolchains/preconfig/ubuntu16.04/gcc7_manylinux2010/cc_toolchain_config.bzl
+third_party/toolchains/preconfig/ubuntu16.04/gcc7_manylinux2010/dummy_toolchain.bzl
