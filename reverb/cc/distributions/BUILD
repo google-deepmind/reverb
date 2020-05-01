@@ -6,7 +6,7 @@ load(
     "reverb_tf_deps",
 )
 
-package(default_visibility = ["//reverb:__subpackages__"])
+package(default_visibility = ["//visibility:public"])
 
 licenses(["notice"])
 

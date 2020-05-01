@@ -4,7 +4,7 @@ load(
     "reverb_cc_library",
 )
 
-package(default_visibility = ["//reverb:__subpackages__"])
+package(default_visibility = ["//visibility:public"])
 
 licenses(["notice"])
 
