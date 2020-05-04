@@ -5,3 +5,4 @@ reverb/third_party/toolchains/preconfig/ubuntu16.04/gcc7_manylinux2010/BUILD.oss
 reverb/third_party/toolchains/preconfig/ubuntu16.04/gcc7_manylinux2010/cc_toolchain_config.bzl.oss
 reverb/third_party/toolchains/preconfig/ubuntu16.04/gcc7_manylinux2010/dummy_toolchain.bzl.oss
 reverb/platform/default/BUILD.oss
+reverb/pip_package/BUILD.oss
