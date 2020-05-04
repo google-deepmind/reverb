@@ -15,7 +15,7 @@
 
 """TFClient provides tf-ops for interacting with Reverb."""
 
-from typing import Any, Callable, List, Optional, Sequence
+from typing import Any, List, Optional, Sequence
 
 from reverb import replay_sample
 import tensorflow.compat.v1 as tf
@@ -352,51 +352,10 @@ class TFClient:
         emit_timesteps=emit_timesteps)
 
 
-# TODO(b/148080741): switch to tree.apply_to_structure when it is available.
-def _apply_to_structure(branch_fn: Callable[[Any], Any],
-                        leaf_fn: Callable[[Any], Any], structure: Any) -> Any:
-  """`apply_to_structure` applies branch_fn and leaf_fn to branches and leaves.
-
-  This function accepts two separate callables depending on whether the
-  structure is a sequence.
-
-  Args:
-    branch_fn: A function to call on a struct if is_nested(struct) is `True`.
-    leaf_fn: A function to call on a struct if is_nested(struct) is `False`.
-    structure: A nested structure containing arguments to be applied to.
-
-  Returns:
-    A nested structure of function outputs.
-
-  Raises:
-    TypeError: If `branch_fn` or `leaf_fn` is not callable.
-    ValueError: If no structure is provided.
-  """
-  if not callable(leaf_fn):
-    raise TypeError('leaf_fn must be callable, got: %s' % leaf_fn)
-
-  if not callable(branch_fn):
-    raise TypeError('branch_fn must be callable, got: %s' % branch_fn)
-
-  if not tree.is_nested(structure):
-    return leaf_fn(structure)
-
-  processed = branch_fn(structure)
-
-  # pylint: disable=protected-access
-  new_structure = [
-      _apply_to_structure(branch_fn, leaf_fn, value)
-      for value in tree._yield_value(processed)
-  ]
-  return tree._sequence_like(processed, new_structure)
-  # pylint: enable=protected-access
-
-
 def _convert_lists_to_tuples(structure: Any) -> Any:
-  return _apply_to_structure(
-      branch_fn=lambda s: tuple(s) if isinstance(s, list) else s,
-      leaf_fn=lambda s: s,
-      structure=structure)
+  list_to_tuple_fn = lambda s: tuple(s) if isinstance(s, list) else s
+  # Traverse depth-first, bottom-up
+  return tree.traverse(list_to_tuple_fn, structure, top_down=False)
 
 
 def _is_tf1_runtime() -> bool:

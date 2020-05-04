@@ -53,7 +53,7 @@ RUN curl -O https://bootstrap.pypa.io/get-pip.py && python3 get-pip.py && rm get
 ARG pip_dependencies=' \
       absl-py \
       contextlib2 \
-      dm-tree \
+      dm-tree>=0.1.5 \
       google-api-python-client \
       h5py \
       numpy \
