@@ -1,5 +1,5 @@
+BUILD
 reverb/cc/platform/default/BUILD
-reverb/pip_package/BUILD
 reverb/pip_package/MANIFEST.in
 reverb/pip_package/setup.py
 third_party/BUILD

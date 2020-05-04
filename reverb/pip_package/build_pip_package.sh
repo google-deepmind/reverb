@@ -44,7 +44,7 @@ function prepare_src() {
 
   RUNFILES=bazel-bin/reverb/pip_package/build_pip_package.runfiles/reverb
 
-  # TODO(b/155307832): Copy LICENSE file(s).
+  cp ${RUNFILES}/LICENSE ${TMPDIR}
   cp -L -R ${RUNFILES}/reverb ${TMPDIR}/reverb
 
   cp ${TMPDIR}/reverb/pip_package/setup.py ${TMPDIR}
