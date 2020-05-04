@@ -14,7 +14,7 @@
 # limitations under the License.
 # ==============================================================================
 
-set -e
+set -ex
 
 function build_wheel() {
   TMPDIR="$1"

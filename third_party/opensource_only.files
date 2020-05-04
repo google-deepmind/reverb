@@ -1,7 +1,6 @@
 reverb/cc/platform/default/BUILD
 reverb/pip_package/BUILD
 reverb/pip_package/MANIFEST.in
-reverb/pip_package/build_pip_package.sh
 reverb/pip_package/setup.py
 third_party/BUILD
 third_party/protobuf.BUILD
