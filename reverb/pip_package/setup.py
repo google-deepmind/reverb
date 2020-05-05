@@ -19,6 +19,7 @@ import os
 from setuptools import find_packages
 from setuptools import setup
 from setuptools.dist import Distribution
+from setuptools.command.install import install as InstallCommandBase
 
 
 class BinaryDistribution(Distribution):
@@ -32,6 +33,17 @@ def find_files(pattern, root):
   for dirpath, _, files in os.walk(root):
     for filename in fnmatch.filter(files, pattern):
       yield os.path.join(dirpath, filename)
+
+
+class InstallCommand(InstallCommandBase):
+  """Override the dir where the headers go."""
+
+  def finalize_options(self):
+    ret = super().finalize_options()
+    # We need to set this manually because we are not using setuptools to
+    # compile the shared libraries we are distributing.
+    self.install_lib = self.install_platlib
+    return ret
 
 
 setup(
@@ -52,6 +64,9 @@ setup(
     include_package_data=True,
     install_requires=['dm-tree', 'portpicker'],
     distclass=BinaryDistribution,
+    cmdclass={
+        'install': InstallCommand,
+    },
     python_requires='>=3',
     classifiers=[
         'Development Status :: 1 - Planning',
