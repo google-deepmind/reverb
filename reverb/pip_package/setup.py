@@ -55,7 +55,6 @@ setup(
     long_description='',
     long_description_content_type='text/markdown',
     author='DeepMind',
-    # TODO(b/155372902): Use a real email address?
     author_email='DeepMind <no-reply@google.com>',
     url='',
     license='Apache 2.0',
