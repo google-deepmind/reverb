@@ -84,7 +84,7 @@ class ReplayDataset(tf.data.Dataset):
         that each sample consists of. If set then the length of samples received
         from the server will be validated against this number.
       emit_timesteps: (Defaults to True) If set, timesteps instead of full
-        sequences are retturned from the dataset. Returning sequences instead
+        sequences are returned from the dataset. Returning sequences instead
         of timesteps can be more efficient as the memcopies caused by the
         splitting and batching of tensor can be avoided. Note that if set to
         False then then all `shapes` must have dim[0] equal to
