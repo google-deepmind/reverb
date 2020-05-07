@@ -309,8 +309,10 @@ class TFClient:
 
     Args:
       table: Probability table to sample from.
-      dtypes: Dtypes of a single timestep in the sampled items. Can be nested.
-      shapes: Shapes of a single timestep in the sampled items. Can be nested.
+      dtypes: Dtypes of the data output. Can be nested.
+      shapes: Shapes of the data output. Can be nested. When `emit_timesteps`
+        is True this is the shape of a single timestep in the sampled items;
+        when it is False shapes must include `sequence_length`.
       capacity: (Defaults to 100) Maximum number of samples requested by the
         workers with each request. Higher values give higher throughput but too
         big values can result in skewed sampling distributions as large number
