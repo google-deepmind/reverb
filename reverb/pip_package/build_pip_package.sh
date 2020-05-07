@@ -14,11 +14,11 @@
 # limitations under the License.
 # ==============================================================================
 
-set -ex
+set -e
 
 function build_wheel() {
   TMPDIR="$1"
-  # DEST="$2"
+  PKG_NAME_FLAG="$2"
 
   # Before we leave the top-level directory, make sure we know how to
   # call python.
@@ -30,7 +30,7 @@ function build_wheel() {
   pushd ${TMPDIR} > /dev/null
 
   echo $(date) : "=== Building wheel"
-  "${PYTHON_BIN_PATH:-python}" setup.py bdist_wheel > /dev/null
+  "${PYTHON_BIN_PATH:-python}" setup.py bdist_wheel ${PKG_NAME_FLAG} > /dev/null
   DEST=${TMPDIR}/dist/
   popd > /dev/null
   echo $(date) : "=== Output wheel file is in: ${DEST}"
@@ -41,6 +41,11 @@ function prepare_src() {
   mkdir -p "$TMPDIR"
 
   echo $(date) : "=== Preparing sources in dir: ${TMPDIR}"
+
+  if [ ! -d bazel-bin/reverb ]; then
+    echo "Could not find bazel-bin.  Did you run from the root of the build tree?"
+    exit 1
+  fi
 
   RUNFILES=bazel-bin/reverb/pip_package/build_pip_package.runfiles/reverb
 
@@ -57,16 +62,47 @@ function prepare_src() {
     -exec mv {} "${TMPDIR}/reverb" \;
 }
 
+function usage() {
+  echo "Usage:"
+  echo "$0 [options]"
+  echo "  Options:"
+  echo "    --project_name <name> set project name to name"
+  echo "    --stable_build        build dm-reverb stable"
+  echo ""
+  exit 1
+}
+
 function main() {
+  PKG_NAME_FLAG=""
+  # TODO(b/155864463): Set NIGHTLY_BUILD=0 and change flags below.
+  NIGHTLY_BUILD=1
+  while true; do
+    if [[ "$1" == "--help" ]]; then
+      usage
+      exit 1
+    elif [[ "$1" == "--stable_build" ]]; then
+      NIGHTLY_BUILD=0
+    fi
+    shift
+
+    if [[ -z "$1" ]]; then
+      break
+    fi
+  done
+
+  # This is where the source code is copied and where the whl will be built.
   TMPDIR="$(mktemp -d -t tmp.XXXXXXXXXX)"
 
-  if [ ! -d bazel-bin/reverb ]; then
-    echo "Could not find bazel-bin.  Did you run from the root of the build tree?"
-    exit 1
+  prepare_src "$TMPDIR"
+
+  if [[ ${NIGHTLY_BUILD} == "1" ]]; then
+    PKG_NAME_FLAG="--project_name dm-reverb-nightly"
+  else
+    PKG_NAME_FLAG="--project_name dm-reverb"
   fi
 
-  prepare_src "$TMPDIR"
-  build_wheel "$TMPDIR"
+
+  build_wheel "$TMPDIR" "$PKG_NAME_FLAG"
 }
 
 main "$@"

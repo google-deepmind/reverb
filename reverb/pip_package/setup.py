@@ -20,6 +20,16 @@ from setuptools import find_packages
 from setuptools import setup
 from setuptools.dist import Distribution
 from setuptools.command.install import install as InstallCommandBase
+import sys
+
+
+if '--project_name' in sys.argv:
+  project_name_idx = sys.argv.index('--project_name')
+  project_name = sys.argv[project_name_idx + 1]
+  sys.argv.remove('--project_name')
+  sys.argv.pop(project_name_idx)
+else:
+  raise ValueError('Please pass a project name with the --project_name flag.')
 
 
 class BinaryDistribution(Distribution):
@@ -47,8 +57,8 @@ class InstallCommand(InstallCommandBase):
 
 
 setup(
-    # TODO(b/155302058): Don't hardcode the name.
-    name='dm-reverb-nightly',
+    name=project_name,
+    # TODO(b/155888926): Improve how we determine version(s).
     version='0.0.1',
     # TODO(b/155373710): Fill in descriptions.
     description='Reverb: TBD',
