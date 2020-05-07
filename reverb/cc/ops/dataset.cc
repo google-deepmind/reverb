@@ -314,6 +314,10 @@ class ReverbDatasetOp : public tensorflow::data::DatasetOpKernel {
           return Cancelled("Iterator context was cancelled");
         }
 
+        if (status.ok()) {
+          *end_of_sequence = false;
+        }
+
         return status;
       }
 
