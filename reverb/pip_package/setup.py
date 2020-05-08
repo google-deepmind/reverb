@@ -60,8 +60,8 @@ setup(
     name=project_name,
     # TODO(b/155888926): Improve how we determine version(s).
     version='0.0.1',
-    # TODO(b/155373710): Fill in descriptions.
-    description='Reverb: TBD',
+    description=('Reverb is an efficient and easy-to-use data storage and '
+                 'transport system designed for machine learning research.'),
     long_description='',
     long_description_content_type='text/markdown',
     author='DeepMind',
