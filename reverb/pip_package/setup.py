@@ -66,7 +66,7 @@ setup(
     long_description_content_type='text/markdown',
     author='DeepMind',
     author_email='DeepMind <no-reply@google.com>',
-    url='',
+    url='https://github.com/deepmind/reverb',
     license='Apache 2.0',
     packages=find_packages(),
     headers=list(find_files('*.proto', 'reverb')),
