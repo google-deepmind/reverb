@@ -7,13 +7,19 @@ filegroup(
     ],
 )
 
+py_library(
+    name = "reverb_version",
+    srcs = ["reverb_version.py"],
+)
+
 sh_binary(
     name = "build_pip_package",
     srcs = ["build_pip_package.sh"],
     data = [
         "MANIFEST.in",
-        "licenses",
         "setup.py",
+        ":licenses",
+        ":reverb_version",
         "//reverb",
     ],
 )

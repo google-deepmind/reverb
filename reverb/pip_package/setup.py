@@ -16,20 +16,32 @@
 """Installs dm-reverb."""
 import fnmatch
 import os
+import datetime
 from setuptools import find_packages
 from setuptools import setup
 from setuptools.dist import Distribution
 from setuptools.command.install import install as InstallCommandBase
 import sys
 
+import reverb_version
 
-if '--project_name' in sys.argv:
-  project_name_idx = sys.argv.index('--project_name')
-  project_name = sys.argv[project_name_idx + 1]
-  sys.argv.remove('--project_name')
-  sys.argv.pop(project_name_idx)
+
+if '--release' in sys.argv:
+  release = True
+  sys.argv.remove('--release')
+  version = reverb_version.__rel_version__
 else:
-  raise ValueError('Please pass a project name with the --project_name flag.')
+  # Build a nightly package by default.
+  release = False
+  version = reverb_version.__dev_version__
+  version += datetime.datetime.now().strftime('%Y%m%d')
+
+if release:
+  project_name = 'dm-reverb'
+else:
+  # Nightly releases use date-based versioning of the form
+  # '0.0.1.dev20180305'
+  project_name = 'dm-reverb-nightly'
 
 
 class BinaryDistribution(Distribution):
@@ -59,7 +71,7 @@ class InstallCommand(InstallCommandBase):
 setup(
     name=project_name,
     # TODO(b/155888926): Improve how we determine version(s).
-    version='0.0.1',
+    version=version,
     description=('Reverb is an efficient and easy-to-use data storage and '
                  'transport system designed for machine learning research.'),
     long_description='',
