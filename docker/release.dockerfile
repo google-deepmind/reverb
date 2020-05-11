@@ -22,8 +22,8 @@ ARG cpu_base_image="tensorflow/tensorflow:2.1.0-custom-op-ubuntu16"
 ARG base_image=$cpu_base_image
 
 # Pick up some TF dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends software-properties-common
 RUN apt-get update && apt-get install -y --no-install-recommends \
+        software-properties-common \
         aria2 \
         build-essential \
         curl \
@@ -39,6 +39,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         python3.6-dev \
         python3.7-dev \
         python3.8-dev \
+        # Needed due to python3.8 apt packaging issue.
         python3.8-distutils \
         rename \
         rsync \
