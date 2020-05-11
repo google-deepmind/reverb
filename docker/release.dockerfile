@@ -39,6 +39,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         python3.6-dev \
         python3.7-dev \
         python3.8-dev \
+        python3.8-distutils \
         rename \
         rsync \
         sox \
@@ -48,7 +49,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-RUN curl -O https://bootstrap.pypa.io/get-pip.py && python3 get-pip.py && rm get-pip.py
+RUN curl -O https://bootstrap.pypa.io/get-pip.py
 
 ARG pip_dependencies=' \
       absl-py \
@@ -64,10 +65,18 @@ ARG pip_dependencies=' \
 # TODO(b/154930404): Update to 2.2.0 once it's out.  May need to
 # cut a branch to make changes that allow us to build against 2.2.0 instead
 # of tf-nightly due to API changes.
-RUN pip3 uninstall -y tensorflow tensorflow-gpu tf-nightly tf-nightly-gpu
-RUN pip3 --no-cache-dir install tf-nightly --upgrade
+RUN for python in python3.6 python3.7 python3.8; do \
+    $python get-pip.py && \
+    $python -mpip uninstall -y tensorflow tensorflow-gpu tf-nightly tf-nightly-gpu && \
+    $python -mpip --no-cache-dir install tf-nightly --upgrade && \
+    $python -mpip --no-cache-dir install $pip_dependencies; \
+  done
+RUN rm get-pip.py
 
-RUN pip3 --no-cache-dir install $pip_dependencies
+# Needed until this is included in the base TF image.
+RUN ln -s "/usr/include/x86_64-linux-gnu/python3.8" "/dt7/usr/include/x86_64-linux-gnu/python3.8"
+RUN ln -s "/usr/include/x86_64-linux-gnu/python3.8" "/dt8/usr/include/x86_64-linux-gnu/ppython3.8"
+
 
 WORKDIR "/tmp/reverb"
 

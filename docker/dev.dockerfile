@@ -36,8 +36,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         lsof \
         pkg-config \
         python3-distutils \
-        python3-dev \
         python3.6-dev \
+        python3.7-dev \
+        python3.8-dev \
         rename \
         rsync \
         sox \
@@ -47,7 +48,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-RUN curl -O https://bootstrap.pypa.io/get-pip.py && python3 get-pip.py && rm get-pip.py
+RUN curl -O https://bootstrap.pypa.io/get-pip.py
 
 ARG bazel_version=2.2.0
 # This is to install bazel, for development purposes.
@@ -79,15 +80,21 @@ ARG pip_dependencies=' \
       pandas \
       portpicker'
 
-RUN pip3 --no-cache-dir install $pip_dependencies
 
-# The latest tensorflow requires CUDA 10 compatible nvidia drivers (410.xx).
-# If you are unable to update your drivers, an alternative is to compile
-# tensorflow from source instead of installing from pip.
-# Ensure we install the correct version by uninstalling first.
-RUN pip3 uninstall -y tensorflow tensorflow-gpu tf-nightly tf-nightly-gpu
+# So dependencies are installed for the supported Python versions
+RUN for python in python3.6 python3.7 python3.8; do \
+    $python get-pip.py && \
+    $python -mpip --no-cache-dir install $pip_dependencies && \
+    $python -mpip install --upgrade pip setuptools auditwheel && \
+    # The latest tensorflow requires CUDA 10 compatible nvidia drivers (410.xx).
+    # If you are unable to update your drivers, an alternative is to compile
+    # tensorflow from source instead of installing from pip.
+    # Ensure we install the correct version by uninstalling first.
+    $python -mpip uninstall -y tensorflow tensorflow-gpu tf-nightly tf-nightly-gpu && \
+    $python -mpip --no-cache-dir install tf-nightly --upgrade; \
+  done
 
-RUN pip3 --no-cache-dir install tf-nightly --upgrade
+RUN rm get-pip.py
 
 # bazel assumes the python executable is "python".
 RUN ln -s /usr/bin/python3 /usr/bin/python

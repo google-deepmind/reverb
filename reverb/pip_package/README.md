@@ -6,7 +6,8 @@
   $ export REVERB_DIR=/path/to/reverb
   ```
 
-1. Build the docker container.
+1. Build the docker container (release.dockerfile for manylinux2010 or
+  dev.dockerfile with Ubuntu18.04 and python3.8 support).
 
   ```shell
   $ docker build --tag tensorflow:reverb - < "$REVERB_DIR/docker/release.dockerfile"
@@ -22,10 +23,46 @@
     bash
   ```
 
-1. Compile Reverb.
+1. (Optional) Define the Python version to use (by default, python3.6 will be
+    used).
 
   ```shell
-  $ bazel build -c opt --config=manylinux2010 //reverb/pip_package:build_pip_package
+  $ export PYTHON_BIN_PATH=python3.{X}
+  ```
+
+  Where {X} is 6, 7 or 8.
+
+1. Compile Reverb.
+    * Option a: if using the release.dockerfile and overwriting the python version:
+
+  ```shell
+  $ bazel build -c opt --config=manylinux2010 \
+    --action_env=PYTHON_BIN_PATH=$PYTHON_BIN_PATH \
+    --repo_env=PYTHON_BIN_PATH=$PYTHON_BIN_PATH \
+    --python_path=$PYTHON_BIN_PATH \
+    //reverb/pip_package:build_pip_package
+  ```
+  * Option b: if using the release.dockerfile with the default python:
+
+  ```shell
+  $ bazel build -c opt --config=manylinux2010 \
+    //reverb/pip_package:build_pip_package
+  ```
+
+ * Option c: if using the dev.dockerfile and overwriting the python version:
+
+  ```shell
+  $ bazel build -c opt \
+    --action_env=PYTHON_BIN_PATH=$PYTHON_BIN_PATH \
+    --repo_env=PYTHON_BIN_PATH=$PYTHON_BIN_PATH \
+    --python_path=$PYTHON_BIN_PATH \
+    //reverb/pip_package:build_pip_package
+  ```
+  * Option d: if using the dev.dockerfile with the default python:
+
+  ```shell
+  $ bazel build -c opt \
+    //reverb/pip_package:build_pip_package
   ```
 
 1. Build the .whl file. This will create a temporary directory, copy source files from bazel-bin and use Python's distutils to create a whl file.
