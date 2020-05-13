@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "reverb/cc/replay_writer.h"
+#include "reverb/cc/writer.h"
 
 #include <algorithm>
 #include <string>
@@ -22,9 +22,9 @@
 #include "grpcpp/impl/codegen/sync_stream.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
-#include "reverb/cc/replay_client.h"
-#include "reverb/cc/replay_service.grpc.pb.h"
-#include "reverb/cc/replay_service_mock.grpc.pb.h"
+#include "reverb/cc/client.h"
+#include "reverb/cc/reverb_service.grpc.pb.h"
+#include "reverb/cc/reverb_service_mock.grpc.pb.h"
 #include "reverb/cc/support/grpc_util.h"
 #include "reverb/cc/support/uint128.h"
 #include "reverb/cc/testing/proto_test_util.h"
@@ -34,7 +34,6 @@
 #include "tensorflow/core/protobuf/struct.pb.h"
 
 namespace deepmind {
-
 namespace reverb {
 namespace {
 
@@ -100,7 +99,7 @@ class FakeWriter : public grpc::ClientWriterInterface<InsertStreamRequest> {
   grpc::Status bad_status_;
 };
 
-class FakeStub : public /* grpc_gen:: */MockReplayServiceStub {
+class FakeStub : public /* grpc_gen:: */MockReverbServiceStub {
  public:
   explicit FakeStub(std::list<FakeWriter*> writers,
                     const tensorflow::StructuredValue* signature = nullptr)
@@ -115,8 +114,8 @@ class FakeStub : public /* grpc_gen:: */MockReplayServiceStub {
   }
   ~FakeStub() override {
     // Since writers where allocated with New we manually free the memory if
-    // the writer hasn't already been passed to the ReplayWriter where it is
-    // handled as a unique ptr and thus is destroyed with ~ReplayWriter.
+    // the writer hasn't already been passed to the Writer where it is
+    // handled as a unique ptr and thus is destroyed with ~Writer.
     while (!writers_.empty()) {
       auto writer = writers_.front();
       delete writer;
@@ -164,28 +163,28 @@ std::shared_ptr<FakeStub> MakeFlakyStub(
   return std::make_shared<FakeStub>(std::move(writers));
 }
 
-TEST(ReplayWriterTest, DoesNotSendTimestepsWhenThereAreNoItems) {
+TEST(WriterTest, DoesNotSendTimestepsWhenThereAreNoItems) {
   std::vector<InsertStreamRequest> requests;
   auto stub = MakeGoodStub(&requests);
-  ReplayWriter client(stub, 2, 10);
-  TF_ASSERT_OK(client.AppendTimestep(MakeTimestep()));
-  TF_ASSERT_OK(client.AppendTimestep(MakeTimestep()));
+  Writer writer(stub, 2, 10);
+  TF_ASSERT_OK(writer.AppendTimestep(MakeTimestep()));
+  TF_ASSERT_OK(writer.AppendTimestep(MakeTimestep()));
   EXPECT_THAT(requests, SizeIs(0));
 }
 
-TEST(ReplayWriterTest, OnlySendsChunksWhichAreUsedByItems) {
+TEST(WriterTest, OnlySendsChunksWhichAreUsedByItems) {
   std::vector<InsertStreamRequest> requests;
   auto stub = MakeGoodStub(&requests);
-  ReplayWriter client(stub, 2, 10);
-  TF_ASSERT_OK(client.AppendTimestep(MakeTimestep()));
-  TF_ASSERT_OK(client.AppendTimestep(MakeTimestep()));
-  TF_ASSERT_OK(client.AppendTimestep(MakeTimestep()));
-  TF_ASSERT_OK(client.AppendTimestep(MakeTimestep()));
-  TF_ASSERT_OK(client.AppendTimestep(MakeTimestep()));
-  TF_ASSERT_OK(client.AppendTimestep(MakeTimestep()));
+  Writer writer(stub, 2, 10);
+  TF_ASSERT_OK(writer.AppendTimestep(MakeTimestep()));
+  TF_ASSERT_OK(writer.AppendTimestep(MakeTimestep()));
+  TF_ASSERT_OK(writer.AppendTimestep(MakeTimestep()));
+  TF_ASSERT_OK(writer.AppendTimestep(MakeTimestep()));
+  TF_ASSERT_OK(writer.AppendTimestep(MakeTimestep()));
+  TF_ASSERT_OK(writer.AppendTimestep(MakeTimestep()));
   EXPECT_THAT(requests, SizeIs(0));
 
-  TF_ASSERT_OK(client.AddPriority("dist", 3, 1.0));
+  TF_ASSERT_OK(writer.AddPriority("dist", 3, 1.0));
   ASSERT_THAT(requests, SizeIs(3));
   EXPECT_THAT(requests[0], IsChunk());
   EXPECT_THAT(requests[1], IsChunk());
@@ -196,14 +195,14 @@ TEST(ReplayWriterTest, OnlySendsChunksWhichAreUsedByItems) {
                           requests[1].chunk().chunk_key()));
 }
 
-TEST(ReplayWriterTest, DoesNotSendAlreadySentChunks) {
+TEST(WriterTest, DoesNotSendAlreadySentChunks) {
   std::vector<InsertStreamRequest> requests;
   auto stub = MakeGoodStub(&requests);
-  ReplayWriter client(stub, 2, 10);
+  Writer writer(stub, 2, 10);
 
-  TF_ASSERT_OK(client.AppendTimestep(MakeTimestep()));
-  TF_ASSERT_OK(client.AppendTimestep(MakeTimestep()));
-  TF_ASSERT_OK(client.AddPriority("dist", 1, 1.5));
+  TF_ASSERT_OK(writer.AppendTimestep(MakeTimestep()));
+  TF_ASSERT_OK(writer.AppendTimestep(MakeTimestep()));
+  TF_ASSERT_OK(writer.AddPriority("dist", 1, 1.5));
 
   ASSERT_THAT(requests, SizeIs(2));
 
@@ -216,9 +215,9 @@ TEST(ReplayWriterTest, DoesNotSendAlreadySentChunks) {
               ElementsAre(first_chunk_key));
 
   requests.clear();
-  TF_ASSERT_OK(client.AppendTimestep(MakeTimestep()));
-  TF_ASSERT_OK(client.AppendTimestep(MakeTimestep()));
-  TF_ASSERT_OK(client.AddPriority("dist", 3, 1.3));
+  TF_ASSERT_OK(writer.AppendTimestep(MakeTimestep()));
+  TF_ASSERT_OK(writer.AppendTimestep(MakeTimestep()));
+  TF_ASSERT_OK(writer.AddPriority("dist", 3, 1.3));
 
   ASSERT_THAT(requests, SizeIs(2));
   EXPECT_THAT(requests[0], IsChunk());
@@ -230,18 +229,18 @@ TEST(ReplayWriterTest, DoesNotSendAlreadySentChunks) {
               ElementsAre(first_chunk_key, second_chunk_key));
 }
 
-TEST(ReplayWriterTest, SendsPendingDataOnClose) {
+TEST(WriterTest, SendsPendingDataOnClose) {
   std::vector<InsertStreamRequest> requests;
   auto stub = MakeGoodStub(&requests);
-  ReplayWriter client(stub, 2, 10);
+  Writer writer(stub, 2, 10);
 
-  TF_ASSERT_OK(client.AppendTimestep(MakeTimestep()));
-  TF_ASSERT_OK(client.AppendTimestep(MakeTimestep()));
-  TF_ASSERT_OK(client.AppendTimestep(MakeTimestep()));
-  TF_ASSERT_OK(client.AddPriority("dist", 1, 1.0));
+  TF_ASSERT_OK(writer.AppendTimestep(MakeTimestep()));
+  TF_ASSERT_OK(writer.AppendTimestep(MakeTimestep()));
+  TF_ASSERT_OK(writer.AppendTimestep(MakeTimestep()));
+  TF_ASSERT_OK(writer.AddPriority("dist", 1, 1.0));
   EXPECT_THAT(requests, SizeIs(0));
 
-  TF_ASSERT_OK(client.Close());
+  TF_ASSERT_OK(writer.Close());
   ASSERT_THAT(requests, SizeIs(2));
   EXPECT_THAT(requests[0], IsChunk());
   EXPECT_THAT(requests[1],
@@ -250,19 +249,19 @@ TEST(ReplayWriterTest, SendsPendingDataOnClose) {
               ElementsAre(requests[0].chunk().chunk_key()));
 }
 
-TEST(ReplayWriterTest, FailsIfMethodsCalledAfterClose) {
+TEST(WriterTest, FailsIfMethodsCalledAfterClose) {
   std::vector<InsertStreamRequest> requests;
   auto stub = MakeGoodStub(&requests);
-  ReplayWriter client(stub, 2, 10);
+  Writer writer(stub, 2, 10);
 
-  TF_ASSERT_OK(client.Close());
+  TF_ASSERT_OK(writer.Close());
 
-  EXPECT_FALSE(client.Close().ok());
-  EXPECT_FALSE(client.AppendTimestep(MakeTimestep()).ok());
-  EXPECT_FALSE(client.AddPriority("dist", 1, 1.0).ok());
+  EXPECT_FALSE(writer.Close().ok());
+  EXPECT_FALSE(writer.AppendTimestep(MakeTimestep()).ok());
+  EXPECT_FALSE(writer.AddPriority("dist", 1, 1.0).ok());
 }
 
-TEST(ReplayWriterTest, RetriesOnTransientError) {
+TEST(WriterTest, RetriesOnTransientError) {
   std::vector<tensorflow::Status> transient_errors(
       {DeadlineExceeded(""), Unavailable("")});
 
@@ -270,11 +269,11 @@ TEST(ReplayWriterTest, RetriesOnTransientError) {
     std::vector<InsertStreamRequest> requests;
     // 1 fail, then all success.
     auto stub = MakeFlakyStub(&requests, 0, 1, ToGrpcStatus(error));
-    ReplayWriter client(stub, 2, 10);
+    Writer writer(stub, 2, 10);
 
-    TF_ASSERT_OK(client.AppendTimestep(MakeTimestep()));
-    TF_ASSERT_OK(client.AppendTimestep(MakeTimestep()));
-    TF_ASSERT_OK(client.AddPriority("dist", 1, 1.0));
+    TF_ASSERT_OK(writer.AppendTimestep(MakeTimestep()));
+    TF_ASSERT_OK(writer.AppendTimestep(MakeTimestep()));
+    TF_ASSERT_OK(writer.AddPriority("dist", 1, 1.0));
 
     ASSERT_THAT(requests, SizeIs(3));
     EXPECT_THAT(requests[0], IsChunk());
@@ -287,44 +286,44 @@ TEST(ReplayWriterTest, RetriesOnTransientError) {
   }
 }
 
-TEST(ReplayWriterTest, DoesNotRetryOnNonTransientError) {
+TEST(WriterTest, DoesNotRetryOnNonTransientError) {
   std::vector<InsertStreamRequest> requests;
   auto stub = MakeFlakyStub(&requests, 0, 1, ToGrpcStatus(Internal("")));
-  ReplayWriter client(stub, 2, 10);
+  Writer writer(stub, 2, 10);
 
-  TF_ASSERT_OK(client.AppendTimestep(MakeTimestep()));
-  TF_ASSERT_OK(client.AppendTimestep(MakeTimestep()));
-  EXPECT_FALSE(client.AddPriority("dist", 1, 1.0).ok());
+  TF_ASSERT_OK(writer.AppendTimestep(MakeTimestep()));
+  TF_ASSERT_OK(writer.AppendTimestep(MakeTimestep()));
+  EXPECT_FALSE(writer.AddPriority("dist", 1, 1.0).ok());
 
   EXPECT_THAT(requests, SizeIs(1));  // Tries only once and then gives up.
 }
 
-TEST(ReplayWriterTest, CallsCloseWhenObjectDestroyed) {
+TEST(WriterTest, CallsCloseWhenObjectDestroyed) {
   std::vector<InsertStreamRequest> requests;
   {
     auto stub = MakeGoodStub(&requests);
-    ReplayWriter client(stub, 2, 10);
-    TF_ASSERT_OK(client.AppendTimestep(MakeTimestep()));
-    TF_ASSERT_OK(client.AddPriority("dist", 1, 1.0));
+    Writer writer(stub, 2, 10);
+    TF_ASSERT_OK(writer.AppendTimestep(MakeTimestep()));
+    TF_ASSERT_OK(writer.AddPriority("dist", 1, 1.0));
     EXPECT_THAT(requests, SizeIs(0));
   }
   ASSERT_THAT(requests, SizeIs(2));
 }
 
-TEST(ReplayWriterTest, ResendsOnlyTheChunksTheRemainingItemsNeedWithNewStream) {
+TEST(WriterTest, ResendsOnlyTheChunksTheRemainingItemsNeedWithNewStream) {
   std::vector<InsertStreamRequest> requests;
   auto stub =
       MakeFlakyStub(&requests, 3, 1, ToGrpcStatus(DeadlineExceeded("")));
-  ReplayWriter client(stub, 2, 10);
+  Writer writer(stub, 2, 10);
 
-  TF_ASSERT_OK(client.AppendTimestep(MakeTimestep()));
-  TF_ASSERT_OK(client.AppendTimestep(MakeTimestep()));
-  TF_ASSERT_OK(client.AppendTimestep(MakeTimestep()));
-  TF_ASSERT_OK(client.AddPriority("dist", 3, 1.0));
-  TF_ASSERT_OK(client.AddPriority("dist2", 1, 1.0));
+  TF_ASSERT_OK(writer.AppendTimestep(MakeTimestep()));
+  TF_ASSERT_OK(writer.AppendTimestep(MakeTimestep()));
+  TF_ASSERT_OK(writer.AppendTimestep(MakeTimestep()));
+  TF_ASSERT_OK(writer.AddPriority("dist", 3, 1.0));
+  TF_ASSERT_OK(writer.AddPriority("dist2", 1, 1.0));
   EXPECT_THAT(requests, SizeIs(0));
 
-  TF_ASSERT_OK(client.AppendTimestep(MakeTimestep()));
+  TF_ASSERT_OK(writer.AppendTimestep(MakeTimestep()));
 
   ASSERT_THAT(requests, SizeIs(6));
   EXPECT_THAT(requests[0], IsChunk());
@@ -350,14 +349,14 @@ TEST(ReplayWriterTest, ResendsOnlyTheChunksTheRemainingItemsNeedWithNewStream) {
               ElementsAre(second_chunk_key));
 }
 
-TEST(ReplayWriterTest, TellsServerToKeepStreamedItemsStillInClient) {
+TEST(WriterTest, TellsServerToKeepStreamedItemsStillInClient) {
   std::vector<InsertStreamRequest> requests;
   auto stub = MakeGoodStub(&requests);
-  ReplayWriter client(stub, 2, 6);
+  Writer writer(stub, 2, 6);
 
-  TF_ASSERT_OK(client.AppendTimestep(MakeTimestep()));
-  TF_ASSERT_OK(client.AppendTimestep(MakeTimestep()));
-  TF_ASSERT_OK(client.AddPriority("dist", 1, 1.0));
+  TF_ASSERT_OK(writer.AppendTimestep(MakeTimestep()));
+  TF_ASSERT_OK(writer.AppendTimestep(MakeTimestep()));
+  TF_ASSERT_OK(writer.AddPriority("dist", 1, 1.0));
 
   ASSERT_THAT(requests, SizeIs(2));
   EXPECT_THAT(requests[0], IsChunk());
@@ -370,12 +369,12 @@ TEST(ReplayWriterTest, TellsServerToKeepStreamedItemsStillInClient) {
 
   requests.clear();
 
-  TF_ASSERT_OK(client.AppendTimestep(MakeTimestep()));
-  TF_ASSERT_OK(client.AppendTimestep(MakeTimestep()));
+  TF_ASSERT_OK(writer.AppendTimestep(MakeTimestep()));
+  TF_ASSERT_OK(writer.AppendTimestep(MakeTimestep()));
 
-  TF_ASSERT_OK(client.AppendTimestep(MakeTimestep()));
-  TF_ASSERT_OK(client.AppendTimestep(MakeTimestep()));
-  TF_ASSERT_OK(client.AddPriority("dist", 1, 1.0));
+  TF_ASSERT_OK(writer.AppendTimestep(MakeTimestep()));
+  TF_ASSERT_OK(writer.AppendTimestep(MakeTimestep()));
+  TF_ASSERT_OK(writer.AddPriority("dist", 1, 1.0));
 
   ASSERT_THAT(requests, SizeIs(2));
   EXPECT_THAT(requests[0], IsChunk());
@@ -389,9 +388,9 @@ TEST(ReplayWriterTest, TellsServerToKeepStreamedItemsStillInClient) {
   requests.clear();
 
   // Now the first chunk will go out of scope
-  TF_ASSERT_OK(client.AppendTimestep(MakeTimestep()));
-  TF_ASSERT_OK(client.AppendTimestep(MakeTimestep()));
-  TF_ASSERT_OK(client.AddPriority("dist", 1, 1.0));
+  TF_ASSERT_OK(writer.AppendTimestep(MakeTimestep()));
+  TF_ASSERT_OK(writer.AppendTimestep(MakeTimestep()));
+  TF_ASSERT_OK(writer.AddPriority("dist", 1, 1.0));
 
   ASSERT_THAT(requests, SizeIs(2));
   EXPECT_THAT(requests[0], IsChunk());
@@ -403,52 +402,52 @@ TEST(ReplayWriterTest, TellsServerToKeepStreamedItemsStillInClient) {
               ElementsAre(third_chunk_key, forth_chunk_key));
 }
 
-TEST(ReplayWriterTest, IgnoresCloseErrorsIfAllItemsWritten) {
+TEST(WriterTest, IgnoresCloseErrorsIfAllItemsWritten) {
   std::vector<InsertStreamRequest> requests;
   auto stub = MakeFlakyStub(&requests, /*num_success=*/2,
                             /*num_fail=*/1, ToGrpcStatus(Internal("")));
-  ReplayWriter client(stub, /*chunk_length=*/1, /*max_timesteps=*/2);
+  Writer writer(stub, /*chunk_length=*/1, /*max_timesteps=*/2);
 
   // Insert an item and make sure it is flushed to the server.
-  TF_EXPECT_OK(client.AppendTimestep(MakeTimestep()));
-  TF_EXPECT_OK(client.AddPriority("dist", 1, 1.0));
+  TF_EXPECT_OK(writer.AppendTimestep(MakeTimestep()));
+  TF_EXPECT_OK(writer.AddPriority("dist", 1, 1.0));
   EXPECT_THAT(requests, SizeIs(2));
 
-  // Close the client without any pending items and check that it swallows
+  // Close the writer without any pending items and check that it swallows
   // the error.
-  TF_EXPECT_OK(client.Close());
+  TF_EXPECT_OK(writer.Close());
 }
 
-TEST(ReplayWriterTest, ReturnsCloseErrorsIfAllItemsNotWritten) {
+TEST(WriterTest, ReturnsCloseErrorsIfAllItemsNotWritten) {
   std::vector<InsertStreamRequest> requests;
   auto stub = MakeFlakyStub(&requests, /*num_success=*/1,
                             /*num_fail=*/1, ToGrpcStatus(Internal("")));
-  ReplayWriter client(stub, /*chunk_length=*/2, /*max_timesteps=*/4);
+  Writer writer(stub, /*chunk_length=*/2, /*max_timesteps=*/4);
 
   // Insert an item which is shorter
   // than the batch and thus should not
   // be automatically flushed.
-  TF_EXPECT_OK(client.AppendTimestep(MakeTimestep()));
-  TF_EXPECT_OK(client.AddPriority("dist", 1, 1.0));
+  TF_EXPECT_OK(writer.AppendTimestep(MakeTimestep()));
+  TF_EXPECT_OK(writer.AddPriority("dist", 1, 1.0));
   EXPECT_THAT(requests, SizeIs(0));
 
   // Since not all items where sent
   // before the error should be
   // returned.
-  EXPECT_EQ(client.Close().code(), tensorflow::error::INTERNAL);
+  EXPECT_EQ(writer.Close().code(), tensorflow::error::INTERNAL);
 }
 
-TEST(ReplayWriterTest, SequenceRangeIsSetOnChunks) {
+TEST(WriterTest, SequenceRangeIsSetOnChunks) {
   std::vector<InsertStreamRequest> requests;
   auto stub = MakeGoodStub(&requests);
-  ReplayWriter client(stub, /*chunk_length=*/2,
-                      /*max_timesteps=*/4);
+  Writer writer(stub, /*chunk_length=*/2,
+                /*max_timesteps=*/4);
 
-  TF_EXPECT_OK(client.AppendTimestep(MakeTimestep()));
-  TF_EXPECT_OK(client.AppendTimestep(MakeTimestep()));
-  TF_EXPECT_OK(client.AppendTimestep(MakeTimestep()));
-  TF_EXPECT_OK(client.AddPriority("dist", 3, 1.0));
-  TF_EXPECT_OK(client.AppendTimestep(MakeTimestep()));
+  TF_EXPECT_OK(writer.AppendTimestep(MakeTimestep()));
+  TF_EXPECT_OK(writer.AppendTimestep(MakeTimestep()));
+  TF_EXPECT_OK(writer.AppendTimestep(MakeTimestep()));
+  TF_EXPECT_OK(writer.AddPriority("dist", 3, 1.0));
+  TF_EXPECT_OK(writer.AppendTimestep(MakeTimestep()));
 
   EXPECT_THAT(
       requests,
@@ -464,17 +463,17 @@ TEST(ReplayWriterTest, SequenceRangeIsSetOnChunks) {
             requests[1].chunk().sequence_range().episode_id());
 }
 
-TEST(ReplayWriterTest, DeltaEncode) {
+TEST(WriterTest, DeltaEncode) {
   std::vector<InsertStreamRequest> requests;
   auto stub = MakeGoodStub(&requests);
-  ReplayWriter client(stub, /*chunk_length=*/2,
-                      /*max_timesteps=*/4, /*delta_encoded=*/true);
+  Writer writer(stub, /*chunk_length=*/2,
+                /*max_timesteps=*/4, /*delta_encoded=*/true);
 
-  TF_EXPECT_OK(client.AppendTimestep(MakeTimestep()));
-  TF_EXPECT_OK(client.AppendTimestep(MakeTimestep()));
-  TF_EXPECT_OK(client.AppendTimestep(MakeTimestep()));
-  TF_EXPECT_OK(client.AddPriority("dist", 3, 1.0));
-  TF_EXPECT_OK(client.AppendTimestep(MakeTimestep()));
+  TF_EXPECT_OK(writer.AppendTimestep(MakeTimestep()));
+  TF_EXPECT_OK(writer.AppendTimestep(MakeTimestep()));
+  TF_EXPECT_OK(writer.AppendTimestep(MakeTimestep()));
+  TF_EXPECT_OK(writer.AddPriority("dist", 3, 1.0));
+  TF_EXPECT_OK(writer.AppendTimestep(MakeTimestep()));
 
   EXPECT_THAT(
       requests,
@@ -486,11 +485,11 @@ TEST(ReplayWriterTest, DeltaEncode) {
           IsItemWithRangeAndPriorityAndTable(0, 3, 1.0, "dist")));
 }
 
-TEST(ReplayWriterTest, MultiChunkItemsAreCorrect) {
+TEST(WriterTest, MultiChunkItemsAreCorrect) {
   std::vector<InsertStreamRequest> requests;
   auto stub = MakeGoodStub(&requests);
-  ReplayWriter client(stub, /*chunk_length=*/3,
-                      /*max_timesteps=*/4, /*delta_encoded=*/false);
+  Writer writer(stub, /*chunk_length=*/3,
+                /*max_timesteps=*/4, /*delta_encoded=*/false);
 
   // We create two chunks with 5 time steps (t_0,.., t_4) and 3 sequences
   // (s_0, s_1, s_2):
@@ -501,20 +500,20 @@ TEST(ReplayWriterTest, MultiChunkItemsAreCorrect) {
   // +-------------+----------+
 
   // First item: 1 chunk.
-  TF_EXPECT_OK(client.AppendTimestep(MakeTimestep()));
-  TF_EXPECT_OK(client.AppendTimestep(MakeTimestep()));
-  TF_EXPECT_OK(client.AddPriority("dist", 2, 1.0));
+  TF_EXPECT_OK(writer.AppendTimestep(MakeTimestep()));
+  TF_EXPECT_OK(writer.AppendTimestep(MakeTimestep()));
+  TF_EXPECT_OK(writer.AddPriority("dist", 2, 1.0));
 
   // Second item: 2 chunks.
-  TF_EXPECT_OK(client.AppendTimestep(MakeTimestep()));
-  TF_EXPECT_OK(client.AppendTimestep(MakeTimestep()));
-  TF_EXPECT_OK(client.AddPriority("dist", 2, 1.0));
+  TF_EXPECT_OK(writer.AppendTimestep(MakeTimestep()));
+  TF_EXPECT_OK(writer.AppendTimestep(MakeTimestep()));
+  TF_EXPECT_OK(writer.AddPriority("dist", 2, 1.0));
 
   // Third item: 1 chunk.
-  TF_EXPECT_OK(client.AppendTimestep(MakeTimestep()));
-  TF_EXPECT_OK(client.AddPriority("dist", 1, 1.0));
+  TF_EXPECT_OK(writer.AppendTimestep(MakeTimestep()));
+  TF_EXPECT_OK(writer.AddPriority("dist", 1, 1.0));
 
-  TF_EXPECT_OK(client.Close());
+  TF_EXPECT_OK(writer.Close());
 
   EXPECT_THAT(
       requests,
@@ -532,32 +531,32 @@ TEST(ReplayWriterTest, MultiChunkItemsAreCorrect) {
   EXPECT_EQ(requests[4].item().item().chunk_keys_size(), 1);
 }
 
-TEST(ReplayWriterTest, WriteTimeStepsMatchingSignature) {
+TEST(WriterTest, WriteTimeStepsMatchingSignature) {
   std::vector<InsertStreamRequest> requests;
   tensorflow::StructuredValue signature =
       MakeSignature(tensorflow::DT_FLOAT, tensorflow::PartialTensorShape({}));
   auto stub = MakeGoodStub(&requests, &signature);
-  ReplayClient replay_client(stub);
-  std::unique_ptr<ReplayWriter> client;
-  TF_EXPECT_OK(replay_client.NewWriter(2, 6, /*delta_encoded=*/false, &client));
+  Client client(stub);
+  std::unique_ptr<Writer> writer;
+  TF_EXPECT_OK(client.NewWriter(2, 6, /*delta_encoded=*/false, &writer));
 
-  TF_ASSERT_OK(client->AppendTimestep(MakeTimestep()));
-  TF_ASSERT_OK(client->AppendTimestep(MakeTimestep()));
-  TF_ASSERT_OK(client->AddPriority("dist", 2, 1.0));
+  TF_ASSERT_OK(writer->AppendTimestep(MakeTimestep()));
+  TF_ASSERT_OK(writer->AppendTimestep(MakeTimestep()));
+  TF_ASSERT_OK(writer->AddPriority("dist", 2, 1.0));
   ASSERT_THAT(requests, SizeIs(2));
 }
 
-TEST(ReplayWriterTest, WriteTimeStepsNumTensorsDontMatchSignatureError) {
+TEST(WriterTest, WriteTimeStepsNumTensorsDontMatchSignatureError) {
   std::vector<InsertStreamRequest> requests;
   tensorflow::StructuredValue signature = MakeSignature();
   auto stub = MakeGoodStub(&requests, &signature);
-  ReplayClient replay_client(stub);
-  std::unique_ptr<ReplayWriter> client;
-  TF_EXPECT_OK(replay_client.NewWriter(2, 6, /*delta_encoded=*/false, &client));
+  Client client(stub);
+  std::unique_ptr<Writer> writer;
+  TF_EXPECT_OK(client.NewWriter(2, 6, /*delta_encoded=*/false, &writer));
 
-  TF_ASSERT_OK(client->AppendTimestep(MakeTimestep(/*num_tensors=*/2)));
-  TF_ASSERT_OK(client->AppendTimestep(MakeTimestep(/*num_tensors=*/2)));
-  auto status = client->AddPriority("dist", 2, 1.0);
+  TF_ASSERT_OK(writer->AppendTimestep(MakeTimestep(/*num_tensors=*/2)));
+  TF_ASSERT_OK(writer->AppendTimestep(MakeTimestep(/*num_tensors=*/2)));
+  auto status = writer->AddPriority("dist", 2, 1.0);
   EXPECT_EQ(status.code(), tensorflow::error::INVALID_ARGUMENT);
   EXPECT_THAT(
       status.error_message(),
@@ -566,17 +565,17 @@ TEST(ReplayWriterTest, WriteTimeStepsNumTensorsDontMatchSignatureError) {
           "but table requires 1 tensors per entry."));
 }
 
-TEST(ReplayWriterTest, WriteTimeStepsInconsistentDtypeError) {
+TEST(WriterTest, WriteTimeStepsInconsistentDtypeError) {
   std::vector<InsertStreamRequest> requests;
   tensorflow::StructuredValue signature = MakeSignature(tensorflow::DT_INT32);
   auto stub = MakeGoodStub(&requests, &signature);
-  ReplayClient replay_client(stub);
-  std::unique_ptr<ReplayWriter> client;
-  TF_EXPECT_OK(replay_client.NewWriter(2, 6, /*delta_encoded=*/false, &client));
+  Client client(stub);
+  std::unique_ptr<Writer> writer;
+  TF_EXPECT_OK(client.NewWriter(2, 6, /*delta_encoded=*/false, &writer));
 
-  TF_ASSERT_OK(client->AppendTimestep(MakeTimestep()));
-  TF_ASSERT_OK(client->AppendTimestep(MakeTimestep()));
-  auto status = client->AddPriority("dist", 2, 1.0);
+  TF_ASSERT_OK(writer->AppendTimestep(MakeTimestep()));
+  TF_ASSERT_OK(writer->AppendTimestep(MakeTimestep()));
+  auto status = writer->AddPriority("dist", 2, 1.0);
   EXPECT_EQ(status.code(), tensorflow::error::INVALID_ARGUMENT);
   EXPECT_THAT(status.error_message(),
               ::testing::HasSubstr(
@@ -585,18 +584,18 @@ TEST(ReplayWriterTest, WriteTimeStepsInconsistentDtypeError) {
                   "int32 and shape compatible with <unknown>"));
 }
 
-TEST(ReplayWriterTest, WriteTimeStepsInconsistentShapeError) {
+TEST(WriterTest, WriteTimeStepsInconsistentShapeError) {
   std::vector<InsertStreamRequest> requests;
   tensorflow::StructuredValue signature =
       MakeSignature(tensorflow::DT_FLOAT, tensorflow::PartialTensorShape({-1}));
   auto stub = MakeGoodStub(&requests, &signature);
-  ReplayClient replay_client(stub);
-  std::unique_ptr<ReplayWriter> client;
-  TF_EXPECT_OK(replay_client.NewWriter(2, 6, /*delta_encoded=*/false, &client));
+  Client client(stub);
+  std::unique_ptr<Writer> writer;
+  TF_EXPECT_OK(client.NewWriter(2, 6, /*delta_encoded=*/false, &writer));
 
-  TF_ASSERT_OK(client->AppendTimestep(MakeTimestep()));
-  TF_ASSERT_OK(client->AppendTimestep(MakeTimestep()));
-  auto status = client->AddPriority("dist", 2, 1.0);
+  TF_ASSERT_OK(writer->AppendTimestep(MakeTimestep()));
+  TF_ASSERT_OK(writer->AppendTimestep(MakeTimestep()));
+  auto status = writer->AddPriority("dist", 2, 1.0);
   EXPECT_EQ(status.code(), tensorflow::error::INVALID_ARGUMENT);
   EXPECT_THAT(status.error_message(),
               ::testing::HasSubstr(

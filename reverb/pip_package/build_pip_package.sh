@@ -18,12 +18,14 @@ set -e
 
 function build_wheel() {
   TMPDIR="$1"
-  RELEASE_FLAG="$2"
+  DESTDIR="$2"
+  RELEASE_FLAG="$3"
 
   # Before we leave the top-level directory, make sure we know how to
   # call python.
-  if [[ -e tools/python_bin_path.sh ]]; then
-    source tools/python_bin_path.sh
+  if [[ -e python_bin_path.sh ]]; then
+    echo $(date)  "Setting PYTHON_BIN_PATH equal to what was set with configure.py."
+    source python_bin_path.sh
   fi
   PYTHON_BIN_PATH=${PYTHON_BIN_PATH:-$(which python3)}
 
@@ -32,6 +34,11 @@ function build_wheel() {
   echo $(date) : "=== Building wheel"
   "${PYTHON_BIN_PATH}" setup.py bdist_wheel ${PKG_NAME_FLAG} --plat manylinux2010_x86_64 > /dev/null
   DEST=${TMPDIR}/dist/
+  if [[ ! "$TMPDIR" -ef "$DESTDIR" ]]; then
+    mkdir -p ${DESTDIR}
+    cp dist/* ${DESTDIR}
+    DEST=${DESTDIR}
+  fi
   popd > /dev/null
   echo $(date) : "=== Output wheel file is in: ${DEST}"
 }
@@ -67,13 +74,16 @@ function usage() {
   echo "Usage:"
   echo "$0 [options]"
   echo "  Options:"
-  echo "    --release             build a release version"
+  echo "    --release         build a release version"
+  echo "    --dst             path to copy the .whl into."
   echo ""
   exit 1
 }
 
 function main() {
   RELEASE_FLAG=""
+  # This is where the source code is copied and where the whl will be built.
+  DST_DIR=""
   # TODO(b/155864463): Set NIGHTLY_BUILD=0 and change flags below.
   while true; do
     if [[ "$1" == "--help" ]]; then
@@ -81,6 +91,9 @@ function main() {
       exit 1
     elif [[ "$1" == "--release" ]]; then
       RELEASE_FLAG="--release"
+    elif [[ "$1" == "--dst" ]]; then
+      shift
+      DST_DIR=$1
     fi
 
     if [[ -z "$1" ]]; then
@@ -89,8 +102,10 @@ function main() {
     shift
   done
 
-  # This is where the source code is copied and where the whl will be built.
   TMPDIR="$(mktemp -d -t tmp.XXXXXXXXXX)"
+  if [[ -z "$DST_DIR" ]]; then
+    DST_DIR=${TMPDIR}
+  fi
 
   prepare_src "$TMPDIR"
 
@@ -98,8 +113,7 @@ function main() {
     RELEASE_FLAG="--release"
   fi
 
-
-  build_wheel "$TMPDIR" "$RELEASE_FLAG"
+  build_wheel "$TMPDIR" "$DST_DIR" "$RELEASE_FLAG"
 }
 
 main "$@"

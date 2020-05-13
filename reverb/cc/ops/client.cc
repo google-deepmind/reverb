@@ -12,13 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include "reverb/cc/client.h"
+
 #include <memory>
 #include <string>
 #include <vector>
 
 #include <cstdint>
 #include "absl/strings/str_cat.h"
-#include "reverb/cc/replay_client.h"
 #include "tensorflow/core/framework/op.h"
 #include "tensorflow/core/framework/op_kernel.h"
 #include "tensorflow/core/framework/resource_op_kernel.h"
@@ -41,7 +42,7 @@ REGISTER_OP("ReverbClient")
     .SetIsStateful()
     .SetShapeFn(tensorflow::shape_inference::ScalarShape)
     .Doc(R"doc(
-Constructs a `ClientResource` that constructs a `ReplayClient` connected to
+Constructs a `ClientResource` that constructs a `Client` connected to
 `server_address`. The resource allows ops to share the stub across calls.
 )doc");
 
@@ -98,10 +99,10 @@ class ClientResource : public tensorflow::ResourceBase {
                                        server_address_);
   }
 
-  ReplayClient* client() { return &client_; }
+  Client* client() { return &client_; }
 
  private:
-  ReplayClient client_;
+  Client client_;
   std::string server_address_;
 
   TF_DISALLOW_COPY_AND_ASSIGN(ClientResource);
@@ -142,9 +143,9 @@ class SampleOp : public tensorflow::OpKernel {
     std::string table = table_tensor->scalar<tstring>()();
 
     std::vector<tensorflow::Tensor> sample;
-    std::unique_ptr<ReplaySampler> sampler;
+    std::unique_ptr<Sampler> sampler;
 
-    ReplaySampler::Options options;
+    Sampler::Options options;
     options.max_samples = 1;
     options.max_in_flight_samples_per_worker = 1;
 
@@ -247,7 +248,7 @@ class InsertOp : public tensorflow::OpKernel {
       tensors.push_back(i);
     }
 
-    std::unique_ptr<ReplayWriter> writer;
+    std::unique_ptr<Writer> writer;
     OP_REQUIRES_OK(context,
                    resource->client()->NewWriter(1, 1, false, &writer));
     OP_REQUIRES_OK(context, writer->AppendTimestep(std::move(tensors)));

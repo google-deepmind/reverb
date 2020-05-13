@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "reverb/cc/reverb_server.h"
+#include "reverb/cc/server.h"
 
 #include <chrono>  // NOLINT(build/c++11) - grpc API requires it.
 #include <csignal>
@@ -32,23 +32,23 @@ constexpr int kMaxMessageSize = 300 * 1000 * 1000;
 
 }  // namespace
 
-ReverbServer::ReverbServer(
-    std::vector<std::shared_ptr<PriorityTable>> priority_tables, int port,
-    std::shared_ptr<CheckpointerInterface> checkpointer) : port_(port) {
+Server::Server(std::vector<std::shared_ptr<PriorityTable>> priority_tables,
+               int port, std::shared_ptr<CheckpointerInterface> checkpointer)
+    : port_(port) {
 
-  replay_service_ = absl::make_unique<ReplayServiceImpl>(
+  reverb_service_ = absl::make_unique<ReverbServiceImpl>(
       std::move(priority_tables), std::move(checkpointer));
 
   server_ = grpc::ServerBuilder()
                 .AddListeningPort(absl::StrCat("[::]:", port),
                                   MakeServerCredentials())
-                .RegisterService(replay_service_.get())
+                .RegisterService(reverb_service_.get())
                 .SetMaxSendMessageSize(kMaxMessageSize)
                 .SetMaxReceiveMessageSize(kMaxMessageSize)
                 .BuildAndStart();
 }
 
-tensorflow::Status ReverbServer::Initialize() {
+tensorflow::Status Server::Initialize() {
   absl::WriterMutexLock lock(&mu_);
   REVERB_CHECK(!running_) << "Initialize() called twice?";
   if (!server_) {
@@ -60,40 +60,39 @@ tensorflow::Status ReverbServer::Initialize() {
   return tensorflow::Status::OK();
 }
 
-/* static */ tensorflow::Status ReverbServer::StartReverbServer(
+/* static */ tensorflow::Status Server::StartServer(
     std::vector<std::shared_ptr<PriorityTable>> priority_tables, int port,
-    std::unique_ptr<ReverbServer>* server) {
+    std::unique_ptr<Server>* server) {
   // We can't use make_unique here since it can't access the private
-  // ReverbServer constructor.
-  std::unique_ptr<ReverbServer> s(
-      new ReverbServer(std::move(priority_tables), port));
+  // Server constructor.
+  std::unique_ptr<Server> s(new Server(std::move(priority_tables), port));
   TF_RETURN_IF_ERROR(s->Initialize());
   std::swap(s, *server);
   return tensorflow::Status::OK();
 }
 
-/* static */ tensorflow::Status ReverbServer::StartReverbServer(
+/* static */ tensorflow::Status Server::StartServer(
     std::vector<std::shared_ptr<PriorityTable>> priority_tables, int port,
     std::shared_ptr<CheckpointerInterface> checkpointer,
-    std::unique_ptr<ReverbServer>* server) {
+    std::unique_ptr<Server>* server) {
   // We can't use make_unique here since it can't access the private
-  // ReverbServer constructor.
-  std::unique_ptr<ReverbServer> s(new ReverbServer(
-      std::move(priority_tables), port, std::move(checkpointer)));
+  // Server constructor.
+  std::unique_ptr<Server> s(
+      new Server(std::move(priority_tables), port, std::move(checkpointer)));
   TF_RETURN_IF_ERROR(s->Initialize());
   std::swap(s, *server);
   return tensorflow::Status::OK();
 }
 
-ReverbServer::~ReverbServer() { Stop(); }
+Server::~Server() { Stop(); }
 
-void ReverbServer::Stop() {
+void Server::Stop() {
   absl::WriterMutexLock lock(&mu_);
   if (!running_) return;
   REVERB_LOG(REVERB_INFO) << "Shutting down replay server";
 
   // Closes the dependent services in the desirable order.
-  replay_service_->Close();
+  reverb_service_->Close();
 
   // Set a deadline as the sampler streams never closes by themselves.
   server_->Shutdown(std::chrono::system_clock::now() + std::chrono::seconds(5));
@@ -101,17 +100,17 @@ void ReverbServer::Stop() {
   running_ = false;
 }
 
-void ReverbServer::Wait() {
+void Server::Wait() {
   server_->Wait();
 }
 
-std::unique_ptr<ReplayClient> ReverbServer::InProcessClient() {
+std::unique_ptr<Client> Server::InProcessClient() {
   grpc::ChannelArguments arguments;
   arguments.SetMaxReceiveMessageSize(kMaxMessageSize);
   arguments.SetMaxSendMessageSize(kMaxMessageSize);
   absl::WriterMutexLock lock(&mu_);
-  return absl::make_unique<ReplayClient>(
-      /* grpc_gen:: */ReplayService::NewStub(server_->InProcessChannel(arguments)));
+  return absl::make_unique<Client>(
+      /* grpc_gen:: */ReverbService::NewStub(server_->InProcessChannel(arguments)));
 }
 
 }  // namespace reverb

@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef LEARNING_DEEPMIND_REPLAY_REVERB_REPLAY_WRITER_H_
-#define LEARNING_DEEPMIND_REPLAY_REVERB_REPLAY_WRITER_H_
+#ifndef LEARNING_DEEPMIND_REPLAY_REVERB_WRITER_H_
+#define LEARNING_DEEPMIND_REPLAY_REVERB_WRITER_H_
 
 #include <list>
 #include <memory>
@@ -26,8 +26,8 @@
 #include "absl/container/flat_hash_set.h"
 #include "absl/random/random.h"
 #include "absl/strings/string_view.h"
-#include "reverb/cc/replay_service.grpc.pb.h"
-#include "reverb/cc/replay_service.pb.h"
+#include "reverb/cc/reverb_service.grpc.pb.h"
+#include "reverb/cc/reverb_service.pb.h"
 #include "reverb/cc/schema.pb.h"
 #include "reverb/cc/support/signature.h"
 #include "tensorflow/core/framework/tensor.h"
@@ -39,19 +39,18 @@ namespace deepmind {
 namespace reverb {
 
 // None of the methods are thread safe.
-class ReplayWriter {
+class Writer {
  public:
   // The client must not be deleted while any of its writer instances exist.
-  ReplayWriter(
-      std::shared_ptr</* grpc_gen:: */ReplayService::StubInterface> stub,
-      int chunk_length, int max_timesteps, bool delta_encoded = false,
-      std::shared_ptr<internal::FlatSignatureMap> signatures = nullptr);
-  ~ReplayWriter();
+  Writer(std::shared_ptr</* grpc_gen:: */ReverbService::StubInterface> stub,
+         int chunk_length, int max_timesteps, bool delta_encoded = false,
+         std::shared_ptr<internal::FlatSignatureMap> signatures = nullptr);
+  ~Writer();
 
   // Appends a timestamp to internal `buffer_`. If the size of the buffer
   // reached `chunk_length_` then its content is batched and inserted into
   // `chunks_`. If `pending_items_` is not empty then its items are streamed to
-  // the ReplayService and popped.
+  // the ReverbService and popped.
   //
   // If all operations are successful then `buffer_` is cleared, a new
   // `next_chunk_key_` is set and old items are removed from `chunks_` until its
@@ -60,7 +59,7 @@ class ReplayWriter {
 
   // Adds a new PrioritizedItem to `table` spanning the last `num_timesteps` and
   // pushes new item to `pending_items_`. If `buffer_` is empty then the new
-  // item is streamed to the ReplayService. If unsuccessful all internal state
+  // item is streamed to the ReverbService. If unsuccessful all internal state
   // is reverted.
   tensorflow::Status AddPriority(const std::string& table, int num_timesteps,
                                  double priority);
@@ -76,7 +75,7 @@ class ReplayWriter {
  private:
   // Creates a new batch from the content of `buffer_` and inserts it into
   // `chunks_`. If `pending_items_` is not empty then the items are streamed to
-  // the ReplayService and popped.
+  // the ReverbService and popped.
   //
   // If all operations are successful then `buffer_` is cleared, a new
   // `next_chunk_key_` is set, `index_within_episode_` is incremented by the
@@ -95,10 +94,10 @@ class ReplayWriter {
   // Helper for generating a random ID.
   uint64_t NewID();
 
-  // gRPC stub for the ReplayService.
-  std::shared_ptr</* grpc_gen:: */ReplayService::StubInterface> stub_;
+  // gRPC stub for the ReverbService.
+  std::shared_ptr</* grpc_gen:: */ReverbService::StubInterface> stub_;
 
-  // gRPC stream to the ReplayService.InsertStream endpoint.
+  // gRPC stream to the ReverbService.InsertStream endpoint.
   std::unique_ptr<grpc::ClientWriterInterface<InsertStreamRequest>> stream_;
   std::unique_ptr<grpc::ClientContext> context_;
   InsertStreamResponse response_;
@@ -118,11 +117,11 @@ class ReplayWriter {
   // Bit generator used by `NewID`.
   absl::BitGen bit_gen_;
 
-  // PriorityItems waiting to be sent to the ReplayService. Items are appended
+  // PriorityItems waiting to be sent to the ReverbService. Items are appended
   // to the list when they reference timesteps in `buffer_`. Once `buffer_` has
   // size `chunk_length_` the content is chunked and the pending items are
-  // written to the ReplayService. While `buffer_` is empty new items are
-  // written to the ReplayService immediately.
+  // written to the ReverbService. While `buffer_` is empty new items are
+  // written to the ReverbService immediately.
   std::list<PrioritizedItem> pending_items_;
 
   // Timesteps not yet batched up and put into `chunks_`.
@@ -165,4 +164,4 @@ class ReplayWriter {
 }  // namespace reverb
 }  // namespace deepmind
 
-#endif  // LEARNING_DEEPMIND_REPLAY_REVERB_REPLAY_WRITER_H_
+#endif  // LEARNING_DEEPMIND_REPLAY_REVERB_WRITER_H_

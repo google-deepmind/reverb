@@ -20,10 +20,12 @@ LABEL maintainer="Reverb Team <no-reply@google.com>"
 # instruction after a FROM.
 ARG cpu_base_image="ubuntu:18.04"
 ARG base_image=$cpu_base_image
+ARG tensorflow_pip="tf-nightly"
+ARG python_version="python3.6"
 
 # Pick up some TF dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends software-properties-common
 RUN apt-get update && apt-get install -y --no-install-recommends \
+        software-properties-common \
         aria2 \
         build-essential \
         curl \
@@ -39,6 +41,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         python3.6-dev \
         python3.7-dev \
         python3.8-dev \
+        python3.8-distutils \
         rename \
         rsync \
         sox \
@@ -69,7 +72,6 @@ RUN cp /usr/local/lib/bazel/bin/bazel-complete.bash /etc/bash_completion.d
 # NOTE(ebrevdo): RUN source doesn't work.  Disabling the command below for now.
 # RUN source /etc/bash_autcompletion.d/bazel-complete.bash
 
-
 ARG pip_dependencies=' \
       contextlib2 \
       dm-tree>=0.1.5 \
@@ -82,16 +84,11 @@ ARG pip_dependencies=' \
 
 
 # So dependencies are installed for the supported Python versions
-RUN for python in python3.6 python3.7 python3.8; do \
+RUN for python in ${python_version}; do \
     $python get-pip.py && \
-    $python -mpip --no-cache-dir install $pip_dependencies && \
-    $python -mpip install --upgrade pip setuptools auditwheel && \
-    # The latest tensorflow requires CUDA 10 compatible nvidia drivers (410.xx).
-    # If you are unable to update your drivers, an alternative is to compile
-    # tensorflow from source instead of installing from pip.
-    # Ensure we install the correct version by uninstalling first.
     $python -mpip uninstall -y tensorflow tensorflow-gpu tf-nightly tf-nightly-gpu && \
-    $python -mpip --no-cache-dir install tf-nightly --upgrade; \
+    $python -mpip --no-cache-dir install ${tensorflow_pip} --upgrade && \
+    $python -mpip --no-cache-dir install $pip_dependencies; \
   done
 
 RUN rm get-pip.py

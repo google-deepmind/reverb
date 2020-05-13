@@ -15,7 +15,7 @@
 
 """Replay client Python interface.
 
-The ReverbClient is used primarily for feeding the ReplayService with new data.
+The ReverbClient is used primarily for feeding the ReverbService with new data.
 The preferred method is to use the `Writer` as it allows for the most
 flexibility.
 
@@ -93,7 +93,7 @@ class Writer:
   See ReverbClient.writer for documentation.
   """
 
-  def __init__(self, internal_writer: pybind.ReplayWriter):
+  def __init__(self, internal_writer: pybind.Writer):
     """Constructor for Writer (must only be called by ReverbClient.writer)."""
     self._writer = internal_writer
     self._closed = False
@@ -151,7 +151,7 @@ class Writer:
 
   def create_prioritized_item(self, table: str, num_timesteps: int,
                               priority: float):
-    """Creates a prioritized item and sends it to the ReplayService.
+    """Creates a prioritized item and sends it to the ReverbService.
 
     This method is what effectively makes data available for sampling. See the
     docstring of `append_timestep` for an illustrative example of the behavior.
@@ -173,7 +173,7 @@ class Writer:
     self._writer.AddPriority(table, num_timesteps, priority)
 
   def close(self):
-    """Closes the stream to the ReplayService.
+    """Closes the stream to the ReverbService.
 
     The method is automatically called when existing the contextmanager scope.
 
@@ -189,22 +189,22 @@ class Writer:
 
 
 class Client:
-  """Client for interacting with a Reverb ReplayService from Python.
+  """Client for interacting with a Reverb ReverbService from Python.
 
   Note: This client should primarily be used when inserting data or prototyping
   at very small scale.
   Whenever possible, prefer to use TFClient (see ./tf_client.py).
   """
 
-  def __init__(self, server_address: str, client: pybind.ReplayClient = None):
+  def __init__(self, server_address: str, client: pybind.Client = None):
     """Constructor of ReverbClient.
 
     Args:
-      server_address: Address to the Reverb ReplayService.
-      client: Optional pre-existing ReplayClient. For internal use only.
+      server_address: Address to the Reverb ReverbService.
+      client: Optional pre-existing Client. For internal use only.
     """
     self._server_address = server_address
-    self._client = client if client else pybind.ReplayClient(server_address)
+    self._client = client if client else pybind.Client(server_address)
 
   def __reduce__(self):
     return self.__class__, (self._server_address,)

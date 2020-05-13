@@ -65,12 +65,12 @@ reverb_cc_test(
 )
 
 reverb_cc_test(
-    name = "replay_sampler_test",
-    srcs = ["replay_sampler_test.cc"],
+    name = "sampler_test",
+    srcs = ["sampler_test.cc"],
     deps = [
-        ":replay_sampler",
-        ":replay_service_cc_grpc_proto",
-        ":replay_service_cc_proto",
+        ":sampler",
+        ":reverb_service_cc_grpc_proto",
+        ":reverb_service_cc_proto",
         ":tensor_compression",
         "//reverb/cc/platform:logging",
         "//reverb/cc/testing:tensor_testutil",
@@ -79,12 +79,12 @@ reverb_cc_test(
 )
 
 reverb_cc_test(
-    name = "replay_writer_test",
-    srcs = ["replay_writer_test.cc"],
+    name = "writer_test",
+    srcs = ["writer_test.cc"],
     deps = [
-        ":replay_client",
-        ":replay_service_cc_grpc_proto",
-        ":replay_writer",
+        ":client",
+        ":reverb_service_cc_grpc_proto",
+        ":writer",
         "//reverb/cc/support:grpc_util",
         "//reverb/cc/support:uint128",
         "//reverb/cc/testing:proto_test_util",
@@ -92,32 +92,32 @@ reverb_cc_test(
 )
 
 reverb_cc_test(
-    name = "replay_client_test",
-    srcs = ["replay_client_test.cc"],
+    name = "client_test",
+    srcs = ["client_test.cc"],
     deps = [
-        ":replay_client",
-        ":replay_service_cc_grpc_proto",
-        ":replay_service_cc_proto",
+        ":client",
+        ":reverb_service_cc_grpc_proto",
+        ":reverb_service_cc_proto",
         "//reverb/cc/support:uint128",
         "//reverb/cc/testing:proto_test_util",
     ] + reverb_tf_deps() + reverb_grpc_deps(),
 )
 
 reverb_cc_test(
-    name = "reverb_server_test",
-    srcs = ["reverb_server_test.cc"],
+    name = "server_test",
+    srcs = ["server_test.cc"],
     deps = [
-        ":reverb_server",
+        ":server",
         "//reverb/cc/platform:net",
     ] + reverb_tf_deps() + reverb_grpc_deps(),
 )
 
 reverb_cc_test(
-    name = "replay_service_impl_test",
-    srcs = ["replay_service_impl_test.cc"],
+    name = "reverb_service_impl_test",
+    srcs = ["reverb_service_impl_test.cc"],
     deps = [
-        ":replay_service_cc_proto",
-        ":replay_service_impl",
+        ":reverb_service_cc_proto",
+        ":reverb_service_impl",
         ":schema_cc_proto",
         "//reverb/cc/distributions:fifo",
         "//reverb/cc/distributions:uniform",
@@ -172,13 +172,13 @@ reverb_cc_library(
 )
 
 reverb_cc_library(
-    name = "replay_sampler",
-    srcs = ["replay_sampler.cc"],
-    hdrs = ["replay_sampler.h"],
+    name = "sampler",
+    srcs = ["sampler.cc"],
+    hdrs = ["sampler.h"],
     visibility = ["//reverb:__subpackages__"],
     deps = [
-        ":replay_service_cc_grpc_proto",
-        ":replay_service_cc_proto",
+        ":reverb_service_cc_grpc_proto",
+        ":reverb_service_cc_proto",
         ":tensor_compression",
         "//reverb/cc/platform:logging",
         "//reverb/cc/platform:thread",
@@ -188,13 +188,13 @@ reverb_cc_library(
 )
 
 reverb_cc_library(
-    name = "replay_writer",
-    srcs = ["replay_writer.cc"],
-    hdrs = ["replay_writer.h"],
+    name = "writer",
+    srcs = ["writer.cc"],
+    hdrs = ["writer.h"],
     visibility = ["//reverb:__subpackages__"],
     deps = [
-        ":replay_service_cc_grpc_proto",
-        ":replay_service_cc_proto",
+        ":reverb_service_cc_grpc_proto",
+        ":reverb_service_cc_proto",
         ":schema_cc_proto",
         ":tensor_compression",
         "//reverb/cc/platform:logging",
@@ -204,15 +204,15 @@ reverb_cc_library(
 )
 
 reverb_cc_library(
-    name = "replay_client",
-    srcs = ["replay_client.cc"],
-    hdrs = ["replay_client.h"],
+    name = "client",
+    srcs = ["client.cc"],
+    hdrs = ["client.h"],
     visibility = ["//reverb:__subpackages__"],
     deps = [
-        ":replay_sampler",
-        ":replay_service_cc_grpc_proto",
-        ":replay_service_cc_proto",
-        ":replay_writer",
+        ":sampler",
+        ":reverb_service_cc_grpc_proto",
+        ":reverb_service_cc_proto",
+        ":writer",
         ":schema_cc_proto",
         "//reverb/cc/platform:grpc_utils",
         "//reverb/cc/platform:logging",
@@ -223,14 +223,14 @@ reverb_cc_library(
 )
 
 reverb_cc_library(
-    name = "replay_service_impl",
-    srcs = ["replay_service_impl.cc"],
-    hdrs = ["replay_service_impl.h"],
+    name = "reverb_service_impl",
+    srcs = ["reverb_service_impl.cc"],
+    hdrs = ["reverb_service_impl.h"],
     deps = [
         ":chunk_store",
         ":priority_table",
-        ":replay_service_cc_grpc_proto",
-        ":replay_service_cc_proto",
+        ":reverb_service_cc_grpc_proto",
+        ":reverb_service_cc_proto",
         ":schema_cc_proto",
         "//reverb/cc/checkpointing:interface",
         "//reverb/cc/platform:logging",
@@ -249,14 +249,14 @@ reverb_cc_library(
 )
 
 reverb_cc_library(
-    name = "reverb_server",
-    srcs = ["reverb_server.cc"],
-    hdrs = ["reverb_server.h"],
+    name = "server",
+    srcs = ["server.cc"],
+    hdrs = ["server.h"],
     visibility = ["//reverb:__subpackages__"],
     deps = [
         ":priority_table",
-        ":replay_client",
-        ":replay_service_impl",
+        ":client",
+        ":reverb_service_impl",
         "//reverb/cc/checkpointing:interface",
         "//reverb/cc/platform:grpc_utils",
         "//reverb/cc/platform:logging",
@@ -275,16 +275,16 @@ reverb_py_proto_library(
 )
 
 reverb_cc_proto_library(
-    name = "replay_service_cc_proto",
-    srcs = ["replay_service.proto"],
+    name = "reverb_service_cc_proto",
+    srcs = ["reverb_service.proto"],
     visibility = ["//reverb:__subpackages__"],
     deps = [":schema_cc_proto"],
 )
 
 reverb_cc_grpc_library(
-    name = "replay_service_cc_grpc_proto",
-    srcs = ["replay_service.proto"],
+    name = "reverb_service_cc_grpc_proto",
+    srcs = ["reverb_service.proto"],
     generate_mocks = True,
     visibility = ["//reverb:__subpackages__"],
-    deps = [":replay_service_cc_proto"],
+    deps = [":reverb_service_cc_proto"],
 )

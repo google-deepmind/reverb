@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef LEARNING_DEEPMIND_REPLAY_REVERB_REPLAY_SAMPLER_H_
-#define LEARNING_DEEPMIND_REPLAY_REVERB_REPLAY_SAMPLER_H_
+#ifndef LEARNING_DEEPMIND_REPLAY_REVERB_SAMPLER_H_
+#define LEARNING_DEEPMIND_REPLAY_REVERB_SAMPLER_H_
 
 #include <stddef.h>
 
@@ -24,7 +24,7 @@
 
 #include <cstdint>
 #include "reverb/cc/platform/thread.h"
-#include "reverb/cc/replay_service.grpc.pb.h"
+#include "reverb/cc/reverb_service.grpc.pb.h"
 #include "reverb/cc/support/queue.h"
 #include "tensorflow/core/framework/tensor.h"
 #include "tensorflow/core/lib/core/status.h"
@@ -81,8 +81,8 @@ class Sample {
   bool next_timestep_called_;
 };
 
-// The `ReplaySampler` class should be used to retrieve samples from a
-// ReplayService. A set of workers, each managing a  bi-directional gRPC stream
+// The `Sampler` class should be used to retrieve samples from a
+// ReverbService. A set of workers, each managing a  bi-directional gRPC stream
 // are created. The workers unpack the responses into samples (sequences of
 // timesteps) which are returned through calls to `GetNextTimestep` and
 // `GetNextSample`.
@@ -93,7 +93,7 @@ class Sample {
 // Terminology:
 //   Timestep:
 //      Set of tensors representing a single "step" (i.e data passed to
-//      `ReplayWriter::AppendTimestep`).
+//      `Writer::AppendTimestep`).
 //   Chunk:
 //      Timesteps batched (along the time dimension) and compressed. If each
 //      timestep contains K tensors of dtype dt_k and shape s_k and the chunk
@@ -106,13 +106,13 @@ class Sample {
 //      chunks are actually part of the sample. Once received the sample is
 //      unpacked into a sequence of `Timestep` before being returned to caller.
 //   Worker:
-//     Instance of `ReplaySampler::Worker` running within its own thread managed
-//     by the parent `ReplaySampler`. The worker opens and manages
+//     Instance of `Sampler::Worker` running within its own thread managed
+//     by the parent `Sampler`. The worker opens and manages
 //     bi-directional gRPC streams to the server. It unpacks responses into
-//     samples and pushes these into a `Queue` owned by the `ReplaySampler`
+//     samples and pushes these into a `Queue` owned by the `Sampler`
 //     (effectively merging the outputs of the workers).
 //
-// Each `ReplaySampler` will create a set of `Worker`s, each managing a stream
+// Each `Sampler` will create a set of `Worker`s, each managing a stream
 // to a server. The combined output of the workers are merged into a `Queue` of
 // complete samples. If `GetNextTimestep` is called then a sample is popped from
 // the queue and split into timesteps and the first one returned. Timesteps are
@@ -120,7 +120,7 @@ class Sample {
 // process starts over. Calls to `GetNextSample` skips the timestep splitting
 // and returns samples as a "batch of timesteps".
 //
-class ReplaySampler {
+class Sampler {
  public:
   static const int64_t kUnlimitedMaxSamples = -1;
   static const int kAutoSelectValue = -1;
@@ -163,16 +163,16 @@ class ReplaySampler {
     int max_samples_per_stream = kAutoSelectValue;
   };
 
-  // Constructs a new `ReplaySampler`.
+  // Constructs a new `Sampler`.
   //
-  // `stub` is a connected gRPC stub to the ReplayService.
+  // `stub` is a connected gRPC stub to the ReverbService.
   // `table` is the name of the `PriorityTable` to sample from.
   // `options` defines details of how to samples.
-  ReplaySampler(std::shared_ptr</* grpc_gen:: */ReplayService::StubInterface> stub,
-                const std::string& table, const Options& options);
+  Sampler(std::shared_ptr</* grpc_gen:: */ReverbService::StubInterface> stub,
+          const std::string& table, const Options& options);
 
   // Joins worker threads through call to `Close`.
-  virtual ~ReplaySampler();
+  virtual ~Sampler();
 
   // Blocks until a timestep has been retrieved or until a non transient error
   // is encountered or `Close` has been called.
@@ -188,16 +188,16 @@ class ReplaySampler {
   // blocking.
   void Close();
 
-  // ReplaySampler is neither copyable nor movable.
-  ReplaySampler(const ReplaySampler&) = delete;
-  ReplaySampler& operator=(const ReplaySampler&) = delete;
+  // Sampler is neither copyable nor movable.
+  Sampler(const Sampler&) = delete;
+  Sampler& operator=(const Sampler&) = delete;
 
  private:
   class Worker {
    public:
     // Constructs a new worker without creating a stream to a server.
     explicit Worker(
-        std::shared_ptr</* grpc_gen:: */ReplayService::StubInterface> stub,
+        std::shared_ptr</* grpc_gen:: */ReverbService::StubInterface> stub,
         std::string table, int64_t samples_per_request);
 
     // Cancels the stream and marks the worker as closed. Active and future
@@ -214,7 +214,7 @@ class ReplaySampler {
 
    private:
     // Stub used to open `SampleStream`-streams to a server.
-    std::shared_ptr</* grpc_gen:: */ReplayService::StubInterface> stub_;
+    std::shared_ptr</* grpc_gen:: */ReverbService::StubInterface> stub_;
 
     // Name of the `PriorityTable` to sample from.
     const std::string table_;
@@ -253,7 +253,7 @@ class ReplaySampler {
   // Stub used by workers to open SampleStream-connections to the servers. Note
   // that the endpoints are load balanced using "roundrobin" which results in
   // uniform sampling when using multiple backends.
-  std::shared_ptr</* grpc_gen:: */ReplayService::StubInterface> stub_;
+  std::shared_ptr</* grpc_gen:: */ReverbService::StubInterface> stub_;
 
   // The maximum number of samples to fetch. Calls to `GetNextTimestep` or
   // `GetNextSample` after `max_samples_` has been returned will result in
@@ -296,4 +296,4 @@ class ReplaySampler {
 }  // namespace reverb
 }  // namespace deepmind
 
-#endif  // LEARNING_DEEPMIND_REPLAY_REVERB_REPLAY_SAMPLER_H_
+#endif  // LEARNING_DEEPMIND_REPLAY_REVERB_SAMPLER_H_

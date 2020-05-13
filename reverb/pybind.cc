@@ -23,6 +23,7 @@
 #include "pybind11/pybind11.h"
 #include "pybind11/stl.h"
 #include "reverb/cc/checkpointing/interface.h"
+#include "reverb/cc/client.h"
 #include "reverb/cc/distributions/fifo.h"
 #include "reverb/cc/distributions/heap.h"
 #include "reverb/cc/distributions/interface.h"
@@ -32,11 +33,10 @@
 #include "reverb/cc/platform/checkpointing.h"
 #include "reverb/cc/priority_table.h"
 #include "reverb/cc/rate_limiter.h"
-#include "reverb/cc/replay_client.h"
-#include "reverb/cc/replay_sampler.h"
-#include "reverb/cc/replay_writer.h"
-#include "reverb/cc/reverb_server.h"
+#include "reverb/cc/sampler.h"
+#include "reverb/cc/server.h"
 #include "reverb/cc/table_extensions/interface.h"
+#include "reverb/cc/writer.h"
 #include "tensorflow/core/framework/tensor.h"
 #include "tensorflow/core/framework/tensor_shape.h"
 #include "tensorflow/core/framework/types.h"
@@ -533,18 +533,17 @@ PYBIND11_MODULE(libpybind, m) {
       .def("can_insert", &PriorityTable::CanInsert,
            py::call_guard<py::gil_scoped_release>());
 
-  py::class_<ReplayWriter>(m, "ReplayWriter")
-      .def("AppendTimestep", &ReplayWriter::AppendTimestep,
+  py::class_<Writer>(m, "Writer")
+      .def("AppendTimestep", &Writer::AppendTimestep,
            py::call_guard<py::gil_scoped_release>())
-      .def("AddPriority", &ReplayWriter::AddPriority,
+      .def("AddPriority", &Writer::AddPriority,
            py::call_guard<py::gil_scoped_release>())
-      .def("Close", &ReplayWriter::Close,
-           py::call_guard<py::gil_scoped_release>());
+      .def("Close", &Writer::Close, py::call_guard<py::gil_scoped_release>());
 
-  py::class_<ReplaySampler>(m, "ReplaySampler")
+  py::class_<Sampler>(m, "Sampler")
       .def(
           "GetNextTimestep",
-          [](ReplaySampler *sampler) {
+          [](Sampler *sampler) {
             std::vector<tensorflow::Tensor> sample;
             bool end_of_sequence;
             MaybeRaiseFromStatus(
@@ -552,16 +551,15 @@ PYBIND11_MODULE(libpybind, m) {
             return std::make_pair(std::move(sample), end_of_sequence);
           },
           py::call_guard<py::gil_scoped_release>())
-      .def("Close", &ReplaySampler::Close,
-           py::call_guard<py::gil_scoped_release>());
+      .def("Close", &Sampler::Close, py::call_guard<py::gil_scoped_release>());
 
-  py::class_<ReplayClient>(m, "ReplayClient")
+  py::class_<Client>(m, "Client")
       .def(py::init<std::string>(), py::arg("server_name"))
       .def(
           "NewWriter",
-          [](ReplayClient *client, int chunk_length, int max_timesteps,
+          [](Client *client, int chunk_length, int max_timesteps,
              bool delta_encoded) {
-            std::unique_ptr<ReplayWriter> writer;
+            std::unique_ptr<Writer> writer;
             MaybeRaiseFromStatus(client->NewWriter(chunk_length, max_timesteps,
                                                    delta_encoded, &writer));
             return writer;
@@ -570,10 +568,10 @@ PYBIND11_MODULE(libpybind, m) {
           py::arg("max_timesteps"), py::arg("delta_encoded") = false)
       .def(
           "NewSampler",
-          [](ReplayClient *client, const std::string &table, int64_t max_samples,
+          [](Client *client, const std::string &table, int64_t max_samples,
              size_t buffer_size) {
-            std::unique_ptr<ReplaySampler> sampler;
-            ReplaySampler::Options options;
+            std::unique_ptr<Sampler> sampler;
+            Sampler::Options options;
             options.max_samples = max_samples;
             options.max_in_flight_samples_per_worker = buffer_size;
             MaybeRaiseFromStatus(client->NewSampler(table, options, &sampler));
@@ -582,7 +580,7 @@ PYBIND11_MODULE(libpybind, m) {
           py::call_guard<py::gil_scoped_release>())
       .def(
           "MutatePriorities",
-          [](ReplayClient *client, const std::string &table,
+          [](Client *client, const std::string &table,
              const std::vector<std::pair<uint64_t, double>> &updates,
              const std::vector<uint64_t> &deletes) {
             std::vector<KeyWithPriority> update_protos;
@@ -594,16 +592,15 @@ PYBIND11_MODULE(libpybind, m) {
             return client->MutatePriorities(table, update_protos, deletes);
           },
           py::call_guard<py::gil_scoped_release>())
-      .def("Reset", &ReplayClient::Reset,
-           py::call_guard<py::gil_scoped_release>())
+      .def("Reset", &Client::Reset, py::call_guard<py::gil_scoped_release>())
       .def("ServerInfo",
-           [](ReplayClient *client, int timeout_sec) {
+           [](Client *client, int timeout_sec) {
              // Wait indefinetely for server to startup when timeout not
              // provided.
              auto timeout = timeout_sec > 0 ? absl::Seconds(timeout_sec)
                                             : absl::InfiniteDuration();
 
-             struct ReplayClient::ServerInfo info;
+             struct Client::ServerInfo info;
 
              // Release the GIL only when waiting for the call to complete. If
              // the GIL is not held when `MaybeRaiseFromStatus` is called it can
@@ -625,7 +622,7 @@ PYBIND11_MODULE(libpybind, m) {
              }
              return serialized_table_info;
            })
-      .def("Checkpoint", [](ReplayClient *client) {
+      .def("Checkpoint", [](Client *client) {
         std::string path;
         MaybeRaiseFromStatus(client->Checkpoint(&path));
         return path;
@@ -642,25 +639,23 @@ PYBIND11_MODULE(libpybind, m) {
       },
       py::call_guard<py::gil_scoped_release>());
 
-  py::class_<ReverbServer, std::shared_ptr<ReverbServer>>(m, "ReverbServer")
+  py::class_<Server, std::shared_ptr<Server>>(m, "Server")
       .def(py::init(
                [](std::vector<std::shared_ptr<PriorityTable>> priority_tables,
                   int port,
                   std::shared_ptr<CheckpointerInterface> checkpointer =
                       nullptr) {
-                 std::unique_ptr<ReverbServer> server;
-                 MaybeRaiseFromStatus(ReverbServer::StartReverbServer(
-                     std::move(priority_tables), port, std::move(checkpointer),
-                     &server));
+                 std::unique_ptr<Server> server;
+                 MaybeRaiseFromStatus(
+                     Server::StartServer(std::move(priority_tables), port,
+                                         std::move(checkpointer), &server));
                  return server.release();
                }),
            py::arg("priority_tables"), py::arg("port"),
            py::arg("checkpointer") = nullptr)
-      .def("Stop", &ReverbServer::Stop,
-           py::call_guard<py::gil_scoped_release>())
-      .def("Wait", &ReverbServer::Wait,
-           py::call_guard<py::gil_scoped_release>())
-      .def("InProcessClient", &ReverbServer::InProcessClient,
+      .def("Stop", &Server::Stop, py::call_guard<py::gil_scoped_release>())
+      .def("Wait", &Server::Wait, py::call_guard<py::gil_scoped_release>())
+      .def("InProcessClient", &Server::InProcessClient,
            py::call_guard<py::gil_scoped_release>());
 }
 

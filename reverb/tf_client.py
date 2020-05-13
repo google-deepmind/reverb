@@ -26,7 +26,7 @@ from reverb.cc.ops import gen_dataset_op
 
 
 class ReplayDataset(tf.data.Dataset):
-  """A tf.data.Dataset which samples timesteps from the ReplayService.
+  """A tf.data.Dataset which samples timesteps from the ReverbService.
 
   Note: The dataset returns `ReplaySample` where `data` with the structure of
   `dtypes` and `shapes`.
@@ -60,7 +60,7 @@ class ReplayDataset(tf.data.Dataset):
     """Constructs a new ReplayDataset.
 
     Args:
-      server_address: Address of gRPC ReplayService.
+      server_address: Address of gRPC ReverbService.
       table: Probability table to sample from.
       dtypes: Dtypes of the data output. Can be nested.
       shapes: Shapes of the data output. Can be nested.

@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef REVERB_CC_REPLAY_SERVICE_IMPL_H_
-#define REVERB_CC_REPLAY_SERVICE_IMPL_H_
+#ifndef REVERB_CC_REVERB_SERVICE_IMPL_H_
+#define REVERB_CC_REVERB_SERVICE_IMPL_H_
 
 #include <memory>
 
@@ -25,17 +25,17 @@
 #include "reverb/cc/checkpointing/interface.h"
 #include "reverb/cc/chunk_store.h"
 #include "reverb/cc/priority_table.h"
-#include "reverb/cc/replay_service.grpc.pb.h"
-#include "reverb/cc/replay_service.pb.h"
+#include "reverb/cc/reverb_service.grpc.pb.h"
+#include "reverb/cc/reverb_service.pb.h"
 #include "reverb/cc/schema.pb.h"
 
 namespace deepmind {
 namespace reverb {
 
-// Implements ReplayService. See replay_service.proto for documentation.
-class ReplayServiceImpl : public /* grpc_gen:: */ReplayService::Service {
+// Implements ReverbService. See reverb_service.proto for documentation.
+class ReverbServiceImpl : public /* grpc_gen:: */ReverbService::Service {
  public:
-  explicit ReplayServiceImpl(
+  explicit ReverbServiceImpl(
       std::vector<std::shared_ptr<PriorityTable>> priority_tables,
       std::shared_ptr<CheckpointerInterface> checkpointer = nullptr);
 
@@ -106,4 +106,4 @@ class ReplayServiceImpl : public /* grpc_gen:: */ReplayService::Service {
 }  // namespace reverb
 }  // namespace deepmind
 
-#endif  // REVERB_CC_REPLAY_SERVICE_IMPL_H_
+#endif  // REVERB_CC_REVERB_SERVICE_IMPL_H_

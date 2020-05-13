@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "reverb/cc/replay_service_impl.h"
+#include "reverb/cc/reverb_service_impl.h"
 
 #include <list>
 #include <memory>
@@ -24,7 +24,7 @@
 #include "absl/time/time.h"
 #include "reverb/cc/checkpointing/interface.h"
 #include "reverb/cc/platform/logging.h"
-#include "reverb/cc/replay_service.grpc.pb.h"
+#include "reverb/cc/reverb_service.grpc.pb.h"
 #include "reverb/cc/support/grpc_util.h"
 #include "reverb/cc/support/uint128.h"
 #include "tensorflow/core/lib/core/errors.h"
@@ -45,7 +45,7 @@ inline grpc::Status Internal(const std::string& message) {
 
 }  // namespace
 
-ReplayServiceImpl::ReplayServiceImpl(
+ReverbServiceImpl::ReverbServiceImpl(
     std::vector<std::shared_ptr<PriorityTable>> priority_tables,
     std::shared_ptr<CheckpointerInterface> checkpointer)
     : checkpointer_(std::move(checkpointer)) {
@@ -65,7 +65,7 @@ ReplayServiceImpl::ReplayServiceImpl(
                                        absl::Uniform<uint64_t>(rnd_));
 }
 
-grpc::Status ReplayServiceImpl::Checkpoint(grpc::ServerContext* context,
+grpc::Status ReverbServiceImpl::Checkpoint(grpc::ServerContext* context,
                                            const CheckpointRequest* request,
                                            CheckpointResponse* response) {
   if (checkpointer_ == nullptr) {
@@ -87,14 +87,14 @@ grpc::Status ReplayServiceImpl::Checkpoint(grpc::ServerContext* context,
   return grpc::Status::OK;
 }
 
-grpc::Status ReplayServiceImpl::InsertStream(
+grpc::Status ReverbServiceImpl::InsertStream(
     grpc::ServerContext* context,
     grpc::ServerReader<InsertStreamRequest>* reader,
     InsertStreamResponse* response) {
   return InsertStreamInternal(context, reader, response);
 }
 
-grpc::Status ReplayServiceImpl::InsertStreamInternal(
+grpc::Status ReverbServiceImpl::InsertStreamInternal(
     grpc::ServerContext* context,
     grpc::ServerReaderInterface<InsertStreamRequest>* reader,
     InsertStreamResponse* response) {
@@ -136,11 +136,8 @@ grpc::Status ReplayServiceImpl::InsertStreamInternal(
 
       item.item = *request.mutable_item()->mutable_item();
 
-      {
-        auto status = priority_table->InsertOrAssign(item);
-        if (!status.ok()) {
-          return ToGrpcStatus(status);
-        }
+      if (auto status = priority_table->InsertOrAssign(item); !status.ok()) {
+        return ToGrpcStatus(status);
       }
 
       // Only keep specified chunks.
@@ -162,7 +159,7 @@ grpc::Status ReplayServiceImpl::InsertStreamInternal(
   return grpc::Status::OK;
 }
 
-grpc::Status ReplayServiceImpl::MutatePriorities(
+grpc::Status ReverbServiceImpl::MutatePriorities(
     grpc::ServerContext* context, const MutatePrioritiesRequest* request,
     MutatePrioritiesResponse* response) {
   PriorityTable* priority_table = PriorityTableByName(request->table());
@@ -176,7 +173,7 @@ grpc::Status ReplayServiceImpl::MutatePriorities(
   return grpc::Status::OK;
 }
 
-grpc::Status ReplayServiceImpl::Reset(grpc::ServerContext* context,
+grpc::Status ReverbServiceImpl::Reset(grpc::ServerContext* context,
                                       const ResetRequest* request,
                                       ResetResponse* response) {
   PriorityTable* priority_table = PriorityTableByName(request->table());
@@ -189,14 +186,14 @@ grpc::Status ReplayServiceImpl::Reset(grpc::ServerContext* context,
   return grpc::Status::OK;
 }
 
-grpc::Status ReplayServiceImpl::SampleStream(
+grpc::Status ReverbServiceImpl::SampleStream(
     grpc::ServerContext* context,
     grpc::ServerReaderWriter<SampleStreamResponse, SampleStreamRequest>*
         stream) {
   return SampleStreamInternal(context, stream);
 }
 
-grpc::Status ReplayServiceImpl::SampleStreamInternal(
+grpc::Status ReverbServiceImpl::SampleStreamInternal(
     grpc::ServerContext* context,
     grpc::ServerReaderWriterInterface<SampleStreamResponse,
                                       SampleStreamRequest>* stream) {
@@ -216,12 +213,8 @@ grpc::Status ReplayServiceImpl::SampleStreamInternal(
     int count = 0;
     while (!context->IsCancelled() && count++ != request.num_samples()) {
       PriorityTable::SampledItem sample;
-      {
-
-        auto status = priority_table->Sample(&sample);
-        if (!status.ok()) {
-          return ToGrpcStatus(status);
-        }
+      if (auto status = priority_table->Sample(&sample); !status.ok()) {
+        return ToGrpcStatus(status);
       }
 
       for (int i = 0; i < sample.chunks.size(); i++) {
@@ -258,20 +251,20 @@ grpc::Status ReplayServiceImpl::SampleStreamInternal(
   return grpc::Status::OK;
 }
 
-PriorityTable* ReplayServiceImpl::PriorityTableByName(
+PriorityTable* ReverbServiceImpl::PriorityTableByName(
     absl::string_view name) const {
   auto it = priority_tables_.find(name);
   if (it == priority_tables_.end()) return nullptr;
   return it->second.get();
 }
 
-void ReplayServiceImpl::Close() {
+void ReverbServiceImpl::Close() {
   for (auto& table : priority_tables_) {
     table.second->Close();
   }
 }
 
-grpc::Status ReplayServiceImpl::ServerInfo(grpc::ServerContext* context,
+grpc::Status ReverbServiceImpl::ServerInfo(grpc::ServerContext* context,
                                            const ServerInfoRequest* request,
                                            ServerInfoResponse* response) {
   for (const auto& iter : priority_tables_) {
@@ -282,7 +275,7 @@ grpc::Status ReplayServiceImpl::ServerInfo(grpc::ServerContext* context,
 }
 
 absl::flat_hash_map<std::string, std::shared_ptr<PriorityTable>>
-ReplayServiceImpl::tables() const {
+ReverbServiceImpl::tables() const {
   return priority_tables_;
 }
 

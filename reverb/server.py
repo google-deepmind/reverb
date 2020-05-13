@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Python bindings for creating and serving the Reverb ReplayService.
+"""Python bindings for creating and serving the Reverb ReverbService.
 
 See ./client.py and ./tf_client.py for details of how to interact with the
 service.
@@ -175,8 +175,8 @@ class PriorityTable:
 class Server:
   """Reverb replay server.
 
-  The Server hosts the gRPC-service deepmind.reverb.ReplayService (see
-  //third_party/reverb/replay_service.proto). See ./client.py and
+  The Server hosts the gRPC-service deepmind.reverb.ReverbService (see
+  //third_party/reverb/reverb_service.proto). See ./client.py and
   ./tf_client for details of how to interact with the service.
 
   A Server maintains inserted data and one or more PriorityTables.
@@ -190,7 +190,7 @@ class Server:
                priority_tables: List[PriorityTable],
                port: Union[int, None],
                checkpointer: checkpointer_lib.CheckpointerBase = None):
-    """Constructor of Server serving the ReplayService.
+    """Constructor of Server serving the ReverbService.
 
     Args:
       priority_tables: A list of priority tables to host on the server.
@@ -219,7 +219,7 @@ class Server:
     if checkpointer is None:
       checkpointer = checkpointer_lib.default_checkpointer()
 
-    self._server = pybind.ReverbServer(
+    self._server = pybind.Server(
         [table.internal_table for table in priority_tables], port,
         checkpointer.internal_checkpointer())
     self._port = port
@@ -238,11 +238,11 @@ class Server:
     return self._port
 
   def stop(self):
-    """Request that the ReplayService is terminated and wait for shutdown."""
+    """Request that the ReverbService is terminated and wait for shutdown."""
     return self._server.Stop()
 
   def wait(self):
-    """Wait indefinitely for the ReplayService to stop."""
+    """Wait indefinitely for the ReverbService to stop."""
     return self._server.Wait()
 
   def in_process_client(self):
@@ -251,7 +251,7 @@ class Server:
     This bypasses proto serialization and network overhead.
 
     Returns:
-      ReplayClient. Must not be used after this ReplayServer has been stopped!
+      Client. Must not be used after this ReplayServer has been stopped!
     """
     return client.Client(f'[::1]:{self._port}',
                          self._server.InProcessClient())

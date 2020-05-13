@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "reverb/cc/replay_client.h"
+#include "reverb/cc/client.h"
 
 #include <algorithm>
 #include <memory>
@@ -22,7 +22,7 @@
 #include "absl/time/time.h"
 #include "reverb/cc/platform/grpc_utils.h"
 #include "reverb/cc/platform/logging.h"
-#include "reverb/cc/replay_service.pb.h"
+#include "reverb/cc/reverb_service.pb.h"
 #include "reverb/cc/schema.pb.h"
 #include "reverb/cc/support/grpc_util.h"
 #include "reverb/cc/support/uint128.h"
@@ -46,17 +46,17 @@ grpc::ChannelArguments CreateChannelArguments() {
 
 }  // namespace
 
-ReplayClient::ReplayClient(
-    std::shared_ptr</* grpc_gen:: */ReplayService::StubInterface> stub)
+Client::Client(std::shared_ptr</* grpc_gen:: */ReverbService::StubInterface> stub)
     : stub_(std::move(stub)) {
   REVERB_CHECK(stub_ != nullptr);
 }
 
-ReplayClient::ReplayClient(absl::string_view server_address)
-    : stub_(/* grpc_gen:: */ReplayService::NewStub(CreateCustomGrpcChannel(
-        server_address, MakeChannelCredentials(), CreateChannelArguments()))) {}
+Client::Client(absl::string_view server_address)
+    : stub_(/* grpc_gen:: */ReverbService::NewStub(
+          CreateCustomGrpcChannel(server_address, MakeChannelCredentials(),
+                                  CreateChannelArguments()))) {}
 
-tensorflow::Status ReplayClient::MaybeUpdateServerInfoCache(
+tensorflow::Status Client::MaybeUpdateServerInfoCache(
     absl::Duration timeout,
     std::shared_ptr<internal::FlatSignatureMap>* cached_flat_signatures) {
   // TODO(b/154927570): Once tables can be mutated on the server, we'll need to
@@ -73,7 +73,7 @@ tensorflow::Status ReplayClient::MaybeUpdateServerInfoCache(
 
   // This performs an RPC, so don't run it within a mutex.
   // Note, this operation can run into a race condition where multiple
-  // threads of the same ReplayClient request server info, get different
+  // threads of the same Client request server info, get different
   // values, and one of these overwrites cached_table_info_ with a staler
   // ServerInfo after another thread writes a newer version of ServerInfo
   // Then future writers see stale signatures.
@@ -98,9 +98,9 @@ tensorflow::Status ReplayClient::MaybeUpdateServerInfoCache(
   return tensorflow::Status::OK();
 }
 
-tensorflow::Status ReplayClient::NewWriter(
-    int chunk_length, int max_timesteps, bool delta_encoded,
-    std::unique_ptr<ReplayWriter>* writer) {
+tensorflow::Status Client::NewWriter(int chunk_length, int max_timesteps,
+                                     bool delta_encoded,
+                                     std::unique_ptr<Writer>* writer) {
   // TODO(b/154928265): caching this request?  For example, if
   // it's been N seconds or minutes, it may be time to
   // get an updated ServerInfo and see if there are new tables.
@@ -110,13 +110,13 @@ tensorflow::Status ReplayClient::NewWriter(
   // some limits.
   TF_RETURN_IF_ERROR(MaybeUpdateServerInfoCache(absl::InfiniteDuration(),
                                                 &cached_flat_signatures));
-  *writer = absl::make_unique<ReplayWriter>(stub_, chunk_length, max_timesteps,
-                                            delta_encoded,
-                                            std::move(cached_flat_signatures));
+  *writer = absl::make_unique<Writer>(stub_, chunk_length, max_timesteps,
+                                      delta_encoded,
+                                      std::move(cached_flat_signatures));
   return tensorflow::Status::OK();
 }
 
-tensorflow::Status ReplayClient::MutatePriorities(
+tensorflow::Status Client::MutatePriorities(
     absl::string_view table, const std::vector<KeyWithPriority>& updates,
     const std::vector<uint64_t>& deletes) {
   grpc::ClientContext context;
@@ -133,19 +133,18 @@ tensorflow::Status ReplayClient::MutatePriorities(
   return FromGrpcStatus(stub_->MutatePriorities(&context, request, &response));
 }
 
-tensorflow::Status ReplayClient::NewSampler(
-    const std::string& table, const ReplaySampler::Options& options,
-    std::unique_ptr<ReplaySampler>* sampler) {
-  *sampler = absl::make_unique<ReplaySampler>(stub_, table, options);
+tensorflow::Status Client::NewSampler(const std::string& table,
+                                      const Sampler::Options& options,
+                                      std::unique_ptr<Sampler>* sampler) {
+  *sampler = absl::make_unique<Sampler>(stub_, table, options);
   return tensorflow::Status::OK();
 }
 
-tensorflow::Status ReplayClient::NewSampler(
-    const std::string& table, const ReplaySampler::Options& options,
+tensorflow::Status Client::NewSampler(
+    const std::string& table, const Sampler::Options& options,
     const tensorflow::DataTypeVector& validation_dtypes,
     const std::vector<tensorflow::PartialTensorShape>& validation_shapes,
-    absl::Duration validation_timeout,
-    std::unique_ptr<ReplaySampler>* sampler) {
+    absl::Duration validation_timeout, std::unique_ptr<Sampler>* sampler) {
   // TODO(b/154928265): caching this request?  For example, if
   // it's been N seconds or minutes, it may be time to
   // get an updated ServerInfo and see if there are new tables.
@@ -212,8 +211,8 @@ tensorflow::Status ReplayClient::NewSampler(
   return NewSampler(table, options, sampler);
 }
 
-tensorflow::Status ReplayClient::GetServerInfo(absl::Duration timeout,
-                                               struct ServerInfo* info) {
+tensorflow::Status Client::GetServerInfo(absl::Duration timeout,
+                                         struct ServerInfo* info) {
   grpc::ClientContext context;
   context.set_wait_for_ready(true);
   if (timeout != absl::InfiniteDuration()) {
@@ -232,12 +231,12 @@ tensorflow::Status ReplayClient::GetServerInfo(absl::Duration timeout,
   return tensorflow::Status::OK();
 }
 
-tensorflow::Status ReplayClient::ServerInfo(struct ServerInfo* info) {
+tensorflow::Status Client::ServerInfo(struct ServerInfo* info) {
   return ServerInfo(absl::InfiniteDuration(), info);
 }
 
-tensorflow::Status ReplayClient::ServerInfo(absl::Duration timeout,
-                                            struct ServerInfo* info) {
+tensorflow::Status Client::ServerInfo(absl::Duration timeout,
+                                      struct ServerInfo* info) {
   struct ServerInfo local_info;
   TF_RETURN_IF_ERROR(GetServerInfo(timeout, &local_info));
   {
@@ -248,7 +247,7 @@ tensorflow::Status ReplayClient::ServerInfo(absl::Duration timeout,
   return tensorflow::Status::OK();
 }
 
-tensorflow::Status ReplayClient::LockedUpdateServerInfoCache(
+tensorflow::Status Client::LockedUpdateServerInfoCache(
     const struct ServerInfo& info) {
   if (!cached_flat_signatures_ || tables_state_id_ != info.tables_state_id) {
     internal::FlatSignatureMap signatures;
@@ -263,7 +262,7 @@ tensorflow::Status ReplayClient::LockedUpdateServerInfoCache(
   return tensorflow::Status::OK();
 }
 
-tensorflow::Status ReplayClient::Reset(const std::string& table) {
+tensorflow::Status Client::Reset(const std::string& table) {
   grpc::ClientContext context;
   context.set_wait_for_ready(true);
   ResetRequest request;
@@ -272,7 +271,7 @@ tensorflow::Status ReplayClient::Reset(const std::string& table) {
   return FromGrpcStatus(stub_->Reset(&context, request, &response));
 }
 
-tensorflow::Status ReplayClient::Checkpoint(std::string* path) {
+tensorflow::Status Client::Checkpoint(std::string* path) {
   grpc::ClientContext context;
   context.set_fail_fast(true);
   CheckpointRequest request;

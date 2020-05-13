@@ -42,7 +42,9 @@ reverb_pytype_strict_library(
     name = "rate_limiters",
     srcs = ["rate_limiters.py"],
     srcs_version = "PY3",
-    deps = [":pybind"],
+    deps = [
+        ":pybind",
+    ],
 )
 
 reverb_pytype_library(
@@ -97,10 +99,10 @@ reverb_pybind_extension(
     visibility = ["//reverb:__subpackages__"],
     deps = [
         "//reverb/cc:priority_table",
-        "//reverb/cc:replay_client",
-        "//reverb/cc:replay_writer",
-        "//reverb/cc:replay_sampler",
-        "//reverb/cc:reverb_server",
+        "//reverb/cc:client",
+        "//reverb/cc:writer",
+        "//reverb/cc:sampler",
+        "//reverb/cc:server",
         "//reverb/cc/checkpointing:interface",
         "//reverb/cc/distributions:fifo",
         "//reverb/cc/distributions:heap",
@@ -199,12 +201,16 @@ reverb_py_test(
     name = "rate_limiters_test",
     srcs = ["rate_limiters_test.py"],
     python_version = "PY3",
-    deps = [":rate_limiters"],
+    deps = [
+        ":rate_limiters",
+    ],
 )
 
 reverb_py_test(
     name = "pybind_test",
     srcs = ["pybind_test.py"],
     python_version = "PY3",
-    deps = [":reverb"],
+    deps = [
+        ":reverb",
+    ],
 )

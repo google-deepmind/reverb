@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "reverb/cc/replay_sampler.h"
+#include "reverb/cc/sampler.h"
 
 #include <algorithm>
 #include <string>
@@ -21,7 +21,7 @@
 #include "grpcpp/impl/codegen/sync_stream.h"
 #include "reverb/cc/platform/logging.h"
 #include "reverb/cc/platform/thread.h"
-#include "reverb/cc/replay_service.pb.h"
+#include "reverb/cc/reverb_service.pb.h"
 #include "reverb/cc/support/grpc_util.h"
 #include "reverb/cc/tensor_compression.h"
 #include "tensorflow/core/framework/tensor_util.h"
@@ -117,9 +117,8 @@ std::unique_ptr<Sample> AsSample(std::vector<SampleStreamResponse> responses) {
 
 }  // namespace
 
-ReplaySampler::ReplaySampler(
-    std::shared_ptr</* grpc_gen:: */ReplayService::StubInterface> stub,
-    const std::string& table, const Options& options)
+Sampler::Sampler(std::shared_ptr</* grpc_gen:: */ReverbService::StubInterface> stub,
+                 const std::string& table, const Options& options)
     : stub_(std::move(stub)),
       max_samples_(options.max_samples == kUnlimitedMaxSamples
                        ? INT64_MAX
@@ -154,9 +153,9 @@ ReplaySampler::ReplaySampler(
   }
 }
 
-ReplaySampler::~ReplaySampler() { Close(); }
+Sampler::~Sampler() { Close(); }
 
-tensorflow::Status ReplaySampler::GetNextTimestep(
+tensorflow::Status Sampler::GetNextTimestep(
     std::vector<tensorflow::Tensor>* data, bool* end_of_sequence) {
   TF_RETURN_IF_ERROR(MaybeSampleNext());
 
@@ -174,7 +173,7 @@ tensorflow::Status ReplaySampler::GetNextTimestep(
   return tensorflow::Status::OK();
 }
 
-tensorflow::Status ReplaySampler::GetNextSample(
+tensorflow::Status Sampler::GetNextSample(
     std::vector<tensorflow::Tensor>* data) {
   std::unique_ptr<Sample> sample;
   TF_RETURN_IF_ERROR(PopNextSample(&sample));
@@ -185,11 +184,11 @@ tensorflow::Status ReplaySampler::GetNextSample(
   return tensorflow::Status::OK();
 }
 
-bool ReplaySampler::should_stop_workers() const {
+bool Sampler::should_stop_workers() const {
   return closed_ || returned_ == max_samples_ || !stream_status_.ok();
 }
 
-void ReplaySampler::Close() {
+void Sampler::Close() {
   {
     absl::WriterMutexLock lock(&mu_);
     if (closed_) return;
@@ -204,7 +203,7 @@ void ReplaySampler::Close() {
   worker_threads_.clear();  // Joins worker threads.
 }
 
-tensorflow::Status ReplaySampler::MaybeSampleNext() {
+tensorflow::Status Sampler::MaybeSampleNext() {
   if (active_sample_ != nullptr && !active_sample_->is_end_of_sample()) {
     return tensorflow::Status::OK();
   }
@@ -212,8 +211,7 @@ tensorflow::Status ReplaySampler::MaybeSampleNext() {
   return PopNextSample(&active_sample_);
 }
 
-tensorflow::Status ReplaySampler::PopNextSample(
-    std::unique_ptr<Sample>* sample) {
+tensorflow::Status Sampler::PopNextSample(std::unique_ptr<Sample>* sample) {
   if (samples_.Pop(sample)) return tensorflow::Status::OK();
 
   absl::ReaderMutexLock lock(&mu_);
@@ -226,7 +224,7 @@ tensorflow::Status ReplaySampler::PopNextSample(
   return FromGrpcStatus(stream_status_);
 }
 
-void ReplaySampler::RunWorker(Worker* worker) {
+void Sampler::RunWorker(Worker* worker) {
   auto trigger = [this]() ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_) {
     return should_stop_workers() || requested_ < max_samples_;
   };
@@ -264,14 +262,14 @@ void ReplaySampler::RunWorker(Worker* worker) {
   }
 }
 
-ReplaySampler::Worker::Worker(
-    std::shared_ptr</* grpc_gen:: */ReplayService::StubInterface> stub,
+Sampler::Worker::Worker(
+    std::shared_ptr</* grpc_gen:: */ReverbService::StubInterface> stub,
     std::string table, int64_t samples_per_request)
     : stub_(std::move(stub)),
       table_(std::move(table)),
       samples_per_request_(samples_per_request) {}
 
-std::pair<int64_t, grpc::Status> ReplaySampler::Worker::OpenStreamAndFetch(
+std::pair<int64_t, grpc::Status> Sampler::Worker::OpenStreamAndFetch(
     deepmind::reverb::internal::Queue<std::unique_ptr<Sample>>* queue,
     int64_t num_samples) {
   std::unique_ptr<grpc::ClientReaderWriterInterface<SampleStreamRequest,
@@ -281,7 +279,7 @@ std::pair<int64_t, grpc::Status> ReplaySampler::Worker::OpenStreamAndFetch(
     absl::MutexLock lock(&mu_);
     if (closed_) {
       return {0, grpc::Status(grpc::StatusCode::CANCELLED,
-                              "`Close` called on ReplaySampler.")};
+                              "`Close` called on Sampler.")};
     }
     context_ = absl::make_unique<grpc::ClientContext>();
     context_->set_wait_for_ready(false);
@@ -312,7 +310,7 @@ std::pair<int64_t, grpc::Status> ReplaySampler::Worker::OpenStreamAndFetch(
       if (!queue->Push(AsSample(std::move(responses)))) {
         return {num_samples_returned,
                 grpc::Status(grpc::StatusCode::CANCELLED,
-                             "`Close` called on ReplaySampler.")};
+                             "`Close` called on Sampler.")};
       }
       ++num_samples_returned;
     }
@@ -323,7 +321,7 @@ std::pair<int64_t, grpc::Status> ReplaySampler::Worker::OpenStreamAndFetch(
   return {num_samples_returned, grpc::Status::OK};
 }
 
-void ReplaySampler::Worker::Cancel() {
+void Sampler::Worker::Cancel() {
   absl::MutexLock lock(&mu_);
   closed_ = true;
   if (context_ != nullptr) context_->TryCancel();

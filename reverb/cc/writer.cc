@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "reverb/cc/replay_writer.h"
+#include "reverb/cc/writer.h"
 
 #include <algorithm>
 #include <iterator>
@@ -53,10 +53,9 @@ int PositiveModulo(int value, int divisor) {
 
 }  // namespace
 
-ReplayWriter::ReplayWriter(
-    std::shared_ptr</* grpc_gen:: */ReplayService::StubInterface> stub,
-    int chunk_length, int max_timesteps, bool delta_encoded,
-    std::shared_ptr<internal::FlatSignatureMap> signatures)
+Writer::Writer(std::shared_ptr</* grpc_gen:: */ReverbService::StubInterface> stub,
+               int chunk_length, int max_timesteps, bool delta_encoded,
+               std::shared_ptr<internal::FlatSignatureMap> signatures)
     : stub_(std::move(stub)),
       chunk_length_(chunk_length),
       max_timesteps_(max_timesteps),
@@ -68,11 +67,11 @@ ReplayWriter::ReplayWriter(
       closed_(false),
       inserted_dtypes_and_shapes_(max_timesteps) {}
 
-ReplayWriter::~ReplayWriter() {
+Writer::~Writer() {
   if (!closed_) Close().IgnoreError();
 }
 
-tensorflow::Status ReplayWriter::AppendTimestep(
+tensorflow::Status Writer::AppendTimestep(
     std::vector<tensorflow::Tensor> data) {
   if (closed_) {
     return tensorflow::errors::FailedPrecondition(
@@ -111,9 +110,8 @@ tensorflow::Status ReplayWriter::AppendTimestep(
   return status;
 }
 
-tensorflow::Status ReplayWriter::AddPriority(const std::string& table,
-                                             int num_timesteps,
-                                             double priority) {
+tensorflow::Status Writer::AddPriority(const std::string& table,
+                                       int num_timesteps, double priority) {
   if (closed_) {
     return tensorflow::errors::FailedPrecondition(
         "Calling method AddPriority after Close has been called");
@@ -218,7 +216,7 @@ tensorflow::Status ReplayWriter::AddPriority(const std::string& table,
   return tensorflow::Status::OK();
 }
 
-tensorflow::Status ReplayWriter::Close() {
+tensorflow::Status Writer::Close() {
   if (closed_)
     return tensorflow::errors::FailedPrecondition(
         "Calling method Close after Close has been called");
@@ -239,7 +237,7 @@ tensorflow::Status ReplayWriter::Close() {
   return tensorflow::Status::OK();
 }
 
-tensorflow::Status ReplayWriter::Finish() {
+tensorflow::Status Writer::Finish() {
   SequenceRange sequence;
   std::vector<tensorflow::Tensor> batched_tensors;
   for (int i = 0; i < buffer_[0].size(); ++i) {
@@ -288,7 +286,7 @@ tensorflow::Status ReplayWriter::Finish() {
   return status;
 }
 
-tensorflow::Status ReplayWriter::WriteWithRetries() {
+tensorflow::Status Writer::WriteWithRetries() {
   tensorflow::Status status;
   while (true) {
     if (WritePendingData()) return tensorflow::Status::OK();
@@ -300,7 +298,7 @@ tensorflow::Status ReplayWriter::WriteWithRetries() {
   return status;
 }
 
-bool ReplayWriter::WritePendingData() {
+bool Writer::WritePendingData() {
   if (!stream_) {
     streamed_chunk_keys_.clear();
     context_ = absl::make_unique<grpc::ClientContext>();
@@ -346,11 +344,11 @@ bool ReplayWriter::WritePendingData() {
   return true;
 }
 
-uint64_t ReplayWriter::NewID() {
+uint64_t Writer::NewID() {
   return absl::Uniform<uint64_t>(bit_gen_, 0, UINT64_MAX);
 }
 
-tensorflow::Status ReplayWriter::GetFlatSignature(
+tensorflow::Status Writer::GetFlatSignature(
     absl::string_view table,
     const internal::DtypesAndShapes** dtypes_and_shapes) const {
   static const auto* empty_dtypes_and_shapes =

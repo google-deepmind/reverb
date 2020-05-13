@@ -14,7 +14,7 @@ reverb_kernel_library(
     name = "client",
     srcs = ["client.cc"],
     deps = [
-        "//reverb/cc:replay_client",
+        "//reverb/cc:client",
     ] + reverb_absl_deps(),
 )
 
@@ -22,8 +22,8 @@ reverb_kernel_library(
     name = "dataset",
     srcs = ["dataset.cc"],
     deps = [
-        "//reverb/cc:replay_client",
-        "//reverb/cc:replay_sampler",
+        "//reverb/cc:client",
+        "//reverb/cc:sampler",
         "//reverb/cc/platform:logging",
     ],
 )

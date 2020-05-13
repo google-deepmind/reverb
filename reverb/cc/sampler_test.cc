@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "reverb/cc/replay_sampler.h"
+#include "reverb/cc/sampler.h"
 
 #include <list>
 #include <vector>
@@ -28,8 +28,8 @@
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "reverb/cc/platform/logging.h"
-#include "reverb/cc/replay_service.pb.h"
-#include "reverb/cc/replay_service_mock.grpc.pb.h"
+#include "reverb/cc/reverb_service.pb.h"
+#include "reverb/cc/reverb_service_mock.grpc.pb.h"
 #include "reverb/cc/tensor_compression.h"
 #include "reverb/cc/testing/tensor_testutil.h"
 #include "reverb/cc/testing/time_testutil.h"
@@ -86,7 +86,7 @@ class FakeStream
   grpc::Status status_;
 };
 
-class FakeStub : public /* grpc_gen:: */MockReplayServiceStub {
+class FakeStub : public /* grpc_gen:: */MockReverbServiceStub {
  public:
   grpc::ClientReaderWriterInterface<SampleStreamRequest, SampleStreamResponse>*
   SampleStreamRaw(grpc::ClientContext* context) override {
@@ -174,18 +174,18 @@ SampleStreamResponse MakeResponse(int item_length, bool delta_encode = false,
   return response;
 }
 
-TEST(ReplaySamplerTest, SendsFirstRequest) {
+TEST(SamplerTest, SendsFirstRequest) {
   auto stub = MakeGoodStub({MakeResponse(1)});
-  ReplaySampler sampler(stub, "table", {1, 1, 1});
+  Sampler sampler(stub, "table", {1, 1, 1});
   std::vector<tensorflow::Tensor> sample;
   bool end_of_sequence;
   TF_EXPECT_OK(sampler.GetNextTimestep(&sample, &end_of_sequence));
   EXPECT_THAT(stub->requests(), SizeIs(1));
 }
 
-TEST(ReplaySamplerTest, SetsEndOfSequence) {
+TEST(SamplerTest, SetsEndOfSequence) {
   auto stub = MakeGoodStub({MakeResponse(2), MakeResponse(1)});
-  ReplaySampler sampler(stub, "table", {2, 1});
+  Sampler sampler(stub, "table", {2, 1});
 
   std::vector<tensorflow::Tensor> sample;
   bool end_of_sequence;
@@ -207,9 +207,9 @@ TEST(ReplaySamplerTest, SetsEndOfSequence) {
   EXPECT_TRUE(end_of_sequence);
 }
 
-TEST(ReplaySamplerTest, GetNextSampleReturnsWholeSequence) {
+TEST(SamplerTest, GetNextSampleReturnsWholeSequence) {
   auto stub = MakeGoodStub({MakeResponse(5), MakeResponse(3)});
-  ReplaySampler sampler(stub, "table", {2, 1});
+  Sampler sampler(stub, "table", {2, 1});
 
   std::vector<tensorflow::Tensor> first;
   TF_EXPECT_OK(sampler.GetNextSample(&first));
@@ -222,13 +222,13 @@ TEST(ReplaySamplerTest, GetNextSampleReturnsWholeSequence) {
   ExpectTensorEqual<tensorflow::uint64>(second[3], MakeTensor(3));
 }
 
-TEST(ReplaySamplerTest, GetNextSampleTrimsSequence) {
+TEST(SamplerTest, GetNextSampleTrimsSequence) {
   auto stub = MakeGoodStub({
       MakeResponse(5, false, 1, 6),   // Trim offset at the start.
       MakeResponse(3, false, 0, 4),   // Trim timestep from end.
       MakeResponse(2, false, 1, 10),  // Trim offset and end.
   });
-  ReplaySampler sampler(stub, "table", {3, 1});
+  Sampler sampler(stub, "table", {3, 1});
 
   std::vector<tensorflow::Tensor> start_trimmed;
   TF_EXPECT_OK(sampler.GetNextSample(&start_trimmed));
@@ -252,7 +252,7 @@ TEST(ReplaySamplerTest, GetNextSampleTrimsSequence) {
       tensorflow::tensor::DeepCopy(MakeTensor(10).Slice(1, 3)));
 }
 
-TEST(ReplaySamplerTest, RespectsBufferSizeAndMaxSamples) {
+TEST(SamplerTest, RespectsBufferSizeAndMaxSamples) {
   const int kMaxSamples = 20;
   const int kMaxInFlightSamplesPerWorker = 11;
   const int kNumWorkers = 1;
@@ -261,8 +261,8 @@ TEST(ReplaySamplerTest, RespectsBufferSizeAndMaxSamples) {
   for (int i = 0; i < 40; i++) responses.push_back(MakeResponse(1));
   auto stub = MakeGoodStub(std::move(responses));
 
-  ReplaySampler sampler(
-      stub, "table", {kMaxSamples, kMaxInFlightSamplesPerWorker, kNumWorkers});
+  Sampler sampler(stub, "table",
+                  {kMaxSamples, kMaxInFlightSamplesPerWorker, kNumWorkers});
 
   test::WaitFor(
       [&]() {
@@ -318,9 +318,9 @@ TEST(ReplaySamplerTest, RespectsBufferSizeAndMaxSamples) {
   EXPECT_THAT(stub->requests(), SizeIs(2));
 }
 
-TEST(ReplaySamplerTest, UnpacksDeltaEncodedTensors) {
+TEST(SamplerTest, UnpacksDeltaEncodedTensors) {
   auto stub = MakeGoodStub({MakeResponse(10, false), MakeResponse(10, true)});
-  ReplaySampler sampler(stub, "table", {2, 1});
+  Sampler sampler(stub, "table", {2, 1});
   std::vector<tensorflow::Tensor> not_encoded;
   std::vector<tensorflow::Tensor> encoded;
   TF_EXPECT_OK(sampler.GetNextSample(&not_encoded));
@@ -332,14 +332,14 @@ TEST(ReplaySamplerTest, UnpacksDeltaEncodedTensors) {
   }
 }
 
-TEST(ReplaySamplerTest, GetNextTimestepForwardsFatalServerError) {
+TEST(SamplerTest, GetNextTimestepForwardsFatalServerError) {
   const int kNumWorkers = 4;
   const int kItemLength = 10;
   const auto kError = grpc::Status(grpc::StatusCode::NOT_FOUND, "");
 
   auto stub = MakeFlakyStub({MakeResponse(kItemLength)}, {kError});
-  ReplaySampler sampler(stub, "table",
-                        {ReplaySampler::kUnlimitedMaxSamples, 1, kNumWorkers});
+  Sampler sampler(stub, "table",
+                  {Sampler::kUnlimitedMaxSamples, 1, kNumWorkers});
 
   // It is possible that the sample returned by one of the workers is reached
   // before the failing worker has reported it's error so we need to pop at
@@ -354,14 +354,14 @@ TEST(ReplaySamplerTest, GetNextTimestepForwardsFatalServerError) {
   sampler.Close();
 }
 
-TEST(ReplaySamplerTest, GetNextSampleForwardsFatalServerError) {
+TEST(SamplerTest, GetNextSampleForwardsFatalServerError) {
   const int kNumWorkers = 4;
   const int kItemLength = 10;
   const auto kError = grpc::Status(grpc::StatusCode::NOT_FOUND, "");
 
   auto stub = MakeFlakyStub({MakeResponse(kItemLength)}, {kError});
-  ReplaySampler sampler(stub, "table",
-                        {ReplaySampler::kUnlimitedMaxSamples, 1, kNumWorkers});
+  Sampler sampler(stub, "table",
+                  {Sampler::kUnlimitedMaxSamples, 1, kNumWorkers});
 
   // It is possible that the sample returned by one of the workers is reached
   // before the failing worker has reported it's error so we need to pop at
@@ -374,15 +374,15 @@ TEST(ReplaySamplerTest, GetNextSampleForwardsFatalServerError) {
   EXPECT_EQ(status.code(), tensorflow::error::NOT_FOUND);
 }
 
-TEST(ReplaySamplerTest, GetNextTimestepRetriesTransientErrors) {
+TEST(SamplerTest, GetNextTimestepRetriesTransientErrors) {
   const int kNumWorkers = 2;
   const int kItemLength = 10;
   const auto kError = grpc::Status(grpc::StatusCode::UNAVAILABLE, "");
 
   auto stub = MakeFlakyStub(
       {MakeResponse(kItemLength), MakeResponse(kItemLength)}, {kError});
-  ReplaySampler sampler(stub, "table",
-                        {ReplaySampler::kUnlimitedMaxSamples, 1, kNumWorkers});
+  Sampler sampler(stub, "table",
+                  {Sampler::kUnlimitedMaxSamples, 1, kNumWorkers});
 
   // It is possible that the sample returned by one of the workers is reached
   // before the failing worker has reported it's error so we need to pop at
@@ -394,15 +394,15 @@ TEST(ReplaySamplerTest, GetNextTimestepRetriesTransientErrors) {
   }
 }
 
-TEST(ReplaySamplerTest, GetNextSampleRetriesTransientErrors) {
+TEST(SamplerTest, GetNextSampleRetriesTransientErrors) {
   const int kNumWorkers = 2;
   const int kItemLength = 10;
   const auto kError = grpc::Status(grpc::StatusCode::UNAVAILABLE, "");
 
   auto stub = MakeFlakyStub(
       {MakeResponse(kItemLength), MakeResponse(kItemLength)}, {kError});
-  ReplaySampler sampler(stub, "table",
-                        {ReplaySampler::kUnlimitedMaxSamples, 1, kNumWorkers});
+  Sampler sampler(stub, "table",
+                  {Sampler::kUnlimitedMaxSamples, 1, kNumWorkers});
 
   // It is possible that the sample returned by one of the workers is reached
   // before the failing worker has reported it's error so we need to pop at
@@ -413,9 +413,9 @@ TEST(ReplaySamplerTest, GetNextSampleRetriesTransientErrors) {
   }
 }
 
-TEST(ReplaySamplerTest, GetNextTimestepReturnsErrorIfMaximumSamplesExceeded) {
+TEST(SamplerTest, GetNextTimestepReturnsErrorIfMaximumSamplesExceeded) {
   auto stub = MakeGoodStub({MakeResponse(1), MakeResponse(1), MakeResponse(1)});
-  ReplaySampler sampler(stub, "table", {2, 1, 1});
+  Sampler sampler(stub, "table", {2, 1, 1});
   std::vector<tensorflow::Tensor> sample;
   bool end_of_sequence;
   TF_EXPECT_OK(sampler.GetNextTimestep(&sample, &end_of_sequence));
@@ -424,9 +424,9 @@ TEST(ReplaySamplerTest, GetNextTimestepReturnsErrorIfMaximumSamplesExceeded) {
             tensorflow::error::OUT_OF_RANGE);
 }
 
-TEST(ReplaySamplerTest, GetNextSampleReturnsErrorIfMaximumSamplesExceeded) {
+TEST(SamplerTest, GetNextSampleReturnsErrorIfMaximumSamplesExceeded) {
   auto stub = MakeGoodStub({MakeResponse(5), MakeResponse(5), MakeResponse(5)});
-  ReplaySampler sampler(stub, "table", {2, 1, 1});
+  Sampler sampler(stub, "table", {2, 1, 1});
   std::vector<tensorflow::Tensor> sample;
   TF_EXPECT_OK(sampler.GetNextSample(&sample));
   TF_EXPECT_OK(sampler.GetNextSample(&sample));
@@ -434,7 +434,7 @@ TEST(ReplaySamplerTest, GetNextSampleReturnsErrorIfMaximumSamplesExceeded) {
             tensorflow::error::OUT_OF_RANGE);
 }
 
-TEST(ReplaySamplerTest, StressTestWithoutErrors) {
+TEST(SamplerTest, StressTestWithoutErrors) {
   const int kNumWorkers = 100;  // Should be larger than the number of CPUs.
   const int kMaxSamples = 10000;
   const int kMaxSamplesPerStream = 50;
@@ -451,9 +451,9 @@ TEST(ReplaySamplerTest, StressTestWithoutErrors) {
     stub->AddStream(responses);
   }
 
-  ReplaySampler sampler(stub, "table",
-                        {kMaxSamples, kMaxInflightSamplesPerStream, kNumWorkers,
-                         kMaxSamplesPerStream});
+  Sampler sampler(stub, "table",
+                  {kMaxSamples, kMaxInflightSamplesPerStream, kNumWorkers,
+                   kMaxSamplesPerStream});
 
   for (int i = 0; i < kItemLength * kMaxSamples; i++) {
     std::vector<tensorflow::Tensor> sample;
@@ -468,7 +468,7 @@ TEST(ReplaySamplerTest, StressTestWithoutErrors) {
             tensorflow::error::OUT_OF_RANGE);
 }
 
-TEST(ReplaySamplerTest, StressTestWithTransientErrors) {
+TEST(SamplerTest, StressTestWithTransientErrors) {
   const int kNumWorkers = 100;  // Should be larger than the number of CPUs.
   const int kMaxSamples = 10000;
   const int kMaxSamplesPerStream = 50;
@@ -489,9 +489,9 @@ TEST(ReplaySamplerTest, StressTestWithTransientErrors) {
     stub->AddStream(responses, status);
   }
 
-  ReplaySampler sampler(stub, "table",
-                        {kMaxSamples, kMaxInflightSamplesPerStream, kNumWorkers,
-                         kMaxSamplesPerStream});
+  Sampler sampler(stub, "table",
+                  {kMaxSamples, kMaxInflightSamplesPerStream, kNumWorkers,
+                   kMaxSamplesPerStream});
 
   for (int i = 0; i < kItemLength * kMaxSamples; i++) {
     std::vector<tensorflow::Tensor> sample;
@@ -506,34 +506,34 @@ TEST(ReplaySamplerTest, StressTestWithTransientErrors) {
             tensorflow::error::OUT_OF_RANGE);
 }
 
-TEST(ReplaySamplerDeathTest, DiesIfMaxInFlightSamplesPerWorkerIsNonPositive) {
-  ReplaySampler::Options options;
+TEST(SamplerDeathTest, DiesIfMaxInFlightSamplesPerWorkerIsNonPositive) {
+  Sampler::Options options;
 
   options.max_in_flight_samples_per_worker = 0;
-  ASSERT_DEATH(ReplaySampler sampler(MakeGoodStub({}), "table", options), "");
+  ASSERT_DEATH(Sampler sampler(MakeGoodStub({}), "table", options), "");
 
   options.max_in_flight_samples_per_worker = -1;
-  ASSERT_DEATH(ReplaySampler sampler(MakeGoodStub({}), "table", options), "");
+  ASSERT_DEATH(Sampler sampler(MakeGoodStub({}), "table", options), "");
 }
 
-TEST(ReplaySamplerDeathTest, DiesIfMaxSamplesInvalid) {
-  ReplaySampler::Options options;
+TEST(SamplerDeathTest, DiesIfMaxSamplesInvalid) {
+  Sampler::Options options;
 
   options.max_samples = -2;
-  ASSERT_DEATH(ReplaySampler sampler(MakeGoodStub({}), "table", options), "");
+  ASSERT_DEATH(Sampler sampler(MakeGoodStub({}), "table", options), "");
 
   options.max_samples = 0;
-  ASSERT_DEATH(ReplaySampler sampler(MakeGoodStub({}), "table", options), "");
+  ASSERT_DEATH(Sampler sampler(MakeGoodStub({}), "table", options), "");
 }
 
-TEST(ReplaySamplerDeathTest, DiesIfNumWorkersIsInvalid) {
-  ReplaySampler::Options options;
+TEST(SamplerDeathTest, DiesIfNumWorkersIsInvalid) {
+  Sampler::Options options;
 
   options.num_workers = 0;
-  ASSERT_DEATH(ReplaySampler sampler(MakeGoodStub({}), "table", options), "");
+  ASSERT_DEATH(Sampler sampler(MakeGoodStub({}), "table", options), "");
 
   options.num_workers = -2;
-  ASSERT_DEATH(ReplaySampler sampler(MakeGoodStub({}), "table", options), "");
+  ASSERT_DEATH(Sampler sampler(MakeGoodStub({}), "table", options), "");
 }
 
 }  // namespace

@@ -26,8 +26,8 @@ class SampleInfo(NamedTuple):
 
   Fields:
     key: Key of the item that was sampled. Used for updating the priority.
-      Typically a python `int` (for output of ReplayClient.sample) or
-      `tf.uint64` Tensor (for output of TF ReplayClient.sample).
+      Typically a python `int` (for output of Client.sample) or
+      `tf.uint64` Tensor (for output of TF Client.sample).
     probability: Probability of selecting the item at the time of sampling.
       A python `float` or `tf.float64` Tensor.
     table_size: The total number of items present in the table at sample time.

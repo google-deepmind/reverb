@@ -3,8 +3,9 @@ syntax = "proto3";
 package deepmind.reverb;
 
 import "reverb/cc/schema.proto";
+import "tensorflow/core/protobuf/struct.proto";
 
-service ReplayService {
+service ReverbService {
   // Writes all in-memory data to disk. We store the priority tables
   // along with the chunks. On success, the path of the checkpoint is
   // returned. On preemption, the last checkpoint will be used to restore the
@@ -12,7 +13,7 @@ service ReplayService {
   rpc Checkpoint(CheckpointRequest) returns (CheckpointResponse) {}
 
   // Inserts chunks into the ChunkStore and items into priority tables. This
-  // operation is a stream that is called by `ReplayWriter`. A stream mesasage
+  // operation is a stream that is called by `Writer`. A stream mesasage
   // either inserts a chunk or an item into a priority table.
   //
   // Important: We keep a reference to each chunk that was written to
@@ -73,6 +74,10 @@ message InsertStreamRequest {
     // chunks that has been sent been sent on the stream thus far and kept after
     // previous insertion requests.
     PriorityInsertion item = 2;
+
+    // Signature for a single step. This is used so we don't have to send the
+    // shapes with every item. Sent every
+    tensorflow.StructuredValue flat_signature = 3;
   }
 }
 

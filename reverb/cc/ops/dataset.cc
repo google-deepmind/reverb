@@ -14,9 +14,9 @@
 
 #include "tensorflow/core/framework/dataset.h"
 
+#include "reverb/cc/client.h"
 #include "reverb/cc/platform/logging.h"
-#include "reverb/cc/replay_client.h"
-#include "reverb/cc/replay_sampler.h"
+#include "reverb/cc/sampler.h"
 #include "tensorflow/core/framework/common_shape_fns.h"
 #include "tensorflow/core/framework/op.h"
 #include "tensorflow/core/framework/op_kernel.h"
@@ -46,17 +46,17 @@ REGISTER_OP("ReverbDataset")
     .SetIsStateful()
     .SetShapeFn(tensorflow::shape_inference::ScalarShape)
     .Doc(R"doc(
-Establishes and manages a connection to gRPC ReplayService at `server_address`
+Establishes and manages a connection to gRPC ReverbService at `server_address`
 to stream samples from table `table`.
 
-The connection is managed using a single instance of `ReplayClient` (see
-../replay_client.h) owned by the Dataset. From the shared `ReplayClient`, each
-iterator maintains their own `ReplaySampler` (see ../replay_sampler.h), allowing
-for multiple parallel streams using a single connection.
+The connection is managed using a single instance of `Client` (see
+../client.h) owned by the Dataset. From the shared `Client`, each iterator
+maintains their own `Sampler` (see ../sampler.h), allowing for multiple
+parallel streams using a single connection.
 
 `dtypes` and `shapes` must match the type and shape of a single "timestep"
 within sampled sequences. That is, (key, priority, table_size, ...data passed to
-`ReplayWriter::AppendTimestep` at insertion time). This is the type and shape of
+`Writer::AppendTimestep` at insertion time). This is the type and shape of
 tensors returned by `GetNextTimestep`.
 
 sequence_length: (Defaults to -1, i.e unknown) The number of timesteps in
@@ -71,7 +71,7 @@ in splitting up a sequence and then batching it up again.
 
 `max_in_flight_samples_per_worker` (defaults to 100) is the maximum number of
  sampled item allowed to exist in flight (per iterator). See
-`ReplaySampler::Options::max_in_flight_samples_per_worker` for more details.
+`Sampler::Options::max_in_flight_samples_per_worker` for more details.
 
 `num_workers_per_iterator` (defaults to -1, i.e auto selected) is the number of
 worker threads to start per iterator. When the selected table uses a FIFO
@@ -135,7 +135,7 @@ class ReverbDatasetOp : public tensorflow::data::DatasetOpKernel {
     Dataset(tensorflow::OpKernelContext* ctx, std::string server_address,
             tensorflow::DataTypeVector dtypes,
             std::vector<tensorflow::PartialTensorShape> shapes,
-            std::string table, const ReplaySampler::Options& sampler_options,
+            std::string table, const Sampler::Options& sampler_options,
             int sequence_length, bool emit_timesteps)
         : tensorflow::data::DatasetBase(tensorflow::data::DatasetContext(ctx)),
           server_address_(std::move(server_address)),
@@ -145,7 +145,7 @@ class ReverbDatasetOp : public tensorflow::data::DatasetOpKernel {
           sampler_options_(sampler_options),
           sequence_length_(sequence_length),
           emit_timesteps_(emit_timesteps),
-          client_(absl::make_unique<ReplayClient>(server_address_)) {}
+          client_(absl::make_unique<Client>(server_address_)) {}
 
     std::unique_ptr<tensorflow::data::IteratorBase> MakeIteratorInternal(
         const std::string& prefix) const override {
@@ -222,8 +222,8 @@ class ReverbDatasetOp : public tensorflow::data::DatasetOpKernel {
     class Iterator : public tensorflow::data::DatasetIterator<Dataset> {
      public:
       explicit Iterator(
-          const Params& params, ReplayClient* client, const std::string& table,
-          const ReplaySampler::Options& sampler_options, int sequence_length,
+          const Params& params, Client* client, const std::string& table,
+          const Sampler::Options& sampler_options, int sequence_length,
           bool emit_timesteps, const tensorflow::DataTypeVector& dtypes,
           const std::vector<tensorflow::PartialTensorShape>& shapes)
           : DatasetIterator<Dataset>(params),
@@ -335,14 +335,14 @@ class ReverbDatasetOp : public tensorflow::data::DatasetOpKernel {
       }
 
      private:
-      ReplayClient* client_;
+      Client* client_;
       const std::string& table_;
-      const ReplaySampler::Options sampler_options_;
+      const Sampler::Options sampler_options_;
       const int sequence_length_;
       const bool emit_timesteps_;
       const tensorflow::DataTypeVector& dtypes_;
       const std::vector<tensorflow::PartialTensorShape>& shapes_;
-      std::unique_ptr<ReplaySampler> sampler_;
+      std::unique_ptr<Sampler> sampler_;
       int step_within_sample_;
     };  // Iterator.
 
@@ -350,15 +350,15 @@ class ReverbDatasetOp : public tensorflow::data::DatasetOpKernel {
     const tensorflow::DataTypeVector dtypes_;
     const std::vector<tensorflow::PartialTensorShape> shapes_;
     const std::string table_;
-    const ReplaySampler::Options sampler_options_;
+    const Sampler::Options sampler_options_;
     const int sequence_length_;
     const bool emit_timesteps_;
-    std::unique_ptr<ReplayClient> client_;
+    std::unique_ptr<Client> client_;
   };  // Dataset.
 
   std::string server_address_;
   std::string table_;
-  ReplaySampler::Options sampler_options_;
+  Sampler::Options sampler_options_;
   int sequence_length_;
   bool emit_timesteps_;
   tensorflow::DataTypeVector dtypes_;

@@ -20,6 +20,8 @@ LABEL maintainer="Reverb Team <no-reply@google.com>"
 # instruction after a FROM.
 ARG cpu_base_image="tensorflow/tensorflow:2.1.0-custom-op-ubuntu16"
 ARG base_image=$cpu_base_image
+ARG tensorflow_pip="tf-nightly"
+ARG python_version="python3.6"
 
 # Pick up some TF dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -66,10 +68,10 @@ ARG pip_dependencies=' \
 # TODO(b/154930404): Update to 2.2.0 once it's out.  May need to
 # cut a branch to make changes that allow us to build against 2.2.0 instead
 # of tf-nightly due to API changes.
-RUN for python in python3.6 python3.7 python3.8; do \
+RUN for python in ${python_version}; do \
     $python get-pip.py && \
     $python -mpip uninstall -y tensorflow tensorflow-gpu tf-nightly tf-nightly-gpu && \
-    $python -mpip --no-cache-dir install tf-nightly --upgrade && \
+    $python -mpip --no-cache-dir install ${tensorflow_pip} --upgrade && \
     $python -mpip --no-cache-dir install $pip_dependencies; \
   done
 RUN rm get-pip.py

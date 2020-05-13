@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "reverb/cc/replay_service_impl.h"
+#include "reverb/cc/reverb_service_impl.h"
 
 #include <cfloat>
 #include <list>
@@ -28,7 +28,7 @@
 #include "reverb/cc/distributions/uniform.h"
 #include "reverb/cc/platform/checkpointing.h"
 #include "reverb/cc/platform/thread.h"
-#include "reverb/cc/replay_service.pb.h"
+#include "reverb/cc/reverb_service.pb.h"
 #include "reverb/cc/schema.pb.h"
 #include "reverb/cc/testing/proto_test_util.h"
 #include "tensorflow/core/framework/tensor_shape.h"
@@ -143,7 +143,7 @@ tensorflow::StructuredValue MakeSignature() {
   return signature;
 }
 
-std::unique_ptr<ReplayServiceImpl> MakeService(
+std::unique_ptr<ReverbServiceImpl> MakeService(
     int max_size, std::unique_ptr<CheckpointerInterface> checkpointer) {
   std::vector<std::shared_ptr<PriorityTable>> tables;
 
@@ -155,16 +155,16 @@ std::unique_ptr<ReplayServiceImpl> MakeService(
       /*extensions=*/
       std::vector<std::shared_ptr<PriorityTableExtensionInterface>>{},
       /*signature=*/absl::make_optional(MakeSignature())));
-  return absl::make_unique<ReplayServiceImpl>(std::move(tables),
+  return absl::make_unique<ReverbServiceImpl>(std::move(tables),
                                               std::move(checkpointer));
 }
 
-std::unique_ptr<ReplayServiceImpl> MakeService(int max_size) {
+std::unique_ptr<ReverbServiceImpl> MakeService(int max_size) {
   return MakeService(max_size, nullptr);
 }
 
-TEST(ReplayServiceImplTest, SampleAfterInsertWorks) {
-  std::unique_ptr<ReplayServiceImpl> service = MakeService(10);
+TEST(ReverbServiceImplTest, SampleAfterInsertWorks) {
+  std::unique_ptr<ReverbServiceImpl> service = MakeService(10);
 
   FakeInsertStreamReader reader;
   reader.AddChunk(1);
@@ -195,8 +195,8 @@ TEST(ReplayServiceImplTest, SampleAfterInsertWorks) {
   }
 }
 
-TEST(ReplayServiceImplTest, InsertChunksWithoutItemWorks) {
-  std::unique_ptr<ReplayServiceImpl> service = MakeService(10);
+TEST(ReverbServiceImplTest, InsertChunksWithoutItemWorks) {
+  std::unique_ptr<ReverbServiceImpl> service = MakeService(10);
   grpc::ServerContext context;
 
   FakeInsertStreamReader reader;
@@ -205,8 +205,8 @@ TEST(ReplayServiceImplTest, InsertChunksWithoutItemWorks) {
   EXPECT_OK(service->InsertStreamInternal(&context, &reader, nullptr));
 }
 
-TEST(ReplayServiceImplTest, InsertSameChunkTwiceWorks) {
-  std::unique_ptr<ReplayServiceImpl> service = MakeService(10);
+TEST(ReverbServiceImplTest, InsertSameChunkTwiceWorks) {
+  std::unique_ptr<ReverbServiceImpl> service = MakeService(10);
   grpc::ServerContext context;
 
   FakeInsertStreamReader reader;
@@ -215,8 +215,8 @@ TEST(ReplayServiceImplTest, InsertSameChunkTwiceWorks) {
   EXPECT_OK(service->InsertStreamInternal(&context, &reader, nullptr));
 }
 
-TEST(ReplayServiceImplTest, InsertItemWithoutKeptChunkFails) {
-  std::unique_ptr<ReplayServiceImpl> service = MakeService(10);
+TEST(ReverbServiceImplTest, InsertItemWithoutKeptChunkFails) {
+  std::unique_ptr<ReverbServiceImpl> service = MakeService(10);
   grpc::ServerContext context;
 
   FakeInsertStreamReader reader;
@@ -229,8 +229,8 @@ TEST(ReplayServiceImplTest, InsertItemWithoutKeptChunkFails) {
       grpc::StatusCode::INTERNAL);
 }
 
-TEST(ReplayServiceImplTest, InsertItemWithKeptChunkWorks) {
-  std::unique_ptr<ReplayServiceImpl> service = MakeService(10);
+TEST(ReverbServiceImplTest, InsertItemWithKeptChunkWorks) {
+  std::unique_ptr<ReverbServiceImpl> service = MakeService(10);
   grpc::ServerContext context;
 
   FakeInsertStreamReader reader;
@@ -243,8 +243,8 @@ TEST(ReplayServiceImplTest, InsertItemWithKeptChunkWorks) {
       grpc::StatusCode::INTERNAL);
 }
 
-TEST(ReplayServiceImplTest, InsertItemWithMissingChunksFails) {
-  std::unique_ptr<ReplayServiceImpl> service = MakeService(10);
+TEST(ReverbServiceImplTest, InsertItemWithMissingChunksFails) {
+  std::unique_ptr<ReverbServiceImpl> service = MakeService(10);
   grpc::ServerContext context;
 
   FakeInsertStreamReader reader;
@@ -255,8 +255,8 @@ TEST(ReplayServiceImplTest, InsertItemWithMissingChunksFails) {
       grpc::StatusCode::INTERNAL);
 }
 
-TEST(ReplayServiceImplTest, SampleBlocksUntilEnoughInserts) {
-  std::unique_ptr<ReplayServiceImpl> service = MakeService(10);
+TEST(ReverbServiceImplTest, SampleBlocksUntilEnoughInserts) {
+  std::unique_ptr<ReverbServiceImpl> service = MakeService(10);
   absl::Notification notification;
   auto thread = internal::StartThread("", [&] {
     FakeSampleStream stream;
@@ -281,8 +281,8 @@ TEST(ReplayServiceImplTest, SampleBlocksUntilEnoughInserts) {
   thread = nullptr;  // Joins the thread.
 }
 
-TEST(ReplayServiceImplTest, MutateDeletionWorks) {
-  std::unique_ptr<ReplayServiceImpl> service = MakeService(10);
+TEST(ReverbServiceImplTest, MutateDeletionWorks) {
+  std::unique_ptr<ReverbServiceImpl> service = MakeService(10);
 
   FakeInsertStreamReader reader;
   reader.AddChunk(1);
@@ -299,8 +299,8 @@ TEST(ReplayServiceImplTest, MutateDeletionWorks) {
   EXPECT_EQ(service->tables()["dist"]->size(), 0);
 }
 
-TEST(ReplayServiceImplTest, AnyCallWithInvalidDistributionFails) {
-  std::unique_ptr<ReplayServiceImpl> service = MakeService(10);
+TEST(ReverbServiceImplTest, AnyCallWithInvalidDistributionFails) {
+  std::unique_ptr<ReverbServiceImpl> service = MakeService(10);
   grpc::ServerContext context;
 
   FakeSampleStream sample_stream;
@@ -323,8 +323,8 @@ TEST(ReplayServiceImplTest, AnyCallWithInvalidDistributionFails) {
       grpc::StatusCode::NOT_FOUND);
 }
 
-TEST(ReplayServiceImplTest, ResetWorks) {
-  std::unique_ptr<ReplayServiceImpl> service = MakeService(10);
+TEST(ReverbServiceImplTest, ResetWorks) {
+  std::unique_ptr<ReverbServiceImpl> service = MakeService(10);
 
   FakeInsertStreamReader reader;
   reader.AddChunk(1);
@@ -341,7 +341,7 @@ TEST(ReplayServiceImplTest, ResetWorks) {
   EXPECT_EQ(service->tables()["dist"]->size(), 0);
 }
 
-TEST(ReplayServiceImplTest, ServerInfoWorks) {
+TEST(ReverbServiceImplTest, ServerInfoWorks) {
   auto service = MakeService(10);
 
   ServerInfoRequest server_info_request;
@@ -378,7 +378,7 @@ TEST(ReplayServiceImplTest, ServerInfoWorks) {
   EXPECT_THAT(table_info, testing::EqualsProto(expected_table_info));
 }
 
-TEST(ReplayServiceImplTest, CheckpointCalledWithoutCheckpointer) {
+TEST(ReverbServiceImplTest, CheckpointCalledWithoutCheckpointer) {
   auto service = MakeService(10);
   CheckpointRequest request;
   CheckpointResponse response;
@@ -387,7 +387,7 @@ TEST(ReplayServiceImplTest, CheckpointCalledWithoutCheckpointer) {
             grpc::StatusCode::INVALID_ARGUMENT);
 }
 
-TEST(ReplayServiceImplTest, CheckpointAndLoadFromCheckpoint) {
+TEST(ReverbServiceImplTest, CheckpointAndLoadFromCheckpoint) {
   std::string path = getenv("TEST_TMPDIR");
   REVERB_CHECK(tensorflow::Env::Default()->CreateUniqueFileName(&path, "temp"));
   auto service = MakeService(10, CreateDefaultCheckpointer(path));

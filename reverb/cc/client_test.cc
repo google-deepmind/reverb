@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "reverb/cc/replay_client.h"
+#include "reverb/cc/client.h"
 
 #include <memory>
 
@@ -20,8 +20,8 @@
 #include "grpcpp/impl/codegen/status.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
-#include "reverb/cc/replay_service.pb.h"
-#include "reverb/cc/replay_service_mock.grpc.pb.h"
+#include "reverb/cc/reverb_service.pb.h"
+#include "reverb/cc/reverb_service_mock.grpc.pb.h"
 #include "reverb/cc/support/uint128.h"
 #include "reverb/cc/testing/proto_test_util.h"
 #include "tensorflow/core/lib/core/status_test_util.h"
@@ -32,7 +32,7 @@ namespace {
 
 constexpr char kCheckpointPath[] = "/path/to/checkpoint";
 
-class FakeStub : public /* grpc_gen:: */MockReplayServiceStub {
+class FakeStub : public /* grpc_gen:: */MockReverbServiceStub {
  public:
   grpc::Status MutatePriorities(grpc::ClientContext* context,
                                 const MutatePrioritiesRequest& request,
@@ -74,17 +74,17 @@ class FakeStub : public /* grpc_gen:: */MockReplayServiceStub {
   ResetRequest reset_request_;
 };
 
-TEST(ReplayClientTest, MutatePrioritiesDefaultValues) {
+TEST(ClientTest, MutatePrioritiesDefaultValues) {
   auto stub = std::make_shared<FakeStub>();
-  ReplayClient client(stub);
+  Client client(stub);
   TF_EXPECT_OK(client.MutatePriorities("", {}, {}));
   EXPECT_THAT(stub->mutate_priorities_request(),
               testing::EqualsProto(MutatePrioritiesRequest()));
 }
 
-TEST(ReplayClientTest, MutatePrioritiesFilled) {
+TEST(ClientTest, MutatePrioritiesFilled) {
   auto stub = std::make_shared<FakeStub>();
-  ReplayClient client(stub);
+  Client client(stub);
   auto pair = testing::MakeKeyWithPriority(123, 456);
   TF_EXPECT_OK(client.MutatePriorities("table", {pair}, {4}));
 
@@ -96,9 +96,9 @@ TEST(ReplayClientTest, MutatePrioritiesFilled) {
               testing::EqualsProto(expected));
 }
 
-TEST(ReplayClientTest, ResetRequestFilled) {
+TEST(ClientTest, ResetRequestFilled) {
   auto stub = std::make_shared<FakeStub>();
-  ReplayClient client(stub);
+  Client client(stub);
   TF_EXPECT_OK(client.Reset("table"));
 
   ResetRequest expected;
@@ -106,18 +106,18 @@ TEST(ReplayClientTest, ResetRequestFilled) {
   EXPECT_THAT(stub->reset_request(), testing::EqualsProto(expected));
 }
 
-TEST(ReplayClientTest, Checkpoint) {
+TEST(ClientTest, Checkpoint) {
   auto stub = std::make_shared<FakeStub>();
-  ReplayClient client(stub);
+  Client client(stub);
   std::string path;
   TF_EXPECT_OK(client.Checkpoint(&path));
   EXPECT_EQ(path, kCheckpointPath);
 }
 
-TEST(ReplayClientTest, ServerInfoRequestFilled) {
+TEST(ClientTest, ServerInfoRequestFilled) {
   auto stub = std::make_shared<FakeStub>();
-  ReplayClient client(stub);
-  struct ReplayClient::ServerInfo info;
+  Client client(stub);
+  struct Client::ServerInfo info;
   TF_EXPECT_OK(client.ServerInfo(&info));
 
   TableInfo expected_info;

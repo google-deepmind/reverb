@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "reverb/cc/reverb_server.h"
+#include "reverb/cc/server.h"
 
 #include <memory>
 
@@ -29,18 +29,18 @@ namespace deepmind {
 namespace reverb {
 namespace {
 
-TEST(ReverbServerTest, StartServer) {
+TEST(ServerTest, StartServer) {
   int port = internal::PickUnusedPortOrDie();
-  std::unique_ptr<ReverbServer> server;
-  TF_EXPECT_OK(ReverbServer::StartReverbServer(/*priority_tables=*/{},
-                                               /*port=*/port, &server));
+  std::unique_ptr<Server> server;
+  TF_EXPECT_OK(Server::StartServer(/*priority_tables=*/{},
+                                   /*port=*/port, &server));
 }
 
-TEST(ReverbServerTest, ErrorOnUnavailablePort) {
+TEST(ServerTest, ErrorOnUnavailablePort) {
   // We expect that port==-1 to always be unavailable.
-  std::unique_ptr<ReverbServer> server;
-  auto status = ReverbServer::StartReverbServer(/*priority_tables=*/{},
-                                                /*port=*/-1, &server);
+  std::unique_ptr<Server> server;
+  auto status = Server::StartServer(/*priority_tables=*/{},
+                                    /*port=*/-1, &server);
   EXPECT_EQ(status.code(), tensorflow::error::INVALID_ARGUMENT);
   EXPECT_THAT(status.error_message(),
               ::testing::HasSubstr("Failed to BuildAndStart gRPC server"));

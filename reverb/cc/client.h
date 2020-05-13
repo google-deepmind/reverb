@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef REVERB_CC_REPLAY_CLIENT_H_
-#define REVERB_CC_REPLAY_CLIENT_H_
+#ifndef REVERB_CC_CLIENT_H_
+#define REVERB_CC_CLIENT_H_
 
 #include <stddef.h>
 
@@ -27,47 +27,46 @@
 #include "absl/strings/string_view.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/time/time.h"
-#include "reverb/cc/replay_sampler.h"
-#include "reverb/cc/replay_service.grpc.pb.h"
-#include "reverb/cc/replay_service.pb.h"
-#include "reverb/cc/replay_writer.h"
+#include "reverb/cc/reverb_service.grpc.pb.h"
+#include "reverb/cc/reverb_service.pb.h"
+#include "reverb/cc/sampler.h"
 #include "reverb/cc/schema.pb.h"
 #include "reverb/cc/support/signature.h"
+#include "reverb/cc/writer.h"
 #include "tensorflow/core/lib/core/status.h"
 
 namespace deepmind {
 namespace reverb {
 
-class ReplayWriter;
+class Writer;
 
-// See ReplayService proto definition for documentation.
-class ReplayClient {
+// See ReverbService proto definition for documentation.
+class Client {
  public:
   struct ServerInfo {
     // This struct mirrors the ServerInfo message in
-    // replay_service.proto.  Take a look at that proto file for
+    // reverb_service.proto.  Take a look at that proto file for
     // field documentation.
     absl::uint128 tables_state_id;
     std::vector<TableInfo> table_info;
   };
 
-  explicit ReplayClient(
-      std::shared_ptr</* grpc_gen:: */ReplayService::StubInterface> stub);
-  explicit ReplayClient(absl::string_view server_address);
+  explicit Client(std::shared_ptr</* grpc_gen:: */ReverbService::StubInterface> stub);
+  explicit Client(absl::string_view server_address);
 
-  // Upon successful return, `writer` will contain an instance of ReplayWriter.
+  // Upon successful return, `writer` will contain an instance of Writer.
   tensorflow::Status NewWriter(int chunk_length, int max_timesteps,
                                bool delta_encoded,
-                               std::unique_ptr<ReplayWriter>* writer);
+                               std::unique_ptr<Writer>* writer);
 
   // Upon successful return, `sampler` will contain an instance of
-  // ReplaySampler.
+  // Sampler.
   tensorflow::Status NewSampler(const std::string& table,
-                                const ReplaySampler::Options& options,
-                                std::unique_ptr<ReplaySampler>* sampler);
+                                const Sampler::Options& options,
+                                std::unique_ptr<Sampler>* sampler);
 
   // Upon successful return, `sampler` will contain an instance of
-  // ReplaySampler.
+  // Sampler.
   //
   // If the table has signature metadata available on the server, then
   // `validation_shapes` and `validation_dtypes` are checked against the
@@ -89,11 +88,10 @@ class ReplayClient {
   // expected in table signature.
   //
   tensorflow::Status NewSampler(
-      const std::string& table, const ReplaySampler::Options& options,
+      const std::string& table, const Sampler::Options& options,
       const tensorflow::DataTypeVector& validation_dtypes,
       const std::vector<tensorflow::PartialTensorShape>& validation_shapes,
-      absl::Duration validation_timeout,
-      std::unique_ptr<ReplaySampler>* sampler);
+      absl::Duration validation_timeout, std::unique_ptr<Sampler>* sampler);
 
   tensorflow::Status MutatePriorities(
       absl::string_view table, const std::vector<KeyWithPriority>& updates,
@@ -110,7 +108,7 @@ class ReplayClient {
   tensorflow::Status ServerInfo(struct ServerInfo* info);
 
  private:
-  const std::shared_ptr</* grpc_gen:: */ReplayService::StubInterface> stub_;
+  const std::shared_ptr</* grpc_gen:: */ReverbService::StubInterface> stub_;
 
   tensorflow::Status MaybeUpdateServerInfoCache(
       absl::Duration timeout,
@@ -134,4 +132,4 @@ class ReplayClient {
 }  // namespace reverb
 }  // namespace deepmind
 
-#endif  // REVERB_CC_REPLAY_CLIENT_H_
+#endif  // REVERB_CC_CLIENT_H_
