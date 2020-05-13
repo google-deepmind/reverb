@@ -182,10 +182,8 @@ message KeyDistributionOptions {
     bool uniform = 2;
     Prioritized prioritized = 3;
     Heap heap = 4;
-
     bool lifo = 6;
   }
-
   reserved 5;
 }
 
