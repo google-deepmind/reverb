@@ -84,7 +84,7 @@ NOTE: Some of these "distributions" are non-stochastic.
       correlated to its specified priority value
       *   For more details about prioritized sampling and experience replay as
           used in research, see
-          [Experience Replay in Research](#experience-replay)
+          [Experience Replay in Research](#experience-replay-in-research)
   *   [MaxHeap](https://en.wikipedia.org/wiki/Heap_\(data_structure\)): sample
       the item with the highest priority. If multiple items share the same
       (highest) priority, select the most recently modified item
@@ -129,7 +129,7 @@ One particular group of agent implementations, *single-threaded Python*, require
 extra attention as they are prone to deadlocks caused by the RateLimiter's
 blocking behavior. These risks do not exist in the distributed setting.
 
-## Experience Replay in Research {#experience-replay}
+## Experience Replay in Research
 
 Prioritized experience replay is one of the most common uses of Reverb. The
 following papers present the relevant state of the art research:
