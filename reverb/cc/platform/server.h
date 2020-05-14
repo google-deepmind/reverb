@@ -12,62 +12,44 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef REVERB_CC_SERVER_H_
-#define REVERB_CC_SERVER_H_
+#ifndef REVERB_CC_PLATFORM_SERVER_H_
+#define REVERB_CC_PLATFORM_SERVER_H_
 
 #include <memory>
+#include <vector>
 
 #include "reverb/cc/checkpointing/interface.h"
 #include "reverb/cc/client.h"
 #include "reverb/cc/priority_table.h"
-#include "reverb/cc/reverb_service_impl.h"
 
 namespace deepmind {
 namespace reverb {
 
+constexpr int kMaxMessageSize = 300 * 1024 * 1024;
+
 class Server {
  public:
-  static tensorflow::Status StartServer(
-      std::vector<std::shared_ptr<PriorityTable>> priority_tables, int port,
-      std::shared_ptr<CheckpointerInterface> checkpointer,
-      std::unique_ptr<Server>* server);
-
-  static tensorflow::Status StartServer(
-      std::vector<std::shared_ptr<PriorityTable>> priority_tables, int port,
-      std::unique_ptr<Server>* server);
-
-  ~Server();
+  virtual ~Server() = default;
 
   // Terminates the server and blocks until it has been terminated.
-  void Stop();
+  virtual void Stop() = 0;
 
   // Blocks until the server has terminated. Does not terminate the server
   // itself. Use this to want to wait indefinitely.
-  void Wait();
+  virtual void Wait() = 0;
 
   // Gets a local in process client. This bypasses proto serialization and
   // network overhead. Careful: The resulting client instance must not be used
   // after this server instance has terminated.
-  std::unique_ptr<Client> InProcessClient();
-
- private:
-  Server(std::vector<std::shared_ptr<PriorityTable>> priority_tables, int port,
-         std::shared_ptr<CheckpointerInterface> checkpointer = nullptr);
-
-  tensorflow::Status Initialize();
-
-  // The port the server is on.
-  int port_;
-
-  std::unique_ptr<ReverbServiceImpl> reverb_service_;
-
-  std::unique_ptr<grpc::Server> server_ = nullptr;
-
-  absl::Mutex mu_;
-  bool running_ ABSL_GUARDED_BY(mu_) = false;
+  virtual std::unique_ptr<Client> InProcessClient() = 0;
 };
+
+tensorflow::Status StartServer(
+    std::vector<std::shared_ptr<PriorityTable>> priority_tables, int port,
+    std::shared_ptr<CheckpointerInterface> checkpointer,
+    std::unique_ptr<Server> *server);
 
 }  // namespace reverb
 }  // namespace deepmind
 
-#endif  // REVERB_CC_SERVER_H_
+#endif  // REVERB_CC_PLATFORM_SERVER_H_

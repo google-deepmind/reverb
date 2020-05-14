@@ -36,6 +36,22 @@ reverb_cc_library(
 )
 
 reverb_cc_library(
+    name = "server",
+    srcs = ["server.cc"],
+    deps = [
+        "//reverb/cc:client",
+        "//reverb/cc:reverb_service_impl",
+        "//reverb/cc/checkpointing:interface",
+        "//reverb/cc/platform:grpc_utils",
+        "//reverb/cc/platform:logging",
+        "//reverb/cc/platform:server_hdr",
+        "//reverb/cc/platform:tfrecord_checkpointer",
+        "@com_google_absl//absl/strings",
+    ] + reverb_grpc_deps(),
+    alwayslink = 1,
+)
+
+reverb_cc_library(
     name = "thread",
     srcs = ["thread.cc"],
     deps = [

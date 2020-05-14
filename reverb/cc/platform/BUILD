@@ -85,6 +85,37 @@ reverb_cc_library(
 )
 
 reverb_cc_library(
+    name = "server_hdr",
+    hdrs = ["server.h"],
+    deps = [
+        "//reverb/cc:client",
+        "//reverb/cc:priority_table",
+        "//reverb/cc/checkpointing:interface",
+    ],
+)
+
+reverb_cc_library(
+    name = "server",
+    hdrs = ["server.h"],
+    visibility = ["//reverb:__subpackages__"],
+    deps = [
+        "//reverb/cc:client",
+        "//reverb/cc:priority_table",
+        "//reverb/cc/checkpointing:interface",
+        "//reverb/cc/platform/default:server",
+    ] + reverb_grpc_deps() + reverb_absl_deps(),
+)
+
+reverb_cc_test(
+    name = "server_test",
+    srcs = ["server_test.cc"],
+    deps = [
+        ":server",
+        "//reverb/cc/platform:net",
+    ] + reverb_tf_deps() + reverb_grpc_deps(),
+)
+
+reverb_cc_library(
     name = "snappy_hdr",
     hdrs = ["snappy.h"],
     deps = reverb_absl_deps(),

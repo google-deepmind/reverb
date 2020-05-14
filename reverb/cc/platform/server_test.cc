@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "reverb/cc/server.h"
+#include "reverb/cc/platform/server.h"
 
 #include <memory>
 
@@ -32,15 +32,15 @@ namespace {
 TEST(ServerTest, StartServer) {
   int port = internal::PickUnusedPortOrDie();
   std::unique_ptr<Server> server;
-  TF_EXPECT_OK(Server::StartServer(/*priority_tables=*/{},
-                                   /*port=*/port, &server));
+  TF_EXPECT_OK(StartServer(/*priority_tables=*/{},
+                           /*port=*/port, /*checkpointer=*/nullptr, &server));
 }
 
 TEST(ServerTest, ErrorOnUnavailablePort) {
   // We expect that port==-1 to always be unavailable.
   std::unique_ptr<Server> server;
-  auto status = Server::StartServer(/*priority_tables=*/{},
-                                    /*port=*/-1, &server);
+  auto status = StartServer(/*priority_tables=*/{},
+                            /*port=*/-1, /*checkpointer=*/nullptr, &server);
   EXPECT_EQ(status.code(), tensorflow::error::INVALID_ARGUMENT);
   EXPECT_THAT(status.error_message(),
               ::testing::HasSubstr("Failed to BuildAndStart gRPC server"));

@@ -104,15 +104,6 @@ reverb_cc_test(
 )
 
 reverb_cc_test(
-    name = "server_test",
-    srcs = ["server_test.cc"],
-    deps = [
-        ":server",
-        "//reverb/cc/platform:net",
-    ] + reverb_tf_deps() + reverb_grpc_deps(),
-)
-
-reverb_cc_test(
     name = "reverb_service_impl_test",
     srcs = ["reverb_service_impl_test.cc"],
     deps = [
@@ -246,21 +237,6 @@ reverb_cc_library(
         ":chunk_store",
         ":schema_cc_proto",
     ],
-)
-
-reverb_cc_library(
-    name = "server",
-    srcs = ["server.cc"],
-    hdrs = ["server.h"],
-    visibility = ["//reverb:__subpackages__"],
-    deps = [
-        ":priority_table",
-        ":client",
-        ":reverb_service_impl",
-        "//reverb/cc/checkpointing:interface",
-        "//reverb/cc/platform:grpc_utils",
-        "//reverb/cc/platform:logging",
-    ] + reverb_grpc_deps() + reverb_absl_deps(),
 )
 
 reverb_cc_proto_library(

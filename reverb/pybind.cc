@@ -31,10 +31,10 @@
 #include "reverb/cc/distributions/prioritized.h"
 #include "reverb/cc/distributions/uniform.h"
 #include "reverb/cc/platform/checkpointing.h"
+#include "reverb/cc/platform/server.h"
 #include "reverb/cc/priority_table.h"
 #include "reverb/cc/rate_limiter.h"
 #include "reverb/cc/sampler.h"
-#include "reverb/cc/server.h"
 #include "reverb/cc/table_extensions/interface.h"
 #include "reverb/cc/writer.h"
 #include "tensorflow/core/framework/tensor.h"
@@ -646,9 +646,9 @@ PYBIND11_MODULE(libpybind, m) {
                   std::shared_ptr<CheckpointerInterface> checkpointer =
                       nullptr) {
                  std::unique_ptr<Server> server;
-                 MaybeRaiseFromStatus(
-                     Server::StartServer(std::move(priority_tables), port,
-                                         std::move(checkpointer), &server));
+                 MaybeRaiseFromStatus(StartServer(std::move(priority_tables),
+                                                  port, std::move(checkpointer),
+                                                  &server));
                  return server.release();
                }),
            py::arg("priority_tables"), py::arg("port"),

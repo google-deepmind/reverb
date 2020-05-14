@@ -102,7 +102,7 @@ reverb_pybind_extension(
         "//reverb/cc:client",
         "//reverb/cc:writer",
         "//reverb/cc:sampler",
-        "//reverb/cc:server",
+        "//reverb/cc/platform:server",
         "//reverb/cc/checkpointing:interface",
         "//reverb/cc/distributions:fifo",
         "//reverb/cc/distributions:heap",
