@@ -40,7 +40,7 @@ and other memory storage systems) are as follows:
 
 ## The Data Model
 
-![](/third_party/reverb/docs/animations/diagram2.svg)
+![](docs/animations/diagram2.svg)
 
 The above image demonstrates one of the key benefits of Reverb-- a
 memory-efficient data model. Each timestep is only stored once on the server,
@@ -50,7 +50,7 @@ when necessary.
 
 ## Reverb in Practice
 
-![](/third_party/reverb/docs/animations/diagram1.svg)
+![](docs/animations/diagram1.svg)
 
 This animation shows what the state of the server looks like at each step in the
 code block. Although we are manually setting each item to have the same priority
@@ -123,7 +123,7 @@ which the actor can take an environment step.
 Consider the following scenario describing a SampleToInsertRatioLimiter with an
 error buffer of 3.0 and a sample-to-insert ratio of 2:
 
-![](/third_party/reverb/docs/animations/diagram3.svg)
+![](docs/animations/diagram3.svg)
 
 One particular group of agent implementations, *single-threaded Python*, require
 extra attention as they are prone to deadlocks caused by the RateLimiter's
