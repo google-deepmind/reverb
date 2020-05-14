@@ -84,7 +84,8 @@ class Writer {
   // is popped from `chunks_`.
   tensorflow::Status Finish();
 
-  // Retries `WritePendingData` for at most `kMaxRetries` times.
+  // Retries `WritePendingData` until sucessful or until non transient errors
+  // encountered.
   tensorflow::Status WriteWithRetries();
 
   // Streams the chunks in `chunks_` referenced by `pending_items_` followed by
