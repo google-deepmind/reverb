@@ -32,7 +32,7 @@ $ docker build --tag tensorflow:reverb_release \
   - < "$REVERB_DIR/docker/release.dockerfile"
 
 $ docker run --rm -it --mount "type=bind,src=$REVERB_DIR,dst=/tmp/reverb" \
-tensorflow:reverb_release bash oss_build.sh --python 3.6
+  tensorflow:reverb_release bash oss_build.sh --python 3.6
 
 
 # Alternatively configure and build for Python 3.8.
@@ -40,8 +40,7 @@ $ docker build --tag tensorflow:reverb --build-arg python_version=python3.8 \
   - < "$REVERB_DIR/docker/dev.dockerfile"
 
 $ docker run --rm -it --mount "type=bind,src=$REVERB_DIR,dst=/tmp/reverb" \
-tensorflow:reverb_release bash oss_build.sh --python 3.8
-
+  tensorflow:reverb_release bash oss_build.sh --python 3.8
 ```
 
 <a id='Develop'></a>
@@ -54,20 +53,20 @@ tensorflow:reverb_release bash oss_build.sh --python 3.8
    `--build-arg python_version="python3.6 python3.7 python3.8"`.
 
   ```shell
-$ docker build --tag tensorflow:reverb - < "$REVERB_DIR/docker/dev.dockerfile"
+  $ docker build --tag tensorflow:reverb - < "$REVERB_DIR/docker/dev.dockerfile"
 
-# Alternatively you can build the container with Python 3.7 support.
-$ docker build --tag tensorflow:reverb --build-arg python_version=python3.7 \
-  - < "$REVERB_DIR/docker/dev.dockerfile"
+  # Alternatively you can build the container with Python 3.7 support.
+  $ docker build --tag tensorflow:reverb --build-arg python_version=python3.7 \
+    - < "$REVERB_DIR/docker/dev.dockerfile"
   ```
 
 1. Run and enter the docker container.
 
   ```shell
-$ docker run --rm -it \
-  --mount "type=bind,src=$REVERB_DIR,dst=/tmp/reverb" \
-  --mount "type=bind,src=$HOME/.gitconfig,dst=/etc/gitconfig,ro" \
-  --name reverb tensorflow:reverb bash
+  $ docker run --rm -it \
+    --mount "type=bind,src=$REVERB_DIR,dst=/tmp/reverb" \
+    --mount "type=bind,src=$HOME/.gitconfig,dst=/etc/gitconfig,ro" \
+    --name reverb tensorflow:reverb bash
   ```
 
 1. Define the Python version to use (python3, python3.7, python3.8), which needs
@@ -76,28 +75,29 @@ $ docker run --rm -it \
    container.
 
   ```shell
-$ export PYTHON_BIN_PATH=python3
+  $ export PYTHON_BIN_PATH=python3
   ```
 
 1. Compile Reverb.
 
   ```shell
-$ $PYTHON_BIN_PATH configure.py
-bazel build -c opt //reverb/pip_package:build_pip_package
+  $ $PYTHON_BIN_PATH configure.py
+  $ bazel build -c opt //reverb/pip_package:build_pip_package
   ```
 
 1. Build the .whl file and output it to `/tmp/reverb_build/dist/`.
 
   ```shell
-$ ./bazel-bin/reverb/pip_package/build_pip_package --dst /tmp/reverb_build/dist/
+  $ ./bazel-bin/reverb/pip_package/build_pip_package \
+    --dst /tmp/reverb_build/dist/
   ```
 
 1. Install the .whl file.
 
   ```shell
-# If multiple versions were built, pass the exact wheel to install rather than
-# *.whl.
-$ $PYTHON_BIN_PATH -mpip install --upgrade /tmp/reverb_build/dist/*.whl
+  # If multiple versions were built, pass the exact wheel to install rather than
+  # *.whl.
+  $ $PYTHON_BIN_PATH -mpip install --upgrade /tmp/reverb_build/dist/*.whl
   ```
 
 
