@@ -45,14 +45,14 @@ of length 5 based on a single actor.
           step_within_episode += 1
 
           if step_within_episode >= 5:
-            writer.create_prioritized_item(
+            writer.create_item(
                 table='my_distribution',
                 num_timesteps=5,
                 priority=calc_priority(...))
 
         # Add an item for the sequence terminating in the final stage.
         if steps_within_episode >= 5:
-          writer.create_prioritized_item(
+          writer.create_item(
               table='my_distribution',
               num_timesteps=5,
               priority=calc_priority(...))
@@ -136,7 +136,7 @@ class Writer:
 
           # A sequence of length 1 is created referencing only C and thus C is
           # sent to the server.
-          writer.create_prioritized_item('my_table', 1, 5.0)
+          writer.create_item('my_table', 1, 5.0)
 
         # Writer is now closed and B was never referenced by a prioritized item
         # and thus never sent to the server.
@@ -149,9 +149,8 @@ class Writer:
     """
     self._writer.AppendTimestep(tree.flatten(timestep))
 
-  def create_prioritized_item(self, table: str, num_timesteps: int,
-                              priority: float):
-    """Creates a prioritized item and sends it to the ReverbService.
+  def create_item(self, table: str, num_timesteps: int, priority: float):
+    """Creates an item and sends it to the ReverbService.
 
     This method is what effectively makes data available for sampling. See the
     docstring of `append_timestep` for an illustrative example of the behavior.
@@ -171,6 +170,10 @@ class Writer:
     if num_timesteps < 1:
       raise ValueError('num_timesteps (%d) must be a positive integer')
     self._writer.AddPriority(table, num_timesteps, priority)
+
+  def create_prioritized_item(self, table: str, num_timesteps: int,
+                              priority: float):
+    return self.create_item(table, num_timesteps, priority)
 
   def close(self):
     """Closes the stream to the ReverbService.
@@ -235,7 +238,7 @@ class Client:
     with self.writer(max_sequence_length=1) as writer:
       writer.append_timestep(data)
       for table, priority in priorities.items():
-        writer.create_prioritized_item(
+        writer.create_item(
             table=table, num_timesteps=1, priority=priority)
 
   def writer(
