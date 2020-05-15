@@ -23,6 +23,7 @@ reverb_pytype_strict_library(
     deps = [
         ":client",
         ":distributions",
+        ":ensure_tf_install",
         ":errors",
         ":rate_limiters",
         ":replay_sample",
@@ -213,4 +214,10 @@ reverb_py_test(
     deps = [
         ":reverb",
     ],
+)
+
+reverb_pytype_strict_library(
+    name = "ensure_tf_install",
+    srcs = ["platform/default/ensure_tf_install.py"],
+    srcs_version = "PY3",
 )

@@ -14,6 +14,16 @@
 
 """Reverb."""
 
+# pylint: disable=g-import-not-at-top
+# pylint: disable=g-bad-import-order
+from reverb.platform.default import ensure_tf_install
+
+ensure_tf_install.ensure_tf_version()
+
+# Cleanup symbols to avoid polluting namespace.
+del ensure_tf_install
+# pylint: enable=g-bad-import-order
+
 from reverb import distributions
 from reverb import rate_limiters
 
