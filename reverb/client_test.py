@@ -113,11 +113,11 @@ class ReverbClientTest(absltest.TestCase):
   def test_writer(self):
     with self.client.writer(2) as writer:
       writer.append_timestep([0])
-      writer.create_prioritized_item(TABLE_NAME, 1, 1.0)
+      writer.create_item(TABLE_NAME, 1, 1.0)
       writer.append_timestep([1])
-      writer.create_prioritized_item(TABLE_NAME, 2, 1.0)
+      writer.create_item(TABLE_NAME, 2, 1.0)
       writer.append_timestep([2])
-      writer.create_prioritized_item(TABLE_NAME, 1, 1.0)
+      writer.create_item(TABLE_NAME, 1, 1.0)
 
     freqs = self._get_sample_frequency()
     self.assertLen(freqs, 3)
@@ -213,7 +213,7 @@ class ReverbClientTest(absltest.TestCase):
     def _write(i):
       with self.client.writer(1) as writer:
         writer.append_timestep([i])
-        writer.create_prioritized_item(TABLE_NAME, 1, 1.0)
+        writer.create_item(TABLE_NAME, 1, 1.0)
 
     for _ in range(5):
       pool.map(_write, list(range(256)))

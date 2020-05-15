@@ -309,9 +309,9 @@ class DatasetTest(tf.test.TestCase, parameterized.TestCase):
       for i in range(1000):
         writer.append_timestep([np.zeros((3, 3), dtype=np.float32)])
         if i % 5 == 0 and i >= sequence_length:
-          writer.create_prioritized_item(
+          writer.create_item(
               table='dist', num_timesteps=sequence_length, priority=1)
-          writer.create_prioritized_item(
+          writer.create_item(
               table='signatured', num_timesteps=sequence_length, priority=1)
 
   def _sample_from(self, dataset, num_samples):
@@ -583,7 +583,7 @@ class DatasetTest(tf.test.TestCase, parameterized.TestCase):
             'reward': np.zeros((10, 10), dtype=np.float32),
         })
         if i % 5 == 0 and i >= 100:
-          writer.create_prioritized_item(
+          writer.create_item(
               table='dist', num_timesteps=100, priority=1)
 
     client = tf_client.TFClient(self._client.server_address)
@@ -627,7 +627,7 @@ class DatasetTest(tf.test.TestCase, parameterized.TestCase):
     with self._client.writer(100) as writer:
       for i in range(10):
         writer.append_timestep([np.ones((81, 81), dtype=np.float32) * i])
-      writer.create_prioritized_item(table='dist', num_timesteps=10, priority=1)
+      writer.create_item(table='dist', num_timesteps=10, priority=1)
 
     trajectory_length = 5
     batch_size = 3

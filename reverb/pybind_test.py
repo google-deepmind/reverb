@@ -65,7 +65,7 @@ class TestNdArrayToTensorAndBack(parameterized.TestCase):
   def test_sanity_check(self, data):
     with self._client.writer(1) as writer:
       writer.append_timestep([data])
-      writer.create_prioritized_item(TABLE_NAME, 1, 1)
+      writer.create_item(TABLE_NAME, 1, 1)
 
     sample = next(self._client.sample(TABLE_NAME))
     got = sample[0].data[0]
