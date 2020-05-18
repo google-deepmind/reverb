@@ -251,7 +251,7 @@ class InsertOp : public tensorflow::OpKernel {
     std::unique_ptr<Writer> writer;
     OP_REQUIRES_OK(context,
                    resource->client()->NewWriter(1, 1, false, &writer));
-    OP_REQUIRES_OK(context, writer->AppendTimestep(std::move(tensors)));
+    OP_REQUIRES_OK(context, writer->Append(std::move(tensors)));
 
     auto tables_t = tables->flat<tstring>();
     auto priorities_t = priorities->flat<double>();

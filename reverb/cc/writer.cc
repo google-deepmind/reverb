@@ -71,11 +71,10 @@ Writer::~Writer() {
   if (!closed_) Close().IgnoreError();
 }
 
-tensorflow::Status Writer::AppendTimestep(
-    std::vector<tensorflow::Tensor> data) {
+tensorflow::Status Writer::Append(std::vector<tensorflow::Tensor> data) {
   if (closed_) {
     return tensorflow::errors::FailedPrecondition(
-        "Calling method AppendTimestep after Close has been called");
+        "Calling method Append after Close has been called");
   }
   if (!buffer_.empty() && buffer_.front().size() != data.size()) {
     return tensorflow::errors::InvalidArgument(
@@ -145,8 +144,8 @@ tensorflow::Status Writer::AddPriority(const std::string& table,
       if (dtypes_and_shapes_t->size() != (*dtypes_and_shapes)->size()) {
         return tensorflow::errors::InvalidArgument(
             "Unable to AddPriority to table ", table,
-            " because AppendTimestep was called with a tensor signature "
-            "inconsistent with table signature.  AppendTimestep for timestep "
+            " because Append was called with a tensor signature "
+            "inconsistent with table signature.  Append for timestep "
             "offset ",
             t, " was called with ", dtypes_and_shapes_t->size(),
             " tensors, but table requires ", (*dtypes_and_shapes)->size(),
@@ -162,7 +161,7 @@ tensorflow::Status Writer::AddPriority(const std::string& table,
                 seen_dtype_and_shape.shape)) {
           return tensorflow::errors::InvalidArgument(
               "Unable to AddPriority to table ", table,
-              " because AppendTimestep was called with a tensor signature "
+              " because Append was called with a tensor signature "
               "inconsistent with table signature.  Saw a tensor at "
               "timestep offset ",
               t, " in (flattened) tensor location ", c, " with dtype ",

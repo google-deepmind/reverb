@@ -93,7 +93,7 @@ class Sample {
 // Terminology:
 //   Timestep:
 //      Set of tensors representing a single "step" (i.e data passed to
-//      `Writer::AppendTimestep`).
+//      `Writer::Append`).
 //   Chunk:
 //      Timesteps batched (along the time dimension) and compressed. If each
 //      timestep contains K tensors of dtype dt_k and shape s_k and the chunk

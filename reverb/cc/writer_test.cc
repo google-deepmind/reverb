@@ -167,8 +167,8 @@ TEST(WriterTest, DoesNotSendTimestepsWhenThereAreNoItems) {
   std::vector<InsertStreamRequest> requests;
   auto stub = MakeGoodStub(&requests);
   Writer writer(stub, 2, 10);
-  TF_ASSERT_OK(writer.AppendTimestep(MakeTimestep()));
-  TF_ASSERT_OK(writer.AppendTimestep(MakeTimestep()));
+  TF_ASSERT_OK(writer.Append(MakeTimestep()));
+  TF_ASSERT_OK(writer.Append(MakeTimestep()));
   EXPECT_THAT(requests, SizeIs(0));
 }
 
@@ -176,12 +176,12 @@ TEST(WriterTest, OnlySendsChunksWhichAreUsedByItems) {
   std::vector<InsertStreamRequest> requests;
   auto stub = MakeGoodStub(&requests);
   Writer writer(stub, 2, 10);
-  TF_ASSERT_OK(writer.AppendTimestep(MakeTimestep()));
-  TF_ASSERT_OK(writer.AppendTimestep(MakeTimestep()));
-  TF_ASSERT_OK(writer.AppendTimestep(MakeTimestep()));
-  TF_ASSERT_OK(writer.AppendTimestep(MakeTimestep()));
-  TF_ASSERT_OK(writer.AppendTimestep(MakeTimestep()));
-  TF_ASSERT_OK(writer.AppendTimestep(MakeTimestep()));
+  TF_ASSERT_OK(writer.Append(MakeTimestep()));
+  TF_ASSERT_OK(writer.Append(MakeTimestep()));
+  TF_ASSERT_OK(writer.Append(MakeTimestep()));
+  TF_ASSERT_OK(writer.Append(MakeTimestep()));
+  TF_ASSERT_OK(writer.Append(MakeTimestep()));
+  TF_ASSERT_OK(writer.Append(MakeTimestep()));
   EXPECT_THAT(requests, SizeIs(0));
 
   TF_ASSERT_OK(writer.AddPriority("dist", 3, 1.0));
@@ -200,8 +200,8 @@ TEST(WriterTest, DoesNotSendAlreadySentChunks) {
   auto stub = MakeGoodStub(&requests);
   Writer writer(stub, 2, 10);
 
-  TF_ASSERT_OK(writer.AppendTimestep(MakeTimestep()));
-  TF_ASSERT_OK(writer.AppendTimestep(MakeTimestep()));
+  TF_ASSERT_OK(writer.Append(MakeTimestep()));
+  TF_ASSERT_OK(writer.Append(MakeTimestep()));
   TF_ASSERT_OK(writer.AddPriority("dist", 1, 1.5));
 
   ASSERT_THAT(requests, SizeIs(2));
@@ -215,8 +215,8 @@ TEST(WriterTest, DoesNotSendAlreadySentChunks) {
               ElementsAre(first_chunk_key));
 
   requests.clear();
-  TF_ASSERT_OK(writer.AppendTimestep(MakeTimestep()));
-  TF_ASSERT_OK(writer.AppendTimestep(MakeTimestep()));
+  TF_ASSERT_OK(writer.Append(MakeTimestep()));
+  TF_ASSERT_OK(writer.Append(MakeTimestep()));
   TF_ASSERT_OK(writer.AddPriority("dist", 3, 1.3));
 
   ASSERT_THAT(requests, SizeIs(2));
@@ -234,9 +234,9 @@ TEST(WriterTest, SendsPendingDataOnClose) {
   auto stub = MakeGoodStub(&requests);
   Writer writer(stub, 2, 10);
 
-  TF_ASSERT_OK(writer.AppendTimestep(MakeTimestep()));
-  TF_ASSERT_OK(writer.AppendTimestep(MakeTimestep()));
-  TF_ASSERT_OK(writer.AppendTimestep(MakeTimestep()));
+  TF_ASSERT_OK(writer.Append(MakeTimestep()));
+  TF_ASSERT_OK(writer.Append(MakeTimestep()));
+  TF_ASSERT_OK(writer.Append(MakeTimestep()));
   TF_ASSERT_OK(writer.AddPriority("dist", 1, 1.0));
   EXPECT_THAT(requests, SizeIs(0));
 
@@ -257,7 +257,7 @@ TEST(WriterTest, FailsIfMethodsCalledAfterClose) {
   TF_ASSERT_OK(writer.Close());
 
   EXPECT_FALSE(writer.Close().ok());
-  EXPECT_FALSE(writer.AppendTimestep(MakeTimestep()).ok());
+  EXPECT_FALSE(writer.Append(MakeTimestep()).ok());
   EXPECT_FALSE(writer.AddPriority("dist", 1, 1.0).ok());
 }
 
@@ -271,8 +271,8 @@ TEST(WriterTest, RetriesOnTransientError) {
     auto stub = MakeFlakyStub(&requests, 0, 1, ToGrpcStatus(error));
     Writer writer(stub, 2, 10);
 
-    TF_ASSERT_OK(writer.AppendTimestep(MakeTimestep()));
-    TF_ASSERT_OK(writer.AppendTimestep(MakeTimestep()));
+    TF_ASSERT_OK(writer.Append(MakeTimestep()));
+    TF_ASSERT_OK(writer.Append(MakeTimestep()));
     TF_ASSERT_OK(writer.AddPriority("dist", 1, 1.0));
 
     ASSERT_THAT(requests, SizeIs(3));
@@ -291,8 +291,8 @@ TEST(WriterTest, DoesNotRetryOnNonTransientError) {
   auto stub = MakeFlakyStub(&requests, 0, 1, ToGrpcStatus(Internal("")));
   Writer writer(stub, 2, 10);
 
-  TF_ASSERT_OK(writer.AppendTimestep(MakeTimestep()));
-  TF_ASSERT_OK(writer.AppendTimestep(MakeTimestep()));
+  TF_ASSERT_OK(writer.Append(MakeTimestep()));
+  TF_ASSERT_OK(writer.Append(MakeTimestep()));
   EXPECT_FALSE(writer.AddPriority("dist", 1, 1.0).ok());
 
   EXPECT_THAT(requests, SizeIs(1));  // Tries only once and then gives up.
@@ -303,7 +303,7 @@ TEST(WriterTest, CallsCloseWhenObjectDestroyed) {
   {
     auto stub = MakeGoodStub(&requests);
     Writer writer(stub, 2, 10);
-    TF_ASSERT_OK(writer.AppendTimestep(MakeTimestep()));
+    TF_ASSERT_OK(writer.Append(MakeTimestep()));
     TF_ASSERT_OK(writer.AddPriority("dist", 1, 1.0));
     EXPECT_THAT(requests, SizeIs(0));
   }
@@ -316,14 +316,14 @@ TEST(WriterTest, ResendsOnlyTheChunksTheRemainingItemsNeedWithNewStream) {
       MakeFlakyStub(&requests, 3, 1, ToGrpcStatus(DeadlineExceeded("")));
   Writer writer(stub, 2, 10);
 
-  TF_ASSERT_OK(writer.AppendTimestep(MakeTimestep()));
-  TF_ASSERT_OK(writer.AppendTimestep(MakeTimestep()));
-  TF_ASSERT_OK(writer.AppendTimestep(MakeTimestep()));
+  TF_ASSERT_OK(writer.Append(MakeTimestep()));
+  TF_ASSERT_OK(writer.Append(MakeTimestep()));
+  TF_ASSERT_OK(writer.Append(MakeTimestep()));
   TF_ASSERT_OK(writer.AddPriority("dist", 3, 1.0));
   TF_ASSERT_OK(writer.AddPriority("dist2", 1, 1.0));
   EXPECT_THAT(requests, SizeIs(0));
 
-  TF_ASSERT_OK(writer.AppendTimestep(MakeTimestep()));
+  TF_ASSERT_OK(writer.Append(MakeTimestep()));
 
   ASSERT_THAT(requests, SizeIs(6));
   EXPECT_THAT(requests[0], IsChunk());
@@ -354,8 +354,8 @@ TEST(WriterTest, TellsServerToKeepStreamedItemsStillInClient) {
   auto stub = MakeGoodStub(&requests);
   Writer writer(stub, 2, 6);
 
-  TF_ASSERT_OK(writer.AppendTimestep(MakeTimestep()));
-  TF_ASSERT_OK(writer.AppendTimestep(MakeTimestep()));
+  TF_ASSERT_OK(writer.Append(MakeTimestep()));
+  TF_ASSERT_OK(writer.Append(MakeTimestep()));
   TF_ASSERT_OK(writer.AddPriority("dist", 1, 1.0));
 
   ASSERT_THAT(requests, SizeIs(2));
@@ -369,11 +369,11 @@ TEST(WriterTest, TellsServerToKeepStreamedItemsStillInClient) {
 
   requests.clear();
 
-  TF_ASSERT_OK(writer.AppendTimestep(MakeTimestep()));
-  TF_ASSERT_OK(writer.AppendTimestep(MakeTimestep()));
+  TF_ASSERT_OK(writer.Append(MakeTimestep()));
+  TF_ASSERT_OK(writer.Append(MakeTimestep()));
 
-  TF_ASSERT_OK(writer.AppendTimestep(MakeTimestep()));
-  TF_ASSERT_OK(writer.AppendTimestep(MakeTimestep()));
+  TF_ASSERT_OK(writer.Append(MakeTimestep()));
+  TF_ASSERT_OK(writer.Append(MakeTimestep()));
   TF_ASSERT_OK(writer.AddPriority("dist", 1, 1.0));
 
   ASSERT_THAT(requests, SizeIs(2));
@@ -388,8 +388,8 @@ TEST(WriterTest, TellsServerToKeepStreamedItemsStillInClient) {
   requests.clear();
 
   // Now the first chunk will go out of scope
-  TF_ASSERT_OK(writer.AppendTimestep(MakeTimestep()));
-  TF_ASSERT_OK(writer.AppendTimestep(MakeTimestep()));
+  TF_ASSERT_OK(writer.Append(MakeTimestep()));
+  TF_ASSERT_OK(writer.Append(MakeTimestep()));
   TF_ASSERT_OK(writer.AddPriority("dist", 1, 1.0));
 
   ASSERT_THAT(requests, SizeIs(2));
@@ -409,7 +409,7 @@ TEST(WriterTest, IgnoresCloseErrorsIfAllItemsWritten) {
   Writer writer(stub, /*chunk_length=*/1, /*max_timesteps=*/2);
 
   // Insert an item and make sure it is flushed to the server.
-  TF_EXPECT_OK(writer.AppendTimestep(MakeTimestep()));
+  TF_EXPECT_OK(writer.Append(MakeTimestep()));
   TF_EXPECT_OK(writer.AddPriority("dist", 1, 1.0));
   EXPECT_THAT(requests, SizeIs(2));
 
@@ -427,7 +427,7 @@ TEST(WriterTest, ReturnsCloseErrorsIfAllItemsNotWritten) {
   // Insert an item which is shorter
   // than the batch and thus should not
   // be automatically flushed.
-  TF_EXPECT_OK(writer.AppendTimestep(MakeTimestep()));
+  TF_EXPECT_OK(writer.Append(MakeTimestep()));
   TF_EXPECT_OK(writer.AddPriority("dist", 1, 1.0));
   EXPECT_THAT(requests, SizeIs(0));
 
@@ -443,11 +443,11 @@ TEST(WriterTest, SequenceRangeIsSetOnChunks) {
   Writer writer(stub, /*chunk_length=*/2,
                 /*max_timesteps=*/4);
 
-  TF_EXPECT_OK(writer.AppendTimestep(MakeTimestep()));
-  TF_EXPECT_OK(writer.AppendTimestep(MakeTimestep()));
-  TF_EXPECT_OK(writer.AppendTimestep(MakeTimestep()));
+  TF_EXPECT_OK(writer.Append(MakeTimestep()));
+  TF_EXPECT_OK(writer.Append(MakeTimestep()));
+  TF_EXPECT_OK(writer.Append(MakeTimestep()));
   TF_EXPECT_OK(writer.AddPriority("dist", 3, 1.0));
-  TF_EXPECT_OK(writer.AppendTimestep(MakeTimestep()));
+  TF_EXPECT_OK(writer.Append(MakeTimestep()));
 
   EXPECT_THAT(
       requests,
@@ -469,11 +469,11 @@ TEST(WriterTest, DeltaEncode) {
   Writer writer(stub, /*chunk_length=*/2,
                 /*max_timesteps=*/4, /*delta_encoded=*/true);
 
-  TF_EXPECT_OK(writer.AppendTimestep(MakeTimestep()));
-  TF_EXPECT_OK(writer.AppendTimestep(MakeTimestep()));
-  TF_EXPECT_OK(writer.AppendTimestep(MakeTimestep()));
+  TF_EXPECT_OK(writer.Append(MakeTimestep()));
+  TF_EXPECT_OK(writer.Append(MakeTimestep()));
+  TF_EXPECT_OK(writer.Append(MakeTimestep()));
   TF_EXPECT_OK(writer.AddPriority("dist", 3, 1.0));
-  TF_EXPECT_OK(writer.AppendTimestep(MakeTimestep()));
+  TF_EXPECT_OK(writer.Append(MakeTimestep()));
 
   EXPECT_THAT(
       requests,
@@ -500,17 +500,17 @@ TEST(WriterTest, MultiChunkItemsAreCorrect) {
   // +-------------+----------+
 
   // First item: 1 chunk.
-  TF_EXPECT_OK(writer.AppendTimestep(MakeTimestep()));
-  TF_EXPECT_OK(writer.AppendTimestep(MakeTimestep()));
+  TF_EXPECT_OK(writer.Append(MakeTimestep()));
+  TF_EXPECT_OK(writer.Append(MakeTimestep()));
   TF_EXPECT_OK(writer.AddPriority("dist", 2, 1.0));
 
   // Second item: 2 chunks.
-  TF_EXPECT_OK(writer.AppendTimestep(MakeTimestep()));
-  TF_EXPECT_OK(writer.AppendTimestep(MakeTimestep()));
+  TF_EXPECT_OK(writer.Append(MakeTimestep()));
+  TF_EXPECT_OK(writer.Append(MakeTimestep()));
   TF_EXPECT_OK(writer.AddPriority("dist", 2, 1.0));
 
   // Third item: 1 chunk.
-  TF_EXPECT_OK(writer.AppendTimestep(MakeTimestep()));
+  TF_EXPECT_OK(writer.Append(MakeTimestep()));
   TF_EXPECT_OK(writer.AddPriority("dist", 1, 1.0));
 
   TF_EXPECT_OK(writer.Close());
@@ -540,8 +540,8 @@ TEST(WriterTest, WriteTimeStepsMatchingSignature) {
   std::unique_ptr<Writer> writer;
   TF_EXPECT_OK(client.NewWriter(2, 6, /*delta_encoded=*/false, &writer));
 
-  TF_ASSERT_OK(writer->AppendTimestep(MakeTimestep()));
-  TF_ASSERT_OK(writer->AppendTimestep(MakeTimestep()));
+  TF_ASSERT_OK(writer->Append(MakeTimestep()));
+  TF_ASSERT_OK(writer->Append(MakeTimestep()));
   TF_ASSERT_OK(writer->AddPriority("dist", 2, 1.0));
   ASSERT_THAT(requests, SizeIs(2));
 }
@@ -554,14 +554,14 @@ TEST(WriterTest, WriteTimeStepsNumTensorsDontMatchSignatureError) {
   std::unique_ptr<Writer> writer;
   TF_EXPECT_OK(client.NewWriter(2, 6, /*delta_encoded=*/false, &writer));
 
-  TF_ASSERT_OK(writer->AppendTimestep(MakeTimestep(/*num_tensors=*/2)));
-  TF_ASSERT_OK(writer->AppendTimestep(MakeTimestep(/*num_tensors=*/2)));
+  TF_ASSERT_OK(writer->Append(MakeTimestep(/*num_tensors=*/2)));
+  TF_ASSERT_OK(writer->Append(MakeTimestep(/*num_tensors=*/2)));
   auto status = writer->AddPriority("dist", 2, 1.0);
   EXPECT_EQ(status.code(), tensorflow::error::INVALID_ARGUMENT);
   EXPECT_THAT(
       status.error_message(),
       ::testing::HasSubstr(
-          "AppendTimestep for timestep offset 0 was called with 2 tensors, "
+          "Append for timestep offset 0 was called with 2 tensors, "
           "but table requires 1 tensors per entry."));
 }
 
@@ -573,8 +573,8 @@ TEST(WriterTest, WriteTimeStepsInconsistentDtypeError) {
   std::unique_ptr<Writer> writer;
   TF_EXPECT_OK(client.NewWriter(2, 6, /*delta_encoded=*/false, &writer));
 
-  TF_ASSERT_OK(writer->AppendTimestep(MakeTimestep()));
-  TF_ASSERT_OK(writer->AppendTimestep(MakeTimestep()));
+  TF_ASSERT_OK(writer->Append(MakeTimestep()));
+  TF_ASSERT_OK(writer->Append(MakeTimestep()));
   auto status = writer->AddPriority("dist", 2, 1.0);
   EXPECT_EQ(status.code(), tensorflow::error::INVALID_ARGUMENT);
   EXPECT_THAT(status.error_message(),
@@ -593,8 +593,8 @@ TEST(WriterTest, WriteTimeStepsInconsistentShapeError) {
   std::unique_ptr<Writer> writer;
   TF_EXPECT_OK(client.NewWriter(2, 6, /*delta_encoded=*/false, &writer));
 
-  TF_ASSERT_OK(writer->AppendTimestep(MakeTimestep()));
-  TF_ASSERT_OK(writer->AppendTimestep(MakeTimestep()));
+  TF_ASSERT_OK(writer->Append(MakeTimestep()));
+  TF_ASSERT_OK(writer->Append(MakeTimestep()));
   auto status = writer->AddPriority("dist", 2, 1.0);
   EXPECT_EQ(status.code(), tensorflow::error::INVALID_ARGUMENT);
   EXPECT_THAT(status.error_message(),

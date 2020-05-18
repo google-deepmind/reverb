@@ -147,7 +147,7 @@ class Writer:
       timestep: The (possibly nested) structure to make available for new
         prioritized items to reference.
     """
-    self._writer.AppendTimestep(tree.flatten(timestep))
+    self._writer.Append(tree.flatten(timestep))
 
   def create_item(self, table: str, num_timesteps: int, priority: float):
     """Creates an item and sends it to the ReverbService.

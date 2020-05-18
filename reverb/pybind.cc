@@ -534,7 +534,7 @@ PYBIND11_MODULE(libpybind, m) {
            py::call_guard<py::gil_scoped_release>());
 
   py::class_<Writer>(m, "Writer")
-      .def("AppendTimestep", &Writer::AppendTimestep,
+      .def("Append", &Writer::Append,
            py::call_guard<py::gil_scoped_release>())
       .def("AddPriority", &Writer::AddPriority,
            py::call_guard<py::gil_scoped_release>())

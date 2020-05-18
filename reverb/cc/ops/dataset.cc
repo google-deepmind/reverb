@@ -56,7 +56,7 @@ parallel streams using a single connection.
 
 `dtypes` and `shapes` must match the type and shape of a single "timestep"
 within sampled sequences. That is, (key, priority, table_size, ...data passed to
-`Writer::AppendTimestep` at insertion time). This is the type and shape of
+`Writer::Append` at insertion time). This is the type and shape of
 tensors returned by `GetNextTimestep`.
 
 sequence_length: (Defaults to -1, i.e unknown) The number of timesteps in

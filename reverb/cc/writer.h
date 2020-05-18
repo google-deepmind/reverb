@@ -55,7 +55,7 @@ class Writer {
   // If all operations are successful then `buffer_` is cleared, a new
   // `next_chunk_key_` is set and old items are removed from `chunks_` until its
   // size is <= `max_chunks_`. If unsuccessful all internal state is reverted.
-  tensorflow::Status AppendTimestep(std::vector<tensorflow::Tensor> data);
+  tensorflow::Status Append(std::vector<tensorflow::Tensor> data);
 
   // Adds a new PrioritizedItem to `table` spanning the last `num_timesteps` and
   // pushes new item to `pending_items_`. If `buffer_` is empty then the new
@@ -146,9 +146,9 @@ class Writer {
   // Set if `Close` has been called.
   bool closed_;
 
-  // Set of signatures passed to AppendTimestep in a circular buffer.  Each
-  // entry is the flat list of tensor dtypes and shapes in past AppendTimestep
-  // calls.  The vector itself is of length max_time_steps_ and AppendTimestep
+  // Set of signatures passed to Append in a circular buffer.  Each
+  // entry is the flat list of tensor dtypes and shapes in past Append
+  // calls.  The vector itself is of length max_time_steps_ and Append
   // updates the DtypesAndShapes at index append_dtypes_and_shapes_location_.
   std::vector<internal::DtypesAndShapes> inserted_dtypes_and_shapes_;
   int insert_dtypes_and_shapes_location_ = 0;
