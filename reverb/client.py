@@ -171,10 +171,6 @@ class Writer:
       raise ValueError('num_timesteps (%d) must be a positive integer')
     self._writer.AddPriority(table, num_timesteps, priority)
 
-  def create_prioritized_item(self, table: str, num_timesteps: int,
-                              priority: float):
-    return self.create_item(table, num_timesteps, priority)
-
   def close(self):
     """Closes the stream to the ReverbService.
 
