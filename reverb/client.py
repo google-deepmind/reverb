@@ -111,12 +111,12 @@ class Writer:
       logging.warning(
           'Writer-object deleted without calling .close explicitly.')
 
-  def append_timestep(self, timestep: Any):
-    """Appends a timestep to the internal buffer.
+  def append(self, data: Any):
+    """Appends data to the internal buffer.
 
     NOTE: Calling this method alone does not result in anything being inserted
-    into the replay. To trigger timestep insertion, `create_prioritized_item`
-    must be called so that the resulting sequence includes the timestep.
+    into the replay. To trigger data insertion, `create_item`
+    must be called so that the resulting sequence includes the data.
 
     Consider the following example:
 
@@ -126,13 +126,13 @@ class Writer:
         client = Client(...)
 
         with client.writer(max_sequence_length=2) as writer:
-          writer.append_timestep(A)  # A is added to the internal buffer.
-          writer.append_timestep(B)  # B is added to the internal buffer.
+          writer.append(A)  # A is added to the internal buffer.
+          writer.append(B)  # B is added to the internal buffer.
 
           # The buffer is now full so when this is called C is added and A is
           # removed from the internal buffer and since A was never referenced by
           # a prioritized item it was never sent to the server.
-          writer.append_timestep(C)
+          writer.append(C)
 
           # A sequence of length 1 is created referencing only C and thus C is
           # sent to the server.
@@ -144,10 +144,13 @@ class Writer:
     ```
 
     Args:
-      timestep: The (possibly nested) structure to make available for new
-        prioritized items to reference.
+      data: The (possibly nested) structure to make available for new
+        items to reference.
     """
-    self._writer.Append(tree.flatten(timestep))
+    self._writer.Append(tree.flatten(data))
+
+  def append_timestep(self, timestep: Any):
+    return self.append(timestep)
 
   def create_item(self, table: str, num_timesteps: int, priority: float):
     """Creates an item and sends it to the ReverbService.
