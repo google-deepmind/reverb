@@ -109,8 +109,8 @@ will ultimately lead to more robust and reproducible experiments.
 
 The two rate limiters available are:
 
--   `MinSizeLimiter`: only allows sampling when the table contains a minimum
-    number of items
+-   `MinSize`: only allows sampling when the table contains a minimum number of
+    items
 -   `SampleToInsertRatio`: controls throughput so that the number of times each
     item is sampled on average remains constant within the user-defined margin
     of error
