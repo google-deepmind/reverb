@@ -109,11 +109,11 @@ tensorflow::Status Writer::Append(std::vector<tensorflow::Tensor> data) {
   return status;
 }
 
-tensorflow::Status Writer::AddPriority(const std::string& table,
-                                       int num_timesteps, double priority) {
+tensorflow::Status Writer::CreateItem(const std::string& table,
+                                      int num_timesteps, double priority) {
   if (closed_) {
     return tensorflow::errors::FailedPrecondition(
-        "Calling method AddPriority after Close has been called");
+        "Calling method CreateItem after Close has been called");
   }
   if (num_timesteps > chunks_.size() * chunk_length_ + buffer_.size()) {
     return tensorflow::errors::InvalidArgument(
@@ -137,13 +137,13 @@ tensorflow::Status Writer::AddPriority(const std::string& table,
       const auto& dtypes_and_shapes_t =
           inserted_dtypes_and_shapes_[check_offset];
       REVERB_CHECK(dtypes_and_shapes_t.has_value())
-          << "Unexpected missing dtypes and shapes while calling AddPriority: "
+          << "Unexpected missing dtypes and shapes while calling CreateItem: "
              "expected a value at index "
           << check_offset << " (timestep offset " << t << ")";
 
       if (dtypes_and_shapes_t->size() != (*dtypes_and_shapes)->size()) {
         return tensorflow::errors::InvalidArgument(
-            "Unable to AddPriority to table ", table,
+            "Unable to CreateItem to table ", table,
             " because Append was called with a tensor signature "
             "inconsistent with table signature.  Append for timestep "
             "offset ",
@@ -160,7 +160,7 @@ tensorflow::Status Writer::AddPriority(const std::string& table,
             !signature_dtype_and_shape.shape.IsCompatibleWith(
                 seen_dtype_and_shape.shape)) {
           return tensorflow::errors::InvalidArgument(
-              "Unable to AddPriority to table ", table,
+              "Unable to CreateItem to table ", table,
               " because Append was called with a tensor signature "
               "inconsistent with table signature.  Saw a tensor at "
               "timestep offset ",

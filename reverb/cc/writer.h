@@ -61,8 +61,8 @@ class Writer {
   // pushes new item to `pending_items_`. If `buffer_` is empty then the new
   // item is streamed to the ReverbService. If unsuccessful all internal state
   // is reverted.
-  tensorflow::Status AddPriority(const std::string& table, int num_timesteps,
-                                 double priority);
+  tensorflow::Status CreateItem(const std::string& table, int num_timesteps,
+                                double priority);
 
   // TODO(b/154929199): There should probably be a method for ending an episode
   // even if you don't want to close the stream.

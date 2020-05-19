@@ -184,7 +184,7 @@ TEST(WriterTest, OnlySendsChunksWhichAreUsedByItems) {
   TF_ASSERT_OK(writer.Append(MakeTimestep()));
   EXPECT_THAT(requests, SizeIs(0));
 
-  TF_ASSERT_OK(writer.AddPriority("dist", 3, 1.0));
+  TF_ASSERT_OK(writer.CreateItem("dist", 3, 1.0));
   ASSERT_THAT(requests, SizeIs(3));
   EXPECT_THAT(requests[0], IsChunk());
   EXPECT_THAT(requests[1], IsChunk());
@@ -202,7 +202,7 @@ TEST(WriterTest, DoesNotSendAlreadySentChunks) {
 
   TF_ASSERT_OK(writer.Append(MakeTimestep()));
   TF_ASSERT_OK(writer.Append(MakeTimestep()));
-  TF_ASSERT_OK(writer.AddPriority("dist", 1, 1.5));
+  TF_ASSERT_OK(writer.CreateItem("dist", 1, 1.5));
 
   ASSERT_THAT(requests, SizeIs(2));
 
@@ -217,7 +217,7 @@ TEST(WriterTest, DoesNotSendAlreadySentChunks) {
   requests.clear();
   TF_ASSERT_OK(writer.Append(MakeTimestep()));
   TF_ASSERT_OK(writer.Append(MakeTimestep()));
-  TF_ASSERT_OK(writer.AddPriority("dist", 3, 1.3));
+  TF_ASSERT_OK(writer.CreateItem("dist", 3, 1.3));
 
   ASSERT_THAT(requests, SizeIs(2));
   EXPECT_THAT(requests[0], IsChunk());
@@ -237,7 +237,7 @@ TEST(WriterTest, SendsPendingDataOnClose) {
   TF_ASSERT_OK(writer.Append(MakeTimestep()));
   TF_ASSERT_OK(writer.Append(MakeTimestep()));
   TF_ASSERT_OK(writer.Append(MakeTimestep()));
-  TF_ASSERT_OK(writer.AddPriority("dist", 1, 1.0));
+  TF_ASSERT_OK(writer.CreateItem("dist", 1, 1.0));
   EXPECT_THAT(requests, SizeIs(0));
 
   TF_ASSERT_OK(writer.Close());
@@ -258,7 +258,7 @@ TEST(WriterTest, FailsIfMethodsCalledAfterClose) {
 
   EXPECT_FALSE(writer.Close().ok());
   EXPECT_FALSE(writer.Append(MakeTimestep()).ok());
-  EXPECT_FALSE(writer.AddPriority("dist", 1, 1.0).ok());
+  EXPECT_FALSE(writer.CreateItem("dist", 1, 1.0).ok());
 }
 
 TEST(WriterTest, RetriesOnTransientError) {
@@ -273,7 +273,7 @@ TEST(WriterTest, RetriesOnTransientError) {
 
     TF_ASSERT_OK(writer.Append(MakeTimestep()));
     TF_ASSERT_OK(writer.Append(MakeTimestep()));
-    TF_ASSERT_OK(writer.AddPriority("dist", 1, 1.0));
+    TF_ASSERT_OK(writer.CreateItem("dist", 1, 1.0));
 
     ASSERT_THAT(requests, SizeIs(3));
     EXPECT_THAT(requests[0], IsChunk());
@@ -293,7 +293,7 @@ TEST(WriterTest, DoesNotRetryOnNonTransientError) {
 
   TF_ASSERT_OK(writer.Append(MakeTimestep()));
   TF_ASSERT_OK(writer.Append(MakeTimestep()));
-  EXPECT_FALSE(writer.AddPriority("dist", 1, 1.0).ok());
+  EXPECT_FALSE(writer.CreateItem("dist", 1, 1.0).ok());
 
   EXPECT_THAT(requests, SizeIs(1));  // Tries only once and then gives up.
 }
@@ -304,7 +304,7 @@ TEST(WriterTest, CallsCloseWhenObjectDestroyed) {
     auto stub = MakeGoodStub(&requests);
     Writer writer(stub, 2, 10);
     TF_ASSERT_OK(writer.Append(MakeTimestep()));
-    TF_ASSERT_OK(writer.AddPriority("dist", 1, 1.0));
+    TF_ASSERT_OK(writer.CreateItem("dist", 1, 1.0));
     EXPECT_THAT(requests, SizeIs(0));
   }
   ASSERT_THAT(requests, SizeIs(2));
@@ -319,8 +319,8 @@ TEST(WriterTest, ResendsOnlyTheChunksTheRemainingItemsNeedWithNewStream) {
   TF_ASSERT_OK(writer.Append(MakeTimestep()));
   TF_ASSERT_OK(writer.Append(MakeTimestep()));
   TF_ASSERT_OK(writer.Append(MakeTimestep()));
-  TF_ASSERT_OK(writer.AddPriority("dist", 3, 1.0));
-  TF_ASSERT_OK(writer.AddPriority("dist2", 1, 1.0));
+  TF_ASSERT_OK(writer.CreateItem("dist", 3, 1.0));
+  TF_ASSERT_OK(writer.CreateItem("dist2", 1, 1.0));
   EXPECT_THAT(requests, SizeIs(0));
 
   TF_ASSERT_OK(writer.Append(MakeTimestep()));
@@ -356,7 +356,7 @@ TEST(WriterTest, TellsServerToKeepStreamedItemsStillInClient) {
 
   TF_ASSERT_OK(writer.Append(MakeTimestep()));
   TF_ASSERT_OK(writer.Append(MakeTimestep()));
-  TF_ASSERT_OK(writer.AddPriority("dist", 1, 1.0));
+  TF_ASSERT_OK(writer.CreateItem("dist", 1, 1.0));
 
   ASSERT_THAT(requests, SizeIs(2));
   EXPECT_THAT(requests[0], IsChunk());
@@ -374,7 +374,7 @@ TEST(WriterTest, TellsServerToKeepStreamedItemsStillInClient) {
 
   TF_ASSERT_OK(writer.Append(MakeTimestep()));
   TF_ASSERT_OK(writer.Append(MakeTimestep()));
-  TF_ASSERT_OK(writer.AddPriority("dist", 1, 1.0));
+  TF_ASSERT_OK(writer.CreateItem("dist", 1, 1.0));
 
   ASSERT_THAT(requests, SizeIs(2));
   EXPECT_THAT(requests[0], IsChunk());
@@ -390,7 +390,7 @@ TEST(WriterTest, TellsServerToKeepStreamedItemsStillInClient) {
   // Now the first chunk will go out of scope
   TF_ASSERT_OK(writer.Append(MakeTimestep()));
   TF_ASSERT_OK(writer.Append(MakeTimestep()));
-  TF_ASSERT_OK(writer.AddPriority("dist", 1, 1.0));
+  TF_ASSERT_OK(writer.CreateItem("dist", 1, 1.0));
 
   ASSERT_THAT(requests, SizeIs(2));
   EXPECT_THAT(requests[0], IsChunk());
@@ -410,7 +410,7 @@ TEST(WriterTest, IgnoresCloseErrorsIfAllItemsWritten) {
 
   // Insert an item and make sure it is flushed to the server.
   TF_EXPECT_OK(writer.Append(MakeTimestep()));
-  TF_EXPECT_OK(writer.AddPriority("dist", 1, 1.0));
+  TF_EXPECT_OK(writer.CreateItem("dist", 1, 1.0));
   EXPECT_THAT(requests, SizeIs(2));
 
   // Close the writer without any pending items and check that it swallows
@@ -428,7 +428,7 @@ TEST(WriterTest, ReturnsCloseErrorsIfAllItemsNotWritten) {
   // than the batch and thus should not
   // be automatically flushed.
   TF_EXPECT_OK(writer.Append(MakeTimestep()));
-  TF_EXPECT_OK(writer.AddPriority("dist", 1, 1.0));
+  TF_EXPECT_OK(writer.CreateItem("dist", 1, 1.0));
   EXPECT_THAT(requests, SizeIs(0));
 
   // Since not all items where sent
@@ -446,7 +446,7 @@ TEST(WriterTest, SequenceRangeIsSetOnChunks) {
   TF_EXPECT_OK(writer.Append(MakeTimestep()));
   TF_EXPECT_OK(writer.Append(MakeTimestep()));
   TF_EXPECT_OK(writer.Append(MakeTimestep()));
-  TF_EXPECT_OK(writer.AddPriority("dist", 3, 1.0));
+  TF_EXPECT_OK(writer.CreateItem("dist", 3, 1.0));
   TF_EXPECT_OK(writer.Append(MakeTimestep()));
 
   EXPECT_THAT(
@@ -472,7 +472,7 @@ TEST(WriterTest, DeltaEncode) {
   TF_EXPECT_OK(writer.Append(MakeTimestep()));
   TF_EXPECT_OK(writer.Append(MakeTimestep()));
   TF_EXPECT_OK(writer.Append(MakeTimestep()));
-  TF_EXPECT_OK(writer.AddPriority("dist", 3, 1.0));
+  TF_EXPECT_OK(writer.CreateItem("dist", 3, 1.0));
   TF_EXPECT_OK(writer.Append(MakeTimestep()));
 
   EXPECT_THAT(
@@ -502,16 +502,16 @@ TEST(WriterTest, MultiChunkItemsAreCorrect) {
   // First item: 1 chunk.
   TF_EXPECT_OK(writer.Append(MakeTimestep()));
   TF_EXPECT_OK(writer.Append(MakeTimestep()));
-  TF_EXPECT_OK(writer.AddPriority("dist", 2, 1.0));
+  TF_EXPECT_OK(writer.CreateItem("dist", 2, 1.0));
 
   // Second item: 2 chunks.
   TF_EXPECT_OK(writer.Append(MakeTimestep()));
   TF_EXPECT_OK(writer.Append(MakeTimestep()));
-  TF_EXPECT_OK(writer.AddPriority("dist", 2, 1.0));
+  TF_EXPECT_OK(writer.CreateItem("dist", 2, 1.0));
 
   // Third item: 1 chunk.
   TF_EXPECT_OK(writer.Append(MakeTimestep()));
-  TF_EXPECT_OK(writer.AddPriority("dist", 1, 1.0));
+  TF_EXPECT_OK(writer.CreateItem("dist", 1, 1.0));
 
   TF_EXPECT_OK(writer.Close());
 
@@ -542,7 +542,7 @@ TEST(WriterTest, WriteTimeStepsMatchingSignature) {
 
   TF_ASSERT_OK(writer->Append(MakeTimestep()));
   TF_ASSERT_OK(writer->Append(MakeTimestep()));
-  TF_ASSERT_OK(writer->AddPriority("dist", 2, 1.0));
+  TF_ASSERT_OK(writer->CreateItem("dist", 2, 1.0));
   ASSERT_THAT(requests, SizeIs(2));
 }
 
@@ -556,7 +556,7 @@ TEST(WriterTest, WriteTimeStepsNumTensorsDontMatchSignatureError) {
 
   TF_ASSERT_OK(writer->Append(MakeTimestep(/*num_tensors=*/2)));
   TF_ASSERT_OK(writer->Append(MakeTimestep(/*num_tensors=*/2)));
-  auto status = writer->AddPriority("dist", 2, 1.0);
+  auto status = writer->CreateItem("dist", 2, 1.0);
   EXPECT_EQ(status.code(), tensorflow::error::INVALID_ARGUMENT);
   EXPECT_THAT(
       status.error_message(),
@@ -575,7 +575,7 @@ TEST(WriterTest, WriteTimeStepsInconsistentDtypeError) {
 
   TF_ASSERT_OK(writer->Append(MakeTimestep()));
   TF_ASSERT_OK(writer->Append(MakeTimestep()));
-  auto status = writer->AddPriority("dist", 2, 1.0);
+  auto status = writer->CreateItem("dist", 2, 1.0);
   EXPECT_EQ(status.code(), tensorflow::error::INVALID_ARGUMENT);
   EXPECT_THAT(status.error_message(),
               ::testing::HasSubstr(
@@ -595,7 +595,7 @@ TEST(WriterTest, WriteTimeStepsInconsistentShapeError) {
 
   TF_ASSERT_OK(writer->Append(MakeTimestep()));
   TF_ASSERT_OK(writer->Append(MakeTimestep()));
-  auto status = writer->AddPriority("dist", 2, 1.0);
+  auto status = writer->CreateItem("dist", 2, 1.0);
   EXPECT_EQ(status.code(), tensorflow::error::INVALID_ARGUMENT);
   EXPECT_THAT(status.error_message(),
               ::testing::HasSubstr(

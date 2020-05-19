@@ -257,7 +257,7 @@ class InsertOp : public tensorflow::OpKernel {
     auto priorities_t = priorities->flat<double>();
     for (int i = 0; i < tables->dim_size(0); i++) {
       OP_REQUIRES_OK(context,
-                     writer->AddPriority(tables_t(i), 1, priorities_t(i)));
+                     writer->CreateItem(tables_t(i), 1, priorities_t(i)));
     }
 
     OP_REQUIRES_OK(context, writer->Close());
