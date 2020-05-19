@@ -41,8 +41,6 @@ class PriorityTableExtensionBase : public PriorityTableExtensionInterface {
   virtual void ApplyOnReset();
   virtual void ApplyOnUpdate(const PriorityTableItem& item);
   virtual void ApplyOnSample(const PriorityTableItem& item);
-  virtual std::vector<KeyWithPriority> ApplyDiffuse(
-      const PriorityTableItem& item, double old_priority);
 
  protected:
   friend class PriorityTable;
@@ -69,12 +67,6 @@ class PriorityTableExtensionBase : public PriorityTableExtensionInterface {
 
   // Delegates call to ApplyOnSample.
   void OnSample(absl::Mutex* mu, const PriorityTableItem& item) override
-      ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu);
-
-  // Delegates call to ApplyDiffuse.
-  std::vector<KeyWithPriority> Diffuse(absl::Mutex* mu,
-                                       const PriorityTableItem& item,
-                                       double old_priority) override
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu);
 
  protected:

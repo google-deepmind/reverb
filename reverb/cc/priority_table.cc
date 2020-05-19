@@ -16,6 +16,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <initializer_list>
 #include <memory>
 #include <string>
 #include <utility>
@@ -115,7 +116,7 @@ tensorflow::Status PriorityTable::InsertOrAssign(Item item) {
 
   /// If item already exists in table then update its priority.
   if (data_.contains(key)) {
-    return UpdateItem(key, priority, /*diffuse=*/true);
+    return UpdateItem(key, priority);
   }
 
   // Wait for the insert to be staged. While waiting the lock is released but
@@ -127,7 +128,7 @@ tensorflow::Status PriorityTable::InsertOrAssign(Item item) {
     // If the insert was transformed into an update while waiting we need to
     // notify the limiter so it let another insert call to proceed.
     rate_limiter_->MaybeSignalCondVars(&mu_);
-    return UpdateItem(key, priority, /*diffuse=*/true);
+    return UpdateItem(key, priority);
   }
 
   // Set the insertion timestamp after the lock has been acquired as this
@@ -169,8 +170,7 @@ tensorflow::Status PriorityTable::MutateItems(
   }
 
   for (const auto& item : updates) {
-    TF_RETURN_IF_ERROR(
-        UpdateItem(item.key(), item.priority(), /*diffuse=*/true));
+    TF_RETURN_IF_ERROR(UpdateItem(item.key(), item.priority()));
   }
 
   return tensorflow::Status::OK();
@@ -261,28 +261,22 @@ void PriorityTable::DeleteItem(PriorityTable::Key key) {
   TF_CHECK_OK(remover_->Delete(key));
 }
 
-tensorflow::Status PriorityTable::UpdateItem(Key key, double priority,
-                                             bool diffuse) {
+tensorflow::Status PriorityTable::UpdateItem(
+    Key key, double priority,
+    std::initializer_list<PriorityTableExtensionInterface*> exclude) {
   auto it = data_.find(key);
   if (it == data_.end()) {
     return tensorflow::Status::OK();
   }
-  const double old_priority = it->second.item.priority();
   it->second.item.set_priority(priority);
   TF_RETURN_IF_ERROR(sampler_->Update(key, priority));
   TF_RETURN_IF_ERROR(remover_->Update(key, priority));
 
   for (auto& extension : extensions_) {
-    extension->OnUpdate(&mu_, it->second);
-  }
-
-  if (diffuse) {
-    for (auto& extension : extensions_) {
-      for (const auto& diffused_item :
-           extension->Diffuse(&mu_, it->second, old_priority)) {
-        TF_RETURN_IF_ERROR(UpdateItem(
-            diffused_item.key(), diffused_item.priority(), /*diffuse=*/false));
-      }
+    if (std::none_of(
+            exclude.begin(), exclude.end(),
+            [ext_ptr = extension.get()](auto e) { return e == ext_ptr; })) {
+      extension->OnUpdate(&mu_, it->second);
     }
   }
 
@@ -409,6 +403,13 @@ RateLimiterEventHistory PriorityTable::GetRateLimiterEventHistory(
 int64_t PriorityTable::num_episodes() const {
   absl::ReaderMutexLock lock(&mu_);
   return episode_refs_.size();
+}
+
+tensorflow::Status PriorityTable::UnsafeUpdateItem(
+    Key key, double priority,
+    std::initializer_list<PriorityTableExtensionInterface*> exclude) {
+  mu_.AssertHeld();
+  return UpdateItem(key, priority, std::move(exclude));
 }
 
 }  // namespace reverb

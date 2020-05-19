@@ -63,11 +63,6 @@ void PriorityTableExtensionBase::OnSample(absl::Mutex* mu,
   ApplyOnSample(item);
 }
 
-std::vector<KeyWithPriority> PriorityTableExtensionBase::Diffuse(
-    absl::Mutex* mu, const PriorityTableItem& item, double old_priority) {
-  return ApplyDiffuse(item, old_priority);
-}
-
 void PriorityTableExtensionBase::ApplyOnDelete(const PriorityTableItem& item) {}
 
 void PriorityTableExtensionBase::ApplyOnInsert(const PriorityTableItem& item) {}
@@ -77,11 +72,6 @@ void PriorityTableExtensionBase::ApplyOnReset() {}
 void PriorityTableExtensionBase::ApplyOnUpdate(const PriorityTableItem& item) {}
 
 void PriorityTableExtensionBase::ApplyOnSample(const PriorityTableItem& item) {}
-
-std::vector<KeyWithPriority> PriorityTableExtensionBase::ApplyDiffuse(
-    const PriorityTableItem& item, double old_priority) {
-  return {};
-}
 
 }  // namespace reverb
 }  // namespace deepmind

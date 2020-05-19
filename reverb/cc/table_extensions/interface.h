@@ -48,8 +48,7 @@ class PriorityTableExtensionInterface {
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu) = 0;
 
   // Executed just after the priority of an item has been updated in parent
-  // `PriorityTable`. `OnUpdate` of all registered extensions are called before
-  // `Diffuse` is called.
+  // `PriorityTable`.
   virtual void OnUpdate(absl::Mutex* mu, const PriorityTableItem& item)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu) = 0;
 
@@ -60,17 +59,6 @@ class PriorityTableExtensionInterface {
 
   // Executed just before all items are deleted.
   virtual void OnReset(absl::Mutex* mu) ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu) = 0;
-
-  // Diffuses the update to the neighborhood and returns a vector of updates
-  // that should be applied as a result.
-  //
-  // `item` is the updated item after the update has been applied and
-  // `old_priority` is was the priority of the item before the update was
-  // applied.
-  virtual std::vector<KeyWithPriority> Diffuse(absl::Mutex* mu,
-                                               const PriorityTableItem& item,
-                                               double old_priority)
-      ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu) = 0;
 
   // PriorityTable calls these methods on construction and destruction.
   virtual tensorflow::Status RegisterPriorityTable(PriorityTable* table) = 0;

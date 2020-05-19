@@ -16,6 +16,7 @@
 #define REVERB_CC_PRIORITY_TABLE_H_
 
 #include <cstddef>
+#include <initializer_list>
 #include <memory>
 #include <string>
 #include <utility>
@@ -90,7 +91,7 @@ class PriorityTable {
   //   be sampled before it is deleted. No value lower than 1 will be used.
   // `rate_limiter` controls when sample and insert calls are allowed to
   //   proceed.
-  // `extensions` allows additional features in the table, like time diffusion.
+  // `extensions` allows additional features to be injected into the table.
   // `signature` allows an optional declaration of the data that can be stored
   //   in this table.  writers and readers are responsible for checking against
   //   this signature, as it is available via RPC request.
@@ -208,8 +209,18 @@ class PriorityTable {
   // abandoned after `Close` called.
   void Close();
 
+  // Asserts that `mu_` is held at runtime and calls UpdateItem.
+  tensorflow::Status UnsafeUpdateItem(
+      Key key, double priority,
+      std::initializer_list<PriorityTableExtensionInterface*> exclude)
+      ABSL_ASSERT_EXCLUSIVE_LOCK(mu_);
+
  private:
-  tensorflow::Status UpdateItem(Key key, double priority, bool diffuse)
+  // Updates item priority in `data_`, `samper_`, `remover_` and calls
+  // `OnUpdate` on all extensions not part of `exclude`.
+  tensorflow::Status UpdateItem(
+      Key key, double priority,
+      std::initializer_list<PriorityTableExtensionInterface*> exclude = {})
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_);
 
   // Deletes the item associated with the key from `data_`, `sampler_` and
