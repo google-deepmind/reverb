@@ -39,6 +39,7 @@
 #include "reverb/cc/table_extensions/interface.h"
 #include "tensorflow/core/lib/core/errors.h"
 #include "tensorflow/core/lib/core/status.h"
+#include "tensorflow/core/platform/status.h"
 
 namespace deepmind {
 namespace reverb {
@@ -82,10 +83,17 @@ PriorityTable::PriorityTable(
       extensions_(std::move(extensions)),
       signature_(std::move(signature)) {
   TF_CHECK_OK(rate_limiter_->RegisterPriorityTable(this));
+  for (auto& extension : extensions_) {
+    TF_CHECK_OK(extension->RegisterPriorityTable(this));
+  }
 }
 
 PriorityTable::~PriorityTable() {
   rate_limiter_->UnregisterPriorityTable(&mu_, this);
+  absl::WriterMutexLock lock(&mu_);
+  for (auto& extension : extensions_) {
+    extension->UnregisterPriorityTable(&mu_, this);
+  }
 }
 
 std::vector<PriorityTable::Item> PriorityTable::Copy(size_t count) const {
@@ -132,7 +140,7 @@ tensorflow::Status PriorityTable::InsertOrAssign(Item item) {
 
   auto it = data_.find(key);
   for (auto& extension : extensions_) {
-    extension->OnInsert(it->second);
+    extension->OnInsert(&mu_, it->second);
   }
 
   // Remove an item if we exceeded `max_size_`.
@@ -186,7 +194,7 @@ tensorflow::Status PriorityTable::Sample(SampledItem* sampled_item) {
 
   // Notify extensions which item was sampled.
   for (auto& extension : extensions_) {
-    extension->OnSample(item);
+    extension->OnSample(&mu_, item);
   }
 
   // If there is an upper bound of the number of times an item can be sampled
@@ -235,7 +243,7 @@ void PriorityTable::DeleteItem(PriorityTable::Key key) {
   if (it == data_.end()) return;
 
   for (auto& extension : extensions_) {
-    extension->OnDelete(it->second);
+    extension->OnDelete(&mu_, it->second);
   }
 
   // Decrement counts to the episodes the item is referencing.
@@ -265,13 +273,13 @@ tensorflow::Status PriorityTable::UpdateItem(Key key, double priority,
   TF_RETURN_IF_ERROR(remover_->Update(key, priority));
 
   for (auto& extension : extensions_) {
-    extension->OnUpdate(it->second);
+    extension->OnUpdate(&mu_, it->second);
   }
 
   if (diffuse) {
     for (auto& extension : extensions_) {
       for (const auto& diffused_item :
-           extension->Diffuse(this, it->second, old_priority)) {
+           extension->Diffuse(&mu_, it->second, old_priority)) {
         TF_RETURN_IF_ERROR(UpdateItem(
             diffused_item.key(), diffused_item.priority(), /*diffuse=*/false));
       }
@@ -285,7 +293,7 @@ tensorflow::Status PriorityTable::Reset() {
   absl::WriterMutexLock lock(&mu_);
 
   for (auto& extension : extensions_) {
-    extension->OnReset();
+    extension->OnReset(&mu_);
   }
 
   sampler_->Clear();
@@ -341,7 +349,7 @@ tensorflow::Status PriorityTable::InsertCheckpointItem(
 
   auto it = data_.emplace(item.item.key(), std::move(item)).first;
   for (auto& extension : extensions_) {
-    extension->OnInsert(it->second);
+    extension->OnInsert(&mu_, it->second);
   }
 
   return tensorflow::Status::OK();
@@ -367,6 +375,7 @@ void PriorityTable::UnsafeAddExtension(
     std::shared_ptr<PriorityTableExtensionInterface> extension) {
   absl::WriterMutexLock lock(&mu_);
   REVERB_CHECK(data_.empty());
+  TF_CHECK_OK(extension->RegisterPriorityTable(this));
   extensions_.push_back(std::move(extension));
 }
 

@@ -18,6 +18,8 @@
 #include <vector>
 
 #include <cstdint>
+#include "absl/base/thread_annotations.h"
+#include "absl/synchronization/mutex.h"
 #include "reverb/cc/priority_table_item.h"
 #include "reverb/cc/schema.pb.h"
 
@@ -34,23 +36,30 @@ class PriorityTableExtensionInterface {
  public:
   virtual ~PriorityTableExtensionInterface() = default;
 
+ protected:
+  friend class PriorityTable;
+
   // Executed just after item is inserted into  parent `PriorityTable`.
-  virtual void OnInsert(const PriorityTableItem& item) = 0;
+  virtual void OnInsert(absl::Mutex* mu, const PriorityTableItem& item)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu) = 0;
 
   // Executed just before item is removed from parent `PriorityTable`.
-  virtual void OnDelete(const PriorityTableItem& item) = 0;
+  virtual void OnDelete(absl::Mutex* mu, const PriorityTableItem& item)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu) = 0;
 
   // Executed just after the priority of an item has been updated in parent
   // `PriorityTable`. `OnUpdate` of all registered extensions are called before
   // `Diffuse` is called.
-  virtual void OnUpdate(const PriorityTableItem& item) = 0;
+  virtual void OnUpdate(absl::Mutex* mu, const PriorityTableItem& item)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu) = 0;
 
   // Executed just before a sample is returned. The sample count of the item
   // includes the active sample and thus always is >= 1.
-  virtual void OnSample(const PriorityTableItem& item) = 0;
+  virtual void OnSample(absl::Mutex* mu, const PriorityTableItem& item)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu) = 0;
 
   // Executed just before all items are deleted.
-  virtual void OnReset() = 0;
+  virtual void OnReset(absl::Mutex* mu) ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu) = 0;
 
   // Diffuses the update to the neighborhood and returns a vector of updates
   // that should be applied as a result.
@@ -58,14 +67,15 @@ class PriorityTableExtensionInterface {
   // `item` is the updated item after the update has been applied and
   // `old_priority` is was the priority of the item before the update was
   // applied.
-  //
-  // This method must only be called from `table` as mutex lock is held as part
-  // of an update.
-  //
-  // `table` must not be nullptr and `item` must contain chunks.
-  virtual std::vector<KeyWithPriority> Diffuse(PriorityTable* table,
+  virtual std::vector<KeyWithPriority> Diffuse(absl::Mutex* mu,
                                                const PriorityTableItem& item,
-                                               double old_priority) = 0;
+                                               double old_priority)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu) = 0;
+
+  // PriorityTable calls these methods on construction and destruction.
+  virtual tensorflow::Status RegisterPriorityTable(PriorityTable* table) = 0;
+  virtual void UnregisterPriorityTable(absl::Mutex* mu, PriorityTable* table)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu) = 0;
 };
 
 }  // namespace reverb
