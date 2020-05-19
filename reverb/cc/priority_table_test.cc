@@ -599,6 +599,38 @@ TEST(PriorityTableDeathTest, DiesIfUnsafeAddExtensionCalledWhenNonEmpty) {
   ASSERT_DEATH(table->UnsafeAddExtension(nullptr), "");
 }
 
+TEST(PriorityTableTest, NumEpisodes) {
+  auto table = MakeUniformTable("dist");
+
+  std::vector<SequenceRange> ranges{
+      testing::MakeSequenceRange(100, 0, 5),
+      testing::MakeSequenceRange(100, 6, 10),
+      testing::MakeSequenceRange(101, 0, 5),
+  };
+
+  // First item has a never seen episode before.
+  TF_EXPECT_OK(table->InsertOrAssign(MakeItem(1, 1, {ranges[0]})));
+  EXPECT_EQ(table->num_episodes(), 1);
+
+  // Second item references the same episode.
+  TF_EXPECT_OK(table->InsertOrAssign(MakeItem(2, 1, {ranges[1]})));
+  EXPECT_EQ(table->num_episodes(), 1);
+
+  // Third item has a new episode.
+  TF_EXPECT_OK(table->InsertOrAssign(MakeItem(3, 1, {ranges[2]})));
+  EXPECT_EQ(table->num_episodes(), 2);
+
+  // Removing the second item should not change the episode count as the first
+  // item is still referencing the episode.
+  TF_EXPECT_OK(table->MutateItems({}, {2}));
+  EXPECT_EQ(table->num_episodes(), 2);
+
+  // Removing the first item should now result in the episode count reduced as
+  // it is the last reference to the episode.
+  TF_EXPECT_OK(table->MutateItems({}, {1}));
+  EXPECT_EQ(table->num_episodes(), 1);
+}
+
 }  // namespace
 }  // namespace reverb
 }  // namespace deepmind

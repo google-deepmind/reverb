@@ -99,6 +99,8 @@ message SampleInfo {
 //
 // These fields correspond to initialization arguments of the
 // `PriorityTable` class, unless noted otherwise.
+//
+// Next ID: 10.
 message TableInfo {
   // Table's name.
   string name = 8;
@@ -125,6 +127,9 @@ message TableInfo {
 
   // Current size of table.
   int64 current_size = 7;
+
+  // Number of episodes referenced by the items in the table.
+  int64 num_episodes = 9;
 }
 
 message RateLimiterCallStats {

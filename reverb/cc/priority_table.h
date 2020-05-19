@@ -187,6 +187,9 @@ class PriorityTable {
   // Number of items in the priority distribution.
   int64_t size() const;
 
+  // Number of episodes in the table.
+  int64_t num_episodes() const ABSL_LOCKS_EXCLUDED(mu_);
+
   const std::string& name() const;
 
   // Metadata about the table, including the current state of the rate limiter.
@@ -222,6 +225,9 @@ class PriorityTable {
   // Bijection of key to item. Used for storing the chunks and timestep range of
   // each item.
   absl::flat_hash_map<Key, Item> data_ ABSL_GUARDED_BY(mu_);
+
+  // Count of references from chunks referenced by items.
+  absl::flat_hash_map<uint64_t, int64_t> episode_refs_ ABSL_GUARDED_BY(mu_);
 
   // Maximum number of items that this container can hold. InsertOrAssign()
   // respects this limit when inserting a new item.

@@ -140,6 +140,11 @@ tensorflow::Status PriorityTable::InsertOrAssign(Item item) {
     DeleteItem(remover_->Sample().key);
   }
 
+  // Increment references to the episode/s the item is referencing.
+  for (const auto& chunk : it->second.chunks) {
+    episode_refs_[chunk->data().sequence_range().episode_id()]++;
+  }
+
   // Now that the new item has been inserted and an older item has
   // (potentially) been removed the insert can be finalized.
   rate_limiter_->Insert(&mu_);
@@ -215,6 +220,7 @@ TableInfo PriorityTable::info() const {
   *info.mutable_sampler_options() = sampler_->options();
   *info.mutable_remover_options() = remover_->options();
   info.set_current_size(data_.size());
+  info.set_num_episodes(episode_refs_.size());
 
   return info;
 }
@@ -230,6 +236,15 @@ void PriorityTable::DeleteItem(PriorityTable::Key key) {
 
   for (auto& extension : extensions_) {
     extension->OnDelete(it->second);
+  }
+
+  // Decrement counts to the episodes the item is referencing.
+  for (const auto& chunk : it->second.chunks) {
+    auto ep_it =
+        episode_refs_.find(chunk->data().sequence_range().episode_id());
+    if (--(ep_it->second) == 0) {
+      episode_refs_.erase(ep_it);
+    }
   }
 
   data_.erase(it);
@@ -380,6 +395,11 @@ RateLimiterEventHistory PriorityTable::GetRateLimiterEventHistory(
   absl::ReaderMutexLock lock(&mu_);
   return rate_limiter_->GetEventHistory(&mu_, min_insert_event_id,
                                         min_sample_event_id);
+}
+
+int64_t PriorityTable::num_episodes() const {
+  absl::ReaderMutexLock lock(&mu_);
+  return episode_refs_.size();
 }
 
 }  // namespace reverb
