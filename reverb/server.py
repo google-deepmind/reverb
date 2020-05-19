@@ -58,8 +58,8 @@ class PriorityTable:
                sampler: reverb_types.DistributionType,
                remover: reverb_types.DistributionType,
                max_size: int,
+               rate_limiter: rate_limiters.RateLimiter,
                max_times_sampled: int = 0,
-               rate_limiter: Optional[rate_limiters.RateLimiter] = None,
                extensions: Sequence[PriorityTableExtensionBase] = (),
                signature: Optional[reverb_types.SpecNest] = None):
     """Constructor of the PriorityTable.
@@ -72,11 +72,10 @@ class PriorityTable:
         When an item is inserted into an already full priority table the
         `remover` is used for selecting which item to remove before proceeding
         with the new insert.
+      rate_limiter: Manages the data flow by limiting the sample and insert
+        calls.
       max_times_sampled: Maximum number of times an item can be sampled before
         it is deleted. Any value < 1 is ignored and means there is no limit.
-      rate_limiter: Manages the data flow by limiting the sample and insert
-        calls. Defaults to `rate_limiters.MinSize` using 95% of `max_size` as
-        `min_size_to_sample`.
       extensions: Optional sequence of extensions used to add extra features to
         the table.
       signature: Optional nested structure containing `tf.TypeSpec` objects,
@@ -90,10 +89,6 @@ class PriorityTable:
       raise ValueError('name must be nonempty')
     if max_size <= 0:
       raise ValueError('max_size (%d) must be a positive integer' % max_size)
-
-    if rate_limiter is None:
-      min_items_for_sampling = int(0.95 * max_size)
-      rate_limiter = rate_limiters.MinSize(min_items_for_sampling)
 
     # Merge the c++ extensions into a single list.
     internal_extensions = []
