@@ -38,7 +38,7 @@ of length 5 based on a single actor.
 
           # Add the observation of the state the agent when doing action, the
           # action it took and the reward it received.
-          writer.append_timestep(
+          writer.append(
               (timestep.observation, action, new_timestep.reward))
 
           timestep = new_timestep
@@ -156,7 +156,7 @@ class Writer:
     """Creates an item and sends it to the ReverbService.
 
     This method is what effectively makes data available for sampling. See the
-    docstring of `append_timestep` for an illustrative example of the behavior.
+    docstring of `append` for an illustrative example of the behavior.
 
     Args:
       table: Name of the priority table to insert the item into.
@@ -235,7 +235,7 @@ class Client:
       raise ValueError('priorities must contain at least one item')
 
     with self.writer(max_sequence_length=1) as writer:
-      writer.append_timestep(data)
+      writer.append(data)
       for table, priority in priorities.items():
         writer.create_item(
             table=table, num_timesteps=1, priority=priority)

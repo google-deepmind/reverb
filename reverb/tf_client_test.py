@@ -307,7 +307,7 @@ class DatasetTest(tf.test.TestCase, parameterized.TestCase):
     max_time_steps = max_time_steps or sequence_length
     with self._client.writer(max_time_steps) as writer:
       for i in range(1000):
-        writer.append_timestep([np.zeros((3, 3), dtype=np.float32)])
+        writer.append([np.zeros((3, 3), dtype=np.float32)])
         if i % 5 == 0 and i >= sequence_length:
           writer.create_item(
               table='dist', num_timesteps=sequence_length, priority=1)
@@ -572,7 +572,7 @@ class DatasetTest(tf.test.TestCase, parameterized.TestCase):
   def test_iterate_nested_and_batched(self):
     with self._client.writer(100) as writer:
       for i in range(1000):
-        writer.append_timestep({
+        writer.append({
             'observation': {
                 'data': np.zeros((3, 3), dtype=np.float32),
                 'extras': [
@@ -626,7 +626,7 @@ class DatasetTest(tf.test.TestCase, parameterized.TestCase):
   def test_multiple_iterators(self):
     with self._client.writer(100) as writer:
       for i in range(10):
-        writer.append_timestep([np.ones((81, 81), dtype=np.float32) * i])
+        writer.append([np.ones((81, 81), dtype=np.float32) * i])
       writer.create_item(table='dist', num_timesteps=10, priority=1)
 
     trajectory_length = 5
