@@ -237,7 +237,6 @@ tensorflow::Status Writer::Close() {
 }
 
 tensorflow::Status Writer::Finish() {
-  SequenceRange sequence;
   std::vector<tensorflow::Tensor> batched_tensors;
   for (int i = 0; i < buffer_[0].size(); ++i) {
     std::vector<tensorflow::Tensor> tensors(buffer_.size());
