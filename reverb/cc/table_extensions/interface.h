@@ -26,9 +26,9 @@
 namespace deepmind {
 namespace reverb {
 
-class PriorityTable;
+class Table;
 
-// A `PriorityTableExtension` is passed to a single `PriorityTable` and executed
+// A `PriorityTableExtension` is passed to a single `Table` and executed
 // as part of the atomic operations of the parent table. All "hooks" are
 // executed while parent is holding its mutex and thus latency is very
 // important.
@@ -37,18 +37,18 @@ class PriorityTableExtensionInterface {
   virtual ~PriorityTableExtensionInterface() = default;
 
  protected:
-  friend class PriorityTable;
+  friend class Table;
 
-  // Executed just after item is inserted into  parent `PriorityTable`.
+  // Executed just after item is inserted into  parent `Table`.
   virtual void OnInsert(absl::Mutex* mu, const PriorityTableItem& item)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu) = 0;
 
-  // Executed just before item is removed from parent `PriorityTable`.
+  // Executed just before item is removed from parent `Table`.
   virtual void OnDelete(absl::Mutex* mu, const PriorityTableItem& item)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu) = 0;
 
   // Executed just after the priority of an item has been updated in parent
-  // `PriorityTable`.
+  // `Table`.
   virtual void OnUpdate(absl::Mutex* mu, const PriorityTableItem& item)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu) = 0;
 
@@ -60,9 +60,9 @@ class PriorityTableExtensionInterface {
   // Executed just before all items are deleted.
   virtual void OnReset(absl::Mutex* mu) ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu) = 0;
 
-  // PriorityTable calls these methods on construction and destruction.
-  virtual tensorflow::Status RegisterPriorityTable(PriorityTable* table) = 0;
-  virtual void UnregisterPriorityTable(absl::Mutex* mu, PriorityTable* table)
+  // Table calls these methods on construction and destruction.
+  virtual tensorflow::Status RegisterTable(Table* table) = 0;
+  virtual void UnregisterTable(absl::Mutex* mu, Table* table)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu) = 0;
 };
 

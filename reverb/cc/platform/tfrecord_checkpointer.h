@@ -22,7 +22,7 @@
 #include "absl/strings/string_view.h"
 #include "reverb/cc/checkpointing/interface.h"
 #include "reverb/cc/chunk_store.h"
-#include "reverb/cc/priority_table.h"
+#include "reverb/cc/table.h"
 #include "tensorflow/core/lib/core/status.h"
 
 namespace deepmind {
@@ -31,8 +31,8 @@ namespace reverb {
 // Generates and stores proto checkpoints of PriorityTables and ChunkStore data
 // to a directory inside the top level `root_dir`.
 //
-// A set of PriorityTable constitutes the bases for a checkpoint. When `Save` is
-// called state of each PriorityTable is encoded into a PriorityTableCheckpoint.
+// A set of `Table` constitutes the bases for a checkpoint. When `Save` is
+// called state of each `Table` is encoded into a PriorityTableCheckpoint.
 // The proto contains the state and initialization options of the table itself
 // and all its dependencies (RateLimiter, KeyDistribution etc) but does not
 // include the actual data. Instead a container with shared_ptr to every
@@ -72,18 +72,18 @@ class TFRecordCheckpointer : public CheckpointerInterface {
   //
   // After a successful save, all but the `keep_latest` most recent checkpoints
   // are deleted.
-  tensorflow::Status Save(std::vector<PriorityTable*> tables, int keep_latest,
+  tensorflow::Status Save(std::vector<Table*> tables, int keep_latest,
                           std::string* path) override;
 
   // Attempts to load a checkpoint stored within `root_dir_`.
-  tensorflow::Status Load(
-      absl::string_view relative_path, ChunkStore* chunk_store,
-      std::vector<std::shared_ptr<PriorityTable>>* tables) override;
+  tensorflow::Status Load(absl::string_view relative_path,
+                          ChunkStore* chunk_store,
+                          std::vector<std::shared_ptr<Table>>* tables) override;
 
   // Finds the most recent checkpoint within `root_dir_` and calls `Load`.
   tensorflow::Status LoadLatest(
       ChunkStore* chunk_store,
-      std::vector<std::shared_ptr<PriorityTable>>* tables) override;
+      std::vector<std::shared_ptr<Table>>* tables) override;
 
   // TFRecordCheckpointer is neither copyable nor movable.
   TFRecordCheckpointer(const TFRecordCheckpointer&) = delete;

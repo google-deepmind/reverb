@@ -22,7 +22,7 @@ reverb_cc_library(
     visibility = ["//reverb:__subpackages__"],
     deps = [
         "//reverb/cc:chunk_store",
-        "//reverb/cc:priority_table",
+        "//reverb/cc:table",
         "//reverb/cc:schema_cc_proto",
         "//reverb/cc/checkpointing:checkpoint_cc_proto",
         "//reverb/cc/checkpointing:interface",
@@ -42,7 +42,7 @@ reverb_cc_test(
     deps = [
         ":tfrecord_checkpointer",
         "//reverb/cc:chunk_store",
-        "//reverb/cc:priority_table",
+        "//reverb/cc:table",
         "//reverb/cc/distributions:fifo",
         "//reverb/cc/distributions:heap",
         "//reverb/cc/distributions:prioritized",
@@ -89,7 +89,7 @@ reverb_cc_library(
     hdrs = ["server.h"],
     deps = [
         "//reverb/cc:client",
-        "//reverb/cc:priority_table",
+        "//reverb/cc:table",
         "//reverb/cc/checkpointing:interface",
     ],
 )
@@ -100,7 +100,7 @@ reverb_cc_library(
     visibility = ["//reverb:__subpackages__"],
     deps = [
         "//reverb/cc:client",
-        "//reverb/cc:priority_table",
+        "//reverb/cc:table",
         "//reverb/cc/checkpointing:interface",
         "//reverb/cc/platform/default:server",
     ] + reverb_grpc_deps() + reverb_absl_deps(),

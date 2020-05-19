@@ -32,9 +32,9 @@
 #include "reverb/cc/distributions/uniform.h"
 #include "reverb/cc/platform/checkpointing.h"
 #include "reverb/cc/platform/server.h"
-#include "reverb/cc/priority_table.h"
 #include "reverb/cc/rate_limiter.h"
 #include "reverb/cc/sampler.h"
+#include "reverb/cc/table.h"
 #include "reverb/cc/table_extensions/interface.h"
 #include "reverb/cc/writer.h"
 #include "tensorflow/core/framework/tensor.h"
@@ -498,7 +498,7 @@ PYBIND11_MODULE(libpybind, m) {
            py::arg("samples_per_insert"), py::arg("min_size_to_sample"),
            py::arg("min_diff"), py::arg("max_diff"));
 
-  py::class_<PriorityTable, std::shared_ptr<PriorityTable>>(m, "PriorityTable")
+  py::class_<Table, std::shared_ptr<Table>>(m, "Table")
       .def(py::init([](const std::string &name,
                        const std::shared_ptr<KeyDistributionInterface> &sampler,
                        const std::shared_ptr<KeyDistributionInterface> &remover,
@@ -507,7 +507,7 @@ PYBIND11_MODULE(libpybind, m) {
                        const std::vector<std::shared_ptr<
                            PriorityTableExtensionInterface>> &extensions,
                        const absl::optional<std::string> &serialized_signature =
-                           absl::nullopt) -> PriorityTable * {
+                           absl::nullopt) -> Table * {
              absl::optional<tensorflow::StructuredValue> signature =
                  absl::nullopt;
              if (serialized_signature) {
@@ -520,17 +520,17 @@ PYBIND11_MODULE(libpybind, m) {
                  return nullptr;
                }
              }
-             return new PriorityTable(name, sampler, remover, max_size,
-                                      max_times_sampled, rate_limiter,
-                                      extensions, std::move(signature));
+             return new Table(name, sampler, remover, max_size,
+                              max_times_sampled, rate_limiter, extensions,
+                              std::move(signature));
            }),
            py::arg("name"), py::arg("sampler"), py::arg("remover"),
            py::arg("max_size"), py::arg("max_times_sampled"),
            py::arg("rate_limiter"), py::arg("extensions"), py::arg("signature"))
-      .def("name", &PriorityTable::name)
-      .def("can_sample", &PriorityTable::CanSample,
+      .def("name", &Table::name)
+      .def("can_sample", &Table::CanSample,
            py::call_guard<py::gil_scoped_release>())
-      .def("can_insert", &PriorityTable::CanInsert,
+      .def("can_insert", &Table::CanInsert,
            py::call_guard<py::gil_scoped_release>());
 
   py::class_<Writer>(m, "Writer")
@@ -640,8 +640,7 @@ PYBIND11_MODULE(libpybind, m) {
 
   py::class_<Server, std::shared_ptr<Server>>(m, "Server")
       .def(py::init(
-               [](std::vector<std::shared_ptr<PriorityTable>> priority_tables,
-                  int port,
+               [](std::vector<std::shared_ptr<Table>> priority_tables, int port,
                   std::shared_ptr<CheckpointerInterface> checkpointer =
                       nullptr) {
                  std::unique_ptr<Server> server;

@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef REVERB_CC_PRIORITY_TABLE_H_
-#define REVERB_CC_PRIORITY_TABLE_H_
+#ifndef REVERB_CC_TABLE_H_
+#define REVERB_CC_TABLE_H_
 
 #include <cstddef>
 #include <initializer_list>
@@ -42,25 +42,31 @@
 namespace deepmind {
 namespace reverb {
 
-// Maintains a priority distribution over keys used for sampling from the
-// replay. Internally, this container maintains two instances of
-// KeyDistributionInterface, one for sampling and one for removing. The remover
-// is needed to ensure that the size of the container does not grow beyond a
-// given capacity.
+// A Table is a structure for storing `PriorityItem` objects. The Table uses two
+// instances of KeyDistributionInterface, one for sampling (sampler) and another
+// for removing (remover). PriorityItems are registered with both the sampler
+// and remover when inserted in the `Table`. The `Table` uses the sampler to
+// determine which items it should return when `Table::Sample()` is called.
+// Similarly, the remover is used to determine which items should be deleted to
+// ensure capacity.
+//
+// A `RateLimiter` is used to set the ratio of inserted to sampled
+// items. This means that calls to `Table::InsertOrAssign()` and
+// `Table::Sample()` may be blocked by the `RateLimiter` as it enforces this
+// ratio.
 //
 // Please note that the removing implementation only limits the number of items
-// in the priority table, not the number of timesteps (or actual memory) on this
-// server. When we delete an item of a priority table, the reference counts for
+// in the table, not the number of timesteps (or actual memory) on this
+// server. When we delete an item of a table, the reference counts for
 // its chunks decreases and we can maybe delete the chunks. However, this is not
-// guaranteed, as other priority tables might still hold references to the
+// guaranteed, as other tables might still hold references to the
 // chunks in which case no memory is freed up. This means you must be careful
 // when choosing the remover strategy. A dangerous example would be using a FIFO
-// remover for one priority table and then introducing another with table with a
-// LIFO remover. In this scenario, the two priority tables would not share any
+// remover for one table and then introducing another with table with a
+// LIFO remover. In this scenario, the two tables would not share any
 // chunks and would this require twice the amount of storage.
 //
-// All public methods are thread safe.
-class PriorityTable {
+class Table {
  public:
   using Key = KeyDistributionInterface::Key;
   using Item = PriorityTableItem;
@@ -95,15 +101,14 @@ class PriorityTable {
   // `signature` allows an optional declaration of the data that can be stored
   //   in this table.  writers and readers are responsible for checking against
   //   this signature, as it is available via RPC request.
-  PriorityTable(
-      std::string name, std::shared_ptr<KeyDistributionInterface> sampler,
-      std::shared_ptr<KeyDistributionInterface> remover, int64_t max_size,
-      int32_t max_times_sampled, std::shared_ptr<RateLimiter> rate_limiter,
-      std::vector<std::shared_ptr<PriorityTableExtensionInterface>> extensions =
-          {},
-      absl::optional<tensorflow::StructuredValue> signature = absl::nullopt);
+  Table(std::string name, std::shared_ptr<KeyDistributionInterface> sampler,
+        std::shared_ptr<KeyDistributionInterface> remover, int64_t max_size,
+        int32_t max_times_sampled, std::shared_ptr<RateLimiter> rate_limiter,
+        std::vector<std::shared_ptr<PriorityTableExtensionInterface>>
+            extensions = {},
+        absl::optional<tensorflow::StructuredValue> signature = absl::nullopt);
 
-  ~PriorityTable();
+  ~Table();
 
   // Copies at most `count` items that are currently in the table.
   // If `count` is `0` (default) then all items are copied.
@@ -111,13 +116,13 @@ class PriorityTable {
   // undefined manner.
   std::vector<Item> Copy(size_t count = 0) const;
 
-  // Attempts to insert an item into the priority distribution. If the item
+  // Attempts to insert an item into the distribution. If the item
   // already exists, the existing item is updated. Also applies the necessary
   // updates to sampler and remover.
   //
   // This call also ensures that the container does not grow larger than
   // `max_size`. If an insertion causes the container to exceed `max_size_`, one
-  // item is removed with the strategy specified through `remover_`. Please note
+  // item is removed with the strategy specified by the `remover_`. Please note
   // that we insert the new item that exceeds the capacity BEFORE we run the
   // remover. This means that the newly inserted item could be deleted right
   // away.
@@ -126,10 +131,10 @@ class PriorityTable {
   // Inserts an item without consulting or modifying the RateLimiter about the
   // operation.
   //
-  // This should ONLY be used when restoring a PriorityTable from a checkpoint.
+  // This should ONLY be used when restoring a `Table` from a checkpoint.
   tensorflow::Status InsertCheckpointItem(Item item);
 
-  // Updates the priority or deletes items in this priority distribution. All
+  // Updates the priority or deletes items in this table distribution. All
   // operations in the arguments are applied in the order that they are listed.
   // Different operations can be set at the same time. Ignores non existing keys
   // but returns any other errors. The operations might be applied partially
@@ -137,9 +142,9 @@ class PriorityTable {
   tensorflow::Status MutateItems(absl::Span<const KeyWithPriority> updates,
                                  absl::Span<const Key> deletes);
 
-  // Attempts to sample an item from this distribution with the sampling
-  // strategy passed in the constructor. We only allow the sample operation if
-  // the `rate_limiter_` allows it. If the  item has reached
+  // Attempts to sample an item from table with the sampling
+  // strategy passed to the constructor. We only allow the sample operation if
+  // the `rate_limiter_` allows it. If the item has reached
   // `max_times_sampled_`, then we delete it before returning so it cannot be
   // sampled again.
   tensorflow::Status Sample(SampledItem* item);
@@ -148,7 +153,7 @@ class PriorityTable {
   // sampled. Dies if `num_samples` is < 1.
   //
   // TODO(b/153258711): This currently ignores max_size and max_times_sampled
-  // arguments to the PriorityTable, and will return True if e.g. there are
+  // arguments to the table, and will return true if e.g. there are
   // 2 items in the table, max_times_sampled=1, and num_samples=3.
   bool CanSample(int num_samples) const;
 
@@ -156,7 +161,7 @@ class PriorityTable {
   // inserted. Dies if `num_inserts` is < 1.
   //
   // TODO(b/153258711): This currently ignores max_size and max_times_sampled
-  // arguments to the PriorityTable.
+  // arguments to the table.
   bool CanInsert(int num_inserts) const;
 
   // Appends the extension to the internal list. Note that this must be called
@@ -182,10 +187,10 @@ class PriorityTable {
   // Removes all items and resets the RateLimiter to its initial state.
   tensorflow::Status Reset();
 
-  // Generate a checkpoint from the PriorityTable's current state.
+  // Generate a checkpoint from the table's current state.
   CheckpointAndChunks Checkpoint();
 
-  // Number of items in the priority distribution.
+  // Number of items in the table distribution.
   int64_t size() const;
 
   // Number of episodes in the table.
@@ -253,11 +258,11 @@ class PriorityTable {
 
   // Controls what operations can proceed. A shared_ptr is used to allow the
   // Python layer to interact with the object after it has been passed to the
-  // PriorityTable.
+  // table.
   std::shared_ptr<RateLimiter> rate_limiter_ ABSL_GUARDED_BY(mu_);
 
   // Extensions implement hooks that are executed while holding `mu_` as part
-  // of insert, update or delete operation.
+  // of insert, delete, update or reset operations.
   std::vector<std::shared_ptr<PriorityTableExtensionInterface>> extensions_
       ABSL_GUARDED_BY(mu_);
 
@@ -272,4 +277,4 @@ class PriorityTable {
 }  // namespace reverb
 }  // namespace deepmind
 
-#endif  // REVERB_CC_PRIORITY_TABLE_H_
+#endif  // REVERB_CC_TABLE_H_

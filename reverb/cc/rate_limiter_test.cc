@@ -24,7 +24,7 @@
 #include "absl/time/time.h"
 #include "reverb/cc/distributions/uniform.h"
 #include "reverb/cc/platform/thread.h"
-#include "reverb/cc/priority_table.h"
+#include "reverb/cc/table.h"
 #include "reverb/cc/testing/proto_test_util.h"
 #include "tensorflow/core/lib/core/status_test_util.h"
 
@@ -38,9 +38,9 @@ using ::deepmind::reverb::testing::Partially;
 
 constexpr absl::Duration kTimeout = absl::Milliseconds(100);
 
-std::unique_ptr<PriorityTable> MakeTable(const std::string &name,
-                                         std::shared_ptr<RateLimiter> limiter) {
-  return absl::make_unique<PriorityTable>(
+std::unique_ptr<Table> MakeTable(const std::string &name,
+                                 std::shared_ptr<RateLimiter> limiter) {
+  return absl::make_unique<Table>(
       name, absl::make_unique<UniformDistribution>(),
       absl::make_unique<UniformDistribution>(), 10000, 0, std::move(limiter));
 }

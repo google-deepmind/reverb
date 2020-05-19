@@ -31,11 +31,11 @@ namespace {
 
 class ServerImpl : public Server {
  public:
-  ServerImpl(std::vector<std::shared_ptr<PriorityTable>> priority_tables,
-             int port, std::shared_ptr<CheckpointerInterface> checkpointer)
+  ServerImpl(std::vector<std::shared_ptr<Table>> tables, int port,
+             std::shared_ptr<CheckpointerInterface> checkpointer)
       : port_(port),
         reverb_service_(absl::make_unique<ReverbServiceImpl>(
-            std::move(priority_tables), std::move(checkpointer))),
+            std::move(tables), std::move(checkpointer))),
         server_(grpc::ServerBuilder()
                     .AddListeningPort(absl::StrCat("[::]:", port),
                                       MakeServerCredentials())
@@ -98,10 +98,10 @@ class ServerImpl : public Server {
 }  // namespace
 
 tensorflow::Status StartServer(
-    std::vector<std::shared_ptr<PriorityTable>> priority_tables, int port,
+    std::vector<std::shared_ptr<Table>> tables, int port,
     std::shared_ptr<CheckpointerInterface> checkpointer,
     std::unique_ptr<Server> *server) {
-  auto s = absl::make_unique<ServerImpl>(std::move(priority_tables), port,
+  auto s = absl::make_unique<ServerImpl>(std::move(tables), port,
                                          std::move(checkpointer));
   TF_RETURN_IF_ERROR(s->Initialize());
   *server = std::move(s);

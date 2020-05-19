@@ -24,10 +24,10 @@
 #include "absl/strings/string_view.h"
 #include "reverb/cc/checkpointing/interface.h"
 #include "reverb/cc/chunk_store.h"
-#include "reverb/cc/priority_table.h"
 #include "reverb/cc/reverb_service.grpc.pb.h"
 #include "reverb/cc/reverb_service.pb.h"
 #include "reverb/cc/schema.pb.h"
+#include "reverb/cc/table.h"
 
 namespace deepmind {
 namespace reverb {
@@ -36,7 +36,7 @@ namespace reverb {
 class ReverbServiceImpl : public /* grpc_gen:: */ReverbService::Service {
  public:
   explicit ReverbServiceImpl(
-      std::vector<std::shared_ptr<PriorityTable>> priority_tables,
+      std::vector<std::shared_ptr<Table>> tables,
       std::shared_ptr<CheckpointerInterface> checkpointer = nullptr);
 
   grpc::Status Checkpoint(grpc::ServerContext* context,
@@ -74,15 +74,14 @@ class ReverbServiceImpl : public /* grpc_gen:: */ReverbService::Service {
                           ServerInfoResponse* response) override;
 
   // Gets a copy of the table lookup.
-  absl::flat_hash_map<std::string, std::shared_ptr<PriorityTable>> tables()
-      const;
+  absl::flat_hash_map<std::string, std::shared_ptr<Table>> tables() const;
 
-  // Closes all priority tables and the chunk store.
+  // Closes all tables and the chunk store.
   void Close();
 
  private:
-  // Lookups the priority table for a given name. Returns nullptr if not found.
-  PriorityTable* PriorityTableByName(absl::string_view name) const;
+  // Lookups the table for a given name. Returns nullptr if not found.
+  Table* PriorityTableByName(absl::string_view name) const;
 
   // Checkpointer used to restore state in the constructor and to save data
   // when `Checkpoint` is called. Note that if `checkpointer_` is nullptr then
@@ -93,8 +92,7 @@ class ReverbServiceImpl : public /* grpc_gen:: */ReverbService::Service {
   ChunkStore chunk_store_;
 
   // Priority tables. Must be destroyed after `chunk_store_`.
-  absl::flat_hash_map<std::string, std::shared_ptr<PriorityTable>>
-      priority_tables_;
+  absl::flat_hash_map<std::string, std::shared_ptr<Table>> tables_;
 
   absl::BitGen rnd_;
 

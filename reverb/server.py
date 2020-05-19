@@ -106,7 +106,7 @@ class PriorityTable:
     else:
       signature_proto_str = None
 
-    self.internal_table = pybind.PriorityTable(
+    self.internal_table = pybind.Table(
         name=name,
         sampler=sampler,
         remover=remover,

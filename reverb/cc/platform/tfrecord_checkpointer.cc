@@ -38,9 +38,9 @@
 #include "reverb/cc/distributions/lifo.h"
 #include "reverb/cc/distributions/prioritized.h"
 #include "reverb/cc/distributions/uniform.h"
-#include "reverb/cc/priority_table.h"
 #include "reverb/cc/rate_limiter.h"
 #include "reverb/cc/schema.pb.h"
+#include "reverb/cc/table.h"
 #include "reverb/cc/table_extensions/interface.h"
 #include "tensorflow/core/lib/core/errors.h"
 #include "tensorflow/core/lib/core/status.h"
@@ -127,7 +127,7 @@ std::unique_ptr<KeyDistributionInterface> MakeDistribution(
 }
 
 inline size_t find_table_index(
-    const std::vector<std::shared_ptr<PriorityTable>>* tables,
+    const std::vector<std::shared_ptr<Table>>* tables,
     const std::string& name) {
   for (int i = 0; i < tables->size(); i++) {
     if (tables->at(i)->name() == name) return i;
@@ -144,8 +144,9 @@ TFRecordCheckpointer::TFRecordCheckpointer(std::string root_dir,
                           << root_dir_;
 }
 
-tensorflow::Status TFRecordCheckpointer::Save(
-    std::vector<PriorityTable*> tables, int keep_latest, std::string* path) {
+tensorflow::Status TFRecordCheckpointer::Save(std::vector<Table*> tables,
+                                              int keep_latest,
+                                              std::string* path) {
   if (keep_latest <= 0) {
     return tensorflow::errors::InvalidArgument(
         "TFRecordCheckpointer must have keep_latest > 0.");
@@ -165,7 +166,7 @@ tensorflow::Status TFRecordCheckpointer::Save(
       tensorflow::io::JoinPath(dir_path, kTablesFileName), &table_writer));
 
   absl::flat_hash_set<std::shared_ptr<ChunkStore::Chunk>> chunks;
-  for (PriorityTable* table : tables) {
+  for (Table* table : tables) {
     auto checkpoint = table->Checkpoint();
     chunks.merge(checkpoint.chunks);
     TF_RETURN_IF_ERROR(
@@ -211,7 +212,7 @@ tensorflow::Status TFRecordCheckpointer::Save(
 
 tensorflow::Status TFRecordCheckpointer::Load(
     absl::string_view relative_path, ChunkStore* chunk_store,
-    std::vector<std::shared_ptr<PriorityTable>>* tables) {
+    std::vector<std::shared_ptr<Table>>* tables) {
   const std::string dir_path =
       tensorflow::io::JoinPath(root_dir_, relative_path);
   REVERB_LOG(REVERB_INFO) << "Loading checkpoint from " << dir_path;
@@ -219,9 +220,9 @@ tensorflow::Status TFRecordCheckpointer::Load(
     return tensorflow::errors::InvalidArgument(
         absl::StrCat("Load called with invalid checkpoint path: ", dir_path));
   }
-  // Insert data first to ensure that all data referenced by the priority tables
+  // Insert data first to ensure that all data referenced by the tables
   // exists. Keep the map of chunks around so that none of the chunks are
-  // cleaned up before all the priority tables have been loaded.
+  // cleaned up before all the tables have been loaded.
   absl::flat_hash_map<ChunkStore::Key, std::shared_ptr<ChunkStore::Chunk>>
       chunk_by_key;
   {
@@ -282,7 +283,7 @@ tensorflow::Status TFRecordCheckpointer::Load(
     auto rate_limiter =
         std::make_shared<RateLimiter>(checkpoint.rate_limiter());
 
-    auto table = std::make_shared<PriorityTable>(
+    auto table = std::make_shared<Table>(
         /*name=*/checkpoint.table_name(), /*sampler=*/std::move(sampler),
         /*remover=*/std::move(remover),
         /*max_size=*/checkpoint.max_size(),
@@ -291,7 +292,7 @@ tensorflow::Status TFRecordCheckpointer::Load(
         /*extensions=*/tables->at(index)->extensions());
 
     for (const auto& checkpoint_item : checkpoint.items()) {
-      PriorityTable::Item insert_item;
+      Table::Item insert_item;
       insert_item.item = checkpoint_item;
 
       for (const auto& key : checkpoint_item.chunk_keys()) {
@@ -312,8 +313,7 @@ tensorflow::Status TFRecordCheckpointer::Load(
 }
 
 tensorflow::Status TFRecordCheckpointer::LoadLatest(
-    ChunkStore* chunk_store,
-    std::vector<std::shared_ptr<PriorityTable>>* tables) {
+    ChunkStore* chunk_store, std::vector<std::shared_ptr<Table>>* tables) {
   REVERB_LOG(REVERB_INFO) << "Loading latest checkpoint from " << root_dir_;
   std::vector<std::string> filenames;
   TF_RETURN_IF_ERROR(tensorflow::Env::Default()->GetMatchingPaths(

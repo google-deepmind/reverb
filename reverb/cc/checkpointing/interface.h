@@ -15,7 +15,7 @@
 #ifndef REVERB_CC_CHECKPOINTING_INTERFACE_H_
 #define REVERB_CC_CHECKPOINTING_INTERFACE_H_
 
-#include "reverb/cc/priority_table.h"
+#include "reverb/cc/table.h"
 
 namespace deepmind {
 namespace reverb {
@@ -30,8 +30,8 @@ class CheckpointerInterface {
   // Save a new checkpoint for every table in `tables` to permanent storage. If
   // successful, `path` will contain an ABSOLUTE path that could be used to
   // restore the checkpoint.
-  virtual tensorflow::Status Save(std::vector<PriorityTable*> tables,
-                                  int keep_latest, std::string* path) = 0;
+  virtual tensorflow::Status Save(std::vector<Table*> tables, int keep_latest,
+                                  std::string* path) = 0;
 
   // Attempts to load a checkpoint from the active workspace.
   //
@@ -40,13 +40,12 @@ class CheckpointerInterface {
   // table and the item is replaced with the newly loaded table.
   virtual tensorflow::Status Load(
       absl::string_view relative_path, ChunkStore* chunk_store,
-      std::vector<std::shared_ptr<PriorityTable>>* tables) = 0;
+      std::vector<std::shared_ptr<Table>>* tables) = 0;
 
   // Finds the most recent checkpoint within the active workspace. See `Load`
   // for more details.
   virtual tensorflow::Status LoadLatest(
-      ChunkStore* chunk_store,
-      std::vector<std::shared_ptr<PriorityTable>>* tables) = 0;
+      ChunkStore* chunk_store, std::vector<std::shared_ptr<Table>>* tables) = 0;
 };
 
 }  // namespace reverb

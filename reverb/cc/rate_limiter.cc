@@ -27,8 +27,8 @@
 #include "absl/time/time.h"
 #include "reverb/cc/checkpointing/checkpoint.pb.h"
 #include "reverb/cc/platform/logging.h"
-#include "reverb/cc/priority_table.h"
 #include "reverb/cc/schema.pb.h"
+#include "reverb/cc/table.h"
 #include "tensorflow/core/lib/core/errors.h"
 #include "tensorflow/core/lib/core/status.h"
 #include "tensorflow/core/platform/errors.h"
@@ -73,29 +73,24 @@ RateLimiter::RateLimiter(const RateLimiterCheckpoint& checkpoint)
   deletes_ = checkpoint.delete_count();
 }
 
-tensorflow::Status RateLimiter::RegisterPriorityTable(
-    PriorityTable* priority_table) {
-  if (priority_table_) {
+tensorflow::Status RateLimiter::RegisterTable(Table* table) {
+  if (table_) {
     return tensorflow::errors::FailedPrecondition(
-        "Attempting to registering a priority table ", priority_table,
-        " (name: ", priority_table->name(), ") with RateLimiter when is ",
-        "already registered with this limiter: ", priority_table_,
-        " (name: ", priority_table_->name(), ")");
+        "Attempting to registering a table ", table,
+        " (name: ", table->name(), ") with RateLimiter when is ",
+        "already registered with this limiter: ", table_,
+        " (name: ", table_->name(), ")");
   }
-  priority_table_ = priority_table;
+  table_ = table;
   return tensorflow::Status::OK();
 }
 
-void RateLimiter::UnregisterPriorityTable(absl::Mutex* mu,
-                                          PriorityTable* table) {
-  // Keep priority_table_registered_ at its current value to ensure that
-  // no one else tries to access state associated with a table that no longer
-  // exists.
-  REVERB_CHECK_EQ(table, priority_table_)
-      << "The wrong PriorityTable attempted to unregister this rate limiter.";
+void RateLimiter::UnregisterTable(absl::Mutex* mu, Table* table) {
+  REVERB_CHECK_EQ(table, table_)
+      << "The wrong Table attempted to unregister this rate limiter.";
   absl::MutexLock lock(mu);
   Reset(mu);
-  priority_table_ = nullptr;
+  table_ = nullptr;
 }
 
 tensorflow::Status RateLimiter::AwaitCanInsert(absl::Mutex* mu,

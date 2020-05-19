@@ -145,9 +145,9 @@ tensorflow::StructuredValue MakeSignature() {
 
 std::unique_ptr<ReverbServiceImpl> MakeService(
     int max_size, std::unique_ptr<CheckpointerInterface> checkpointer) {
-  std::vector<std::shared_ptr<PriorityTable>> tables;
+  std::vector<std::shared_ptr<Table>> tables;
 
-  tables.push_back(absl::make_unique<PriorityTable>(
+  tables.push_back(absl::make_unique<Table>(
       "dist", absl::make_unique<UniformDistribution>(),
       absl::make_unique<FifoDistribution>(), max_size, 0,
       absl::make_unique<RateLimiter>(kSamplesPerInsert, kMinSizeToSample,

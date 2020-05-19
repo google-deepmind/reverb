@@ -27,8 +27,8 @@
 #include "reverb/cc/distributions/heap.h"
 #include "reverb/cc/distributions/prioritized.h"
 #include "reverb/cc/distributions/uniform.h"
-#include "reverb/cc/priority_table.h"
 #include "reverb/cc/rate_limiter.h"
+#include "reverb/cc/table.h"
 #include "reverb/cc/testing/proto_test_util.h"
 #include "tensorflow/core/lib/core/status_test_util.h"
 #include "tensorflow/core/lib/io/path.h"
@@ -46,16 +46,16 @@ inline std::string MakeRoot() {
   return name;
 }
 
-std::unique_ptr<PriorityTable> MakeUniformTable(const std::string& name) {
-  return absl::make_unique<PriorityTable>(
+std::unique_ptr<Table> MakeUniformTable(const std::string& name) {
+  return absl::make_unique<Table>(
       name, absl::make_unique<UniformDistribution>(),
       absl::make_unique<FifoDistribution>(), 1000, 0,
       absl::make_unique<RateLimiter>(1.0, 1, -DBL_MAX, DBL_MAX));
 }
 
-std::unique_ptr<PriorityTable> MakePrioritizedTable(const std::string& name,
-                                                    double exponent) {
-  return absl::make_unique<PriorityTable>(
+std::unique_ptr<Table> MakePrioritizedTable(const std::string& name,
+                                            double exponent) {
+  return absl::make_unique<Table>(
       name, absl::make_unique<PrioritizedDistribution>(exponent),
       absl::make_unique<HeapDistribution>(), 1000, 0,
       absl::make_unique<RateLimiter>(1.0, 1, -DBL_MAX, DBL_MAX));
@@ -66,7 +66,7 @@ TEST(TFRecordCheckpointerTest, CreatesDirectoryInRoot) {
   TFRecordCheckpointer checkpointer(root);
   std::string path;
   auto* env = tensorflow::Env::Default();
-  TF_ASSERT_OK(checkpointer.Save(std::vector<PriorityTable*>{}, 1, &path));
+  TF_ASSERT_OK(checkpointer.Save(std::vector<Table*>{}, 1, &path));
   ASSERT_EQ(tensorflow::io::Dirname(path), root);
   TF_EXPECT_OK(env->FileExists(path));
 }
@@ -74,7 +74,7 @@ TEST(TFRecordCheckpointerTest, CreatesDirectoryInRoot) {
 TEST(TFRecordCheckpointerTest, SaveAndLoad) {
   ChunkStore chunk_store;
 
-  std::vector<std::shared_ptr<PriorityTable>> tables;
+  std::vector<std::shared_ptr<Table>> tables;
   tables.push_back(MakeUniformTable("uniform"));
   tables.push_back(MakePrioritizedTable("prioritized_a", 0.5));
   tables.push_back(MakePrioritizedTable("prioritized_b", 0.9));
@@ -92,7 +92,7 @@ TEST(TFRecordCheckpointerTest, SaveAndLoad) {
 
   for (int i = 0; i < 100; i++) {
     for (auto& table : tables) {
-      PriorityTable::SampledItem sample;
+      Table::SampledItem sample;
       TF_EXPECT_OK(table->Sample(&sample));
     }
   }
@@ -104,7 +104,7 @@ TEST(TFRecordCheckpointerTest, SaveAndLoad) {
       {tables[0].get(), tables[1].get(), tables[2].get()}, 1, &path));
 
   ChunkStore loaded_chunk_store;
-  std::vector<std::shared_ptr<PriorityTable>> loaded_tables;
+  std::vector<std::shared_ptr<Table>> loaded_tables;
   loaded_tables.push_back(MakeUniformTable("uniform"));
   loaded_tables.push_back(MakePrioritizedTable("prioritized_a", 0.5));
   loaded_tables.push_back(MakePrioritizedTable("prioritized_b", 0.9));
@@ -123,7 +123,7 @@ TEST(TFRecordCheckpointerTest, SaveAndLoad) {
   // Sample a random item and check that it matches the item in the original
   // table.
   for (int i = 0; i < tables.size(); i++) {
-    PriorityTable::SampledItem sample;
+    Table::SampledItem sample;
     TF_EXPECT_OK(loaded_tables[i]->Sample(&sample));
     bool item_found = false;
     for (auto& item : tables[i]->Copy()) {
@@ -141,7 +141,7 @@ TEST(TFRecordCheckpointerTest, SaveAndLoad) {
 TEST(TFRecordCheckpointerTest, SaveDeletesOldData) {
   ChunkStore chunk_store;
 
-  std::vector<std::shared_ptr<PriorityTable>> tables;
+  std::vector<std::shared_ptr<Table>> tables;
   tables.push_back(MakeUniformTable("uniform"));
   tables.push_back(MakePrioritizedTable("prioritized_a", 0.5));
   tables.push_back(MakePrioritizedTable("prioritized_b", 0.9));
@@ -159,7 +159,7 @@ TEST(TFRecordCheckpointerTest, SaveDeletesOldData) {
 
   for (int i = 0; i < 100; i++) {
     for (auto& table : tables) {
-      PriorityTable::SampledItem sample;
+      Table::SampledItem sample;
       TF_EXPECT_OK(table->Sample(&sample));
     }
   }
@@ -188,7 +188,7 @@ TEST(TFRecordCheckpointerTest, SaveDeletesOldData) {
 TEST(TFRecordCheckpointerTest, KeepLatestZeroReturnsError) {
   ChunkStore chunk_store;
 
-  std::vector<std::shared_ptr<PriorityTable>> tables;
+  std::vector<std::shared_ptr<Table>> tables;
   tables.push_back(MakeUniformTable("uniform"));
   tables.push_back(MakePrioritizedTable("prioritized_a", 0.5));
   tables.push_back(MakePrioritizedTable("prioritized_b", 0.9));
@@ -206,7 +206,7 @@ TEST(TFRecordCheckpointerTest, KeepLatestZeroReturnsError) {
 
   for (int i = 0; i < 100; i++) {
     for (auto& table : tables) {
-      PriorityTable::SampledItem sample;
+      Table::SampledItem sample;
       TF_EXPECT_OK(table->Sample(&sample));
     }
   }
@@ -223,7 +223,7 @@ TEST(TFRecordCheckpointerTest, KeepLatestZeroReturnsError) {
 TEST(TFRecordCheckpointerTest, LoadLatestInEmptyDir) {
   TFRecordCheckpointer checkpointer(MakeRoot());
   ChunkStore chunk_store;
-  std::vector<std::shared_ptr<PriorityTable>> tables;
+  std::vector<std::shared_ptr<Table>> tables;
   EXPECT_EQ(checkpointer.LoadLatest(&chunk_store, &tables).code(),
             tensorflow::error::NOT_FOUND);
 }

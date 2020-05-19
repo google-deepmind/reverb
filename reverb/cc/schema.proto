@@ -46,7 +46,7 @@ message SequenceRange {
   int32 end = 3;
 }
 
-// A prioritized item is part of a priority table and references a chunk of
+// A prioritized item is part of a table and references a chunk of
 // data. Sampling happens based on the priority of items.
 message PrioritizedItem {
   // Unique identifier of this item.
@@ -84,7 +84,7 @@ message KeyWithPriority {
 }
 
 message SampleInfo {
-  // Item from that was sampled from the priority table.
+  // Item from that was sampled from the table.
   PrioritizedItem item = 1;
 
   // Probability that this item had at sampling time. Useful for importance
@@ -98,7 +98,7 @@ message SampleInfo {
 // Metadata about the table, including (optional) data signature.
 //
 // These fields correspond to initialization arguments of the
-// `PriorityTable` class, unless noted otherwise.
+// `Table` class, unless noted otherwise.
 //
 // Next ID: 10.
 message TableInfo {

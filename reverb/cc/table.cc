@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "reverb/cc/priority_table.h"
+#include "reverb/cc/table.h"
 
 #include <algorithm>
 #include <cstddef>
@@ -69,12 +69,12 @@ inline void EncodeAsTimestampProto(absl::Time t,
 
 }  // namespace
 
-PriorityTable::PriorityTable(
-    std::string name, std::shared_ptr<KeyDistributionInterface> sampler,
-    std::shared_ptr<KeyDistributionInterface> remover, int64_t max_size,
-    int32_t max_times_sampled, std::shared_ptr<RateLimiter> rate_limiter,
-    Extensions extensions,
-    absl::optional<tensorflow::StructuredValue> signature)
+Table::Table(std::string name,
+             std::shared_ptr<KeyDistributionInterface> sampler,
+             std::shared_ptr<KeyDistributionInterface> remover, int64_t max_size,
+             int32_t max_times_sampled, std::shared_ptr<RateLimiter> rate_limiter,
+             Extensions extensions,
+             absl::optional<tensorflow::StructuredValue> signature)
     : sampler_(std::move(sampler)),
       remover_(std::move(remover)),
       max_size_(max_size),
@@ -83,21 +83,21 @@ PriorityTable::PriorityTable(
       rate_limiter_(std::move(rate_limiter)),
       extensions_(std::move(extensions)),
       signature_(std::move(signature)) {
-  TF_CHECK_OK(rate_limiter_->RegisterPriorityTable(this));
+  TF_CHECK_OK(rate_limiter_->RegisterTable(this));
   for (auto& extension : extensions_) {
-    TF_CHECK_OK(extension->RegisterPriorityTable(this));
+    TF_CHECK_OK(extension->RegisterTable(this));
   }
 }
 
-PriorityTable::~PriorityTable() {
-  rate_limiter_->UnregisterPriorityTable(&mu_, this);
+Table::~Table() {
+  rate_limiter_->UnregisterTable(&mu_, this);
   absl::WriterMutexLock lock(&mu_);
   for (auto& extension : extensions_) {
-    extension->UnregisterPriorityTable(&mu_, this);
+    extension->UnregisterTable(&mu_, this);
   }
 }
 
-std::vector<PriorityTable::Item> PriorityTable::Copy(size_t count) const {
+std::vector<Table::Item> Table::Copy(size_t count) const {
   std::vector<Item> items;
   absl::ReaderMutexLock lock(&mu_);
   items.reserve(count == 0 ? data_.size() : count);
@@ -108,7 +108,7 @@ std::vector<PriorityTable::Item> PriorityTable::Copy(size_t count) const {
   return items;
 }
 
-tensorflow::Status PriorityTable::InsertOrAssign(Item item) {
+tensorflow::Status Table::InsertOrAssign(Item item) {
   auto key = item.item.key();
   auto priority = item.item.priority();
 
@@ -161,8 +161,8 @@ tensorflow::Status PriorityTable::InsertOrAssign(Item item) {
   return tensorflow::Status::OK();
 }
 
-tensorflow::Status PriorityTable::MutateItems(
-    absl::Span<const KeyWithPriority> updates, absl::Span<const Key> deletes) {
+tensorflow::Status Table::MutateItems(absl::Span<const KeyWithPriority> updates,
+                                      absl::Span<const Key> deletes) {
   absl::WriterMutexLock lock(&mu_);
 
   for (Key key : deletes) {
@@ -176,7 +176,7 @@ tensorflow::Status PriorityTable::MutateItems(
   return tensorflow::Status::OK();
 }
 
-tensorflow::Status PriorityTable::Sample(SampledItem* sampled_item) {
+tensorflow::Status Table::Sample(SampledItem* sampled_item) {
   absl::WriterMutexLock lock(&mu_);
   TF_RETURN_IF_ERROR(rate_limiter_->AwaitAndFinalizeSample(&mu_));
 
@@ -206,14 +206,14 @@ tensorflow::Status PriorityTable::Sample(SampledItem* sampled_item) {
   return tensorflow::Status::OK();
 }
 
-int64_t PriorityTable::size() const {
+int64_t Table::size() const {
   absl::ReaderMutexLock lock(&mu_);
   return data_.size();
 }
 
-const std::string& PriorityTable::name() const { return name_; }
+const std::string& Table::name() const { return name_; }
 
-TableInfo PriorityTable::info() const {
+TableInfo Table::info() const {
   absl::ReaderMutexLock lock(&mu_);
   TableInfo info;
   info.set_name(name_);
@@ -233,12 +233,12 @@ TableInfo PriorityTable::info() const {
   return info;
 }
 
-void PriorityTable::Close() {
+void Table::Close() {
   absl::WriterMutexLock lock(&mu_);
   rate_limiter_->Cancel(&mu_);
 }
 
-void PriorityTable::DeleteItem(PriorityTable::Key key) {
+void Table::DeleteItem(Table::Key key) {
   auto it = data_.find(key);
   if (it == data_.end()) return;
 
@@ -261,7 +261,7 @@ void PriorityTable::DeleteItem(PriorityTable::Key key) {
   TF_CHECK_OK(remover_->Delete(key));
 }
 
-tensorflow::Status PriorityTable::UpdateItem(
+tensorflow::Status Table::UpdateItem(
     Key key, double priority,
     std::initializer_list<PriorityTableExtensionInterface*> exclude) {
   auto it = data_.find(key);
@@ -283,7 +283,7 @@ tensorflow::Status PriorityTable::UpdateItem(
   return tensorflow::Status::OK();
 }
 
-tensorflow::Status PriorityTable::Reset() {
+tensorflow::Status Table::Reset() {
   absl::WriterMutexLock lock(&mu_);
 
   for (auto& extension : extensions_) {
@@ -300,7 +300,7 @@ tensorflow::Status PriorityTable::Reset() {
   return tensorflow::Status::OK();
 }
 
-PriorityTable::CheckpointAndChunks PriorityTable::Checkpoint() {
+Table::CheckpointAndChunks Table::Checkpoint() {
   absl::ReaderMutexLock lock(&mu_);
 
   PriorityTableCheckpoint checkpoint;
@@ -329,11 +329,10 @@ PriorityTable::CheckpointAndChunks PriorityTable::Checkpoint() {
   return {std::move(checkpoint), std::move(chunks)};
 }
 
-tensorflow::Status PriorityTable::InsertCheckpointItem(
-    PriorityTable::Item item) {
+tensorflow::Status Table::InsertCheckpointItem(Table::Item item) {
   absl::WriterMutexLock lock(&mu_);
   REVERB_CHECK_LE(data_.size() + 1, max_size_)
-      << "InsertCheckpointItem called on already full PriorityTable";
+      << "InsertCheckpointItem called on already full Table";
   REVERB_CHECK(!data_.contains(item.item.key()))
       << "InsertCheckpointItem called for item with already present key: "
       << item.item.key();
@@ -349,7 +348,7 @@ tensorflow::Status PriorityTable::InsertCheckpointItem(
   return tensorflow::Status::OK();
 }
 
-bool PriorityTable::Get(PriorityTable::Key key, PriorityTable::Item* item) {
+bool Table::Get(Table::Key key, Table::Item* item) {
   absl::ReaderMutexLock lock(&mu_);
   auto it = data_.find(key);
   if (it != data_.end()) {
@@ -359,53 +358,51 @@ bool PriorityTable::Get(PriorityTable::Key key, PriorityTable::Item* item) {
   return false;
 }
 
-const absl::flat_hash_map<PriorityTable::Key, PriorityTable::Item>*
-PriorityTable::RawLookup() {
+const absl::flat_hash_map<Table::Key, Table::Item>* Table::RawLookup() {
   mu_.AssertReaderHeld();
   return &data_;
 }
 
-void PriorityTable::UnsafeAddExtension(
+void Table::UnsafeAddExtension(
     std::shared_ptr<PriorityTableExtensionInterface> extension) {
   absl::WriterMutexLock lock(&mu_);
   REVERB_CHECK(data_.empty());
-  TF_CHECK_OK(extension->RegisterPriorityTable(this));
+  TF_CHECK_OK(extension->RegisterTable(this));
   extensions_.push_back(std::move(extension));
 }
 
 const std::vector<std::shared_ptr<PriorityTableExtensionInterface>>&
-PriorityTable::extensions() const {
+Table::extensions() const {
   return extensions_;
 }
 
-const absl::optional<tensorflow::StructuredValue>& PriorityTable::signature()
-    const {
+const absl::optional<tensorflow::StructuredValue>& Table::signature() const {
   return signature_;
 }
 
-bool PriorityTable::CanSample(int num_samples) const {
+bool Table::CanSample(int num_samples) const {
   absl::ReaderMutexLock lock(&mu_);
   return rate_limiter_->CanSample(&mu_, num_samples);
 }
 
-bool PriorityTable::CanInsert(int num_inserts) const {
+bool Table::CanInsert(int num_inserts) const {
   absl::ReaderMutexLock lock(&mu_);
   return rate_limiter_->CanInsert(&mu_, num_inserts);
 }
 
-RateLimiterEventHistory PriorityTable::GetRateLimiterEventHistory(
+RateLimiterEventHistory Table::GetRateLimiterEventHistory(
     size_t min_insert_event_id, size_t min_sample_event_id) const {
   absl::ReaderMutexLock lock(&mu_);
   return rate_limiter_->GetEventHistory(&mu_, min_insert_event_id,
                                         min_sample_event_id);
 }
 
-int64_t PriorityTable::num_episodes() const {
+int64_t Table::num_episodes() const {
   absl::ReaderMutexLock lock(&mu_);
   return episode_refs_.size();
 }
 
-tensorflow::Status PriorityTable::UnsafeUpdateItem(
+tensorflow::Status Table::UnsafeUpdateItem(
     Key key, double priority,
     std::initializer_list<PriorityTableExtensionInterface*> exclude) {
   mu_.AssertHeld();

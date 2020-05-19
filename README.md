@@ -44,8 +44,8 @@ and other memory storage systems) are as follows:
 
 The above image demonstrates one of the key benefits of Reverb-- a
 memory-efficient data model. Each timestep is only stored once on the server,
-even if it is referenced by multiple items in a single priority table or by
-multiple priority tables. Furthermore, the client only writes data to the server
+even if it is referenced by multiple items in a single table or by
+multiple tables. Furthermore, the client only writes data to the server
 when necessary.
 
 ## Reverb in Practice
@@ -65,7 +65,7 @@ For more examples of Reverb in practice, see [Code Examples](#code-examples).
 Reverb can be customized according to the experiment's requirements. Common
 customizations are as follows:
 
-*   Creating multiple priority tables referencing the same underlying data
+*   Creating multiple tables referencing the same underlying data
 *   Modifying `sampler` to control the distributions used to select samples
 *   Modifying `remover` to maintain a different set of items in full tables
 *   Using `RateLimiter` to maintain balance between actors and learners

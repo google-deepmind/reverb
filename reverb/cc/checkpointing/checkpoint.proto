@@ -7,10 +7,10 @@ import "reverb/cc/schema.proto";
 // Configs for reconstructing a distribution to its initial state.
 
 message PriorityTableCheckpoint {
-  // Name of the priority table.
+  // Name of the table.
   string table_name = 1;
 
-  // Maximum number of items in the priority table.
+  // Maximum number of items in the table.
   // If an insert would result in this value getting exceeded, `remover` is used
   // to select an item to remove before proceeding with the insert.
   int64 max_size = 6;
@@ -18,7 +18,7 @@ message PriorityTableCheckpoint {
   // The maximum number of times an item can be sampled before being removed.
   int32 max_times_sampled = 7;
 
-  // Items in the priority table ordered by `inserted_at` (asc).
+  // Items in the table ordered by `inserted_at` (asc).
   // When loading a checkpoint the items should be added in the same order so
   // position based distributions (e.g fifo) are reconstructed correctly.
   repeated PrioritizedItem items = 2;

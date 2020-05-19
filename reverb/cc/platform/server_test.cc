@@ -32,14 +32,14 @@ namespace {
 TEST(ServerTest, StartServer) {
   int port = internal::PickUnusedPortOrDie();
   std::unique_ptr<Server> server;
-  TF_EXPECT_OK(StartServer(/*priority_tables=*/{},
+  TF_EXPECT_OK(StartServer(/*tables=*/{},
                            /*port=*/port, /*checkpointer=*/nullptr, &server));
 }
 
 TEST(ServerTest, ErrorOnUnavailablePort) {
   // We expect that port==-1 to always be unavailable.
   std::unique_ptr<Server> server;
-  auto status = StartServer(/*priority_tables=*/{},
+  auto status = StartServer(/*tables=*/{},
                             /*port=*/-1, /*checkpointer=*/nullptr, &server);
   EXPECT_EQ(status.code(), tensorflow::error::INVALID_ARGUMENT);
   EXPECT_THAT(status.error_message(),

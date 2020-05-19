@@ -19,5 +19,5 @@ reverb_cc_proto_library(
 reverb_cc_library(
     name = "interface",
     hdrs = ["interface.h"],
-    deps = ["//reverb/cc:priority_table"],
+    deps = ["//reverb/cc:table"],
 )

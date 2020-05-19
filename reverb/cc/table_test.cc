@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "reverb/cc/priority_table.h"
+#include "reverb/cc/table.h"
 
 #include <atomic>
 #include <cfloat>
@@ -74,23 +74,23 @@ std::unique_ptr<RateLimiter> MakeLimiter(int64_t min_size) {
   return absl::make_unique<RateLimiter>(1.0, min_size, -DBL_MAX, DBL_MAX);
 }
 
-std::unique_ptr<PriorityTable> MakeUniformTable(const std::string& name,
-                                                int64_t max_size = 1000,
-                                                int32_t max_times_sampled = 0) {
-  return absl::make_unique<PriorityTable>(
-      name, absl::make_unique<UniformDistribution>(),
-      absl::make_unique<FifoDistribution>(), max_size, max_times_sampled,
-      MakeLimiter(1));
+std::unique_ptr<Table> MakeUniformTable(const std::string& name,
+                                        int64_t max_size = 1000,
+                                        int32_t max_times_sampled = 0) {
+  return absl::make_unique<Table>(name,
+                                  absl::make_unique<UniformDistribution>(),
+                                  absl::make_unique<FifoDistribution>(),
+                                  max_size, max_times_sampled, MakeLimiter(1));
 }
 
-TEST(PriorityTableTest, SetsName) {
+TEST(TableTest, SetsName) {
   auto first = MakeUniformTable("first");
   auto second = MakeUniformTable("second");
   EXPECT_EQ(first->name(), "first");
   EXPECT_EQ(second->name(), "second");
 }
 
-TEST(PriorityTableTest, CopyAfterInsert) {
+TEST(TableTest, CopyAfterInsert) {
   auto table = MakeUniformTable("dist");
   TF_EXPECT_OK(table->InsertOrAssign(MakeItem(3, 123)));
 
@@ -101,7 +101,7 @@ TEST(PriorityTableTest, CopyAfterInsert) {
       Partially(testing::EqualsProto("key: 3 times_sampled: 0 priority: 123")));
 }
 
-TEST(PriorityTableTest, CopySubset) {
+TEST(TableTest, CopySubset) {
   auto table = MakeUniformTable("dist");
   TF_EXPECT_OK(table->InsertOrAssign(MakeItem(3, 123)));
   TF_EXPECT_OK(table->InsertOrAssign(MakeItem(4, 123)));
@@ -110,7 +110,7 @@ TEST(PriorityTableTest, CopySubset) {
   EXPECT_THAT(table->Copy(2), SizeIs(2));
 }
 
-TEST(PriorityTableTest, InsertOrAssignOverwrites) {
+TEST(TableTest, InsertOrAssignOverwrites) {
   auto table = MakeUniformTable("dist");
   TF_EXPECT_OK(table->InsertOrAssign(MakeItem(3, 123)));
   TF_EXPECT_OK(table->InsertOrAssign(MakeItem(3, 456)));
@@ -120,7 +120,7 @@ TEST(PriorityTableTest, InsertOrAssignOverwrites) {
   EXPECT_EQ(items[0].item.priority(), 456);
 }
 
-TEST(PriorityTableTest, UpdatesAreAppliedPartially) {
+TEST(TableTest, UpdatesAreAppliedPartially) {
   auto table = MakeUniformTable("dist");
   TF_EXPECT_OK(table->InsertOrAssign(MakeItem(3, 123)));
   TF_EXPECT_OK(table->MutateItems(
@@ -135,7 +135,7 @@ TEST(PriorityTableTest, UpdatesAreAppliedPartially) {
   EXPECT_EQ(items[0].item.priority(), 456);
 }
 
-TEST(PriorityTableTest, DeletesAreAppliedPartially) {
+TEST(TableTest, DeletesAreAppliedPartially) {
   auto table = MakeUniformTable("dist");
   TF_EXPECT_OK(table->InsertOrAssign(MakeItem(3, 123)));
   TF_EXPECT_OK(table->InsertOrAssign(MakeItem(7, 456)));
@@ -143,12 +143,12 @@ TEST(PriorityTableTest, DeletesAreAppliedPartially) {
   EXPECT_THAT(table->Copy(), ElementsAre(HasItemKey(7)));
 }
 
-TEST(PriorityTableTest, SampleBlocksWhenNotEnoughItems) {
+TEST(TableTest, SampleBlocksWhenNotEnoughItems) {
   auto table = MakeUniformTable("dist");
 
   absl::Notification notification;
   auto sample_thread = internal::StartThread("", [&table, &notification] {
-    PriorityTable::SampledItem item;
+    Table::SampledItem item;
     TF_EXPECT_OK(table->Sample(&item));
     notification.Notify();
   });
@@ -162,13 +162,13 @@ TEST(PriorityTableTest, SampleBlocksWhenNotEnoughItems) {
   sample_thread = nullptr;  // Joins the thread.
 }
 
-TEST(PriorityTableTest, SampleMatchesInsert) {
+TEST(TableTest, SampleMatchesInsert) {
   auto table = MakeUniformTable("dist");
 
-  PriorityTable::Item item = MakeItem(3, 123);
+  Table::Item item = MakeItem(3, 123);
   TF_EXPECT_OK(table->InsertOrAssign(item));
 
-  PriorityTable::SampledItem sample;
+  Table::SampledItem sample;
   TF_EXPECT_OK(table->Sample(&sample));
   item.item.set_times_sampled(1);
   sample.item.clear_inserted_at();
@@ -177,12 +177,12 @@ TEST(PriorityTableTest, SampleMatchesInsert) {
   EXPECT_EQ(sample.probability, 1);
 }
 
-TEST(PriorityTableTest, SampleIncrementsSampleTimes) {
+TEST(TableTest, SampleIncrementsSampleTimes) {
   auto table = MakeUniformTable("dist");
 
   TF_EXPECT_OK(table->InsertOrAssign(MakeItem(3, 123)));
 
-  PriorityTable::SampledItem item;
+  Table::SampledItem item;
   EXPECT_EQ(table->Copy()[0].item.times_sampled(), 0);
   TF_EXPECT_OK(table->Sample(&item));
   EXPECT_EQ(table->Copy()[0].item.times_sampled(), 1);
@@ -190,12 +190,12 @@ TEST(PriorityTableTest, SampleIncrementsSampleTimes) {
   EXPECT_EQ(table->Copy()[0].item.times_sampled(), 2);
 }
 
-TEST(PriorityTableTest, MaxTimesSampledIsRespected) {
+TEST(TableTest, MaxTimesSampledIsRespected) {
   auto table = MakeUniformTable("dist", 10, 2);
 
   TF_EXPECT_OK(table->InsertOrAssign(MakeItem(3, 123)));
 
-  PriorityTable::SampledItem item;
+  Table::SampledItem item;
   EXPECT_EQ(table->Copy()[0].item.times_sampled(), 0);
   TF_ASSERT_OK(table->Sample(&item));
   EXPECT_EQ(table->Copy()[0].item.times_sampled(), 1);
@@ -203,7 +203,7 @@ TEST(PriorityTableTest, MaxTimesSampledIsRespected) {
   EXPECT_THAT(table->Copy(), IsEmpty());
 }
 
-TEST(PriorityTableTest, InsertDeletesWhenOverflowing) {
+TEST(TableTest, InsertDeletesWhenOverflowing) {
   auto table = MakeUniformTable("dist", 10);
 
   for (int i = 0; i < 15; i++) {
@@ -211,21 +211,21 @@ TEST(PriorityTableTest, InsertDeletesWhenOverflowing) {
   }
   auto items = table->Copy();
   EXPECT_THAT(items, SizeIs(10));
-  for (const PriorityTable::Item& item : items) {
+  for (const Table::Item& item : items) {
     EXPECT_GE(item.item.key(), 5);
     EXPECT_LT(item.item.key(), 15);
   }
 }
 
-TEST(PriorityTableTest, ConcurrentCalls) {
+TEST(TableTest, ConcurrentCalls) {
   auto table = MakeUniformTable("dist", 1000);
 
   std::vector<std::unique_ptr<internal::Thread>> bundle;
   std::atomic<int> count(0);
-  for (PriorityTable::Key i = 0; i < 1000; i++) {
+  for (Table::Key i = 0; i < 1000; i++) {
     bundle.push_back(internal::StartThread("", [i, &table, &count] {
       TF_EXPECT_OK(table->InsertOrAssign(MakeItem(i, 123)));
-      PriorityTable::SampledItem item;
+      Table::SampledItem item;
       TF_EXPECT_OK(table->Sample(&item));
       TF_EXPECT_OK(
           table->MutateItems({testing::MakeKeyWithPriority(i, 456)}, {i}));
@@ -236,8 +236,8 @@ TEST(PriorityTableTest, ConcurrentCalls) {
   EXPECT_EQ(count, 1000);
 }
 
-TEST(PriorityTableTest, UseAsQueue) {
-  PriorityTable queue(
+TEST(TableTest, UseAsQueue) {
+  Table queue(
       /*name=*/"queue",
       /*sampler=*/absl::make_unique<FifoDistribution>(),
       /*remover=*/absl::make_unique<FifoDistribution>(),
@@ -262,7 +262,7 @@ TEST(PriorityTableTest, UseAsQueue) {
   EXPECT_FALSE(insert.WaitForNotificationWithTimeout(kTimeout));
 
   for (int i = 0; i < 11; i++) {
-    PriorityTable::SampledItem item;
+    Table::SampledItem item;
     TF_EXPECT_OK(queue.Sample(&item));
     EXPECT_THAT(item, HasItemKey(i));
   }
@@ -276,7 +276,7 @@ TEST(PriorityTableTest, UseAsQueue) {
   // Sampling should now be blocked.
   absl::Notification sample;
   auto sample_thread = internal::StartThread("", [&] {
-    PriorityTable::SampledItem item;
+    Table::SampledItem item;
     TF_EXPECT_OK(queue.Sample(&item));
     sample.Notify();
   });
@@ -292,8 +292,8 @@ TEST(PriorityTableTest, UseAsQueue) {
   sample_thread = nullptr;  // Joins the thread.
 }
 
-TEST(PriorityTableTest, ConcurrentInsertOfTheSameKey) {
-  PriorityTable table(
+TEST(TableTest, ConcurrentInsertOfTheSameKey) {
+  Table table(
       /*name=*/"dist",
       /*sampler=*/absl::make_unique<UniformDistribution>(),
       /*remover=*/absl::make_unique<FifoDistribution>(),
@@ -323,7 +323,7 @@ TEST(PriorityTableTest, ConcurrentInsertOfTheSameKey) {
 
   // Making a single sample should unblock one of the inserts. The other inserts
   // are now updates but they are still waiting for their right to insert.
-  PriorityTable::SampledItem item;
+  Table::SampledItem item;
   TF_EXPECT_OK(table.Sample(&item));
 
   // Sampling once more would unblock one of the inserts, it will then see that
@@ -337,8 +337,8 @@ TEST(PriorityTableTest, ConcurrentInsertOfTheSameKey) {
   EXPECT_EQ(table.size(), 2);
 }
 
-TEST(PriorityTableTest, CloseCancelsPendingCalls) {
-  PriorityTable table(
+TEST(TableTest, CloseCancelsPendingCalls) {
+  Table table(
       /*name=*/"dist",
       /*sampler=*/absl::make_unique<UniformDistribution>(),
       /*remover=*/absl::make_unique<FifoDistribution>(),
@@ -370,8 +370,8 @@ TEST(PriorityTableTest, CloseCancelsPendingCalls) {
   thread = nullptr;  // Joins the thread.
 }
 
-TEST(PriorityTableTest, ResetResetsRateLimiter) {
-  PriorityTable table(
+TEST(TableTest, ResetResetsRateLimiter) {
+  Table table(
       /*name=*/"dist",
       /*sampler=*/absl::make_unique<UniformDistribution>(),
       /*remover=*/absl::make_unique<FifoDistribution>(),
@@ -402,7 +402,7 @@ TEST(PriorityTableTest, ResetResetsRateLimiter) {
   thread = nullptr;  // Joins the thread.
 }
 
-TEST(PriorityTableTest, ResetClearsAllData) {
+TEST(TableTest, ResetClearsAllData) {
   auto table = MakeUniformTable("dist");
   TF_ASSERT_OK(table->InsertOrAssign(MakeItem(1, 123)));
   EXPECT_EQ(table->size(), 1);
@@ -410,10 +410,10 @@ TEST(PriorityTableTest, ResetClearsAllData) {
   EXPECT_EQ(table->size(), 0);
 }
 
-TEST(PriorityTableTest, ResetWhileConcurrentCalls) {
+TEST(TableTest, ResetWhileConcurrentCalls) {
   auto table = MakeUniformTable("dist");
   std::vector<std::unique_ptr<internal::Thread>> bundle;
-  for (PriorityTable::Key i = 0; i < 1000; i++) {
+  for (Table::Key i = 0; i < 1000; i++) {
     bundle.push_back(internal::StartThread("", [i, &table] {
       if (i % 123 == 0) TF_EXPECT_OK(table->Reset());
       TF_EXPECT_OK(table->InsertOrAssign(MakeItem(i, 123)));
@@ -424,7 +424,7 @@ TEST(PriorityTableTest, ResetWhileConcurrentCalls) {
   bundle.clear();  // Joins all threads.
 }
 
-TEST(PriorityTableTest, CheckpointOrderItems) {
+TEST(TableTest, CheckpointOrderItems) {
   auto table = MakeUniformTable("dist");
 
   TF_EXPECT_OK(table->InsertOrAssign(MakeItem(1, 123)));
@@ -438,10 +438,10 @@ TEST(PriorityTableTest, CheckpointOrderItems) {
                           Partially(testing::EqualsProto("key: 2"))));
 }
 
-TEST(PriorityTableTest, CheckpointSanityCheck) {
-  PriorityTable table("dist", absl::make_unique<UniformDistribution>(),
-                      absl::make_unique<FifoDistribution>(), 10, 1,
-                      absl::make_unique<RateLimiter>(1.0, 3, -10, 7));
+TEST(TableTest, CheckpointSanityCheck) {
+  Table table("dist", absl::make_unique<UniformDistribution>(),
+              absl::make_unique<FifoDistribution>(), 10, 1,
+              absl::make_unique<RateLimiter>(1.0, 3, -10, 7));
 
   TF_EXPECT_OK(table.InsertOrAssign(MakeItem(1, 123)));
 
@@ -473,8 +473,8 @@ TEST(PriorityTableTest, CheckpointSanityCheck) {
                                              "remover: { fifo: true } ")));
 }
 
-TEST(PriorityTableTest, BlocksSamplesWhenSizeToSmallDueToAutoDelete) {
-  PriorityTable table(
+TEST(TableTest, BlocksSamplesWhenSizeToSmallDueToAutoDelete) {
+  Table table(
       /*name=*/"dist",
       /*sampler=*/absl::make_unique<FifoDistribution>(),
       /*remover=*/absl::make_unique<FifoDistribution>(),
@@ -490,12 +490,12 @@ TEST(PriorityTableTest, BlocksSamplesWhenSizeToSmallDueToAutoDelete) {
   TF_EXPECT_OK(table.InsertOrAssign(MakeItem(3, 1)));
 
   // It should be fine to sample now as the table has been reached its min size.
-  PriorityTable::SampledItem sample_1;
+  Table::SampledItem sample_1;
   TF_EXPECT_OK(table.Sample(&sample_1));
   EXPECT_THAT(sample_1, HasItemKey(1));
 
   // A second sample should be fine since the table is still large enough.
-  PriorityTable::SampledItem sample_2;
+  Table::SampledItem sample_2;
   TF_EXPECT_OK(table.Sample(&sample_2));
   EXPECT_THAT(sample_2, HasItemKey(1));
 
@@ -503,7 +503,7 @@ TEST(PriorityTableTest, BlocksSamplesWhenSizeToSmallDueToAutoDelete) {
   // block more samples from proceeding.
   absl::Notification notification;
   auto sample_thread = internal::StartThread("", [&] {
-    PriorityTable::SampledItem sample;
+    Table::SampledItem sample;
     TF_EXPECT_OK(table.Sample(&sample));
     notification.Notify();
   });
@@ -516,8 +516,8 @@ TEST(PriorityTableTest, BlocksSamplesWhenSizeToSmallDueToAutoDelete) {
   sample_thread = nullptr;  // Joins the thread.
 }
 
-TEST(PriorityTableTest, BlocksSamplesWhenSizeToSmallDueToExplicitDelete) {
-  PriorityTable table(
+TEST(TableTest, BlocksSamplesWhenSizeToSmallDueToExplicitDelete) {
+  Table table(
       /*name=*/"dist",
       /*sampler=*/absl::make_unique<FifoDistribution>(),
       /*remover=*/absl::make_unique<FifoDistribution>(),
@@ -533,7 +533,7 @@ TEST(PriorityTableTest, BlocksSamplesWhenSizeToSmallDueToExplicitDelete) {
   TF_EXPECT_OK(table.InsertOrAssign(MakeItem(3, 1)));
 
   // It should be fine to sample now as the table has been reached its min size.
-  PriorityTable::SampledItem sample_1;
+  Table::SampledItem sample_1;
   TF_EXPECT_OK(table.Sample(&sample_1));
   EXPECT_THAT(sample_1, HasItemKey(1));
 
@@ -542,7 +542,7 @@ TEST(PriorityTableTest, BlocksSamplesWhenSizeToSmallDueToExplicitDelete) {
 
   absl::Notification notification;
   auto sample_thread = internal::StartThread("", [&] {
-    PriorityTable::SampledItem sample;
+    Table::SampledItem sample;
     TF_EXPECT_OK(table.Sample(&sample));
     notification.Notify();
   });
@@ -555,12 +555,12 @@ TEST(PriorityTableTest, BlocksSamplesWhenSizeToSmallDueToExplicitDelete) {
   sample_thread = nullptr;  // Joins the thread.
 
   // And any new samples should be fine.
-  PriorityTable::SampledItem sample_2;
+  Table::SampledItem sample_2;
   TF_EXPECT_OK(table.Sample(&sample_2));
   EXPECT_THAT(sample_2, HasItemKey(2));
 }
 
-TEST(PriorityTableTest, GetExistingItem) {
+TEST(TableTest, GetExistingItem) {
   auto table = MakeUniformTable("dist");
 
   TF_EXPECT_OK(table->InsertOrAssign(MakeItem(1, 1)));
@@ -572,7 +572,7 @@ TEST(PriorityTableTest, GetExistingItem) {
   EXPECT_THAT(item, HasItemKey(2));
 }
 
-TEST(PriorityTableTest, GetMissingItem) {
+TEST(TableTest, GetMissingItem) {
   auto table = MakeUniformTable("dist");
 
   TF_EXPECT_OK(table->InsertOrAssign(MakeItem(1, 1)));
@@ -582,12 +582,12 @@ TEST(PriorityTableTest, GetMissingItem) {
   EXPECT_FALSE(table->Get(2, &item));
 }
 
-TEST(PriorityTableTest, SampleSetsTableSize) {
+TEST(TableTest, SampleSetsTableSize) {
   auto table = MakeUniformTable("dist");
 
   for (int i = 1; i <= 10; i++) {
     TF_EXPECT_OK(table->InsertOrAssign(MakeItem(i, 1)));
-    PriorityTable::SampledItem sample;
+    Table::SampledItem sample;
     TF_EXPECT_OK(table->Sample(&sample));
     EXPECT_EQ(sample.table_size, i);
   }
@@ -599,7 +599,7 @@ TEST(PriorityTableDeathTest, DiesIfUnsafeAddExtensionCalledWhenNonEmpty) {
   ASSERT_DEATH(table->UnsafeAddExtension(nullptr), "");
 }
 
-TEST(PriorityTableTest, NumEpisodes) {
+TEST(TableTest, NumEpisodes) {
   auto table = MakeUniformTable("dist");
 
   std::vector<SequenceRange> ranges{

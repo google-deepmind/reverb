@@ -99,7 +99,7 @@ reverb_pybind_extension(
     srcs_version = "PY3ONLY",
     visibility = ["//reverb:__subpackages__"],
     deps = [
-        "//reverb/cc:priority_table",
+        "//reverb/cc:table",
         "//reverb/cc:client",
         "//reverb/cc:writer",
         "//reverb/cc:sampler",

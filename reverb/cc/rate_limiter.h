@@ -30,7 +30,7 @@
 namespace deepmind {
 namespace reverb {
 
-class PriorityTable;
+class Table;
 
 constexpr absl::Duration kDefaultTimeout = absl::InfiniteDuration();
 
@@ -56,7 +56,7 @@ struct RateLimiterEventHistory {
   std::vector<RateLimiterEvent> sample;
 };
 
-// RateLimiter manages the data throughput for a PriorityTable by blocking
+// RateLimiter manages the data throughput for a `Table` by blocking
 // sample or insert calls if the ratio between the two deviates too much from
 // the ratio specified by `samples_per_insert`.
 class RateLimiter {
@@ -124,11 +124,10 @@ class RateLimiter {
       ABSL_SHARED_LOCKS_REQUIRED(mu);
 
  private:
-  friend class PriorityTable;
-  // PriorityTable calls these methods on construction and destruction.
-  tensorflow::Status RegisterPriorityTable(PriorityTable* table);
-  void UnregisterPriorityTable(absl::Mutex* mu, PriorityTable* table)
-      ABSL_LOCKS_EXCLUDED(mu);
+  friend class Table;
+  // `Table` calls these methods on construction and destruction.
+  tensorflow::Status RegisterTable(Table* table);
+  void UnregisterTable(absl::Mutex* mu, Table* table) ABSL_LOCKS_EXCLUDED(mu);
 
   // Checks if sample and insert operations can proceed and if so calls `Signal`
   // on respective `CondVar`
@@ -137,11 +136,10 @@ class RateLimiter {
   // Returns Cancelled-status if `Cancel` have been called.
   tensorflow::Status CheckIfCancelled() const;
 
-  // Pointer to the priority table.  We expect this to be available (if
-  // set), since it's set by a PriorityTable calling
-  // RegisterPriorityTable(this) after it stores a shared_ptr to this
-  // RateLimiter;.
-  PriorityTable* priority_table_ = nullptr;
+  // Pointer to the table. We expect this to be available (if set), since it's
+  // set by a Table calling RegisterTable(this) after it stores a shared_ptr to
+  // this RateLimiter;.
+  Table* table_ = nullptr;
 
   // The desired ratio between sample ops and insert operations. This can be
   // interpreted as the average number of times each item is sampled during
@@ -223,7 +221,7 @@ class RateLimiter {
 
    private:
     // Preallocated buffer of events to avoid allocation while holding the lock
-    // on the parent priority table. The size of the FIXED SIZE
+    // on the parent table. The size of the FIXED SIZE
     // (`kEventHistoryBufferSize`) container is set in the constructor of
     // StatsManager.
     absl::FixedArray<RateLimiterEvent> events_;

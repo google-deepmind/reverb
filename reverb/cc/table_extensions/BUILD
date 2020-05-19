@@ -24,7 +24,7 @@ reverb_cc_library(
     hdrs = ["base.h"],
     deps = [
         ":interface",
-        "//reverb/cc:priority_table",
+        "//reverb/cc:table",
         "//reverb/cc:priority_table_item",
         "//reverb/cc:schema_cc_proto",
         "//reverb/cc/platform:logging",

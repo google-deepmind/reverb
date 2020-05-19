@@ -17,8 +17,8 @@
 
 #include "absl/base/thread_annotations.h"
 #include "absl/synchronization/mutex.h"
-#include "reverb/cc/priority_table.h"
 #include "reverb/cc/priority_table_item.h"
+#include "reverb/cc/table.h"
 #include "reverb/cc/table_extensions/interface.h"
 
 namespace deepmind {
@@ -43,11 +43,11 @@ class PriorityTableExtensionBase : public PriorityTableExtensionInterface {
   virtual void ApplyOnSample(const PriorityTableItem& item);
 
  protected:
-  friend class PriorityTable;
+  friend class Table;
 
   // Validates table and saves it to table_.
-  tensorflow::Status RegisterPriorityTable(PriorityTable* table) override;
-  void UnregisterPriorityTable(absl::Mutex* mu, PriorityTable* table)
+  tensorflow::Status RegisterTable(Table* table) override;
+  void UnregisterTable(absl::Mutex* mu, Table* table)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu) override;
 
   // Delegates call to ApplyOnDelete.
@@ -70,7 +70,7 @@ class PriorityTableExtensionBase : public PriorityTableExtensionInterface {
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu);
 
  protected:
-  PriorityTable* table_ = nullptr;
+  Table* table_ = nullptr;
 };
 
 }  // namespace reverb

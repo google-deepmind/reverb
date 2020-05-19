@@ -20,7 +20,7 @@
 
 #include "reverb/cc/checkpointing/interface.h"
 #include "reverb/cc/client.h"
-#include "reverb/cc/priority_table.h"
+#include "reverb/cc/table.h"
 
 namespace deepmind {
 namespace reverb {
@@ -45,7 +45,7 @@ class Server {
 };
 
 tensorflow::Status StartServer(
-    std::vector<std::shared_ptr<PriorityTable>> priority_tables, int port,
+    std::vector<std::shared_ptr<Table>> tables, int port,
     std::shared_ptr<CheckpointerInterface> checkpointer,
     std::unique_ptr<Server> *server);
 

@@ -46,19 +46,19 @@ inline grpc::Status Internal(const std::string& message) {
 }  // namespace
 
 ReverbServiceImpl::ReverbServiceImpl(
-    std::vector<std::shared_ptr<PriorityTable>> priority_tables,
+    std::vector<std::shared_ptr<Table>> tables,
     std::shared_ptr<CheckpointerInterface> checkpointer)
     : checkpointer_(std::move(checkpointer)) {
   if (checkpointer_ != nullptr) {
-    auto status = checkpointer_->LoadLatest(&chunk_store_, &priority_tables);
+    auto status = checkpointer_->LoadLatest(&chunk_store_, &tables);
     if (!tensorflow::errors::IsNotFound(status)) {
       TF_CHECK_OK(status) << "Error when loading checkpoint: "
                           << status.ToString();
     }
   }
 
-  for (auto& priority_table : priority_tables) {
-    priority_tables_[priority_table->name()] = std::move(priority_table);
+  for (auto& table : tables) {
+    tables_[table->name()] = std::move(table);
   }
 
   tables_state_id_ = absl::MakeUint128(absl::Uniform<uint64_t>(rnd_),
@@ -73,8 +73,8 @@ grpc::Status ReverbServiceImpl::Checkpoint(grpc::ServerContext* context,
                         "no Checkpointer configured for the replay service.");
   }
 
-  std::vector<PriorityTable*> tables;
-  for (auto& table : priority_tables_) {
+  std::vector<Table*> tables;
+  for (auto& table : tables_) {
     tables.push_back(table.second.get());
   }
 
@@ -113,7 +113,7 @@ grpc::Status ReverbServiceImpl::InsertStreamInternal(
       }
       chunks[key] = std::move(chunk);
     } else if (request.has_item()) {
-      PriorityTable::Item item;
+      Table::Item item;
 
       auto push_or = [&chunks, &item](ChunkStore::Key key) -> grpc::Status {
         auto it = chunks.find(key);
@@ -131,12 +131,12 @@ grpc::Status ReverbServiceImpl::InsertStreamInternal(
       }
 
       const auto& table_name = request.item().item().table();
-      PriorityTable* priority_table = PriorityTableByName(table_name);
-      if (priority_table == nullptr) return TableNotFound(table_name);
+      Table* table = PriorityTableByName(table_name);
+      if (table == nullptr) return TableNotFound(table_name);
 
       item.item = *request.mutable_item()->mutable_item();
 
-      if (auto status = priority_table->InsertOrAssign(item); !status.ok()) {
+      if (auto status = table->InsertOrAssign(item); !status.ok()) {
         return ToGrpcStatus(status);
       }
 
@@ -162,10 +162,10 @@ grpc::Status ReverbServiceImpl::InsertStreamInternal(
 grpc::Status ReverbServiceImpl::MutatePriorities(
     grpc::ServerContext* context, const MutatePrioritiesRequest* request,
     MutatePrioritiesResponse* response) {
-  PriorityTable* priority_table = PriorityTableByName(request->table());
-  if (priority_table == nullptr) return TableNotFound(request->table());
+  Table* table = PriorityTableByName(request->table());
+  if (table == nullptr) return TableNotFound(request->table());
 
-  auto status = priority_table->MutateItems(
+  auto status = table->MutateItems(
       std::vector<KeyWithPriority>(request->updates().begin(),
                                    request->updates().end()),
       request->delete_keys());
@@ -176,10 +176,10 @@ grpc::Status ReverbServiceImpl::MutatePriorities(
 grpc::Status ReverbServiceImpl::Reset(grpc::ServerContext* context,
                                       const ResetRequest* request,
                                       ResetResponse* response) {
-  PriorityTable* priority_table = PriorityTableByName(request->table());
-  if (priority_table == nullptr) return TableNotFound(request->table());
+  Table* table = PriorityTableByName(request->table());
+  if (table == nullptr) return TableNotFound(request->table());
 
-  auto status = priority_table->Reset();
+  auto status = table->Reset();
   if (!status.ok()) {
     return ToGrpcStatus(status);
   }
@@ -207,13 +207,13 @@ grpc::Status ReverbServiceImpl::SampleStreamInternal(
       return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT,
                           "`num_samples` must be > 0.");
     }
-    PriorityTable* priority_table = PriorityTableByName(request.table());
-    if (priority_table == nullptr) return TableNotFound(request.table());
+    Table* table = PriorityTableByName(request.table());
+    if (table == nullptr) return TableNotFound(request.table());
 
     int count = 0;
     while (!context->IsCancelled() && count++ != request.num_samples()) {
-      PriorityTable::SampledItem sample;
-      if (auto status = priority_table->Sample(&sample); !status.ok()) {
+      Table::SampledItem sample;
+      if (auto status = table->Sample(&sample); !status.ok()) {
         return ToGrpcStatus(status);
       }
 
@@ -251,15 +251,14 @@ grpc::Status ReverbServiceImpl::SampleStreamInternal(
   return grpc::Status::OK;
 }
 
-PriorityTable* ReverbServiceImpl::PriorityTableByName(
-    absl::string_view name) const {
-  auto it = priority_tables_.find(name);
-  if (it == priority_tables_.end()) return nullptr;
+Table* ReverbServiceImpl::PriorityTableByName(absl::string_view name) const {
+  auto it = tables_.find(name);
+  if (it == tables_.end()) return nullptr;
   return it->second.get();
 }
 
 void ReverbServiceImpl::Close() {
-  for (auto& table : priority_tables_) {
+  for (auto& table : tables_) {
     table.second->Close();
   }
 }
@@ -267,16 +266,16 @@ void ReverbServiceImpl::Close() {
 grpc::Status ReverbServiceImpl::ServerInfo(grpc::ServerContext* context,
                                            const ServerInfoRequest* request,
                                            ServerInfoResponse* response) {
-  for (const auto& iter : priority_tables_) {
+  for (const auto& iter : tables_) {
     *response->add_table_info() = iter.second->info();
   }
   *response->mutable_tables_state_id() = Uint128ToMessage(tables_state_id_);
   return grpc::Status::OK;
 }
 
-absl::flat_hash_map<std::string, std::shared_ptr<PriorityTable>>
+absl::flat_hash_map<std::string, std::shared_ptr<Table>>
 ReverbServiceImpl::tables() const {
-  return priority_tables_;
+  return tables_;
 }
 
 }  // namespace reverb

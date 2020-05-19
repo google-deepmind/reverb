@@ -101,7 +101,7 @@ class Sample {
 //      dt_k and shape [N, ...s_k].
 //   Sample:
 //      Metadata (i.e priority, key) and sequence of timesteps that constitutes
-//      an item in a `PriorityTable`. During transmission the "sample" is made
+//      an item in a `Table`. During transmission the "sample" is made
 //      up of a vector of chunks and a metadata that defines what parts of the
 //      chunks are actually part of the sample. Once received the sample is
 //      unpacked into a sequence of `Timestep` before being returned to caller.
@@ -166,7 +166,7 @@ class Sampler {
   // Constructs a new `Sampler`.
   //
   // `stub` is a connected gRPC stub to the ReverbService.
-  // `table` is the name of the `PriorityTable` to sample from.
+  // `table` is the name of the `Table` to sample from.
   // `options` defines details of how to samples.
   Sampler(std::shared_ptr</* grpc_gen:: */ReverbService::StubInterface> stub,
           const std::string& table, const Options& options);
@@ -216,7 +216,7 @@ class Sampler {
     // Stub used to open `SampleStream`-streams to a server.
     std::shared_ptr</* grpc_gen:: */ReverbService::StubInterface> stub_;
 
-    // Name of the `PriorityTable` to sample from.
+    // Name of the `Table` to sample from.
     const std::string table_;
 
     // The maximum number of samples to request in a "batch".

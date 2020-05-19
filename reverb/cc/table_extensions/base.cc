@@ -15,29 +15,28 @@
 #include "reverb/cc/table_extensions/base.h"
 
 #include "reverb/cc/platform/logging.h"
-#include "reverb/cc/priority_table.h"
 #include "reverb/cc/priority_table_item.h"
+#include "reverb/cc/table.h"
 #include "tensorflow/core/platform/errors.h"
 
 namespace deepmind {
 namespace reverb {
 
-tensorflow::Status PriorityTableExtensionBase::RegisterPriorityTable(
-    PriorityTable* table) {
+tensorflow::Status PriorityTableExtensionBase::RegisterTable(Table* table) {
   if (table_) {
     return tensorflow::errors::FailedPrecondition(
-        "Attempting to registering a priority table ", table,
-        " (name: ", table->name(), ") with extension that has already been ",
-        "registered with: ", table_, " (name: ", table->name(), ")");
+        "Attempting to registering a table ", table, " (name: ", table->name(),
+        ") with extension that has already been ", "registered with: ", table_,
+        " (name: ", table->name(), ")");
   }
   table_ = table;
   return tensorflow::Status::OK();
 }
 
-void PriorityTableExtensionBase::UnregisterPriorityTable(absl::Mutex* mu,
-                                                         PriorityTable* table) {
+void PriorityTableExtensionBase::UnregisterTable(absl::Mutex* mu,
+                                                 Table* table) {
   REVERB_CHECK_EQ(table, table_)
-      << "The wrong PriorityTable attempted to unregister this extension.";
+      << "The wrong Table attempted to unregister this extension.";
   table_ = nullptr;
 }
 

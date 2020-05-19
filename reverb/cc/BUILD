@@ -33,7 +33,7 @@ reverb_cc_test(
     name = "rate_limiter_test",
     srcs = ["rate_limiter_test.cc"],
     deps = [
-        ":priority_table",
+        ":table",
         "//reverb/cc/distributions:uniform",
         "//reverb/cc/platform:thread",
         "//reverb/cc/testing:proto_test_util",
@@ -41,11 +41,11 @@ reverb_cc_test(
 )
 
 reverb_cc_test(
-    name = "priority_table_test",
-    srcs = ["priority_table_test.cc"],
+    name = "table_test",
+    srcs = ["table_test.cc"],
     deps = [
         ":chunk_store",
-        ":priority_table",
+        ":table",
         ":schema_cc_proto",
         "//reverb/cc/checkpointing:checkpoint_cc_proto",
         "//reverb/cc/distributions:fifo",
@@ -130,14 +130,14 @@ reverb_cc_library(
 )
 
 reverb_cc_library(
-    name = "priority_table",
+    name = "table",
     srcs = [
-        "priority_table.cc",
         "rate_limiter.cc",
+        "table.cc",
     ],
     hdrs = [
-        "priority_table.h",
         "rate_limiter.h",
+        "table.h",
     ],
     visibility = ["//reverb:__subpackages__"],
     deps = [
@@ -219,7 +219,7 @@ reverb_cc_library(
     hdrs = ["reverb_service_impl.h"],
     deps = [
         ":chunk_store",
-        ":priority_table",
+        ":table",
         ":reverb_service_cc_grpc_proto",
         ":reverb_service_cc_proto",
         ":schema_cc_proto",
