@@ -31,16 +31,19 @@ Execute from the root of the git repository. The end result will end up in
 $ docker build --tag tensorflow:reverb_release \
   - < "$REVERB_DIR/docker/release.dockerfile"
 
+# oss_build.sh will build a .whl for Python 3.6 by default
 $ docker run --rm -it --mount "type=bind,src=$REVERB_DIR,dst=/tmp/reverb" \
-  tensorflow:reverb_release bash oss_build.sh --python 3.6
+  tensorflow:reverb_release bash oss_build.sh
 
 
-# Alternatively configure and build for Python 3.8.
-$ docker build --tag tensorflow:reverb --build-arg python_version=python3.8 \
+# Alternatively configure and build for Python 3.6, 3.7, and 3.8.
+$ docker build --tag tensorflow:reverb \
+  --build-arg python_version="python3.6 python3.7 python3.8" \
   - < "$REVERB_DIR/docker/dev.dockerfile"
 
+# Build a .whl for Python 3.7
 $ docker run --rm -it --mount "type=bind,src=$REVERB_DIR,dst=/tmp/reverb" \
-  tensorflow:reverb_release bash oss_build.sh --python 3.8
+  tensorflow:reverb_release bash oss_build.sh --python 3.7
 ```
 
 <a id='Develop'></a>
