@@ -25,6 +25,7 @@ reverb_pytype_strict_library(
         ":distributions",
         ":ensure_tf_install",
         ":errors",
+        ":item_selectors",
         ":rate_limiters",
         ":replay_sample",
         ":server",
@@ -36,7 +37,7 @@ reverb_pytype_strict_library(
     name = "distributions",
     srcs = ["distributions.py"],
     srcs_version = "PY3",
-    deps = [":pybind"],
+    deps = [":item_selectors"],
 )
 
 reverb_pytype_strict_library(
@@ -147,6 +148,20 @@ reverb_pytype_library(
     ],
 )
 
+reverb_pytype_strict_library(
+    name = "ensure_tf_install",
+    srcs = ["platform/default/ensure_tf_install.py"],
+    srcs_version = "PY3",
+)
+
+reverb_pytype_strict_library(
+    name = "item_selectors",
+    srcs = ["item_selectors.py"],
+    srcs_version = "PY3",
+    visibility = ["//visibility:private"],
+    deps = [":pybind"],
+)
+
 reverb_py_test(
     name = "checkpointer_test",
     srcs = ["checkpointer_test.py"],
@@ -214,10 +229,4 @@ reverb_py_test(
     deps = [
         ":reverb",
     ],
-)
-
-reverb_pytype_strict_library(
-    name = "ensure_tf_install",
-    srcs = ["platform/default/ensure_tf_install.py"],
-    srcs_version = "PY3",
 )

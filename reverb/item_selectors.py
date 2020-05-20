@@ -14,11 +14,13 @@
 
 """Sampling and removing distributions."""
 
-from reverb import item_selectors
+import functools
 
-Fifo = item_selectors.Fifo
-Lifo = item_selectors.Lifo
-MaxHeap = item_selectors.MaxHeap
-MinHeap = item_selectors.MinHeap
-Prioritized = item_selectors.Prioritized
-Uniform = item_selectors.Uniform
+from reverb import pybind
+
+Fifo = pybind.FifoDistribution
+Lifo = pybind.LifoDistribution
+MaxHeap = functools.partial(pybind.HeapDistribution, False)  # pylint: disable=invalid-name
+MinHeap = functools.partial(pybind.HeapDistribution, True)  # pylint: disable=invalid-name
+Prioritized = pybind.PrioritizedDistribution
+Uniform = pybind.UniformDistribution
