@@ -85,13 +85,12 @@ Table::Table(std::string name,
       signature_(std::move(signature)) {
   TF_CHECK_OK(rate_limiter_->RegisterTable(this));
   for (auto& extension : extensions_) {
-    TF_CHECK_OK(extension->RegisterTable(this));
+    TF_CHECK_OK(extension->RegisterTable(&mu_, this));
   }
 }
 
 Table::~Table() {
   rate_limiter_->UnregisterTable(&mu_, this);
-  absl::WriterMutexLock lock(&mu_);
   for (auto& extension : extensions_) {
     extension->UnregisterTable(&mu_, this);
   }
@@ -365,9 +364,9 @@ const absl::flat_hash_map<Table::Key, Table::Item>* Table::RawLookup() {
 
 void Table::UnsafeAddExtension(
     std::shared_ptr<PriorityTableExtensionInterface> extension) {
+  TF_CHECK_OK(extension->RegisterTable(&mu_, this));
   absl::WriterMutexLock lock(&mu_);
   REVERB_CHECK(data_.empty());
-  TF_CHECK_OK(extension->RegisterTable(this));
   extensions_.push_back(std::move(extension));
 }
 

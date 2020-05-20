@@ -46,9 +46,10 @@ class PriorityTableExtensionBase : public PriorityTableExtensionInterface {
   friend class Table;
 
   // Validates table and saves it to table_.
-  tensorflow::Status RegisterTable(Table* table) override;
+  tensorflow::Status RegisterTable(absl::Mutex* mu, Table* table)
+      ABSL_LOCKS_EXCLUDED(mu) override;
   void UnregisterTable(absl::Mutex* mu, Table* table)
-      ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu) override;
+      ABSL_LOCKS_EXCLUDED(mu) override;
 
   // Delegates call to ApplyOnDelete.
   void OnDelete(absl::Mutex* mu, const PriorityTableItem& item) override
@@ -70,7 +71,8 @@ class PriorityTableExtensionBase : public PriorityTableExtensionInterface {
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu);
 
  protected:
-  Table* table_ = nullptr;
+  absl::Mutex table_mu_;
+  Table* table_ ABSL_GUARDED_BY(table_mu_) = nullptr;
 };
 
 }  // namespace reverb

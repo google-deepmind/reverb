@@ -61,9 +61,10 @@ class PriorityTableExtensionInterface {
   virtual void OnReset(absl::Mutex* mu) ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu) = 0;
 
   // Table calls these methods on construction and destruction.
-  virtual tensorflow::Status RegisterTable(Table* table) = 0;
+  virtual tensorflow::Status RegisterTable(absl::Mutex* mu, Table* table)
+      ABSL_LOCKS_EXCLUDED(mu) = 0;
   virtual void UnregisterTable(absl::Mutex* mu, Table* table)
-      ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu) = 0;
+      ABSL_LOCKS_EXCLUDED(mu) = 0;
 };
 
 }  // namespace reverb
