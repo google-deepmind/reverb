@@ -15,7 +15,6 @@
 #include "reverb/cc/table_extensions/base.h"
 
 #include "reverb/cc/platform/logging.h"
-#include "reverb/cc/priority_table_item.h"
 #include "reverb/cc/table.h"
 #include "tensorflow/core/platform/errors.h"
 
@@ -42,37 +41,33 @@ void TableExtensionBase::UnregisterTable(absl::Mutex* mu, Table* table) {
   table_ = nullptr;
 }
 
-void TableExtensionBase::OnDelete(absl::Mutex* mu,
-                                  const PriorityTableItem& item) {
+void TableExtensionBase::OnDelete(absl::Mutex* mu, const TableItem& item) {
   ApplyOnDelete(item);
 }
 
-void TableExtensionBase::OnInsert(absl::Mutex* mu,
-                                  const PriorityTableItem& item) {
+void TableExtensionBase::OnInsert(absl::Mutex* mu, const TableItem& item) {
   ApplyOnInsert(item);
 }
 
 void TableExtensionBase::OnReset(absl::Mutex* mu) { ApplyOnReset(); }
 
-void TableExtensionBase::OnUpdate(absl::Mutex* mu,
-                                  const PriorityTableItem& item) {
+void TableExtensionBase::OnUpdate(absl::Mutex* mu, const TableItem& item) {
   ApplyOnUpdate(item);
 }
 
-void TableExtensionBase::OnSample(absl::Mutex* mu,
-                                  const PriorityTableItem& item) {
+void TableExtensionBase::OnSample(absl::Mutex* mu, const TableItem& item) {
   ApplyOnSample(item);
 }
 
-void TableExtensionBase::ApplyOnDelete(const PriorityTableItem& item) {}
+void TableExtensionBase::ApplyOnDelete(const TableItem& item) {}
 
-void TableExtensionBase::ApplyOnInsert(const PriorityTableItem& item) {}
+void TableExtensionBase::ApplyOnInsert(const TableItem& item) {}
 
 void TableExtensionBase::ApplyOnReset() {}
 
-void TableExtensionBase::ApplyOnUpdate(const PriorityTableItem& item) {}
+void TableExtensionBase::ApplyOnUpdate(const TableItem& item) {}
 
-void TableExtensionBase::ApplyOnSample(const PriorityTableItem& item) {}
+void TableExtensionBase::ApplyOnSample(const TableItem& item) {}
 
 }  // namespace reverb
 }  // namespace deepmind

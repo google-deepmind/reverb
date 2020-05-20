@@ -32,7 +32,6 @@
 #include "reverb/cc/checkpointing/checkpoint.pb.h"
 #include "reverb/cc/chunk_store.h"
 #include "reverb/cc/distributions/interface.h"
-#include "reverb/cc/priority_table_item.h"
 #include "reverb/cc/rate_limiter.h"
 #include "reverb/cc/schema.pb.h"
 #include "reverb/cc/table_extensions/interface.h"
@@ -41,6 +40,13 @@
 
 namespace deepmind {
 namespace reverb {
+
+// Used for representing items of the priority distribution. See
+// PrioritizedItem in schema.proto for documentation.
+struct TableItem {
+  PrioritizedItem item;
+  std::vector<std::shared_ptr<ChunkStore::Chunk>> chunks;
+};
 
 // A Table is a structure for storing `PriorityItem` objects. The Table uses two
 // instances of KeyDistributionInterface, one for sampling (sampler) and another
@@ -69,7 +75,7 @@ namespace reverb {
 class Table {
  public:
   using Key = KeyDistributionInterface::Key;
-  using Item = PriorityTableItem;
+  using Item = TableItem;
 
   // Used as the return of Sample(). Note that this returns the probability of
   // an item instead as opposed to the raw priority value.

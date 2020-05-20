@@ -142,7 +142,6 @@ reverb_cc_library(
     visibility = ["//reverb:__subpackages__"],
     deps = [
         ":chunk_store",
-        ":priority_table_item",
         ":schema_cc_proto",
         "//reverb/cc/checkpointing:checkpoint_cc_proto",
         "//reverb/cc/distributions:interface",
@@ -228,15 +227,6 @@ reverb_cc_library(
         "//reverb/cc/support:grpc_util",
         "//reverb/cc/support:uint128",
     ] + reverb_tf_deps() + reverb_grpc_deps() + reverb_absl_deps(),
-)
-
-reverb_cc_library(
-    name = "priority_table_item",
-    hdrs = ["priority_table_item.h"],
-    deps = [
-        ":chunk_store",
-        ":schema_cc_proto",
-    ],
 )
 
 reverb_cc_proto_library(

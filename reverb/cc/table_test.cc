@@ -51,9 +51,9 @@ using ::testing::SizeIs;
 
 MATCHER_P(HasItemKey, key, "") { return arg.item.key() == key; }
 
-PriorityTableItem MakeItem(uint64_t key, double priority,
-                           const std::vector<SequenceRange>& sequences) {
-  PriorityTableItem item;
+TableItem MakeItem(uint64_t key, double priority,
+                   const std::vector<SequenceRange>& sequences) {
+  TableItem item;
 
   std::vector<ChunkData> data(sequences.size());
   for (int i = 0; i < sequences.size(); i++) {
@@ -66,7 +66,7 @@ PriorityTableItem MakeItem(uint64_t key, double priority,
   return item;
 }
 
-PriorityTableItem MakeItem(uint64_t key, double priority) {
+TableItem MakeItem(uint64_t key, double priority) {
   return MakeItem(key, priority, {testing::MakeSequenceRange(key * 100, 0, 1)});
 }
 
@@ -567,7 +567,7 @@ TEST(TableTest, GetExistingItem) {
   TF_EXPECT_OK(table->InsertOrAssign(MakeItem(2, 1)));
   TF_EXPECT_OK(table->InsertOrAssign(MakeItem(3, 1)));
 
-  PriorityTableItem item;
+  TableItem item;
   EXPECT_TRUE(table->Get(2, &item));
   EXPECT_THAT(item, HasItemKey(2));
 }
@@ -578,7 +578,7 @@ TEST(TableTest, GetMissingItem) {
   TF_EXPECT_OK(table->InsertOrAssign(MakeItem(1, 1)));
   TF_EXPECT_OK(table->InsertOrAssign(MakeItem(3, 1)));
 
-  PriorityTableItem item;
+  TableItem item;
   EXPECT_FALSE(table->Get(2, &item));
 }
 

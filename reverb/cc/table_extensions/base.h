@@ -17,7 +17,6 @@
 
 #include "absl/base/thread_annotations.h"
 #include "absl/synchronization/mutex.h"
-#include "reverb/cc/priority_table_item.h"
 #include "reverb/cc/table.h"
 #include "reverb/cc/table_extensions/interface.h"
 
@@ -36,11 +35,11 @@ class TableExtensionBase : public TableExtensionInterface {
   virtual ~TableExtensionBase() = default;
 
   // Children should override these (noop by default).
-  virtual void ApplyOnDelete(const PriorityTableItem& item);
-  virtual void ApplyOnInsert(const PriorityTableItem& item);
+  virtual void ApplyOnDelete(const TableItem& item);
+  virtual void ApplyOnInsert(const TableItem& item);
   virtual void ApplyOnReset();
-  virtual void ApplyOnUpdate(const PriorityTableItem& item);
-  virtual void ApplyOnSample(const PriorityTableItem& item);
+  virtual void ApplyOnUpdate(const TableItem& item);
+  virtual void ApplyOnSample(const TableItem& item);
 
  protected:
   friend class Table;
@@ -52,22 +51,22 @@ class TableExtensionBase : public TableExtensionInterface {
       ABSL_LOCKS_EXCLUDED(mu) override;
 
   // Delegates call to ApplyOnDelete.
-  void OnDelete(absl::Mutex* mu, const PriorityTableItem& item) override
+  void OnDelete(absl::Mutex* mu, const TableItem& item) override
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu);
 
   // Delegates call to ApplyOnInsert.
-  void OnInsert(absl::Mutex* mu, const PriorityTableItem& item) override
+  void OnInsert(absl::Mutex* mu, const TableItem& item) override
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu);
 
   // Delegates call to ApplyOnReset.
   void OnReset(absl::Mutex* mu) override ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu);
 
   // Delegates call to ApplyOnUpdate.
-  void OnUpdate(absl::Mutex* mu, const PriorityTableItem& item) override
+  void OnUpdate(absl::Mutex* mu, const TableItem& item) override
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu);
 
   // Delegates call to ApplyOnSample.
-  void OnSample(absl::Mutex* mu, const PriorityTableItem& item) override
+  void OnSample(absl::Mutex* mu, const TableItem& item) override
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu);
 
  protected:
