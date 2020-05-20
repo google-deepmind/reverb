@@ -41,8 +41,8 @@ from tensorflow.python.saved_model import nested_structure_coder
 # pylint: enable=g-direct-tensorflow-import
 
 
-class PriorityTableExtensionBase(metaclass=abc.ABCMeta):
-  """Abstract base class for PriorityTable extensions."""
+class TableExtensionBase(metaclass=abc.ABCMeta):
+  """Abstract base class for Table extensions."""
 
   @abc.abstractmethod
   def build_internal_extensions(
@@ -50,8 +50,13 @@ class PriorityTableExtensionBase(metaclass=abc.ABCMeta):
     """Constructs the c++ PriorityTableExtensions."""
 
 
-class PriorityTable:
-  """PriorityTable defines how items are selected for sampling and removal."""
+# TODO(b/156334283): Delete this alias.
+PriorityTableExtensionBase = TableExtensionBase
+
+
+class Table:
+  # TODO(b/157149247): Improve docstring.
+  """Table defines how items are selected for sampling and removal."""
 
   def __init__(self,
                name: str,
@@ -60,9 +65,9 @@ class PriorityTable:
                max_size: int,
                rate_limiter: rate_limiters.RateLimiter,
                max_times_sampled: int = 0,
-               extensions: Sequence[PriorityTableExtensionBase] = (),
+               extensions: Sequence[TableExtensionBase] = (),
                signature: Optional[reverb_types.SpecNest] = None):
-    """Constructor of the PriorityTable.
+    """Constructor of the Table.
 
     Args:
       name: Name of the priority table.
@@ -118,14 +123,14 @@ class PriorityTable:
 
   @classmethod
   def queue(cls, name: str, max_size: int):
-    """Constructs a PriorityTable which acts like a queue.
+    """Constructs a Table which acts like a queue.
 
     Args:
       name: Name of the priority table (aka queue).
       max_size: Maximum number of items in the priority table (aka queue).
 
     Returns:
-      PriorityTable which behaves like a queue of size `max_size`.
+      Table which behaves like a queue of size `max_size`.
     """
     return cls(
         name=name,
@@ -137,14 +142,14 @@ class PriorityTable:
 
   @classmethod
   def stack(cls, name: str, max_size: int):
-    """Constructs a PriorityTable which acts like a stack.
+    """Constructs a Table which acts like a stack.
 
     Args:
       name: Name of the priority table (aka stack).
       max_size: Maximum number of items in the priority table (aka stack).
 
     Returns:
-      PriorityTable which behaves like a stack of size `max_size`.
+      Table which behaves like a stack of size `max_size`.
     """
     return cls(
         name=name,
@@ -167,22 +172,26 @@ class PriorityTable:
     return self.internal_table.can_insert(num_inserts)
 
 
+# TODO(b/156334283): Delete this alias.
+PriorityTable = Table
+
+
 class Server:
   """Reverb replay server.
 
   The Server hosts the gRPC-service deepmind.reverb.ReverbService (see
-  //third_party/reverb/reverb_service.proto). See ./client.py and
-  ./tf_client for details of how to interact with the service.
+  //third_party/reverb/reverb_service.proto). See ./client.py and ./tf_client
+  for details of how to interact with the service.
 
-  A Server maintains inserted data and one or more PriorityTables.
-  Multiple tables can be used to provide different views of the same underlying
-  and since the operations performed by the PriorityTable is relatively
-  inexpensive compared to operations on the actual data using multiple tables
-  referencing the same data is encouraged over replicating data.
+  A Server maintains inserted data and one or more PriorityTables. Multiple
+  tables can be used to provide different views of the same underlying and since
+  the operations performed by the Table is relatively inexpensive compared to
+  operations on the actual data using multiple tables referencing the same data
+  is encouraged over replicating data.
   """
 
   def __init__(self,
-               priority_tables: List[PriorityTable],
+               priority_tables: List[Table],
                port: Union[int, None],
                checkpointer: checkpointer_lib.CheckpointerBase = None):
     """Constructor of Server serving the ReverbService.
@@ -197,7 +206,7 @@ class Server:
 
     Raises:
       ValueError: If priority_tables is empty.
-      ValueError: If multiple PriorityTable in priority_tables share names.
+      ValueError: If multiple Table in priority_tables share names.
     """
     if not priority_tables:
       raise ValueError('At least one priority table must be provided')
@@ -248,5 +257,4 @@ class Server:
     Returns:
       Client. Must not be used after this ReplayServer has been stopped!
     """
-    return client.Client(f'[::1]:{self._port}',
-                         self._server.InProcessClient())
+    return client.Client(f'[::1]:{self._port}', self._server.InProcessClient())
