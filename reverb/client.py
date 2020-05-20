@@ -149,9 +149,6 @@ class Writer:
     """
     self._writer.Append(tree.flatten(data))
 
-  def append_timestep(self, timestep: Any):
-    return self.append(timestep)
-
   def create_item(self, table: str, num_timesteps: int, priority: float):
     """Creates an item and sends it to the ReverbService.
 
