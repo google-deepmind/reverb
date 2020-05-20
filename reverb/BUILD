@@ -158,7 +158,6 @@ reverb_pytype_strict_library(
     name = "item_selectors",
     srcs = ["item_selectors.py"],
     srcs_version = "PY3",
-    visibility = ["//visibility:private"],
     deps = [":pybind"],
 )
 
