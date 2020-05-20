@@ -47,8 +47,8 @@ class ReplaySample(NamedTuple):
   Fields:
     info: Details about the sampled item. Instance of `SampleInfo`.
     data: Tensors for the data. Flat list of numpy arrays for output of python
-      `ReverbClient.sample`, nested structure of Tensors for TensorFlow
-      `ReverbClient.sample`.
+      `Client.sample`, nested structure of Tensors for TensorFlow
+      `Client.sample`.
   """
   info: SampleInfo
   data: Union[Sequence[np.ndarray], Any]

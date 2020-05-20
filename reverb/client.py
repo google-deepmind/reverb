@@ -15,7 +15,7 @@
 
 """Replay client Python interface.
 
-The ReverbClient is used primarily for feeding the ReverbService with new data.
+The `Client` is used primarily for feeding the ReverbService with new data.
 The preferred method is to use the `Writer` as it allows for the most
 flexibility.
 
@@ -90,11 +90,11 @@ from tensorflow.python.saved_model import nested_structure_coder  # pylint: disa
 class Writer:
   """Writer is used for streaming data of arbitrary length.
 
-  See ReverbClient.writer for documentation.
+  See Client.writer for documentation.
   """
 
   def __init__(self, internal_writer: pybind.Writer):
-    """Constructor for Writer (must only be called by ReverbClient.writer)."""
+    """Constructor for Writer (must only be called by Client.writer)."""
     self._writer = internal_writer
     self._closed = False
 
@@ -199,7 +199,7 @@ class Client:
   """
 
   def __init__(self, server_address: str, client: pybind.Client = None):
-    """Constructor of ReverbClient.
+    """Constructor of Client.
 
     Args:
       server_address: Address to the Reverb ReverbService.

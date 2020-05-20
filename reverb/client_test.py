@@ -30,7 +30,7 @@ import tensorflow.compat.v1 as tf
 TABLE_NAME = 'table'
 
 
-class ReverbClientTest(absltest.TestCase):
+class ClientTest(absltest.TestCase):
 
   @classmethod
   def setUpClass(cls):
