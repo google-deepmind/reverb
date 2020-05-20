@@ -12,15 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Sampling and removing distributions."""
+"""Sampling and removing selection strategies."""
 
 import functools
 
 from reverb import pybind
 
-Fifo = pybind.FifoDistribution
-Lifo = pybind.LifoDistribution
-MaxHeap = functools.partial(pybind.HeapDistribution, False)  # pylint: disable=invalid-name
-MinHeap = functools.partial(pybind.HeapDistribution, True)  # pylint: disable=invalid-name
-Prioritized = pybind.PrioritizedDistribution
-Uniform = pybind.UniformDistribution
+Fifo = pybind.FifoSelector
+Lifo = pybind.LifoSelector
+MaxHeap = functools.partial(pybind.HeapSelector, False)  # pylint: disable=invalid-name
+MinHeap = functools.partial(pybind.HeapSelector, True)  # pylint: disable=invalid-name
+Prioritized = pybind.PrioritizedSelector
+Uniform = pybind.UniformSelector

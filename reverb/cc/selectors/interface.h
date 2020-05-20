@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef LEARNING_DEEPMIND_REPLAY_REVERB_DISTRIBUTIONS_INTERFACE_H_
-#define LEARNING_DEEPMIND_REPLAY_REVERB_DISTRIBUTIONS_INTERFACE_H_
+#ifndef REVERB_CC_SELECTORS_INTERFACE_H_
+#define REVERB_CC_SELECTORS_INTERFACE_H_
 
 #include <cstdint>
 #include "reverb/cc/checkpointing/checkpoint.pb.h"
@@ -28,7 +28,7 @@ namespace reverb {
 // need to be thread-safe.  More to the point, a number of subclasses use bit
 // generators that are not thread-safe, so methods like `Sample` are not
 // thread-safe.
-class KeyDistributionInterface {
+class ItemSelectorInterface {
  public:
   using Key = uint64_t;
 
@@ -37,7 +37,7 @@ class KeyDistributionInterface {
     double probability;
   };
 
-  virtual ~KeyDistributionInterface() = default;
+  virtual ~ItemSelectorInterface() = default;
 
   // Deletes a key and the associated priority. Returns an error if the key does
   // not exist.
@@ -65,4 +65,4 @@ class KeyDistributionInterface {
 }  // namespace reverb
 }  // namespace deepmind
 
-#endif  // LEARNING_DEEPMIND_REPLAY_REVERB_DISTRIBUTIONS_INTERFACE_H_
+#endif  // REVERB_CC_SELECTORS_INTERFACE_H_

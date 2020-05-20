@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "reverb/cc/distributions/uniform.h"
+#include "reverb/cc/selectors/uniform.h"
 
 #include <vector>
 
@@ -27,7 +27,7 @@ namespace reverb {
 namespace {
 
 TEST(UniformTest, ReturnValueSantiyChecks) {
-  UniformDistribution uniform;
+  UniformSelector uniform;
 
   // Non existent keys cannot be deleted or updated.
   EXPECT_EQ(uniform.Delete(123).code(), tensorflow::error::INVALID_ARGUMENT);
@@ -46,18 +46,18 @@ TEST(UniformTest, ReturnValueSantiyChecks) {
   EXPECT_EQ(uniform.Delete(123).code(), tensorflow::error::INVALID_ARGUMENT);
 }
 
-TEST(UniformTest, MatchesUniformDistribution) {
+TEST(UniformTest, MatchesUniformSelector) {
   const int64_t kItems = 100;
   const int64_t kSamples = 1000000;
   double expected_probability = 1. / static_cast<double>(kItems);
 
-  UniformDistribution uniform;
+  UniformSelector uniform;
   for (int i = 0; i < kItems; i++) {
     TF_EXPECT_OK(uniform.Insert(i, 0));
   }
   std::vector<int64_t> counts(kItems);
   for (int i = 0; i < kSamples; i++) {
-    KeyDistributionInterface::KeyWithProbability sample = uniform.Sample();
+    ItemSelectorInterface::KeyWithProbability sample = uniform.Sample();
     EXPECT_EQ(sample.probability, expected_probability);
     counts[sample.key]++;
   }
@@ -68,12 +68,12 @@ TEST(UniformTest, MatchesUniformDistribution) {
 }
 
 TEST(UniformTest, Options) {
-  UniformDistribution uniform;
+  UniformSelector uniform;
   EXPECT_THAT(uniform.options(), testing::EqualsProto("uniform: true"));
 }
 
 TEST(UniformDeathTest, ClearThenSample) {
-  UniformDistribution uniform;
+  UniformSelector uniform;
   for (int i = 0; i < 100; i++) {
     TF_EXPECT_OK(uniform.Insert(i, i));
   }

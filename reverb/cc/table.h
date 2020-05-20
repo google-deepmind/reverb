@@ -31,9 +31,9 @@
 #include "absl/types/span.h"
 #include "reverb/cc/checkpointing/checkpoint.pb.h"
 #include "reverb/cc/chunk_store.h"
-#include "reverb/cc/distributions/interface.h"
 #include "reverb/cc/rate_limiter.h"
 #include "reverb/cc/schema.pb.h"
+#include "reverb/cc/selectors/interface.h"
 #include "reverb/cc/table_extensions/interface.h"
 #include "tensorflow/core/lib/core/status.h"
 #include "tensorflow/core/protobuf/struct.pb.h"
@@ -49,7 +49,7 @@ struct TableItem {
 };
 
 // A Table is a structure for storing `PriorityItem` objects. The Table uses two
-// instances of KeyDistributionInterface, one for sampling (sampler) and another
+// instances of ItemSelectorInterface, one for sampling (sampler) and another
 // for removing (remover). PriorityItems are registered with both the sampler
 // and remover when inserted in the `Table`. The `Table` uses the sampler to
 // determine which items it should return when `Table::Sample()` is called.
@@ -74,7 +74,7 @@ struct TableItem {
 //
 class Table {
  public:
-  using Key = KeyDistributionInterface::Key;
+  using Key = ItemSelectorInterface::Key;
   using Item = TableItem;
 
   // Used as the return of Sample(). Note that this returns the probability of
@@ -107,8 +107,8 @@ class Table {
   // `signature` allows an optional declaration of the data that can be stored
   //   in this table.  writers and readers are responsible for checking against
   //   this signature, as it is available via RPC request.
-  Table(std::string name, std::shared_ptr<KeyDistributionInterface> sampler,
-        std::shared_ptr<KeyDistributionInterface> remover, int64_t max_size,
+  Table(std::string name, std::shared_ptr<ItemSelectorInterface> sampler,
+        std::shared_ptr<ItemSelectorInterface> remover, int64_t max_size,
         int32_t max_times_sampled, std::shared_ptr<RateLimiter> rate_limiter,
         std::vector<std::shared_ptr<TableExtensionInterface>> extensions = {},
         absl::optional<tensorflow::StructuredValue> signature = absl::nullopt);
@@ -237,10 +237,10 @@ class Table {
   void DeleteItem(Key key) ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_);
 
   // Distribution used for sampling.
-  std::shared_ptr<KeyDistributionInterface> sampler_ ABSL_GUARDED_BY(mu_);
+  std::shared_ptr<ItemSelectorInterface> sampler_ ABSL_GUARDED_BY(mu_);
 
   // Distribution used for removing.
-  std::shared_ptr<KeyDistributionInterface> remover_ ABSL_GUARDED_BY(mu_);
+  std::shared_ptr<ItemSelectorInterface> remover_ ABSL_GUARDED_BY(mu_);
 
   // Bijection of key to item. Used for storing the chunks and timestep range of
   // each item.

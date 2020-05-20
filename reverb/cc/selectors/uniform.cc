@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "reverb/cc/distributions/uniform.h"
+#include "reverb/cc/selectors/uniform.h"
 
 #include "absl/strings/str_cat.h"
 #include "reverb/cc/checkpointing/checkpoint.pb.h"
@@ -24,11 +24,10 @@
 namespace deepmind {
 namespace reverb {
 
-tensorflow::Status UniformDistribution::Delete(Key key) {
+tensorflow::Status UniformSelector::Delete(Key key) {
   const auto it = key_to_index_.find(key);
   if (it == key_to_index_.end())
-    return tensorflow::errors::InvalidArgument(
-        absl::StrCat("Key ", key, " not found in distribution."));
+    return tensorflow::errors::InvalidArgument("Key ", key, " not found.");
   const size_t index = it->second;
   key_to_index_.erase(it);
 
@@ -43,23 +42,22 @@ tensorflow::Status UniformDistribution::Delete(Key key) {
   return tensorflow::Status::OK();
 }
 
-tensorflow::Status UniformDistribution::Insert(Key key, double priority) {
+tensorflow::Status UniformSelector::Insert(Key key, double priority) {
   const size_t index = keys_.size();
   if (!key_to_index_.emplace(key, index).second)
-    return tensorflow::errors::InvalidArgument(
-        absl::StrCat("Key ", key, " already exists in distribution."));
+    return tensorflow::errors::InvalidArgument("Key ", key,
+                                               " already inserted.");
   keys_.push_back(key);
   return tensorflow::Status::OK();
 }
 
-tensorflow::Status UniformDistribution::Update(Key key, double priority) {
+tensorflow::Status UniformSelector::Update(Key key, double priority) {
   if (key_to_index_.find(key) == key_to_index_.end())
-    return tensorflow::errors::InvalidArgument(
-        absl::StrCat("Key ", key, " not found in distribution."));
+    return tensorflow::errors::InvalidArgument("Key ", key, " not found.");
   return tensorflow::Status::OK();
 }
 
-KeyDistributionInterface::KeyWithProbability UniformDistribution::Sample() {
+ItemSelectorInterface::KeyWithProbability UniformSelector::Sample() {
   REVERB_CHECK(!keys_.empty());
 
   // This code is not thread-safe, because bit_gen_ is not protected by a mutex
@@ -68,12 +66,12 @@ KeyDistributionInterface::KeyWithProbability UniformDistribution::Sample() {
   return {keys_[index], 1.0 / static_cast<double>(keys_.size())};
 }
 
-void UniformDistribution::Clear() {
+void UniformSelector::Clear() {
   keys_.clear();
   key_to_index_.clear();
 }
 
-KeyDistributionOptions UniformDistribution::options() const {
+KeyDistributionOptions UniformSelector::options() const {
   KeyDistributionOptions options;
   options.set_uniform(true);
   return options;

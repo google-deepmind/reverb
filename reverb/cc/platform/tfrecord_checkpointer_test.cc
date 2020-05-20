@@ -23,11 +23,11 @@
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "reverb/cc/chunk_store.h"
-#include "reverb/cc/distributions/fifo.h"
-#include "reverb/cc/distributions/heap.h"
-#include "reverb/cc/distributions/prioritized.h"
-#include "reverb/cc/distributions/uniform.h"
 #include "reverb/cc/rate_limiter.h"
+#include "reverb/cc/selectors/fifo.h"
+#include "reverb/cc/selectors/heap.h"
+#include "reverb/cc/selectors/prioritized.h"
+#include "reverb/cc/selectors/uniform.h"
 #include "reverb/cc/table.h"
 #include "reverb/cc/testing/proto_test_util.h"
 #include "tensorflow/core/lib/core/status_test_util.h"
@@ -48,16 +48,16 @@ inline std::string MakeRoot() {
 
 std::unique_ptr<Table> MakeUniformTable(const std::string& name) {
   return absl::make_unique<Table>(
-      name, absl::make_unique<UniformDistribution>(),
-      absl::make_unique<FifoDistribution>(), 1000, 0,
+      name, absl::make_unique<UniformSelector>(),
+      absl::make_unique<FifoSelector>(), 1000, 0,
       absl::make_unique<RateLimiter>(1.0, 1, -DBL_MAX, DBL_MAX));
 }
 
 std::unique_ptr<Table> MakePrioritizedTable(const std::string& name,
                                             double exponent) {
   return absl::make_unique<Table>(
-      name, absl::make_unique<PrioritizedDistribution>(exponent),
-      absl::make_unique<HeapDistribution>(), 1000, 0,
+      name, absl::make_unique<PrioritizedSelector>(exponent),
+      absl::make_unique<HeapSelector>(), 1000, 0,
       absl::make_unique<RateLimiter>(1.0, 1, -DBL_MAX, DBL_MAX));
 }
 

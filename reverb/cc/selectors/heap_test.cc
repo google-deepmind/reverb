@@ -12,12 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "reverb/cc/distributions/heap.h"
+#include "reverb/cc/selectors/heap.h"
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
-#include "reverb/cc/distributions/interface.h"
 #include "reverb/cc/schema.pb.h"
+#include "reverb/cc/selectors/interface.h"
 #include "reverb/cc/testing/proto_test_util.h"
 #include "tensorflow/core/lib/core/status_test_util.h"
 
@@ -25,9 +25,8 @@ namespace deepmind {
 namespace reverb {
 namespace {
 
-
-TEST(HeapDistributionTest, ReturnValueSantiyChecks) {
-  HeapDistribution heap;
+TEST(HeapSelectorTest, ReturnValueSantiyChecks) {
+  HeapSelector heap;
 
   // Non existent keys cannot be deleted or updated.
   EXPECT_EQ(heap.Delete(123).code(), tensorflow::error::INVALID_ARGUMENT);
@@ -46,8 +45,8 @@ TEST(HeapDistributionTest, ReturnValueSantiyChecks) {
   EXPECT_EQ(heap.Delete(123).code(), tensorflow::error::INVALID_ARGUMENT);
 }
 
-TEST(HeapDistributionTest, SampleMinPriorityFirstByDefault) {
-  HeapDistribution heap;
+TEST(HeapSelectorTest, SampleMinPriorityFirstByDefault) {
+  HeapSelector heap;
 
   TF_EXPECT_OK(heap.Insert(123, 2));
   TF_EXPECT_OK(heap.Insert(124, 1));
@@ -62,8 +61,8 @@ TEST(HeapDistributionTest, SampleMinPriorityFirstByDefault) {
   EXPECT_EQ(heap.Sample().key, 123);
 }
 
-TEST(HeapDistributionTest, BreakTiesByInsertionOrder) {
-  HeapDistribution heap;
+TEST(HeapSelectorTest, BreakTiesByInsertionOrder) {
+  HeapSelector heap;
 
   // We insert keys with priorities such that the keys are removed in the
   // order [0, 1, 2, 3, 4, 5].
@@ -81,8 +80,8 @@ TEST(HeapDistributionTest, BreakTiesByInsertionOrder) {
   }
 }
 
-TEST(HeapDistributionTest, BreakTiesByUpdateOrder) {
-  HeapDistribution heap;
+TEST(HeapSelectorTest, BreakTiesByUpdateOrder) {
+  HeapSelector heap;
 
   TF_EXPECT_OK(heap.Insert(2, 1));
   TF_EXPECT_OK(heap.Insert(0, 1));
@@ -99,8 +98,8 @@ TEST(HeapDistributionTest, BreakTiesByUpdateOrder) {
   }
 }
 
-TEST(HeapDistributionTest, SampleMaxPriorityWhenMinHeapFalse) {
-  HeapDistribution heap(false);
+TEST(HeapSelectorTest, SampleMaxPriorityWhenMinHeapFalse) {
+  HeapSelector heap(false);
 
   TF_EXPECT_OK(heap.Insert(123, 2));
   TF_EXPECT_OK(heap.Insert(124, 1));
@@ -115,8 +114,8 @@ TEST(HeapDistributionTest, SampleMaxPriorityWhenMinHeapFalse) {
   EXPECT_EQ(heap.Sample().key, 123);
 }
 
-TEST(HeapDistributionTest, UpdateChangesOrder) {
-  HeapDistribution heap;
+TEST(HeapSelectorTest, UpdateChangesOrder) {
+  HeapSelector heap;
 
   TF_EXPECT_OK(heap.Insert(123, 2));
   TF_EXPECT_OK(heap.Insert(124, 1));
@@ -133,8 +132,8 @@ TEST(HeapDistributionTest, UpdateChangesOrder) {
   EXPECT_EQ(heap.Sample().key, 125);
 }
 
-TEST(HeapDistributionTest, Clear) {
-  HeapDistribution heap;
+TEST(HeapSelectorTest, Clear) {
+  HeapSelector heap;
 
   TF_EXPECT_OK(heap.Insert(123, 2));
   TF_EXPECT_OK(heap.Insert(124, 1));
@@ -147,8 +146,8 @@ TEST(HeapDistributionTest, Clear) {
   EXPECT_EQ(heap.Sample().key, 125);
 }
 
-TEST(HeapDistributionTest, ProbabilityIsAlwaysOne) {
-  HeapDistribution heap;
+TEST(HeapSelectorTest, ProbabilityIsAlwaysOne) {
+  HeapSelector heap;
 
   for (int i = 100; i < 150; i++) {
     TF_EXPECT_OK(heap.Insert(i, i));
@@ -161,17 +160,17 @@ TEST(HeapDistributionTest, ProbabilityIsAlwaysOne) {
   }
 }
 
-TEST(HeapDistributionTest, Options) {
-  HeapDistribution min_heap;
-  HeapDistribution max_heap(false);
+TEST(HeapSelectorTest, Options) {
+  HeapSelector min_heap;
+  HeapSelector max_heap(false);
   EXPECT_THAT(min_heap.options(),
               testing::EqualsProto("heap: { min_heap: true }"));
   EXPECT_THAT(max_heap.options(),
               testing::EqualsProto("heap: { min_heap: false }"));
 }
 
-TEST(HeapDistributionDeathTest, SampleFromEmptyDistribution) {
-  HeapDistribution heap;
+TEST(HeapSelectorDeathTest, SampleFromEmptySelector) {
+  HeapSelector heap;
   EXPECT_DEATH(heap.Sample(), "");
 
   TF_EXPECT_OK(heap.Insert(123, 2));

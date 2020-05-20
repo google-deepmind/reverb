@@ -12,15 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef LEARNING_DEEPMIND_REPLAY_REVERB_DISTRIBUTIONS_PRIORITIZED_H_
-#define LEARNING_DEEPMIND_REPLAY_REVERB_DISTRIBUTIONS_PRIORITIZED_H_
+#ifndef REVERB_CC_SELECTORS_PRIORITIZED_H_
+#define REVERB_CC_SELECTORS_PRIORITIZED_H_
 
 #include <vector>
 
 #include "absl/container/flat_hash_map.h"
 #include "absl/random/random.h"
 #include "reverb/cc/checkpointing/checkpoint.pb.h"
-#include "reverb/cc/distributions/interface.h"
+#include "reverb/cc/selectors/interface.h"
 #include "tensorflow/core/lib/core/status.h"
 
 namespace deepmind {
@@ -39,9 +39,9 @@ namespace reverb {
 // This was forked from:
 // ## proportional_picker.h
 //
-class PrioritizedDistribution : public KeyDistributionInterface {
+class PrioritizedSelector : public ItemSelectorInterface {
  public:
-  explicit PrioritizedDistribution(double priority_exponent);
+  explicit PrioritizedSelector(double priority_exponent);
 
   // O(log n) time.
   tensorflow::Status Delete(Key key) override;
@@ -105,4 +105,4 @@ class PrioritizedDistribution : public KeyDistributionInterface {
 }  // namespace reverb
 }  // namespace deepmind
 
-#endif  // LEARNING_DEEPMIND_REPLAY_REVERB_DISTRIBUTIONS_PRIORITIZED_H_
+#endif  // REVERB_CC_SELECTORS_PRIORITIZED_H_

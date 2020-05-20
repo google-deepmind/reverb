@@ -20,7 +20,7 @@ message PriorityTableCheckpoint {
 
   // Items in the table ordered by `inserted_at` (asc).
   // When loading a checkpoint the items should be added in the same order so
-  // position based distributions (e.g fifo) are reconstructed correctly.
+  // position based item selectors (e.g fifo) are reconstructed correctly.
   repeated PrioritizedItem items = 2;
 
   // Checkpoint of the associated rate limiter.

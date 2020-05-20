@@ -12,24 +12,24 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef LEARNING_DEEPMIND_REPLAY_REVERB_DISTRIBUTIONS_HEAP_H_
-#define LEARNING_DEEPMIND_REPLAY_REVERB_DISTRIBUTIONS_HEAP_H_
+#ifndef REVERB_CC_SELECTORS_HEAP_H_
+#define REVERB_CC_SELECTORS_HEAP_H_
 
 #include <cstdint>
 #include "absl/container/flat_hash_map.h"
-#include "reverb/cc/distributions/interface.h"
+#include "reverb/cc/selectors/interface.h"
 #include "reverb/cc/support/intrusive_heap.h"
 #include "tensorflow/core/lib/core/status.h"
 
 namespace deepmind {
 namespace reverb {
 
-// HeapDistribution always samples the item with the lowest or highest priority
+// HeapSelector always samples the item with the lowest or highest priority
 // (controlled by `min_heap`). If multiple items share the same priority then
 // the least recently inserted or updated key is sampled.
-class HeapDistribution : public KeyDistributionInterface {
+class HeapSelector : public ItemSelectorInterface {
  public:
-  explicit HeapDistribution(bool min_heap = true);
+  explicit HeapSelector(bool min_heap = true);
 
   // O(log n) time.
   tensorflow::Status Delete(Key key) override;
@@ -87,4 +87,4 @@ class HeapDistribution : public KeyDistributionInterface {
 }  // namespace reverb
 }  // namespace deepmind
 
-#endif  // LEARNING_DEEPMIND_REPLAY_REVERB_DISTRIBUTIONS_HEAP_H_
+#endif  // REVERB_CC_SELECTORS_HEAP_H_

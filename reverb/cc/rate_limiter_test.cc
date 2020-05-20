@@ -22,8 +22,8 @@
 #include "absl/synchronization/mutex.h"
 #include "absl/synchronization/notification.h"
 #include "absl/time/time.h"
-#include "reverb/cc/distributions/uniform.h"
 #include "reverb/cc/platform/thread.h"
+#include "reverb/cc/selectors/uniform.h"
 #include "reverb/cc/table.h"
 #include "reverb/cc/testing/proto_test_util.h"
 #include "tensorflow/core/lib/core/status_test_util.h"
@@ -40,9 +40,9 @@ constexpr absl::Duration kTimeout = absl::Milliseconds(100);
 
 std::unique_ptr<Table> MakeTable(const std::string &name,
                                  std::shared_ptr<RateLimiter> limiter) {
-  return absl::make_unique<Table>(
-      name, absl::make_unique<UniformDistribution>(),
-      absl::make_unique<UniformDistribution>(), 10000, 0, std::move(limiter));
+  return absl::make_unique<Table>(name, absl::make_unique<UniformSelector>(),
+                                  absl::make_unique<UniformSelector>(), 10000,
+                                  0, std::move(limiter));
 }
 
 TEST(RateLimiterTest, BlocksSamplesUntilMinInsertsReached) {

@@ -29,11 +29,11 @@
 #include "absl/time/time.h"
 #include "reverb/cc/checkpointing/checkpoint.pb.h"
 #include "reverb/cc/chunk_store.h"
-#include "reverb/cc/distributions/fifo.h"
-#include "reverb/cc/distributions/uniform.h"
 #include "reverb/cc/platform/thread.h"
 #include "reverb/cc/rate_limiter.h"
 #include "reverb/cc/schema.pb.h"
+#include "reverb/cc/selectors/fifo.h"
+#include "reverb/cc/selectors/uniform.h"
 #include "reverb/cc/testing/proto_test_util.h"
 #include "tensorflow/core/lib/core/status.h"
 #include "tensorflow/core/lib/core/status_test_util.h"
@@ -77,10 +77,9 @@ std::unique_ptr<RateLimiter> MakeLimiter(int64_t min_size) {
 std::unique_ptr<Table> MakeUniformTable(const std::string& name,
                                         int64_t max_size = 1000,
                                         int32_t max_times_sampled = 0) {
-  return absl::make_unique<Table>(name,
-                                  absl::make_unique<UniformDistribution>(),
-                                  absl::make_unique<FifoDistribution>(),
-                                  max_size, max_times_sampled, MakeLimiter(1));
+  return absl::make_unique<Table>(name, absl::make_unique<UniformSelector>(),
+                                  absl::make_unique<FifoSelector>(), max_size,
+                                  max_times_sampled, MakeLimiter(1));
 }
 
 TEST(TableTest, SetsName) {
@@ -239,8 +238,8 @@ TEST(TableTest, ConcurrentCalls) {
 TEST(TableTest, UseAsQueue) {
   Table queue(
       /*name=*/"queue",
-      /*sampler=*/absl::make_unique<FifoDistribution>(),
-      /*remover=*/absl::make_unique<FifoDistribution>(),
+      /*sampler=*/absl::make_unique<FifoSelector>(),
+      /*remover=*/absl::make_unique<FifoSelector>(),
       /*max_size=*/10,
       /*max_times_sampled=*/1,
       absl::make_unique<RateLimiter>(
@@ -295,8 +294,8 @@ TEST(TableTest, UseAsQueue) {
 TEST(TableTest, ConcurrentInsertOfTheSameKey) {
   Table table(
       /*name=*/"dist",
-      /*sampler=*/absl::make_unique<UniformDistribution>(),
-      /*remover=*/absl::make_unique<FifoDistribution>(),
+      /*sampler=*/absl::make_unique<UniformSelector>(),
+      /*remover=*/absl::make_unique<FifoSelector>(),
       /*max_size=*/1000,
       /*max_times_sampled=*/0,
       absl::make_unique<RateLimiter>(
@@ -340,8 +339,8 @@ TEST(TableTest, ConcurrentInsertOfTheSameKey) {
 TEST(TableTest, CloseCancelsPendingCalls) {
   Table table(
       /*name=*/"dist",
-      /*sampler=*/absl::make_unique<UniformDistribution>(),
-      /*remover=*/absl::make_unique<FifoDistribution>(),
+      /*sampler=*/absl::make_unique<UniformSelector>(),
+      /*remover=*/absl::make_unique<FifoSelector>(),
       /*max_size=*/1000,
       /*max_times_sampled=*/0,
       absl::make_unique<RateLimiter>(
@@ -373,8 +372,8 @@ TEST(TableTest, CloseCancelsPendingCalls) {
 TEST(TableTest, ResetResetsRateLimiter) {
   Table table(
       /*name=*/"dist",
-      /*sampler=*/absl::make_unique<UniformDistribution>(),
-      /*remover=*/absl::make_unique<FifoDistribution>(),
+      /*sampler=*/absl::make_unique<UniformSelector>(),
+      /*remover=*/absl::make_unique<FifoSelector>(),
       /*max_size=*/1000,
       /*max_times_sampled=*/0,
       absl::make_unique<RateLimiter>(
@@ -439,8 +438,8 @@ TEST(TableTest, CheckpointOrderItems) {
 }
 
 TEST(TableTest, CheckpointSanityCheck) {
-  Table table("dist", absl::make_unique<UniformDistribution>(),
-              absl::make_unique<FifoDistribution>(), 10, 1,
+  Table table("dist", absl::make_unique<UniformSelector>(),
+              absl::make_unique<FifoSelector>(), 10, 1,
               absl::make_unique<RateLimiter>(1.0, 3, -10, 7));
 
   TF_EXPECT_OK(table.InsertOrAssign(MakeItem(1, 123)));
@@ -476,8 +475,8 @@ TEST(TableTest, CheckpointSanityCheck) {
 TEST(TableTest, BlocksSamplesWhenSizeToSmallDueToAutoDelete) {
   Table table(
       /*name=*/"dist",
-      /*sampler=*/absl::make_unique<FifoDistribution>(),
-      /*remover=*/absl::make_unique<FifoDistribution>(),
+      /*sampler=*/absl::make_unique<FifoSelector>(),
+      /*remover=*/absl::make_unique<FifoSelector>(),
       /*max_size=*/10,
       /*max_times_sampled=*/2,
       absl::make_unique<RateLimiter>(
@@ -519,8 +518,8 @@ TEST(TableTest, BlocksSamplesWhenSizeToSmallDueToAutoDelete) {
 TEST(TableTest, BlocksSamplesWhenSizeToSmallDueToExplicitDelete) {
   Table table(
       /*name=*/"dist",
-      /*sampler=*/absl::make_unique<FifoDistribution>(),
-      /*remover=*/absl::make_unique<FifoDistribution>(),
+      /*sampler=*/absl::make_unique<FifoSelector>(),
+      /*remover=*/absl::make_unique<FifoSelector>(),
       /*max_size=*/10,
       /*max_times_sampled=*/-1,
       absl::make_unique<RateLimiter>(

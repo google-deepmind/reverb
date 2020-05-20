@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "reverb/cc/distributions/fifo.h"
+#include "reverb/cc/selectors/fifo.h"
 
 #include <vector>
 
@@ -27,7 +27,7 @@ namespace reverb {
 namespace {
 
 TEST(FifoTest, ReturnValueSantiyChecks) {
-  FifoDistribution fifo;
+  FifoSelector fifo;
 
   // Non existent keys cannot be deleted or updated.
   EXPECT_EQ(fifo.Delete(123).code(), tensorflow::error::INVALID_ARGUMENT);
@@ -49,7 +49,7 @@ TEST(FifoTest, ReturnValueSantiyChecks) {
 TEST(FifoTest, MatchesFifoOrdering) {
   int64_t kItems = 100;
 
-  FifoDistribution fifo;
+  FifoSelector fifo;
   // Insert items.
   for (int i = 0; i < kItems; i++) {
     TF_EXPECT_OK(fifo.Insert(i, 0));
@@ -61,7 +61,7 @@ TEST(FifoTest, MatchesFifoOrdering) {
 
   for (int i = 0; i < kItems; i++) {
     if (i % 10 == 0) continue;
-    KeyDistributionInterface::KeyWithProbability sample = fifo.Sample();
+    ItemSelectorInterface::KeyWithProbability sample = fifo.Sample();
     EXPECT_EQ(sample.key, i);
     EXPECT_EQ(sample.probability, 1);
     TF_EXPECT_OK(fifo.Delete(sample.key));
@@ -69,12 +69,12 @@ TEST(FifoTest, MatchesFifoOrdering) {
 }
 
 TEST(FifoTest, Options) {
-  FifoDistribution fifo;
+  FifoSelector fifo;
   EXPECT_THAT(fifo.options(), testing::EqualsProto("fifo: true"));
 }
 
 TEST(FifoDeathTest, ClearThenSample) {
-  FifoDistribution fifo;
+  FifoSelector fifo;
   for (int i = 0; i < 100; i++) {
     TF_EXPECT_OK(fifo.Insert(i, i));
   }

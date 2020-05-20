@@ -12,14 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef LEARNING_DEEPMIND_REPLAY_REVERB_DISTRIBUTIONS_FIFO_H_
-#define LEARNING_DEEPMIND_REPLAY_REVERB_DISTRIBUTIONS_FIFO_H_
+#ifndef REVERB_CC_SELECTORS_FIFO_H_
+#define REVERB_CC_SELECTORS_FIFO_H_
 
 #include <list>
 
 #include "absl/container/flat_hash_map.h"
 #include "reverb/cc/checkpointing/checkpoint.pb.h"
-#include "reverb/cc/distributions/interface.h"
+#include "reverb/cc/selectors/interface.h"
 #include "tensorflow/core/lib/core/status.h"
 
 namespace deepmind {
@@ -27,9 +27,9 @@ namespace reverb {
 
 // Fifo sampling. We ignore all priority values in the calls. Sample() always
 // returns the key that was inserted first until this key is deleted. All
-// operations take O(1) time. See KeyDistributionInterface for documentation
+// operations take O(1) time. See ItemSelectorInterface for documentation
 // about the methods.
-class FifoDistribution : public KeyDistributionInterface {
+class FifoSelector : public ItemSelectorInterface {
  public:
   tensorflow::Status Delete(Key key) override;
 
@@ -53,4 +53,4 @@ class FifoDistribution : public KeyDistributionInterface {
 }  // namespace reverb
 }  // namespace deepmind
 
-#endif  // LEARNING_DEEPMIND_REPLAY_REVERB_DISTRIBUTIONS_FIFO_H_
+#endif  // REVERB_CC_SELECTORS_FIFO_H_

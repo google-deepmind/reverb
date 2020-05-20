@@ -33,10 +33,10 @@
 #include "absl/types/span.h"
 #include "reverb/cc/checkpointing/checkpoint.pb.h"
 #include "reverb/cc/chunk_store.h"
-#include "reverb/cc/distributions/interface.h"
 #include "reverb/cc/platform/logging.h"
 #include "reverb/cc/rate_limiter.h"
 #include "reverb/cc/schema.pb.h"
+#include "reverb/cc/selectors/interface.h"
 #include "reverb/cc/table_extensions/interface.h"
 #include "tensorflow/core/lib/core/errors.h"
 #include "tensorflow/core/lib/core/status.h"
@@ -68,9 +68,8 @@ inline void EncodeAsTimestampProto(absl::Time t,
 
 }  // namespace
 
-Table::Table(std::string name,
-             std::shared_ptr<KeyDistributionInterface> sampler,
-             std::shared_ptr<KeyDistributionInterface> remover, int64_t max_size,
+Table::Table(std::string name, std::shared_ptr<ItemSelectorInterface> sampler,
+             std::shared_ptr<ItemSelectorInterface> remover, int64_t max_size,
              int32_t max_times_sampled, std::shared_ptr<RateLimiter> rate_limiter,
              Extensions extensions,
              absl::optional<tensorflow::StructuredValue> signature)
@@ -178,7 +177,7 @@ tensorflow::Status Table::Sample(SampledItem* sampled_item) {
   absl::WriterMutexLock lock(&mu_);
   TF_RETURN_IF_ERROR(rate_limiter_->AwaitAndFinalizeSample(&mu_));
 
-  KeyDistributionInterface::KeyWithProbability sample = sampler_->Sample();
+  ItemSelectorInterface::KeyWithProbability sample = sampler_->Sample();
   Item& item = data_.at(sample.key);
 
   // Increment the sample count.

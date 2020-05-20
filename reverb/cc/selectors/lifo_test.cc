@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "reverb/cc/distributions/lifo.h"
+#include "reverb/cc/selectors/lifo.h"
 
 #include <vector>
 
@@ -27,7 +27,7 @@ namespace reverb {
 namespace {
 
 TEST(LifoTest, ReturnValueSantiyChecks) {
-  LifoDistribution lifo;
+  LifoSelector lifo;
 
   // Non existent keys cannot be deleted or updated.
   EXPECT_EQ(lifo.Delete(123).code(), tensorflow::error::INVALID_ARGUMENT);
@@ -49,7 +49,7 @@ TEST(LifoTest, ReturnValueSantiyChecks) {
 TEST(LifoTest, MatchesLifoOrdering) {
   int64_t kItems = 100;
 
-  LifoDistribution lifo;
+  LifoSelector lifo;
   // Insert items.
   for (int i = 0; i < kItems; i++) {
     TF_EXPECT_OK(lifo.Insert(i, 0));
@@ -61,7 +61,7 @@ TEST(LifoTest, MatchesLifoOrdering) {
 
   for (int i = kItems - 1; i >= 0; i--) {
     if (i % 10 == 0) continue;
-    KeyDistributionInterface::KeyWithProbability sample = lifo.Sample();
+    ItemSelectorInterface::KeyWithProbability sample = lifo.Sample();
     EXPECT_EQ(sample.key, i);
     EXPECT_EQ(sample.probability, 1);
     TF_EXPECT_OK(lifo.Delete(sample.key));
@@ -69,12 +69,12 @@ TEST(LifoTest, MatchesLifoOrdering) {
 }
 
 TEST(LifoTest, Options) {
-  LifoDistribution lifo;
+  LifoSelector lifo;
   EXPECT_THAT(lifo.options(), testing::EqualsProto("lifo: true"));
 }
 
 TEST(LifoDeathTest, ClearThenSample) {
-  LifoDistribution lifo;
+  LifoSelector lifo;
   for (int i = 0; i < 100; i++) {
     TF_EXPECT_OK(lifo.Insert(i, i));
   }

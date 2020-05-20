@@ -66,19 +66,17 @@ Reverb can be customized according to the experiment's requirements. Common
 customizations are as follows:
 
 *   Creating multiple tables referencing the same underlying data
-*   Modifying `sampler` to control the distributions used to select samples
+*   Modifying `sampler` to control the strategy used to select samples
 *   Modifying `remover` to maintain a different set of items in full tables
 *   Using `RateLimiter` to maintain balance between actors and learners
 *   Limiting the number of times each item can be sampled using
     `max_times_sampled`
 
-### Distributions
+### Item Selectors
 
-Reverb defines several types of distributions that can be used for sampling or
-removing (when the table reaches maximum size) data from tables. Below is a 
-brief overview of the available distributions.
-
-NOTE: Some of these "distributions" are non-stochastic.
+Reverb defines several types of item selection strategies that can be used for
+sampling or removing (when the table reaches maximum size) data from tables.
+Below is a brief overview of the available selection strategies.
 
   *   [Prioritized](https://arxiv.org/abs/1511.05952): sample such that the probability of sampling an item is
       correlated to its specified priority value

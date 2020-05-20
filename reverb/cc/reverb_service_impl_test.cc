@@ -24,12 +24,12 @@
 #include "absl/memory/memory.h"
 #include "absl/synchronization/notification.h"
 #include "absl/types/optional.h"
-#include "reverb/cc/distributions/fifo.h"
-#include "reverb/cc/distributions/uniform.h"
 #include "reverb/cc/platform/checkpointing.h"
 #include "reverb/cc/platform/thread.h"
 #include "reverb/cc/reverb_service.pb.h"
 #include "reverb/cc/schema.pb.h"
+#include "reverb/cc/selectors/fifo.h"
+#include "reverb/cc/selectors/uniform.h"
 #include "reverb/cc/testing/proto_test_util.h"
 #include "tensorflow/core/framework/tensor_shape.h"
 #include "tensorflow/core/platform/env.h"
@@ -148,8 +148,8 @@ std::unique_ptr<ReverbServiceImpl> MakeService(
   std::vector<std::shared_ptr<Table>> tables;
 
   tables.push_back(absl::make_unique<Table>(
-      "dist", absl::make_unique<UniformDistribution>(),
-      absl::make_unique<FifoDistribution>(), max_size, 0,
+      "dist", absl::make_unique<UniformSelector>(),
+      absl::make_unique<FifoSelector>(), max_size, 0,
       absl::make_unique<RateLimiter>(kSamplesPerInsert, kMinSizeToSample,
                                      kMinDiff, kMaxDiff),
       /*extensions=*/

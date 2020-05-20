@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "reverb/cc/distributions/prioritized.h"
+#include "reverb/cc/selectors/prioritized.h"
 
 #include <cmath>
 #include <vector>
@@ -33,7 +33,7 @@ namespace {
 const double kInitialPriorityExponent = 1;
 
 TEST(PrioritizedTest, ReturnValueSantiyChecks) {
-  PrioritizedDistribution prioritized(kInitialPriorityExponent);
+  PrioritizedSelector prioritized(kInitialPriorityExponent);
 
   // Non existent keys cannot be deleted or updated.
   EXPECT_EQ(prioritized.Delete(123).code(),
@@ -73,13 +73,13 @@ TEST(PrioritizedTest, AllZeroPrioritiesResultsInUniformSampling) {
   int64_t kSamples = 1000000;
   double expected_probability = 1. / static_cast<double>(kItems);
 
-  PrioritizedDistribution prioritized(kInitialPriorityExponent);
+  PrioritizedSelector prioritized(kInitialPriorityExponent);
   for (int i = 0; i < kItems; i++) {
     TF_EXPECT_OK(prioritized.Insert(i, 0));
   }
   std::vector<int64_t> counts(kItems);
   for (int i = 0; i < kSamples; i++) {
-    KeyDistributionInterface::KeyWithProbability sample = prioritized.Sample();
+    ItemSelectorInterface::KeyWithProbability sample = prioritized.Sample();
     EXPECT_EQ(sample.probability, expected_probability);
     counts[sample.key]++;
   }
@@ -94,7 +94,7 @@ TEST(PrioritizedTest, SampledDistributionMatchesProbabilities) {
   const int kEnd = 100;
   const int kSamples = 1000000;
 
-  PrioritizedDistribution prioritized(kInitialPriorityExponent);
+  PrioritizedSelector prioritized(kInitialPriorityExponent);
   double sum = 0;
   absl::BitGen bit_gen_;
   for (int i = 0; i < kEnd; i++) {
@@ -113,9 +113,9 @@ TEST(PrioritizedTest, SampledDistributionMatchesProbabilities) {
   }
   // Update the priorities.
   std::vector<int64_t> counts(kEnd);
-  absl::flat_hash_map<KeyDistributionInterface::Key, int64_t> probabilities;
+  absl::flat_hash_map<ItemSelectorInterface::Key, int64_t> probabilities;
   for (int i = 0; i < kSamples; i++) {
-    KeyDistributionInterface::KeyWithProbability sample = prioritized.Sample();
+    ItemSelectorInterface::KeyWithProbability sample = prioritized.Sample();
     probabilities[sample.key] = sample.probability;
     counts[sample.key]++;
     EXPECT_NEAR(sample.probability, sample.key / sum, 0.001);
@@ -128,8 +128,8 @@ TEST(PrioritizedTest, SampledDistributionMatchesProbabilities) {
 }
 
 TEST(PrioritizedTest, SetsPriorityExponentInOptions) {
-  PrioritizedDistribution prioritized_a(0.1);
-  PrioritizedDistribution prioritized_b(0.5);
+  PrioritizedSelector prioritized_a(0.1);
+  PrioritizedSelector prioritized_b(0.5);
   EXPECT_THAT(prioritized_a.options(),
               testing::EqualsProto("prioritized: { priority_exponent: 0.1 } "));
   EXPECT_THAT(prioritized_b.options(),
@@ -137,7 +137,7 @@ TEST(PrioritizedTest, SetsPriorityExponentInOptions) {
 }
 
 TEST(PrioritizedDeathTest, ClearThenSample) {
-  PrioritizedDistribution prioritized(kInitialPriorityExponent);
+  PrioritizedSelector prioritized(kInitialPriorityExponent);
   for (int i = 0; i < 100; i++) {
     TF_EXPECT_OK(prioritized.Insert(i, i));
   }

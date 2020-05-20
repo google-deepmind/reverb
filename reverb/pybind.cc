@@ -24,16 +24,16 @@
 #include "pybind11/stl.h"
 #include "reverb/cc/checkpointing/interface.h"
 #include "reverb/cc/client.h"
-#include "reverb/cc/distributions/fifo.h"
-#include "reverb/cc/distributions/heap.h"
-#include "reverb/cc/distributions/interface.h"
-#include "reverb/cc/distributions/lifo.h"
-#include "reverb/cc/distributions/prioritized.h"
-#include "reverb/cc/distributions/uniform.h"
 #include "reverb/cc/platform/checkpointing.h"
 #include "reverb/cc/platform/server.h"
 #include "reverb/cc/rate_limiter.h"
 #include "reverb/cc/sampler.h"
+#include "reverb/cc/selectors/fifo.h"
+#include "reverb/cc/selectors/heap.h"
+#include "reverb/cc/selectors/interface.h"
+#include "reverb/cc/selectors/lifo.h"
+#include "reverb/cc/selectors/prioritized.h"
+#include "reverb/cc/selectors/uniform.h"
 #include "reverb/cc/table.h"
 #include "reverb/cc/table_extensions/interface.h"
 #include "reverb/cc/writer.h"
@@ -463,29 +463,27 @@ PYBIND11_MODULE(libpybind, m) {
   // Initialization code to use numpy types in the type casters.
   ImportNumpy();
 
-  py::class_<KeyDistributionInterface,
-             std::shared_ptr<KeyDistributionInterface>>
-      unused_key_distribution_interface(m, "KeyDistributionInterface");
+  py::class_<ItemSelectorInterface, std::shared_ptr<ItemSelectorInterface>>
+      unused_key_distribution_interface(m, "ItemSelectorInterface");
 
-  py::class_<PrioritizedDistribution, KeyDistributionInterface,
-             std::shared_ptr<PrioritizedDistribution>>(
-      m, "PrioritizedDistribution")
+  py::class_<PrioritizedSelector, ItemSelectorInterface,
+             std::shared_ptr<PrioritizedSelector>>(m, "PrioritizedSelector")
       .def(py::init<double>(), py::arg("priority_exponent"));
 
-  py::class_<FifoDistribution, KeyDistributionInterface,
-             std::shared_ptr<FifoDistribution>>(m, "FifoDistribution")
+  py::class_<FifoSelector, ItemSelectorInterface,
+             std::shared_ptr<FifoSelector>>(m, "FifoSelector")
       .def(py::init());
 
-  py::class_<LifoDistribution, KeyDistributionInterface,
-             std::shared_ptr<LifoDistribution>>(m, "LifoDistribution")
+  py::class_<LifoSelector, ItemSelectorInterface,
+             std::shared_ptr<LifoSelector>>(m, "LifoSelector")
       .def(py::init());
 
-  py::class_<UniformDistribution, KeyDistributionInterface,
-             std::shared_ptr<UniformDistribution>>(m, "UniformDistribution")
+  py::class_<UniformSelector, ItemSelectorInterface,
+             std::shared_ptr<UniformSelector>>(m, "UniformSelector")
       .def(py::init());
 
-  py::class_<HeapDistribution, KeyDistributionInterface,
-             std::shared_ptr<HeapDistribution>>(m, "HeapDistribution")
+  py::class_<HeapSelector, ItemSelectorInterface,
+             std::shared_ptr<HeapSelector>>(m, "HeapSelector")
       .def(py::init<bool>(), py::arg("min_heap"));
 
   py::class_<TableExtensionInterface, std::shared_ptr<TableExtensionInterface>>
@@ -498,8 +496,8 @@ PYBIND11_MODULE(libpybind, m) {
 
   py::class_<Table, std::shared_ptr<Table>>(m, "Table")
       .def(py::init([](const std::string &name,
-                       const std::shared_ptr<KeyDistributionInterface> &sampler,
-                       const std::shared_ptr<KeyDistributionInterface> &remover,
+                       const std::shared_ptr<ItemSelectorInterface> &sampler,
+                       const std::shared_ptr<ItemSelectorInterface> &remover,
                        int max_size, int max_times_sampled,
                        const std::shared_ptr<RateLimiter> &rate_limiter,
                        const std::vector<std::shared_ptr<

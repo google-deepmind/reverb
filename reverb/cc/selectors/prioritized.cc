@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "reverb/cc/distributions/prioritized.h"
+#include "reverb/cc/selectors/prioritized.h"
 
 #include <cmath>
 #include <cstddef>
@@ -45,18 +45,17 @@ tensorflow::Status CheckValidPriority(double priority) {
 
 }  // namespace
 
-PrioritizedDistribution::PrioritizedDistribution(double priority_exponent)
+PrioritizedSelector::PrioritizedSelector(double priority_exponent)
     : priority_exponent_(priority_exponent), capacity_(std::pow(2, 17)) {
   REVERB_CHECK_GE(priority_exponent_, 0);
   sum_tree_.resize(capacity_);
 }
 
-tensorflow::Status PrioritizedDistribution::Delete(Key key) {
+tensorflow::Status PrioritizedSelector::Delete(Key key) {
   const size_t last_index = key_to_index_.size() - 1;
   const auto it = key_to_index_.find(key);
   if (it == key_to_index_.end())
-    return tensorflow::errors::InvalidArgument(
-        absl::StrCat("Key ", key, " not found in distribution."));
+    return tensorflow::errors::InvalidArgument("Key ", key, " not found.");
   const size_t index = it->second;
 
   if (index != last_index) {
@@ -73,7 +72,7 @@ tensorflow::Status PrioritizedDistribution::Delete(Key key) {
   return tensorflow::Status::OK();
 }
 
-tensorflow::Status PrioritizedDistribution::Insert(Key key, double priority) {
+tensorflow::Status PrioritizedSelector::Insert(Key key, double priority) {
   TF_RETURN_IF_ERROR(CheckValidPriority(priority));
   const size_t index = key_to_index_.size();
   if (index == capacity_) {
@@ -81,8 +80,8 @@ tensorflow::Status PrioritizedDistribution::Insert(Key key, double priority) {
     sum_tree_.resize(capacity_);
   }
   if (!key_to_index_.try_emplace(key, index).second) {
-    return tensorflow::errors::InvalidArgument(
-        absl::StrCat("Key ", key, " already exists in distribution."));
+    return tensorflow::errors::InvalidArgument("Key ", key,
+                                               " already inserted.");
   }
   sum_tree_[index].key = key;
   REVERB_CHECK_EQ(sum_tree_[index].sum, 0);
@@ -90,18 +89,17 @@ tensorflow::Status PrioritizedDistribution::Insert(Key key, double priority) {
   return tensorflow::Status::OK();
 }
 
-tensorflow::Status PrioritizedDistribution::Update(Key key, double priority) {
+tensorflow::Status PrioritizedSelector::Update(Key key, double priority) {
   TF_RETURN_IF_ERROR(CheckValidPriority(priority));
   const auto it = key_to_index_.find(key);
   if (it == key_to_index_.end()) {
-    return tensorflow::errors::InvalidArgument(
-        absl::StrCat("Key ", key, " not found in distribution."));
+    return tensorflow::errors::InvalidArgument("Key ", key, " not found.");
   }
   SetNode(it->second, power(priority, priority_exponent_));
   return tensorflow::Status::OK();
 }
 
-KeyDistributionInterface::KeyWithProbability PrioritizedDistribution::Sample() {
+ItemSelectorInterface::KeyWithProbability PrioritizedSelector::Sample() {
   const size_t size = key_to_index_.size();
   REVERB_CHECK_NE(size, 0);
 
@@ -145,30 +143,30 @@ KeyDistributionInterface::KeyWithProbability PrioritizedDistribution::Sample() {
   return {sum_tree_[index].key, picked_weight / total_weight};
 }
 
-void PrioritizedDistribution::Clear() {
+void PrioritizedSelector::Clear() {
   for (size_t i = 0; i < key_to_index_.size(); ++i) {
     sum_tree_[i].sum = 0;
   }
   key_to_index_.clear();
 }
 
-KeyDistributionOptions PrioritizedDistribution::options() const {
+KeyDistributionOptions PrioritizedSelector::options() const {
   KeyDistributionOptions options;
   options.mutable_prioritized()->set_priority_exponent(priority_exponent_);
   return options;
 }
 
-double PrioritizedDistribution::NodeValue(size_t index) const {
+double PrioritizedSelector::NodeValue(size_t index) const {
   const size_t left_index = 2 * index + 1;
   const size_t right_index = 2 * index + 2;
   return sum_tree_[index].sum - NodeSum(left_index) - NodeSum(right_index);
 }
 
-double PrioritizedDistribution::NodeSum(size_t index) const {
+double PrioritizedSelector::NodeSum(size_t index) const {
   return index < key_to_index_.size() ? sum_tree_[index].sum : 0;
 }
 
-void PrioritizedDistribution::SetNode(size_t index, double value) {
+void PrioritizedSelector::SetNode(size_t index, double value) {
   double difference = value - NodeValue(index);
   sum_tree_[index].sum += difference;
   while (index != 0) {

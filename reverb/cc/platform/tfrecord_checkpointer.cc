@@ -32,14 +32,14 @@
 #include "absl/time/time.h"
 #include "reverb/cc/checkpointing/checkpoint.pb.h"
 #include "reverb/cc/chunk_store.h"
-#include "reverb/cc/distributions/fifo.h"
-#include "reverb/cc/distributions/heap.h"
-#include "reverb/cc/distributions/interface.h"
-#include "reverb/cc/distributions/lifo.h"
-#include "reverb/cc/distributions/prioritized.h"
-#include "reverb/cc/distributions/uniform.h"
 #include "reverb/cc/rate_limiter.h"
 #include "reverb/cc/schema.pb.h"
+#include "reverb/cc/selectors/fifo.h"
+#include "reverb/cc/selectors/heap.h"
+#include "reverb/cc/selectors/interface.h"
+#include "reverb/cc/selectors/lifo.h"
+#include "reverb/cc/selectors/prioritized.h"
+#include "reverb/cc/selectors/uniform.h"
 #include "reverb/cc/table.h"
 #include "reverb/cc/table_extensions/interface.h"
 #include "tensorflow/core/lib/core/errors.h"
@@ -105,24 +105,24 @@ inline bool HasDone(const std::string& path) {
       .ok();
 }
 
-std::unique_ptr<KeyDistributionInterface> MakeDistribution(
+std::unique_ptr<ItemSelectorInterface> MakeDistribution(
     const KeyDistributionOptions& options) {
   switch (options.distribution_case()) {
     case KeyDistributionOptions::kFifo:
-      return absl::make_unique<FifoDistribution>();
+      return absl::make_unique<FifoSelector>();
     case KeyDistributionOptions::kLifo:
-      return absl::make_unique<LifoDistribution>();
+      return absl::make_unique<LifoSelector>();
     case KeyDistributionOptions::kUniform:
-      return absl::make_unique<UniformDistribution>();
+      return absl::make_unique<UniformSelector>();
     case KeyDistributionOptions::kPrioritized:
-      return absl::make_unique<PrioritizedDistribution>(
+      return absl::make_unique<PrioritizedSelector>(
           options.prioritized().priority_exponent());
     case KeyDistributionOptions::kHeap:
-      return absl::make_unique<HeapDistribution>(options.heap().min_heap());
+      return absl::make_unique<HeapSelector>(options.heap().min_heap());
     case KeyDistributionOptions::DISTRIBUTION_NOT_SET:
-      REVERB_LOG(REVERB_FATAL) << "Distribution not set";
+      REVERB_LOG(REVERB_FATAL) << "Selector not set";
     default:
-      REVERB_LOG(REVERB_FATAL) << "Distribution not supported";
+      REVERB_LOG(REVERB_FATAL) << "Selector not supported";
   }
 }
 

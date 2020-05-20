@@ -12,57 +12,56 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "reverb/cc/distributions/fifo.h"
+#include "reverb/cc/selectors/fifo.h"
 
 #include "reverb/cc/checkpointing/checkpoint.pb.h"
 #include "reverb/cc/platform/logging.h"
 #include "reverb/cc/schema.pb.h"
+#include "reverb/cc/selectors/interface.h"
 #include "tensorflow/core/lib/core/errors.h"
 #include "tensorflow/core/lib/core/status.h"
 
 namespace deepmind {
 namespace reverb {
 
-tensorflow::Status FifoDistribution::Delete(KeyDistributionInterface::Key key) {
+tensorflow::Status FifoSelector::Delete(ItemSelectorInterface::Key key) {
   auto it = key_to_iterator_.find(key);
   if (it == key_to_iterator_.end())
-    return tensorflow::errors::InvalidArgument(
-        absl::StrCat("Key ", key, " not found in distribution."));
+    return tensorflow::errors::InvalidArgument("Key ", key, " not found.");
   keys_.erase(it->second);
   key_to_iterator_.erase(it);
   return tensorflow::Status::OK();
 }
 
-tensorflow::Status FifoDistribution::Insert(KeyDistributionInterface::Key key,
-                                            double priority) {
+tensorflow::Status FifoSelector::Insert(ItemSelectorInterface::Key key,
+                                        double priority) {
   if (key_to_iterator_.find(key) != key_to_iterator_.end()) {
-    return tensorflow::errors::InvalidArgument(
-        absl::StrCat("Key ", key, " already exists in distribution."));
+    return tensorflow::errors::InvalidArgument("Key ", key,
+                                               " already inserted.");
   }
   key_to_iterator_.emplace(key, keys_.emplace(keys_.end(), key));
   return tensorflow::Status::OK();
 }
 
-tensorflow::Status FifoDistribution::Update(KeyDistributionInterface::Key key,
-                                            double priority) {
+tensorflow::Status FifoSelector::Update(ItemSelectorInterface::Key key,
+                                        double priority) {
   if (key_to_iterator_.find(key) == key_to_iterator_.end()) {
-    return tensorflow::errors::InvalidArgument(
-        absl::StrCat("Key ", key, " not found in distribution."));
+    return tensorflow::errors::InvalidArgument("Key ", key, " not found.");
   }
   return tensorflow::Status::OK();
 }
 
-KeyDistributionInterface::KeyWithProbability FifoDistribution::Sample() {
+ItemSelectorInterface::KeyWithProbability FifoSelector::Sample() {
   REVERB_CHECK(!keys_.empty());
   return {keys_.front(), 1.};
 }
 
-void FifoDistribution::Clear() {
+void FifoSelector::Clear() {
   keys_.clear();
   key_to_iterator_.clear();
 }
 
-KeyDistributionOptions FifoDistribution::options() const {
+KeyDistributionOptions FifoSelector::options() const {
   KeyDistributionOptions options;
   options.set_fifo(true);
   return options;

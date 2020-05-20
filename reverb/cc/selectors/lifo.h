@@ -12,29 +12,31 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef LEARNING_DEEPMIND_REPLAY_REVERB_DISTRIBUTIONS_UNIFORM_H_
-#define LEARNING_DEEPMIND_REPLAY_REVERB_DISTRIBUTIONS_UNIFORM_H_
+#ifndef REVERB_CC_SELECTORS_LIFO_H_
+#define REVERB_CC_SELECTORS_LIFO_H_
 
-#include <vector>
+#include <list>
 
 #include "absl/container/flat_hash_map.h"
-#include "absl/random/random.h"
 #include "reverb/cc/checkpointing/checkpoint.pb.h"
-#include "reverb/cc/distributions/interface.h"
+#include "reverb/cc/selectors/interface.h"
 #include "tensorflow/core/lib/core/status.h"
 
 namespace deepmind {
 namespace reverb {
 
-// Uniform sampling. We ignore all priority values in the calls. All operations
-// take O(1) time. See KeyDistributionInterface for documentation about the
-// methods.
-class UniformDistribution : public KeyDistributionInterface {
+// Lifo sampling. We ignore all priority values in the calls. Sample() always
+// returns the key that was inserted last until this key is deleted. All
+// operations take O(1) time. See ItemSelectorInterface for documentation
+// about the methods.
+class LifoSelector : public ItemSelectorInterface {
  public:
   tensorflow::Status Delete(Key key) override;
 
+  // The priority is ignored.
   tensorflow::Status Insert(Key key, double priority) override;
 
+  // This is a no-op but will return an error if the key does not exist.
   tensorflow::Status Update(Key key, double priority) override;
 
   KeyWithProbability Sample() override;
@@ -44,17 +46,11 @@ class UniformDistribution : public KeyDistributionInterface {
   KeyDistributionOptions options() const override;
 
  private:
-  // All keys.
-  std::vector<Key> keys_;
-
-  // Maps a key to the index where this key can be found in `keys_.
-  absl::flat_hash_map<Key, size_t> key_to_index_;
-
-  // Used for sampling, not thread-safe.
-  absl::BitGen bit_gen_;
+  std::list<Key> keys_;
+  absl::flat_hash_map<Key, std::list<Key>::iterator> key_to_iterator_;
 };
 
 }  // namespace reverb
 }  // namespace deepmind
 
-#endif  // LEARNING_DEEPMIND_REPLAY_REVERB_DISTRIBUTIONS_UNIFORM_H_
+#endif  // REVERB_CC_SELECTORS_LIFO_H_
