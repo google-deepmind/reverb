@@ -24,16 +24,16 @@
 namespace deepmind {
 namespace reverb {
 
-// Base implementation for PriorityTableExtensionInterface.
+// Base implementation for TableExtensionInterface.
 //
 // This class implements table registration and all mutex protected On*-methods
 // by delegating it to a "simpler" ApplyOn method. Children are thus able to
 // implement any subset of the ApplyOn (and avoid the overly verbose API)
 // without losing the safety provided by the static analysis of the mutexes.
 //
-class PriorityTableExtensionBase : public PriorityTableExtensionInterface {
+class TableExtensionBase : public TableExtensionInterface {
  public:
-  virtual ~PriorityTableExtensionBase() = default;
+  virtual ~TableExtensionBase() = default;
 
   // Children should override these (noop by default).
   virtual void ApplyOnDelete(const PriorityTableItem& item);

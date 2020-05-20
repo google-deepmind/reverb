@@ -153,7 +153,7 @@ std::unique_ptr<ReverbServiceImpl> MakeService(
       absl::make_unique<RateLimiter>(kSamplesPerInsert, kMinSizeToSample,
                                      kMinDiff, kMaxDiff),
       /*extensions=*/
-      std::vector<std::shared_ptr<PriorityTableExtensionInterface>>{},
+      std::vector<std::shared_ptr<TableExtensionInterface>>{},
       /*signature=*/absl::make_optional(MakeSignature())));
   return absl::make_unique<ReverbServiceImpl>(std::move(tables),
                                               std::move(checkpointer));

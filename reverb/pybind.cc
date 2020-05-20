@@ -488,10 +488,8 @@ PYBIND11_MODULE(libpybind, m) {
              std::shared_ptr<HeapDistribution>>(m, "HeapDistribution")
       .def(py::init<bool>(), py::arg("min_heap"));
 
-  py::class_<PriorityTableExtensionInterface,
-             std::shared_ptr<PriorityTableExtensionInterface>>
-      unused_priority_table_extension_interface(
-          m, "PriorityTableExtensionInterface");
+  py::class_<TableExtensionInterface, std::shared_ptr<TableExtensionInterface>>
+      unused_priority_table_extension_interface(m, "TableExtensionInterface");
 
   py::class_<RateLimiter, std::shared_ptr<RateLimiter>>(m, "RateLimiter")
       .def(py::init<double, int, double, double>(),
@@ -505,7 +503,7 @@ PYBIND11_MODULE(libpybind, m) {
                        int max_size, int max_times_sampled,
                        const std::shared_ptr<RateLimiter> &rate_limiter,
                        const std::vector<std::shared_ptr<
-                           PriorityTableExtensionInterface>> &extensions,
+                           TableExtensionInterface>> &extensions,
                        const absl::optional<std::string> &serialized_signature =
                            absl::nullopt) -> Table * {
              absl::optional<tensorflow::StructuredValue> signature =

@@ -104,8 +104,7 @@ class Table {
   Table(std::string name, std::shared_ptr<KeyDistributionInterface> sampler,
         std::shared_ptr<KeyDistributionInterface> remover, int64_t max_size,
         int32_t max_times_sampled, std::shared_ptr<RateLimiter> rate_limiter,
-        std::vector<std::shared_ptr<PriorityTableExtensionInterface>>
-            extensions = {},
+        std::vector<std::shared_ptr<TableExtensionInterface>> extensions = {},
         absl::optional<tensorflow::StructuredValue> signature = absl::nullopt);
 
   ~Table();
@@ -170,12 +169,11 @@ class Table {
   //
   // Note! This method is not thread safe and caller is responsible for making
   // sure that this method, nor any other method, is called concurrently.
-  void UnsafeAddExtension(
-      std::shared_ptr<PriorityTableExtensionInterface> extension);
+  void UnsafeAddExtension(std::shared_ptr<TableExtensionInterface> extension);
 
   // Registered table extensions.
-  const std::vector<std::shared_ptr<PriorityTableExtensionInterface>>&
-  extensions() const;
+  const std::vector<std::shared_ptr<TableExtensionInterface>>& extensions()
+      const;
 
   // Lookup a single item. Returns true if found, else false.
   bool Get(Key key, Item* item) ABSL_LOCKS_EXCLUDED(mu_);
@@ -217,7 +215,7 @@ class Table {
   // Asserts that `mu_` is held at runtime and calls UpdateItem.
   tensorflow::Status UnsafeUpdateItem(
       Key key, double priority,
-      std::initializer_list<PriorityTableExtensionInterface*> exclude)
+      std::initializer_list<TableExtensionInterface*> exclude)
       ABSL_ASSERT_EXCLUSIVE_LOCK(mu_);
 
  private:
@@ -225,7 +223,7 @@ class Table {
   // `OnUpdate` on all extensions not part of `exclude`.
   tensorflow::Status UpdateItem(
       Key key, double priority,
-      std::initializer_list<PriorityTableExtensionInterface*> exclude = {})
+      std::initializer_list<TableExtensionInterface*> exclude = {})
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_);
 
   // Deletes the item associated with the key from `data_`, `sampler_` and
@@ -263,7 +261,7 @@ class Table {
 
   // Extensions implement hooks that are executed while holding `mu_` as part
   // of insert, delete, update or reset operations.
-  std::vector<std::shared_ptr<PriorityTableExtensionInterface>> extensions_
+  std::vector<std::shared_ptr<TableExtensionInterface>> extensions_
       ABSL_GUARDED_BY(mu_);
 
   // Synchronizes access to `sampler_`, `remover_`, 'rate_limiter_`,

@@ -46,8 +46,7 @@ namespace deepmind {
 namespace reverb {
 namespace {
 
-using Extensions =
-    std::vector<std::shared_ptr<PriorityTableExtensionInterface>>;
+using Extensions = std::vector<std::shared_ptr<TableExtensionInterface>>;
 
 inline bool IsAdjacent(const SequenceRange& a, const SequenceRange& b) {
   return a.episode_id() == b.episode_id() && a.end() + 1 == b.start();
@@ -262,7 +261,7 @@ void Table::DeleteItem(Table::Key key) {
 
 tensorflow::Status Table::UpdateItem(
     Key key, double priority,
-    std::initializer_list<PriorityTableExtensionInterface*> exclude) {
+    std::initializer_list<TableExtensionInterface*> exclude) {
   auto it = data_.find(key);
   if (it == data_.end()) {
     return tensorflow::Status::OK();
@@ -363,15 +362,15 @@ const absl::flat_hash_map<Table::Key, Table::Item>* Table::RawLookup() {
 }
 
 void Table::UnsafeAddExtension(
-    std::shared_ptr<PriorityTableExtensionInterface> extension) {
+    std::shared_ptr<TableExtensionInterface> extension) {
   TF_CHECK_OK(extension->RegisterTable(&mu_, this));
   absl::WriterMutexLock lock(&mu_);
   REVERB_CHECK(data_.empty());
   extensions_.push_back(std::move(extension));
 }
 
-const std::vector<std::shared_ptr<PriorityTableExtensionInterface>>&
-Table::extensions() const {
+const std::vector<std::shared_ptr<TableExtensionInterface>>& Table::extensions()
+    const {
   return extensions_;
 }
 
@@ -403,7 +402,7 @@ int64_t Table::num_episodes() const {
 
 tensorflow::Status Table::UnsafeUpdateItem(
     Key key, double priority,
-    std::initializer_list<PriorityTableExtensionInterface*> exclude) {
+    std::initializer_list<TableExtensionInterface*> exclude) {
   mu_.AssertHeld();
   return UpdateItem(key, priority, std::move(exclude));
 }

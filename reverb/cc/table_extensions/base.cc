@@ -22,8 +22,8 @@
 namespace deepmind {
 namespace reverb {
 
-tensorflow::Status PriorityTableExtensionBase::RegisterTable(absl::Mutex* mu,
-                                                             Table* table) {
+tensorflow::Status TableExtensionBase::RegisterTable(absl::Mutex* mu,
+                                                     Table* table) {
   absl::WriterMutexLock lock(&table_mu_);
   if (table_) {
     return tensorflow::errors::FailedPrecondition(
@@ -35,45 +35,44 @@ tensorflow::Status PriorityTableExtensionBase::RegisterTable(absl::Mutex* mu,
   return tensorflow::Status::OK();
 }
 
-void PriorityTableExtensionBase::UnregisterTable(absl::Mutex* mu,
-                                                 Table* table) {
+void TableExtensionBase::UnregisterTable(absl::Mutex* mu, Table* table) {
   absl::WriterMutexLock lock(&table_mu_);
   REVERB_CHECK_EQ(table, table_)
       << "The wrong Table attempted to unregister this extension.";
   table_ = nullptr;
 }
 
-void PriorityTableExtensionBase::OnDelete(absl::Mutex* mu,
-                                          const PriorityTableItem& item) {
+void TableExtensionBase::OnDelete(absl::Mutex* mu,
+                                  const PriorityTableItem& item) {
   ApplyOnDelete(item);
 }
 
-void PriorityTableExtensionBase::OnInsert(absl::Mutex* mu,
-                                          const PriorityTableItem& item) {
+void TableExtensionBase::OnInsert(absl::Mutex* mu,
+                                  const PriorityTableItem& item) {
   ApplyOnInsert(item);
 }
 
-void PriorityTableExtensionBase::OnReset(absl::Mutex* mu) { ApplyOnReset(); }
+void TableExtensionBase::OnReset(absl::Mutex* mu) { ApplyOnReset(); }
 
-void PriorityTableExtensionBase::OnUpdate(absl::Mutex* mu,
-                                          const PriorityTableItem& item) {
+void TableExtensionBase::OnUpdate(absl::Mutex* mu,
+                                  const PriorityTableItem& item) {
   ApplyOnUpdate(item);
 }
 
-void PriorityTableExtensionBase::OnSample(absl::Mutex* mu,
-                                          const PriorityTableItem& item) {
+void TableExtensionBase::OnSample(absl::Mutex* mu,
+                                  const PriorityTableItem& item) {
   ApplyOnSample(item);
 }
 
-void PriorityTableExtensionBase::ApplyOnDelete(const PriorityTableItem& item) {}
+void TableExtensionBase::ApplyOnDelete(const PriorityTableItem& item) {}
 
-void PriorityTableExtensionBase::ApplyOnInsert(const PriorityTableItem& item) {}
+void TableExtensionBase::ApplyOnInsert(const PriorityTableItem& item) {}
 
-void PriorityTableExtensionBase::ApplyOnReset() {}
+void TableExtensionBase::ApplyOnReset() {}
 
-void PriorityTableExtensionBase::ApplyOnUpdate(const PriorityTableItem& item) {}
+void TableExtensionBase::ApplyOnUpdate(const PriorityTableItem& item) {}
 
-void PriorityTableExtensionBase::ApplyOnSample(const PriorityTableItem& item) {}
+void TableExtensionBase::ApplyOnSample(const PriorityTableItem& item) {}
 
 }  // namespace reverb
 }  // namespace deepmind

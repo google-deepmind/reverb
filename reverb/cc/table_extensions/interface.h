@@ -28,13 +28,13 @@ namespace reverb {
 
 class Table;
 
-// A `PriorityTableExtension` is passed to a single `Table` and executed
+// A `TableExtension` is passed to a single `Table` and executed
 // as part of the atomic operations of the parent table. All "hooks" are
 // executed while parent is holding its mutex and thus latency is very
 // important.
-class PriorityTableExtensionInterface {
+class TableExtensionInterface {
  public:
-  virtual ~PriorityTableExtensionInterface() = default;
+  virtual ~TableExtensionInterface() = default;
 
  protected:
   friend class Table;
