@@ -32,13 +32,15 @@ from reverb.client import Client
 from reverb.client import Writer
 
 from reverb.errors import ReverbError
-from reverb.errors import TimeoutError
+# TODO(b/157210924): Rename TimeoutError.
+from reverb.errors import TimeoutError  # pylint: disable=redefined-builtin
 
 from reverb.replay_sample import ReplaySample
 from reverb.replay_sample import SampleInfo
 
 from reverb.server import PriorityTable
 from reverb.server import Server
+from reverb.server import Table
 
 from reverb.tf_client import ReplayDataset
 from reverb.tf_client import TFClient
