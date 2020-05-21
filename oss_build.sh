@@ -93,6 +93,7 @@ $PYTHON_BIN_PATH configure.py
 # python to be tested. This works well in docker but would make a mess of
 # someone's system unexpectedly. We are executing the python tests after
 # installing the final package making this approach satisfactory.
+# TODO(b/157223742): Execute Python tests as well.
 bazel test -c opt --copt=-mavx --config=manylinux2010 --test_output=errors //reverb/cc/...
 
 # Builds Reverb and creates the wheel package.
