@@ -26,7 +26,7 @@ namespace deepmind {
 namespace reverb {
 namespace {
 
-TEST(UniformTest, ReturnValueSantiyChecks) {
+TEST(UniformSelectorTest, ReturnValueSantiyChecks) {
   UniformSelector uniform;
 
   // Non existent keys cannot be deleted or updated.
@@ -46,7 +46,7 @@ TEST(UniformTest, ReturnValueSantiyChecks) {
   EXPECT_EQ(uniform.Delete(123).code(), tensorflow::error::INVALID_ARGUMENT);
 }
 
-TEST(UniformTest, MatchesUniformSelector) {
+TEST(UniformSelectorTest, MatchesUniformSelector) {
   const int64_t kItems = 100;
   const int64_t kSamples = 1000000;
   double expected_probability = 1. / static_cast<double>(kItems);
@@ -67,7 +67,7 @@ TEST(UniformTest, MatchesUniformSelector) {
   }
 }
 
-TEST(UniformTest, Options) {
+TEST(UniformSelectorTest, Options) {
   UniformSelector uniform;
   EXPECT_THAT(uniform.options(), testing::EqualsProto("uniform: true"));
 }

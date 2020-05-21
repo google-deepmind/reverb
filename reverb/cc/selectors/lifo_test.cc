@@ -26,7 +26,7 @@ namespace deepmind {
 namespace reverb {
 namespace {
 
-TEST(LifoTest, ReturnValueSantiyChecks) {
+TEST(LifoSelectorTest, ReturnValueSantiyChecks) {
   LifoSelector lifo;
 
   // Non existent keys cannot be deleted or updated.
@@ -46,7 +46,7 @@ TEST(LifoTest, ReturnValueSantiyChecks) {
   EXPECT_THAT(lifo.Delete(123).code(), tensorflow::error::INVALID_ARGUMENT);
 }
 
-TEST(LifoTest, MatchesLifoOrdering) {
+TEST(LifoSelectorTest, MatchesLifoOrdering) {
   int64_t kItems = 100;
 
   LifoSelector lifo;
@@ -68,12 +68,12 @@ TEST(LifoTest, MatchesLifoOrdering) {
   }
 }
 
-TEST(LifoTest, Options) {
+TEST(LifoSelectorTest, Options) {
   LifoSelector lifo;
   EXPECT_THAT(lifo.options(), testing::EqualsProto("lifo: true"));
 }
 
-TEST(LifoDeathTest, ClearThenSample) {
+TEST(LifoSelectorDeathTest, ClearThenSample) {
   LifoSelector lifo;
   for (int i = 0; i < 100; i++) {
     TF_EXPECT_OK(lifo.Insert(i, i));

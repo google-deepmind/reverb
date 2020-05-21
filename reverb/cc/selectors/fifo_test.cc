@@ -26,7 +26,7 @@ namespace deepmind {
 namespace reverb {
 namespace {
 
-TEST(FifoTest, ReturnValueSantiyChecks) {
+TEST(FifoSelectorTest, ReturnValueSantiyChecks) {
   FifoSelector fifo;
 
   // Non existent keys cannot be deleted or updated.
@@ -46,7 +46,7 @@ TEST(FifoTest, ReturnValueSantiyChecks) {
   EXPECT_THAT(fifo.Delete(123).code(), tensorflow::error::INVALID_ARGUMENT);
 }
 
-TEST(FifoTest, MatchesFifoOrdering) {
+TEST(FifoSelectorTest, MatchesFifoOrdering) {
   int64_t kItems = 100;
 
   FifoSelector fifo;
@@ -68,7 +68,7 @@ TEST(FifoTest, MatchesFifoOrdering) {
   }
 }
 
-TEST(FifoTest, Options) {
+TEST(FifoSelectorTest, Options) {
   FifoSelector fifo;
   EXPECT_THAT(fifo.options(), testing::EqualsProto("fifo: true"));
 }

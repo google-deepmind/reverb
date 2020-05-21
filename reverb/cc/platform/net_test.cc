@@ -23,8 +23,7 @@ namespace reverb {
 namespace internal {
 namespace {
 
-
-TEST(Net, PickUnusedPortOrDie) {
+TEST(NetTest, PickUnusedPortOrDie) {
   int port0 = PickUnusedPortOrDie();
   int port1 = PickUnusedPortOrDie();
   REVERB_CHECK_GE(port0, 0);

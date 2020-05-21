@@ -32,7 +32,7 @@ namespace {
 
 const double kInitialPriorityExponent = 1;
 
-TEST(PrioritizedTest, ReturnValueSantiyChecks) {
+TEST(PrioritizedSelectorTest, ReturnValueSantiyChecks) {
   PrioritizedSelector prioritized(kInitialPriorityExponent);
 
   // Non existent keys cannot be deleted or updated.
@@ -68,7 +68,7 @@ TEST(PrioritizedTest, ReturnValueSantiyChecks) {
             tensorflow::error::INVALID_ARGUMENT);
 }
 
-TEST(PrioritizedTest, AllZeroPrioritiesResultsInUniformSampling) {
+TEST(PrioritizedSelectorTest, AllZeroPrioritiesResultsInUniformSampling) {
   int64_t kItems = 100;
   int64_t kSamples = 1000000;
   double expected_probability = 1. / static_cast<double>(kItems);
@@ -89,7 +89,7 @@ TEST(PrioritizedTest, AllZeroPrioritiesResultsInUniformSampling) {
   }
 }
 
-TEST(PrioritizedTest, SampledDistributionMatchesProbabilities) {
+TEST(PrioritizedSelectorTest, SampledDistributionMatchesProbabilities) {
   const int kStart = 10;
   const int kEnd = 100;
   const int kSamples = 1000000;
@@ -127,7 +127,7 @@ TEST(PrioritizedTest, SampledDistributionMatchesProbabilities) {
   }
 }
 
-TEST(PrioritizedTest, SetsPriorityExponentInOptions) {
+TEST(PrioritizedSelectorTest, SetsPriorityExponentInOptions) {
   PrioritizedSelector prioritized_a(0.1);
   PrioritizedSelector prioritized_b(0.5);
   EXPECT_THAT(prioritized_a.options(),
