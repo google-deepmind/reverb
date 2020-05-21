@@ -31,9 +31,8 @@ from reverb import rate_limiters
 from reverb.client import Client
 from reverb.client import Writer
 
+from reverb.errors import DeadlineExceededError
 from reverb.errors import ReverbError
-# TODO(b/157210924): Rename TimeoutError.
-from reverb.errors import TimeoutError  # pylint: disable=redefined-builtin
 
 from reverb.replay_sample import ReplaySample
 from reverb.replay_sample import SampleInfo

@@ -20,6 +20,6 @@ class ReverbError(Exception):
   pass
 
 
-class TimeoutError(ReverbError):
+class DeadlineExceededError(ReverbError):
   """A call to the server timed out."""
   pass

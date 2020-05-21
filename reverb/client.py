@@ -402,13 +402,13 @@ class Client:
       instances, which contain metadata about the table.
 
     Raises:
-      errors.TimeoutError: If timeout provided and exceeded.
+      errors.DeadlineExceededError: If timeout provided and exceeded.
     """
     try:
       info_proto_strings = self._client.ServerInfo(timeout or 0)
     except RuntimeError as e:
       if 'Deadline Exceeded' in str(e) and timeout is not None:
-        raise errors.TimeoutError(
+        raise errors.DeadlineExceededError(
             f'ServerInfo call did not complete within provided timeout of '
             f'{timeout}s')
       raise

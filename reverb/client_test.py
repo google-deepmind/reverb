@@ -197,7 +197,7 @@ class ClientTest(absltest.TestCase):
     # Setup a client that doesn't actually connect to anything.
     dummy_client = client.Client(f'localhost:{self.server.port + 1}')
     with self.assertRaises(
-        errors.TimeoutError,
+        errors.DeadlineExceededError,
         msg='ServerInfo call did not complete within provided timeout of 1s'):
       dummy_client.server_info(timeout=1)
 
