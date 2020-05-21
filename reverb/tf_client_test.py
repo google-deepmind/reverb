@@ -22,7 +22,7 @@ import time
 from absl.testing import parameterized
 import numpy as np
 from reverb import client as reverb_client
-from reverb import distributions
+from reverb import item_selectors
 from reverb import rate_limiters
 from reverb import replay_sample
 from reverb import server
@@ -36,20 +36,20 @@ def make_server():
       priority_tables=[
           server.Table(
               'dist',
-              sampler=distributions.Prioritized(priority_exponent=1),
-              remover=distributions.Fifo(),
+              sampler=item_selectors.Prioritized(priority_exponent=1),
+              remover=item_selectors.Fifo(),
               max_size=1000000,
               rate_limiter=rate_limiters.MinSize(1)),
           server.Table(
               'dist2',
-              sampler=distributions.Prioritized(priority_exponent=1),
-              remover=distributions.Fifo(),
+              sampler=item_selectors.Prioritized(priority_exponent=1),
+              remover=item_selectors.Fifo(),
               max_size=1000000,
               rate_limiter=rate_limiters.MinSize(1)),
           server.Table(
               'signatured',
-              sampler=distributions.Prioritized(priority_exponent=1),
-              remover=distributions.Fifo(),
+              sampler=item_selectors.Prioritized(priority_exponent=1),
+              remover=item_selectors.Fifo(),
               max_size=1000000,
               rate_limiter=rate_limiters.MinSize(1),
               signature=tf.TensorSpec(dtype=tf.float32, shape=(None, None))),

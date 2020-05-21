@@ -21,8 +21,8 @@ import pickle
 
 from absl.testing import absltest
 from reverb import client
-from reverb import distributions
 from reverb import errors
+from reverb import item_selectors
 from reverb import rate_limiters
 from reverb import server
 import tensorflow.compat.v1 as tf
@@ -39,8 +39,8 @@ class ClientTest(absltest.TestCase):
         priority_tables=[
             server.Table(
                 name=TABLE_NAME,
-                sampler=distributions.Prioritized(1),
-                remover=distributions.Fifo(),
+                sampler=item_selectors.Prioritized(1),
+                remover=item_selectors.Fifo(),
                 max_size=1000,
                 rate_limiter=rate_limiters.MinSize(3),
                 signature=tf.TensorSpec(dtype=tf.int64, shape=()),

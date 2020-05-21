@@ -20,7 +20,7 @@ only contains a few extra cases which does not fit well in the client tests.
 """
 
 from absl.testing import absltest
-from reverb import distributions
+from reverb import item_selectors
 from reverb import rate_limiters
 from reverb import server
 
@@ -34,8 +34,8 @@ class ServerTest(absltest.TestCase):
         priority_tables=[
             server.Table(
                 name=TABLE_NAME,
-                sampler=distributions.Prioritized(1),
-                remover=distributions.Fifo(),
+                sampler=item_selectors.Prioritized(1),
+                remover=item_selectors.Fifo(),
                 max_size=100,
                 rate_limiter=rate_limiters.MinSize(2)),
         ],
@@ -51,14 +51,14 @@ class ServerTest(absltest.TestCase):
           priority_tables=[
               server.Table(
                   name='test',
-                  sampler=distributions.Prioritized(1),
-                  remover=distributions.Fifo(),
+                  sampler=item_selectors.Prioritized(1),
+                  remover=item_selectors.Fifo(),
                   max_size=100,
                   rate_limiter=rate_limiters.MinSize(2)),
               server.Table(
                   name='test',
-                  sampler=distributions.Prioritized(2),
-                  remover=distributions.Fifo(),
+                  sampler=item_selectors.Prioritized(2),
+                  remover=item_selectors.Fifo(),
                   max_size=200,
                   rate_limiter=rate_limiters.MinSize(1))
           ],
@@ -71,8 +71,8 @@ class ServerTest(absltest.TestCase):
   def test_can_sample(self):
     table = server.Table(
         name=TABLE_NAME,
-        sampler=distributions.Prioritized(1),
-        remover=distributions.Fifo(),
+        sampler=item_selectors.Prioritized(1),
+        remover=item_selectors.Fifo(),
         max_size=100,
         max_times_sampled=1,
         rate_limiter=rate_limiters.MinSize(2))

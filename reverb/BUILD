@@ -79,7 +79,7 @@ reverb_pytype_library(
     deps = [
         ":checkpointer",
         ":client",
-        ":distributions",
+        ":item_selectors",
         ":pybind",
         ":rate_limiters",
         ":reverb_types",
@@ -177,8 +177,8 @@ reverb_py_test(
     python_version = "PY3",
     deps = [
         ":client",
-        ":distributions",
         ":errors",
+        ":item_selectors",
         ":rate_limiters",
         ":server",
     ],
@@ -190,7 +190,7 @@ reverb_py_test(
     python_version = "PY3",
     deps = [
         ":client",
-        ":distributions",
+        ":item_selectors",
         ":rate_limiters",
         ":server",
     ],
@@ -204,7 +204,7 @@ reverb_py_test(
     shard_count = 6,
     deps = [
         ":client",
-        ":distributions",
+        ":item_selectors",
         ":rate_limiters",
         ":replay_sample",
         ":server",

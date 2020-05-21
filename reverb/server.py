@@ -24,11 +24,10 @@ import collections
 from typing import List, Optional, Sequence, Union
 
 from absl import logging
-
 import portpicker
 from reverb import checkpointer as checkpointer_lib
 from reverb import client
-from reverb import distributions
+from reverb import item_selectors
 from reverb import pybind
 from reverb import rate_limiters
 from reverb import reverb_types
@@ -134,8 +133,8 @@ class Table:
     """
     return cls(
         name=name,
-        sampler=distributions.Fifo(),
-        remover=distributions.Fifo(),
+        sampler=item_selectors.Fifo(),
+        remover=item_selectors.Fifo(),
         max_size=max_size,
         max_times_sampled=1,
         rate_limiter=rate_limiters.Queue(max_size))
@@ -153,8 +152,8 @@ class Table:
     """
     return cls(
         name=name,
-        sampler=distributions.Lifo(),
-        remover=distributions.Lifo(),
+        sampler=item_selectors.Lifo(),
+        remover=item_selectors.Lifo(),
         max_size=max_size,
         max_times_sampled=1,
         rate_limiter=rate_limiters.Stack(max_size))
