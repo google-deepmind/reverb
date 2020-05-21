@@ -26,9 +26,10 @@
 namespace deepmind {
 namespace reverb {
 
-// This an implementation of a categorical distribution that allows incremental
-// changes to the keys to be made efficiently. The probability of sampling a key
-// is proportional to its priority raised to configurable exponent.
+// PrioritizedSelector implements a categorical distribution that allows
+// incremental changes to the keys to be made efficiently. The probability of
+// sampling a key is proportional to its priority raised to a configurable
+// exponent.
 //
 // Since the priorities and probabilities are stored as doubles, numerical
 // rounding errors may be introduced especially when the relative size of
