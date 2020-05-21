@@ -32,7 +32,7 @@ class ServerTest(absltest.TestCase):
   def test_in_process_client(self):
     my_server = server.Server(
         priority_tables=[
-            server.PriorityTable(
+            server.Table(
                 name=TABLE_NAME,
                 sampler=distributions.Prioritized(1),
                 remover=distributions.Fifo(),
@@ -49,13 +49,13 @@ class ServerTest(absltest.TestCase):
     with self.assertRaises(ValueError):
       server.Server(
           priority_tables=[
-              server.PriorityTable(
+              server.Table(
                   name='test',
                   sampler=distributions.Prioritized(1),
                   remover=distributions.Fifo(),
                   max_size=100,
                   rate_limiter=rate_limiters.MinSize(2)),
-              server.PriorityTable(
+              server.Table(
                   name='test',
                   sampler=distributions.Prioritized(2),
                   remover=distributions.Fifo(),
@@ -69,7 +69,7 @@ class ServerTest(absltest.TestCase):
       server.Server(priority_tables=[], port=None)
 
   def test_can_sample(self):
-    table = server.PriorityTable(
+    table = server.Table(
         name=TABLE_NAME,
         sampler=distributions.Prioritized(1),
         remover=distributions.Fifo(),

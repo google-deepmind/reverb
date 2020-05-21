@@ -42,7 +42,7 @@ _table_info_type_dict = collections.OrderedDict(
 _table_info_type_dict['signature'] = Optional[SpecNest]
 
 
-"""A tuple describing PriorityTable information.
+"""A tuple describing Table information.
 
 The main difference between this object and a `schema_pb2.TableInfo` message
 is that the signature is a nested structure of `tf.TypeSpec` objects,

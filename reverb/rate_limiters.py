@@ -141,7 +141,7 @@ class SampleToInsertRatio(RateLimiter):
 class Queue(RateLimiter):
   """Effectively turns the priority table into a queue.
 
-  NOTE: Do not use this RateLimiter directly. Use PriorityTable.queue instead.
+  NOTE: Do not use this RateLimiter directly. Use Table.queue instead.
   NOTE: Must be used in conjunction with a Fifo sampler and remover.
   """
 
@@ -162,7 +162,7 @@ class Queue(RateLimiter):
 class Stack(RateLimiter):
   """Effectively turns the priority table into a stack.
 
-  NOTE: Do not use this RateLimiter directly. Use PriorityTable.stack instead.
+  NOTE: Do not use this RateLimiter directly. Use Table.stack instead.
   NOTE: Must be used in conjunction with a Lifo sampler and remover.
   """
 

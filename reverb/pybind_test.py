@@ -28,7 +28,7 @@ class TestNdArrayToTensorAndBack(parameterized.TestCase):
   def setUpClass(cls):
     super(TestNdArrayToTensorAndBack, cls).setUpClass()
     cls._server = reverb.Server(
-        priority_tables=[reverb.PriorityTable.queue(TABLE_NAME, 1)],
+        priority_tables=[reverb.Table.queue(TABLE_NAME, 1)],
         port=None,
     )
     cls._client = cls._server.in_process_client()

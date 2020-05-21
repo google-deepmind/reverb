@@ -37,7 +37,7 @@ class ClientTest(absltest.TestCase):
     super().setUpClass()
     cls.server = server.Server(
         priority_tables=[
-            server.PriorityTable(
+            server.Table(
                 name=TABLE_NAME,
                 sampler=distributions.Prioritized(1),
                 remover=distributions.Fifo(),

@@ -34,19 +34,19 @@ import tree
 def make_server():
   return server.Server(
       priority_tables=[
-          server.PriorityTable(
+          server.Table(
               'dist',
               sampler=distributions.Prioritized(priority_exponent=1),
               remover=distributions.Fifo(),
               max_size=1000000,
               rate_limiter=rate_limiters.MinSize(1)),
-          server.PriorityTable(
+          server.Table(
               'dist2',
               sampler=distributions.Prioritized(priority_exponent=1),
               remover=distributions.Fifo(),
               max_size=1000000,
               rate_limiter=rate_limiters.MinSize(1)),
-          server.PriorityTable(
+          server.Table(
               'signatured',
               sampler=distributions.Prioritized(priority_exponent=1),
               remover=distributions.Fifo(),
