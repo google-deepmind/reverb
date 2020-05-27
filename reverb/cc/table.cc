@@ -413,5 +413,21 @@ tensorflow::Status Table::UnsafeUpdateItem(
   return UpdateItem(key, priority, std::move(exclude));
 }
 
+std::vector<std::shared_ptr<TableExtensionInterface>>
+Table::UnsafeClearExtensions() {
+  std::vector<std::shared_ptr<TableExtensionInterface>> extensions;
+  {
+    absl::WriterMutexLock lock(&mu_);
+    REVERB_CHECK(data_.empty());
+    extensions.swap(extensions_);
+  }
+
+  for (auto& extension : extensions) {
+    extension->UnregisterTable(&mu_, this);
+  }
+
+  return extensions;
+}
+
 }  // namespace reverb
 }  // namespace deepmind

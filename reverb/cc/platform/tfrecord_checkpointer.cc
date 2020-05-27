@@ -282,6 +282,7 @@ tensorflow::Status TFRecordCheckpointer::Load(
     auto remover = MakeDistribution(checkpoint.remover());
     auto rate_limiter =
         std::make_shared<RateLimiter>(checkpoint.rate_limiter());
+    auto extensions = tables->at(index)->UnsafeClearExtensions();
 
     auto table = std::make_shared<Table>(
         /*name=*/checkpoint.table_name(), /*sampler=*/std::move(sampler),
@@ -289,7 +290,7 @@ tensorflow::Status TFRecordCheckpointer::Load(
         /*max_size=*/checkpoint.max_size(),
         /*max_times_sampled=*/checkpoint.max_times_sampled(),
         /*rate_limiter=*/std::move(rate_limiter),
-        /*extensions=*/tables->at(index)->extensions());
+        /*extensions=*/std::move(extensions));
 
     for (const auto& checkpoint_item : checkpoint.items()) {
       Table::Item insert_item;
@@ -300,7 +301,9 @@ tensorflow::Status TFRecordCheckpointer::Load(
         insert_item.chunks.push_back(chunk_by_key[key]);
       }
 
-      TF_RETURN_IF_ERROR(table->InsertCheckpointItem(std::move(insert_item)));
+      // The original table has already been destroyed so if this fails then
+      // there is way to recover.
+      TF_CHECK_OK(table->InsertCheckpointItem(std::move(insert_item)));
     }
 
     tables->at(index).swap(table);

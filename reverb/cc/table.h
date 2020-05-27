@@ -177,6 +177,14 @@ class Table {
   // sure that this method, nor any other method, is called concurrently.
   void UnsafeAddExtension(std::shared_ptr<TableExtensionInterface> extension);
 
+  // Unregisters and returns all extension from the internal list. Note that
+  // this must be called before items are inserted. If called when the number of
+  // items is non zero, death is triggered.
+  //
+  // Note! This method is not thread safe and caller is responsible for making
+  // sure that this method, nor any other method, is called concurrently.
+  std::vector<std::shared_ptr<TableExtensionInterface>> UnsafeClearExtensions();
+
   // Registered table extensions.
   const std::vector<std::shared_ptr<TableExtensionInterface>>& extensions()
       const;
