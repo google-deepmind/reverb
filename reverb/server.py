@@ -192,29 +192,31 @@ class Server:
   def __init__(self,
                priority_tables: List[Table],
                port: Union[int, None],
-               checkpointer: checkpointer_lib.CheckpointerBase = None):
+               checkpointer: checkpointer_lib.CheckpointerBase = None,
+               tables: List[Table] = None):
     """Constructor of Server serving the ReverbService.
 
     Args:
-      priority_tables: A list of priority tables to host on the server.
+      priority_tables: DEPRECATED. Use `tables` instead.
       port: The port number to serve the gRPC-service on. If `None` is passed
         then a port is automatically picked and assigned.
       checkpointer: Checkpointer used for storing/loading checkpoints. If None
         (default) then `checkpointer_lib.default_checkpointer` is used to
         construct the checkpointer.
+      tables: A list of priority tables to host on the server.
 
     Raises:
-      ValueError: If priority_tables is empty.
-      ValueError: If multiple Table in priority_tables share names.
+      ValueError: If tables is empty.
+      ValueError: If multiple Table in tables share names.
     """
-    if not priority_tables:
-      raise ValueError('At least one priority table must be provided')
-    names = collections.Counter(table.name for table in priority_tables)
+    tables = tables or priority_tables
+    if not tables:
+      raise ValueError('At least one table must be provided')
+    names = collections.Counter(table.name for table in tables)
     duplicates = [name for name, count in names.items() if count > 1]
     if duplicates:
-      raise ValueError(
-          'Multiple items in priority_tables have the same name: {}'.format(
-              ', '.join(duplicates)))
+      raise ValueError('Multiple items in tables have the same name: {}'.format(
+          ', '.join(duplicates)))
 
     if port is None:
       port = portpicker.pick_unused_port()
@@ -222,9 +224,8 @@ class Server:
     if checkpointer is None:
       checkpointer = checkpointer_lib.default_checkpointer()
 
-    self._server = pybind.Server(
-        [table.internal_table for table in priority_tables], port,
-        checkpointer.internal_checkpointer())
+    self._server = pybind.Server([table.internal_table for table in tables],
+                                 port, checkpointer.internal_checkpointer())
     self._port = port
 
   def __del__(self):
