@@ -175,6 +175,7 @@ reverb_py_test(
     name = "client_test",
     srcs = ["client_test.py"],
     python_version = "PY3",
+    shard_count = 2,
     deps = [
         ":client",
         ":errors",
