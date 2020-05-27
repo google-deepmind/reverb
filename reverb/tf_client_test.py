@@ -33,7 +33,7 @@ import tree
 
 def make_server():
   return server.Server(
-      priority_tables=[
+      tables=[
           server.Table(
               'dist',
               sampler=item_selectors.Prioritized(priority_exponent=1),

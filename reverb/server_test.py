@@ -31,7 +31,7 @@ class ServerTest(absltest.TestCase):
 
   def test_in_process_client(self):
     my_server = server.Server(
-        priority_tables=[
+        tables=[
             server.Table(
                 name=TABLE_NAME,
                 sampler=item_selectors.Prioritized(1),
@@ -48,7 +48,7 @@ class ServerTest(absltest.TestCase):
   def test_duplicate_priority_table_name(self):
     with self.assertRaises(ValueError):
       server.Server(
-          priority_tables=[
+          tables=[
               server.Table(
                   name='test',
                   sampler=item_selectors.Prioritized(1),
@@ -66,7 +66,7 @@ class ServerTest(absltest.TestCase):
 
   def test_no_priority_table_provided(self):
     with self.assertRaises(ValueError):
-      server.Server(priority_tables=[], port=None)
+      server.Server(tables=[], port=None)
 
   def test_can_sample(self):
     table = server.Table(
@@ -76,7 +76,7 @@ class ServerTest(absltest.TestCase):
         max_size=100,
         max_times_sampled=1,
         rate_limiter=rate_limiters.MinSize(2))
-    my_server = server.Server(priority_tables=[table], port=None)
+    my_server = server.Server(tables=[table], port=None)
     my_client = my_server.in_process_client()
     self.assertFalse(table.can_sample(1))
     self.assertTrue(table.can_insert(1))

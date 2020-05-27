@@ -36,7 +36,7 @@ class ClientTest(absltest.TestCase):
   def setUpClass(cls):
     super().setUpClass()
     cls.server = server.Server(
-        priority_tables=[
+        tables=[
             server.Table(
                 name=TABLE_NAME,
                 sampler=item_selectors.Prioritized(1),
