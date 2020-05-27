@@ -190,20 +190,20 @@ class Server:
   """
 
   def __init__(self,
-               priority_tables: List[Table],
-               port: Union[int, None],
+               tables: List[Table] = None,
+               port: Union[int, None] = None,
                checkpointer: checkpointer_lib.CheckpointerBase = None,
-               tables: List[Table] = None):
+               priority_tables: List[Table] = None):
     """Constructor of Server serving the ReverbService.
 
     Args:
-      priority_tables: DEPRECATED. Use `tables` instead.
+      tables: A list of priority tables to host on the server.
       port: The port number to serve the gRPC-service on. If `None` is passed
         then a port is automatically picked and assigned.
       checkpointer: Checkpointer used for storing/loading checkpoints. If None
         (default) then `checkpointer_lib.default_checkpointer` is used to
         construct the checkpointer.
-      tables: A list of priority tables to host on the server.
+      priority_tables: DEPRECATED. Use `tables` instead.
 
     Raises:
       ValueError: If tables is empty.
