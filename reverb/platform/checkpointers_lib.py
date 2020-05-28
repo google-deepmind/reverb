@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Python wrappers for constructing Checkpointers to pass to Server."""
+"""Python wrappers for building checkpointers."""
 
 import abc
 import tempfile
@@ -54,7 +54,3 @@ class TempDirCheckpointer(DefaultCheckpointer):
 
   def __init__(self):
     super().__init__(tempfile.mkdtemp())
-
-
-def default_checkpointer() -> CheckpointerBase:
-  return TempDirCheckpointer()

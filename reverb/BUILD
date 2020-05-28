@@ -23,13 +23,14 @@ reverb_pytype_strict_library(
     deps = [
         ":client",
         ":distributions",
-        ":ensure_tf_install",
         ":errors",
         ":item_selectors",
         ":rate_limiters",
         ":replay_sample",
         ":server",
         ":tf_client",
+        "//reverb/platform/default:checkpointers",
+        "//reverb/platform/default:ensure_tf_install",
     ],
 )
 
@@ -77,12 +78,12 @@ reverb_pytype_library(
     srcs_version = "PY3",
     strict_deps = True,
     deps = [
-        ":checkpointer",
         ":client",
         ":item_selectors",
         ":pybind",
         ":rate_limiters",
         ":reverb_types",
+        "//reverb/platform/default:checkpointers",
     ],
 )
 
@@ -130,14 +131,6 @@ reverb_pytype_library(
 )
 
 reverb_pytype_library(
-    name = "checkpointer",
-    srcs = ["checkpointer.py"],
-    srcs_version = "PY3",
-    strict_deps = True,
-    deps = [":pybind"],
-)
-
-reverb_pytype_library(
     name = "reverb_types",
     srcs = ["reverb_types.py"],
     srcs_version = "PY3",
@@ -149,26 +142,10 @@ reverb_pytype_library(
 )
 
 reverb_pytype_strict_library(
-    name = "ensure_tf_install",
-    srcs = ["platform/default/ensure_tf_install.py"],
-    srcs_version = "PY3",
-)
-
-reverb_pytype_strict_library(
     name = "item_selectors",
     srcs = ["item_selectors.py"],
     srcs_version = "PY3",
     deps = [":pybind"],
-)
-
-reverb_py_test(
-    name = "checkpointer_test",
-    srcs = ["checkpointer_test.py"],
-    python_version = "PY3",
-    deps = [
-        ":checkpointer",
-        ":pybind",
-    ],
 )
 
 reverb_py_test(

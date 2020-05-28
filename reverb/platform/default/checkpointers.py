@@ -13,20 +13,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for Reverb checkpointer."""
+"""Python wrappers for building checkpointers."""
 
-from absl.testing import absltest
-from reverb import checkpointer as checkpointer_lib
-from reverb import pybind
+from reverb.platform import checkpointers_lib
 
-
-class TempDirCheckpointer(absltest.TestCase):
-
-  def test_constructs_internal_checkpointer(self):
-    checkpointer = checkpointer_lib.TempDirCheckpointer()
-    self.assertIsInstance(checkpointer.internal_checkpointer(),
-                          pybind.CheckpointerInterface)
+CheckpointerBase = checkpointers_lib.CheckpointerBase
+DefaultCheckpointer = checkpointers_lib.DefaultCheckpointer
+TempDirCheckpointer = checkpointers_lib.TempDirCheckpointer
 
 
-if __name__ == '__main__':
-  absltest.main()
+def default_checkpointer() -> CheckpointerBase:
+  return TempDirCheckpointer()

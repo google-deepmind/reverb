@@ -25,12 +25,13 @@ from typing import List, Optional, Sequence, Union
 
 from absl import logging
 import portpicker
-from reverb import checkpointer as checkpointer_lib
 from reverb import client
 from reverb import item_selectors
 from reverb import pybind
 from reverb import rate_limiters
 from reverb import reverb_types
+from reverb.platform.default import checkpointers
+
 import termcolor
 import tree
 
@@ -184,7 +185,7 @@ class Server:
   def __init__(self,
                tables: List[Table] = None,
                port: Union[int, None] = None,
-               checkpointer: checkpointer_lib.CheckpointerBase = None):
+               checkpointer: checkpointers.CheckpointerBase = None):
     """Constructor of Server serving the ReverbService.
 
     Args:
@@ -192,7 +193,7 @@ class Server:
       port: The port number to serve the gRPC-service on. If `None` (default)
         then a port is automatically picked and assigned.
       checkpointer: Checkpointer used for storing/loading checkpoints. If None
-        (default) then `checkpointer_lib.default_checkpointer` is used to
+        (default) then `checkpointers.default_checkpointer` is used to
         construct the checkpointer.
 
     Raises:
@@ -211,7 +212,7 @@ class Server:
       port = portpicker.pick_unused_port()
 
     if checkpointer is None:
-      checkpointer = checkpointer_lib.default_checkpointer()
+      checkpointer = checkpointers.default_checkpointer()
 
     self._server = pybind.Server([table.internal_table for table in tables],
                                  port, checkpointer.internal_checkpointer())
