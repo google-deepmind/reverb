@@ -179,8 +179,8 @@ class Server:
   """Reverb replay server.
 
   The Server hosts the gRPC-service deepmind.reverb.ReverbService (see
-  //third_party/reverb/reverb_service.proto). See ./client.py and ./tf_client
-  for details of how to interact with the service.
+  reverb_service.proto). See ./client.py and ./tf_client for details of how to
+  interact with the service.
 
   A Server maintains inserted data and one or more PriorityTables. Multiple
   tables can be used to provide different views of the same underlying and since
