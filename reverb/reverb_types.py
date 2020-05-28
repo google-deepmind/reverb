@@ -25,10 +25,12 @@ from reverb.cc import schema_pb2
 
 
 Fifo = pybind.FifoSelector
+Heap = pybind.HeapSelector
+Lifo = pybind.LifoSelector
 Prioritized = pybind.PrioritizedSelector
 Uniform = pybind.UniformSelector
 
-DistributionType = Union[Fifo, pybind.HeapSelector, Prioritized, Uniform]
+DistributionType = Union[Fifo, Heap, Lifo, Prioritized, Uniform]
 
 # Note that this is effectively treated as `Any`; see b/109648354.
 SpecNest = Union[
