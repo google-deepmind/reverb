@@ -49,10 +49,6 @@ class TableExtensionBase(metaclass=abc.ABCMeta):
     """Constructs the c++ PriorityTableExtensions."""
 
 
-# TODO(b/156334283): Delete this alias.
-PriorityTableExtensionBase = TableExtensionBase
-
-
 class Table:
   # TODO(b/157149247): Improve docstring.
   """Table defines how items are selected for sampling and removal."""
@@ -169,10 +165,6 @@ class Table:
   def can_insert(self, num_inserts: int) -> bool:
     """Returns True if an insert operation is permitted at the current state."""
     return self.internal_table.can_insert(num_inserts)
-
-
-# TODO(b/156334283): Delete this alias.
-PriorityTable = Table
 
 
 class Server:

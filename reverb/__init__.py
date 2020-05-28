@@ -37,7 +37,6 @@ from reverb.errors import ReverbError
 from reverb.replay_sample import ReplaySample
 from reverb.replay_sample import SampleInfo
 
-from reverb.server import PriorityTable
 from reverb.server import Server
 from reverb.server import Table
 
