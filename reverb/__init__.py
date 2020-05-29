@@ -24,7 +24,6 @@ ensure_tf_install.ensure_tf_version()
 del ensure_tf_install
 # pylint: enable=g-bad-import-order
 
-from reverb import distributions
 from reverb import item_selectors as selectors
 from reverb import rate_limiters
 

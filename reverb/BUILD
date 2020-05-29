@@ -22,7 +22,6 @@ reverb_pytype_strict_library(
     srcs_version = "PY3",
     deps = [
         ":client",
-        ":distributions",
         ":errors",
         ":item_selectors",
         ":rate_limiters",
@@ -32,13 +31,6 @@ reverb_pytype_strict_library(
         "//reverb/platform/default:checkpointers",
         "//reverb/platform/default:ensure_tf_install",
     ],
-)
-
-reverb_pytype_strict_library(
-    name = "distributions",
-    srcs = ["distributions.py"],
-    srcs_version = "PY3",
-    deps = [":item_selectors"],
 )
 
 reverb_pytype_strict_library(
