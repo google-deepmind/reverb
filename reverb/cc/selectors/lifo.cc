@@ -64,6 +64,7 @@ void LifoSelector::Clear() {
 KeyDistributionOptions LifoSelector::options() const {
   KeyDistributionOptions options;
   options.set_lifo(true);
+  options.set_is_deterministic(true);
   return options;
 }
 

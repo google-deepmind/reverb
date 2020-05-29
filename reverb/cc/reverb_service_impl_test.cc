@@ -361,7 +361,9 @@ TEST(ReverbServiceImplTest, ServerInfoWorks) {
   TableInfo expected_table_info;
   expected_table_info.set_name("dist");
   expected_table_info.mutable_sampler_options()->set_uniform(true);
+  expected_table_info.mutable_sampler_options()->set_is_deterministic(false);
   expected_table_info.mutable_remover_options()->set_fifo(true);
+  expected_table_info.mutable_remover_options()->set_is_deterministic(true);
   expected_table_info.set_max_size(10);
   expected_table_info.set_current_size(0);
   auto rate_limiter = expected_table_info.mutable_rate_limiter_info();

@@ -64,6 +64,7 @@ void FifoSelector::Clear() {
 KeyDistributionOptions FifoSelector::options() const {
   KeyDistributionOptions options;
   options.set_fifo(true);
+  options.set_is_deterministic(true);
   return options;
 }
 

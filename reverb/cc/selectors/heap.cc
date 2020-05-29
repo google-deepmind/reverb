@@ -69,9 +69,11 @@ void HeapSelector::Clear() {
   heap_.Clear();
 }
 
+
 KeyDistributionOptions HeapSelector::options() const {
   KeyDistributionOptions options;
   options.mutable_heap()->set_min_heap(sign_ == 1);
+  options.set_is_deterministic(true);
   return options;
 }
 

@@ -153,6 +153,7 @@ void PrioritizedSelector::Clear() {
 KeyDistributionOptions PrioritizedSelector::options() const {
   KeyDistributionOptions options;
   options.mutable_prioritized()->set_priority_exponent(priority_exponent_);
+  options.set_is_deterministic(false);
   return options;
 }
 

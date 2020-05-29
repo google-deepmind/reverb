@@ -130,10 +130,14 @@ TEST(PrioritizedSelectorTest, SampledDistributionMatchesProbabilities) {
 TEST(PrioritizedSelectorTest, SetsPriorityExponentInOptions) {
   PrioritizedSelector prioritized_a(0.1);
   PrioritizedSelector prioritized_b(0.5);
-  EXPECT_THAT(prioritized_a.options(),
-              testing::EqualsProto("prioritized: { priority_exponent: 0.1 } "));
-  EXPECT_THAT(prioritized_b.options(),
-              testing::EqualsProto("prioritized: { priority_exponent: 0.5 } "));
+  EXPECT_THAT(
+      prioritized_a.options(),
+      testing::EqualsProto(
+          "prioritized: { priority_exponent: 0.1 } is_deterministic: false"));
+  EXPECT_THAT(
+      prioritized_b.options(),
+      testing::EqualsProto(
+          "prioritized: { priority_exponent: 0.5 } is_deterministic: false"));
 }
 
 TEST(PrioritizedDeathTest, ClearThenSample) {

@@ -70,7 +70,8 @@ TEST(LifoSelectorTest, MatchesLifoOrdering) {
 
 TEST(LifoSelectorTest, Options) {
   LifoSelector lifo;
-  EXPECT_THAT(lifo.options(), testing::EqualsProto("lifo: true"));
+  EXPECT_THAT(lifo.options(),
+              testing::EqualsProto("lifo: true is_deterministic: true"));
 }
 
 TEST(LifoSelectorDeathTest, ClearThenSample) {

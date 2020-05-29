@@ -70,7 +70,8 @@ TEST(FifoSelectorTest, MatchesFifoOrdering) {
 
 TEST(FifoSelectorTest, Options) {
   FifoSelector fifo;
-  EXPECT_THAT(fifo.options(), testing::EqualsProto("fifo: true"));
+  EXPECT_THAT(fifo.options(),
+              testing::EqualsProto("fifo: true is_deterministic: true"));
 }
 
 TEST(FifoDeathTest, ClearThenSample) {

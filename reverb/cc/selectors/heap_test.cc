@@ -163,10 +163,12 @@ TEST(HeapSelectorTest, ProbabilityIsAlwaysOne) {
 TEST(HeapSelectorTest, Options) {
   HeapSelector min_heap;
   HeapSelector max_heap(false);
-  EXPECT_THAT(min_heap.options(),
-              testing::EqualsProto("heap: { min_heap: true }"));
-  EXPECT_THAT(max_heap.options(),
-              testing::EqualsProto("heap: { min_heap: false }"));
+  EXPECT_THAT(
+      min_heap.options(),
+      testing::EqualsProto("heap: { min_heap: true} is_deterministic: true"));
+  EXPECT_THAT(
+      max_heap.options(),
+      testing::EqualsProto("heap: { min_heap: false } is_deterministic: true"));
 }
 
 TEST(HeapSelectorDeathTest, SampleFromEmptySelector) {

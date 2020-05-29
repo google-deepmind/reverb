@@ -69,7 +69,8 @@ TEST(UniformSelectorTest, MatchesUniformSelector) {
 
 TEST(UniformSelectorTest, Options) {
   UniformSelector uniform;
-  EXPECT_THAT(uniform.options(), testing::EqualsProto("uniform: true"));
+  EXPECT_THAT(uniform.options(),
+              testing::EqualsProto("uniform: true is_deterministic: false"));
 }
 
 TEST(UniformDeathTest, ClearThenSample) {

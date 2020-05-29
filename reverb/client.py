@@ -388,9 +388,9 @@ class Client:
     """
     self._client.Reset(table)
 
-  def server_info(
-      self,
-      timeout: Optional[int] = None) -> Dict[str, reverb_types.TableInfo]:
+  def server_info(self,
+                  timeout: Optional[int] = None
+                 ) -> Dict[str, reverb_types.TableInfo]:
     """Get table metadata information.
 
     Args:

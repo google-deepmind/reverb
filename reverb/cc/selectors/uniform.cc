@@ -74,6 +74,7 @@ void UniformSelector::Clear() {
 KeyDistributionOptions UniformSelector::options() const {
   KeyDistributionOptions options;
   options.set_uniform(true);
+  options.set_is_deterministic(false);
   return options;
 }
 
