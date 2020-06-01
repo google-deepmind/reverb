@@ -73,23 +73,23 @@ Write some data to the table:
 client.insert([0, 1], priorities={'my_table': 1.0})
 ```
 
-This creates an item with a reference to a single data element, `0`. An item can
-also reference multiple data elements:
+An item can also reference multiple data elements:
 
 ```python
-# Creates three data elements (2, 3, and 4) and a single item `[2, 3, 4]` that
-# references all three of them.
+# Creates three data elements ([2, 2] , [3, 3], and [4, 4]) and a single item
+# `[[2, 2], [3, 3], [4, 4]]` that references all three of them.
 with client.writer(max_sequence_length=3) as writer:
-  writer.append(2)
-  writer.append(3)
-  writer.append(4)
+  writer.append([2, 2])
+  writer.append([3, 3])
+  writer.append([4, 4])
   writer.create_item('my_table', num_timesteps=3, priority=1.0)
 ```
 
 The items we have added to Reverb can be read by sampling them:
 
 ```python
-print(list(client.sample('my_table', num_samples=2)))  # client.sample() returns a generator
+# client.sample() returns a generator.
+print(list(client.sample('my_table', num_samples=2)))
 ```
 
 Continue with the
