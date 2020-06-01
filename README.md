@@ -21,6 +21,11 @@ LIFO, and priority queues.
 
 ## Installation
 
+Please keep in mind that Reverb is not hardened for production use, and while we
+do our best to keep things in working order, things may break or segfault.
+
+> :warning: Reverb currently only supports Linux based OSes.
+
 The recommended way to install Reverb is with `pip`, but we provide docker images
 that can be used to build Reverb from source.
 
