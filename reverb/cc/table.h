@@ -48,29 +48,33 @@ struct TableItem {
   std::vector<std::shared_ptr<ChunkStore::Chunk>> chunks;
 };
 
-// A Table is a structure for storing `PriorityItem` objects. The Table uses two
-// instances of ItemSelectorInterface, one for sampling (sampler) and another
-// for removing (remover). PriorityItems are registered with both the sampler
-// and remover when inserted in the `Table`. The `Table` uses the sampler to
-// determine which items it should return when `Table::Sample()` is called.
-// Similarly, the remover is used to determine which items should be deleted to
-// ensure capacity.
+// A `Table` is a structure for storing `TableItem` objects. The table uses two
+// instances of `ItemSelectorInterface`, one for sampling (`sampler`) and
+// another for removing (`remover`). All item operations (insert/update/delete)
+// on the table are propagated to the sampler and remover with the original
+// operation on the table. The `Table` uses the sampler to determine which items
+// it should return when `Table::Sample()` is called. Similarly, the remover is
+// used to determine which items should be deleted to ensure capacity.
 //
 // A `RateLimiter` is used to set the ratio of inserted to sampled
 // items. This means that calls to `Table::InsertOrAssign()` and
 // `Table::Sample()` may be blocked by the `RateLimiter` as it enforces this
 // ratio.
 //
-// Please note that the removing implementation only limits the number of items
-// in the table, not the number of timesteps (or actual memory) on this
-// server. When we delete an item of a table, the reference counts for
-// its chunks decreases and we can maybe delete the chunks. However, this is not
-// guaranteed, as other tables might still hold references to the
-// chunks in which case no memory is freed up. This means you must be careful
-// when choosing the remover strategy. A dangerous example would be using a FIFO
-// remover for one table and then introducing another with table with a
-// LIFO remover. In this scenario, the two tables would not share any
-// chunks and would this require twice the amount of storage.
+// Please note that the remover is only used to limit the number of items in
+// the table, not the number of data elements nor the memory used. Each item
+// references one or more chunks, each chunk holds one or more data elements and
+// consumes and "unknown" amount of memory. Each chunk can be referenced by any
+// number of items across all tables on the server. Deleting a single item from
+// one table simply decrements the reference count of the chunks it references
+// and only when a chunk is referenced by zero items is it destroyed and its
+// memory deallocated.
+//
+// This means you must be careful when choosing the remover strategy. A
+// dangerous example would be using a FIFO  remover for one table and then
+// introducing another with table with a  LIFO remover. In this scenario, the
+// two tables would not share any chunks and would this require twice the
+// amount of memory compared to two tables with the same type of remover.
 //
 class Table {
  public:

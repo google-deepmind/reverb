@@ -51,8 +51,50 @@ class TableExtensionBase(metaclass=abc.ABCMeta):
 
 
 class Table:
-  # TODO(b/157149247): Improve docstring.
-  """Table defines how items are selected for sampling and removal."""
+  """Item collection with configurable strategies for insertion and sampling.
+
+  A `Table` is the structure used to interact with the data stored on a server.
+  Each table can contain a limited number of "items" that can be retrieved
+  according to the strategy defined by the `sampler`. The size of a table, in
+  terms of number of items, is limited to `max_size`. When items are inserted
+  into an already full table the `remover` is used to decide which item should
+  be removed.
+
+  In addition to the selection strategies used to select items for retrieval and
+  removal the flow of data is controlled by a `RateLimiter`. A rate limiter
+  controlls high level relations between inserts and samples by defining a
+  target ratio between the two and what level of deviations from the target is
+  acceptable. This is particularily useful when scaling up from single machine
+  use cases to distributed systems as the same "logical" throughput can be kept
+  constant even though the scale has changed by orders of magnitude.
+
+  It is important to note that "data elements" and "items" are related but
+  distinct types of entities.
+
+    Data element:
+      - The actual data written using `Writer.append`.
+      - Immutable once written.
+      - Is not stored in a `Table`.
+      - Can be referenced by items from one or more distinct `Table`.
+      - Cannot be retrieved in any other way than as a part of an item.
+
+    Item:
+      - The entity stored in a `Table`.
+      - Inserted using `Writer.create_item`.
+      - References one or more data elements, creating a "sequence".
+
+  The fact that data elements can be referenced by more than one item from one
+  or multiple tables means thats one has to be careful not to equate the size of
+  a table (in terms of items) with the amount of data it references. The data
+  will remain in memory on the server until the last item that references it is
+  removed from its table. Removing an item from a table does therefore not
+  neccesarily result in any (significant) change in memory usage and one must be
+  careful when selecting remover strategies for a multi table server. Consider
+  for example a server with two tables. One has a FIFO remover and the other
+  LIFO remover. In this scenario, the two tables would not share any chunks and
+  would eventually consume twice the amount of memory compared a similar setup
+  where the two tables share the same type of removal strategy.
+  """
 
   def __init__(self,
                name: str,
