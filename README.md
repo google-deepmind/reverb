@@ -313,7 +313,7 @@ If you use this code, please cite it as:
 ```
 @misc{Reverb,
   title = {{Reverb}: An efficient data storage and transport system for ML research},
-  author = "{Albin Cassirer, Gabriel Barth-Maron, Manuel Kroiss, Eugene Brevdo}",
+  author = "{Albin Cassirer, Gabriel Barth-Maron, Thibault Sottiaux, Manuel Kroiss, Eugene Brevdo}",
   howpublished = {\url{https://github.com/deepmind/reverb}},
   url = "https://github.com/deepmind/reverb",
   year = 2020,
