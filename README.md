@@ -38,7 +38,7 @@ $ pip install dm-reverb-nightly
 ### Build from source
 
 Please see
-[this guide](reverb/pip_package/README.md#how-to-develop-and-build-reverb-with-the-docker-containers)
+[this guide](pip_package/README.md#how-to-develop-and-build-reverb-with-the-docker-containers)
 for details on how to build Reverb from source.
 
 ## Quick Start
