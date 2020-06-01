@@ -1,4 +1,5 @@
 # Reverb
+[![PyPI version](https://badge.fury.io/py/dm-reverb-nightly.svg)](https://badge.fury.io/py/dm-reverb-nightly)
 
 Reverb is an efficient and easy-to-use data storage and transport system
 designed for machine learning research. Reverb is primarily used as an
