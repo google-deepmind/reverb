@@ -38,7 +38,7 @@ $ pip install dm-reverb-nightly
 ### Build from source
 
 Please see
-[this guide](pip_package/README.md#how-to-develop-and-build-reverb-with-the-docker-containers)
+[this guide](reverb/pip_package/README.md#how-to-develop-and-build-reverb-with-the-docker-containers)
 for details on how to build Reverb from source.
 
 ## Quick Start
@@ -94,7 +94,7 @@ print(list(client.sample('my_table', num_samples=2)))
 ```
 
 Continue with the
-[Reverb Tutorial](https://github.com/deepmind/reverb/tree/master/reverb/examples/demo.ipynb)
+[Reverb Tutorial](https://github.com/deepmind/reverb/tree/master/examples/demo.ipynb)
 for an interactive tutorial.
 
 ## Detailed overview
