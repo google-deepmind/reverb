@@ -1,4 +1,5 @@
 # Reverb
+![PyPI - Python Version](https://img.shields.io/pypi/pyversions/dm-reverb-nightly)
 [![PyPI version](https://badge.fury.io/py/dm-reverb-nightly.svg)](https://badge.fury.io/py/dm-reverb-nightly)
 
 Reverb is an efficient and easy-to-use data storage and transport system
