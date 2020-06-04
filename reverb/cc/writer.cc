@@ -136,10 +136,12 @@ tensorflow::Status Writer::CreateItem(const std::string& table,
           insert_dtypes_and_shapes_location_ - 1 - t, max_timesteps_);
       const auto& dtypes_and_shapes_t =
           inserted_dtypes_and_shapes_[check_offset];
-      REVERB_CHECK(dtypes_and_shapes_t.has_value())
-          << "Unexpected missing dtypes and shapes while calling CreateItem: "
-             "expected a value at index "
-          << check_offset << " (timestep offset " << t << ")";
+      if (!dtypes_and_shapes_t.has_value()) {
+        return tensorflow::errors::Internal(
+            "Unexpected missing dtypes and shapes while calling CreateItem: "
+            "expected a value at index ",
+            check_offset, " (timestep offset ", t, ")");
+      }
 
       if (dtypes_and_shapes_t->size() != (*dtypes_and_shapes)->size()) {
         return tensorflow::errors::InvalidArgument(
@@ -244,6 +246,9 @@ tensorflow::Status Writer::Finish() {
       const tensorflow::Tensor& item = buffer_[j][i];
       tensorflow::TensorShape shape = item.shape();
       shape.InsertDim(0, 1);
+      // This should never fail due to dtype or shape differences, because the
+      // dtype of tensors[j] is UNKNOWN and `shape` has the same number of
+      // elements as `item`.
       REVERB_CHECK(tensors[j].CopyFrom(item, shape));
     }
     batched_tensors.emplace_back();

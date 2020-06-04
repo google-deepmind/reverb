@@ -46,14 +46,33 @@ inline grpc::Status Internal(const std::string& message) {
 }  // namespace
 
 ReverbServiceImpl::ReverbServiceImpl(
-    std::vector<std::shared_ptr<Table>> tables,
     std::shared_ptr<CheckpointerInterface> checkpointer)
-    : checkpointer_(std::move(checkpointer)) {
+    : checkpointer_(std::move(checkpointer)) {}
+
+tensorflow::Status ReverbServiceImpl::Create(
+    std::vector<std::shared_ptr<Table>> tables,
+    std::shared_ptr<CheckpointerInterface> checkpointer,
+    std::unique_ptr<ReverbServiceImpl>* service) {
+  // Can't use make_unique because it can't see the Impl's private constructor.
+  auto new_service = std::unique_ptr<ReverbServiceImpl>(
+      new ReverbServiceImpl(std::move(checkpointer)));
+  TF_RETURN_IF_ERROR(new_service->Initialize(std::move(tables)));
+  std::swap(new_service, *service);
+  return tensorflow::Status::OK();
+}
+
+tensorflow::Status ReverbServiceImpl::Create(
+    std::vector<std::shared_ptr<Table>> tables,
+    std::unique_ptr<ReverbServiceImpl>* service) {
+  return Create(std::move(tables), /*checkpointer=*/nullptr, service);
+}
+
+tensorflow::Status ReverbServiceImpl::Initialize(
+    std::vector<std::shared_ptr<Table>> tables) {
   if (checkpointer_ != nullptr) {
     auto status = checkpointer_->LoadLatest(&chunk_store_, &tables);
-    if (!tensorflow::errors::IsNotFound(status)) {
-      TF_CHECK_OK(status) << "Error when loading checkpoint: "
-                          << status.ToString();
+    if (!status.ok() && !tensorflow::errors::IsNotFound(status)) {
+      return status;
     }
   }
 
@@ -63,6 +82,8 @@ ReverbServiceImpl::ReverbServiceImpl(
 
   tables_state_id_ = absl::MakeUint128(absl::Uniform<uint64_t>(rnd_),
                                        absl::Uniform<uint64_t>(rnd_));
+
+  return tensorflow::Status::OK();
 }
 
 grpc::Status ReverbServiceImpl::Checkpoint(grpc::ServerContext* context,

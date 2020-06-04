@@ -150,7 +150,7 @@ tensorflow::Status Table::InsertOrAssign(Item item) {
 
   // Remove an item if we exceeded `max_size_`.
   if (data_.size() > max_size_) {
-    DeleteItem(remover_->Sample().key);
+    TF_RETURN_IF_ERROR(DeleteItem(remover_->Sample().key));
   }
 
   // Now that the new item has been inserted and an older item has
@@ -165,7 +165,7 @@ tensorflow::Status Table::MutateItems(absl::Span<const KeyWithPriority> updates,
   absl::WriterMutexLock lock(&mu_);
 
   for (Key key : deletes) {
-    DeleteItem(key);
+    TF_RETURN_IF_ERROR(DeleteItem(key));
   }
 
   for (const auto& item : updates) {
@@ -199,7 +199,7 @@ tensorflow::Status Table::Sample(SampledItem* sampled_item) {
   // If there is an upper bound of the number of times an item can be sampled
   // and it is now reached then delete the item before the lock is released.
   if (item.item.times_sampled() == max_times_sampled_) {
-    DeleteItem(item.item.key());
+    TF_RETURN_IF_ERROR(DeleteItem(item.item.key()));
   }
 
   return tensorflow::Status::OK();
@@ -237,9 +237,9 @@ void Table::Close() {
   rate_limiter_->Cancel(&mu_);
 }
 
-void Table::DeleteItem(Table::Key key) {
+tensorflow::Status Table::DeleteItem(Table::Key key) {
   auto it = data_.find(key);
-  if (it == data_.end()) return;
+  if (it == data_.end()) return tensorflow::Status::OK();
 
   for (auto& extension : extensions_) {
     extension->OnDelete(&mu_, it->second);
@@ -257,8 +257,9 @@ void Table::DeleteItem(Table::Key key) {
 
   data_.erase(it);
   rate_limiter_->Delete(&mu_);
-  TF_CHECK_OK(sampler_->Delete(key));
-  TF_CHECK_OK(remover_->Delete(key));
+  TF_RETURN_IF_ERROR(sampler_->Delete(key));
+  TF_RETURN_IF_ERROR(remover_->Delete(key));
+  return tensorflow::Status::OK();
 }
 
 tensorflow::Status Table::UpdateItem(

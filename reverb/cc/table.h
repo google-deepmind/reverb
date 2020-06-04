@@ -246,7 +246,7 @@ class Table {
 
   // Deletes the item associated with the key from `data_`, `sampler_` and
   // `remover_`. Ignores the key if it cannot be found.
-  void DeleteItem(Key key) ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_);
+  tensorflow::Status DeleteItem(Key key) ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_);
 
   // Distribution used for sampling.
   std::shared_ptr<ItemSelectorInterface> sampler_ ABSL_GUARDED_BY(mu_);

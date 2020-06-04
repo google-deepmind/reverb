@@ -31,22 +31,22 @@ namespace {
 
 class ServerImpl : public Server {
  public:
-  ServerImpl(std::vector<std::shared_ptr<Table>> tables, int port,
-             std::shared_ptr<CheckpointerInterface> checkpointer)
-      : port_(port),
-        reverb_service_(absl::make_unique<ReverbServiceImpl>(
-            std::move(tables), std::move(checkpointer))),
-        server_(grpc::ServerBuilder()
-                    .AddListeningPort(absl::StrCat("[::]:", port),
-                                      MakeServerCredentials())
-                    .RegisterService(reverb_service_.get())
-                    .SetMaxSendMessageSize(kMaxMessageSize)
-                    .SetMaxReceiveMessageSize(kMaxMessageSize)
-                    .BuildAndStart()) {}
+  ServerImpl(int port) : port_(port) {}
 
-  tensorflow::Status Initialize() {
+  tensorflow::Status Initialize(
+      std::vector<std::shared_ptr<Table>> tables,
+      std::shared_ptr<CheckpointerInterface> checkpointer) {
     absl::WriterMutexLock lock(&mu_);
     REVERB_CHECK(!running_) << "Initialize() called twice?";
+    TF_RETURN_IF_ERROR(ReverbServiceImpl::Create(
+        std::move(tables), std::move(checkpointer), &reverb_service_));
+    server_ = grpc::ServerBuilder()
+                  .AddListeningPort(absl::StrCat("[::]:", port_),
+                                    MakeServerCredentials())
+                  .RegisterService(reverb_service_.get())
+                  .SetMaxSendMessageSize(kMaxMessageSize)
+                  .SetMaxReceiveMessageSize(kMaxMessageSize)
+                  .BuildAndStart();
     if (!server_) {
       return tensorflow::errors::InvalidArgument(
           "Failed to BuildAndStart gRPC server");
@@ -101,9 +101,8 @@ tensorflow::Status StartServer(
     std::vector<std::shared_ptr<Table>> tables, int port,
     std::shared_ptr<CheckpointerInterface> checkpointer,
     std::unique_ptr<Server> *server) {
-  auto s = absl::make_unique<ServerImpl>(std::move(tables), port,
-                                         std::move(checkpointer));
-  TF_RETURN_IF_ERROR(s->Initialize());
+  auto s = absl::make_unique<ServerImpl>(port);
+  TF_RETURN_IF_ERROR(s->Initialize(std::move(tables), std::move(checkpointer)));
   *server = std::move(s);
   return tensorflow::Status::OK();
 }

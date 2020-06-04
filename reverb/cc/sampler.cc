@@ -50,7 +50,8 @@ tensorflow::Tensor InitializeTensor(T value, int64_t length) {
   return tensor;
 }
 
-std::unique_ptr<Sample> AsSample(std::vector<SampleStreamResponse> responses) {
+tensorflow::Status AsSample(std::vector<SampleStreamResponse> responses,
+                            std::unique_ptr<Sample>* sample) {
   const auto& info = responses.front().info();
 
   // Extract all chunks belonging to this sample.
@@ -90,8 +91,13 @@ std::unique_ptr<Sample> AsSample(std::vector<SampleStreamResponse> responses) {
       if (batch_size < 0) {
         batch_size = batch.dim_size(0);
       } else {
-        REVERB_CHECK_EQ(batch_size, batch.dim_size(0))
-            << "Chunks of the same response have varying batch size.";
+        if (batch_size != batch.dim_size(0)) {
+          return tensorflow::errors::Internal(
+              "Chunks of the same response must have identical batch size, but "
+              "first chunk has batch size ", batch_size,
+              " while the current chunk has batch size ",
+              batch.dim_size(0));
+        }
       }
 
       batch =
@@ -111,8 +117,9 @@ std::unique_ptr<Sample> AsSample(std::vector<SampleStreamResponse> responses) {
 
   REVERB_CHECK_EQ(remaining, 0);
 
-  return absl::make_unique<Sample>(info.item().key(), info.probability(),
-                                   info.table_size(), std::move(chunks));
+  *sample = absl::make_unique<Sample>(info.item().key(), info.probability(),
+                                      info.table_size(), std::move(chunks));
+  return tensorflow::Status::OK();
 }
 
 }  // namespace
@@ -307,7 +314,12 @@ std::pair<int64_t, grpc::Status> Sampler::Worker::OpenStreamAndFetch(
         responses.push_back(std::move(response));
       }
 
-      if (!queue->Push(AsSample(std::move(responses)))) {
+      std::unique_ptr<Sample> sample;
+      auto status = AsSample(std::move(responses), &sample);
+      if (!status.ok()) {
+        return {num_samples_returned, ToGrpcStatus(status)};
+      }
+      if (!queue->Push(std::move(sample))) {
         return {num_samples_returned,
                 grpc::Status(grpc::StatusCode::CANCELLED,
                              "`Close` called on Sampler.")};
@@ -316,8 +328,13 @@ std::pair<int64_t, grpc::Status> Sampler::Worker::OpenStreamAndFetch(
     }
   }
 
-  // TODO(b/147404612): Remove this or return INTERNAL error.
-  REVERB_CHECK_EQ(num_samples_returned, num_samples);
+  if (num_samples_returned != num_samples) {
+    return {
+        num_samples_returned,
+        grpc::Status(grpc::StatusCode::INTERNAL,
+                     absl::StrCat("num_samples_returned != num_samples (",
+                                  num_samples_returned, " vs. ", num_samples))};
+  }
   return {num_samples_returned, grpc::Status::OK};
 }
 

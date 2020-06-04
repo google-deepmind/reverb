@@ -155,8 +155,10 @@ std::unique_ptr<ReverbServiceImpl> MakeService(
       /*extensions=*/
       std::vector<std::shared_ptr<TableExtensionInterface>>{},
       /*signature=*/absl::make_optional(MakeSignature())));
-  return absl::make_unique<ReverbServiceImpl>(std::move(tables),
-                                              std::move(checkpointer));
+  std::unique_ptr<ReverbServiceImpl> service;
+  TF_CHECK_OK(ReverbServiceImpl::Create(std::move(tables),
+                                        std::move(checkpointer), &service));
+  return service;
 }
 
 std::unique_ptr<ReverbServiceImpl> MakeService(int max_size) {

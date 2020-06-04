@@ -35,9 +35,13 @@ namespace reverb {
 // Implements ReverbService. See reverb_service.proto for documentation.
 class ReverbServiceImpl : public /* grpc_gen:: */ReverbService::Service {
  public:
-  explicit ReverbServiceImpl(
+  static tensorflow::Status Create(
       std::vector<std::shared_ptr<Table>> tables,
-      std::shared_ptr<CheckpointerInterface> checkpointer = nullptr);
+      std::shared_ptr<CheckpointerInterface> checkpointer,
+      std::unique_ptr<ReverbServiceImpl>* service);
+
+  static tensorflow::Status Create(std::vector<std::shared_ptr<Table>> tables,
+                                   std::unique_ptr<ReverbServiceImpl>* service);
 
   grpc::Status Checkpoint(grpc::ServerContext* context,
                           const CheckpointRequest* request,
@@ -80,6 +84,11 @@ class ReverbServiceImpl : public /* grpc_gen:: */ReverbService::Service {
   void Close();
 
  private:
+  explicit ReverbServiceImpl(
+      std::shared_ptr<CheckpointerInterface> checkpointer = nullptr);
+
+  tensorflow::Status Initialize(std::vector<std::shared_ptr<Table>> tables);
+
   // Lookups the table for a given name. Returns nullptr if not found.
   Table* PriorityTableByName(absl::string_view name) const;
 
