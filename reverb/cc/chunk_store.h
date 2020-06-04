@@ -37,9 +37,6 @@ namespace reverb {
 // key for the mapping and wrap the ChunkData with in a thin class which
 // provides a read-only accessor to the ChunkData.
 //
-// For ChunkData that populates sequence_range, an interval tree is maintained
-// to allow lookups of intersecting ranges.
-//
 // Each Chunk is reference counted individually. When its reference count drops
 // to zero, the Chunk is destroyed and subsequent calls to Get() will no longer
 // return that Chunk. Please note that this container only holds a weak pointer
