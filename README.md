@@ -33,11 +33,11 @@ that can be used to build Reverb from source.
 ### Using pip
 
 Note: Reverb requires TensorFlow >= 2.3.0 and thus requires the
-[tf-nightly==2.3.0.dev20200529](https://pypi.org/project/tf-nightly/2.3.0.dev20200529/) package until a stable 2.3
+[tf-nightly==2.3.0.dev20200604](https://pypi.org/project/tf-nightly/2.3.0.dev20200604/) package until a stable 2.3
 [tensorflow](https://pypi.org/project/tensorflow/) release is available.
 
 ```shell
-$ pip install tf-nightly==2.3.0.dev20200529
+$ pip install tf-nightly==2.3.0.dev20200604
 $ pip install dm-reverb-nightly
 ```
 
