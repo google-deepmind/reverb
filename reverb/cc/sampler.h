@@ -23,6 +23,7 @@
 #include <vector>
 
 #include <cstdint>
+#include "absl/time/time.h"
 #include "reverb/cc/platform/thread.h"
 #include "reverb/cc/reverb_service.grpc.pb.h"
 #include "reverb/cc/support/queue.h"
@@ -31,6 +32,20 @@
 
 namespace deepmind {
 namespace reverb {
+
+// Converts `duration` to its millisecond equivalent.  If `duration` is
+// `InfiniteDuration()`, then returns `-1`.
+inline int64_t NonnegativeDurationToInt64Millis(absl::Duration duration) {
+  return (duration == absl::InfiniteDuration())
+             ? -1
+             : absl::ToInt64Milliseconds(duration);
+}
+
+// The reverse operation to `NonnegativeDurationToInt64Millis`.
+inline absl::Duration Int64MillisToNonnegativeDuration(int64_t milliseconds) {
+  return (milliseconds < 0) ? absl::InfiniteDuration()
+                            : absl::Milliseconds(milliseconds);
+}
 
 // A sample from the replay buffer.
 class Sample {
@@ -161,6 +176,19 @@ class Sampler {
     //
     // When set to `kAutoSelectValue`, `kDefaultMaxSamplesPerStream` is used.
     int max_samples_per_stream = kAutoSelectValue;
+
+    // `rate_limiter_timeout` is the timeout that workers will use when waiting
+    // for samples on a stream. This timeout is passed directly to the
+    // `Table::Sample()` call on the server. When a timeout occurs, the Sample
+    // status of `DeadlineExceeded` is returned.
+    //
+    // Note that if `num_workers > 1`, then any worker hitting the timeout will
+    // lead to the Sampler returning a `DeadlineExceeded` in calls to
+    // `GetNextSample()` and/or `GetNextTimestep()`.
+    //
+    // The default is to wait forever - or until the connection closes, or
+    // `Close` is called, whichever comes first.
+    absl::Duration rate_limiter_timeout = absl::InfiniteDuration();
   };
 
   // Constructs a new `Sampler`.
@@ -205,12 +233,15 @@ class Sampler {
     void Cancel();
 
     // Opens a new `SampleStream` to a server and requests `num_samples` samples
-    // in batches with maximum size `samples_per_request`. Once complete (either
-    // done or from non transient error), the stream is closed and the number of
-    // samples pushed to `queue` is returned together with the status of the
-    // stream.
+    // in batches with maximum size `samples_per_request`, with a timeout to
+    // pass to the `Table::Sample` call. Once complete (either
+    // done, from a non transient error, or from timing out), the stream is
+    // closed and the number of samples pushed to `queue` is returned together
+    // with the status of the stream.  A timeout will cause the Status type
+    // DeadlineExceeded to be returned.
     std::pair<int64_t, grpc::Status> OpenStreamAndFetch(
-        internal::Queue<std::unique_ptr<Sample>>* queue, int64_t num_samples);
+        internal::Queue<std::unique_ptr<Sample>>* queue, int64_t num_samples,
+        absl::Duration rate_limiter_timeout);
 
    private:
     // Stub used to open `SampleStream`-streams to a server.
@@ -264,6 +295,9 @@ class Sampler {
   // of samples has been reached, a new stream is opened through the `stub_`.
   // This ensures that data is fetched from all the servers.
   const int64_t max_samples_per_stream_;
+
+  // The rate limiter timeout argument that all workers pass to SampleStream.
+  const absl::Duration rate_limiter_timeout_;
 
   // The number of complete samples that have been successfully requested.
   int64_t requested_ ABSL_GUARDED_BY(mu_) = 0;

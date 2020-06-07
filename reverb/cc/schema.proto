@@ -174,7 +174,6 @@ message RateLimiterInfo {
 
 // Metadata about sampler or remover.  Describes its configuration.
 message KeyDistributionOptions {
-
   message Prioritized {
     double priority_exponent = 1;
   }
@@ -198,4 +197,9 @@ message KeyDistributionOptions {
 message Uint128 {
   uint64 high = 1;
   uint64 low = 2;
+}
+
+// Representation of a timeout.  A value < 0 means never time out.
+message Timeout {
+  int64 milliseconds = 1;
 }

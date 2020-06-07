@@ -113,6 +113,12 @@ message SampleStreamRequest {
 
   // The number of samples to stream. Defaults to infinite.
   int64 num_samples = 2;
+
+  // How long (in milliseconds) `Table::Sample` should wait on the rate limiter
+  // before timing out.  A timeout results in a DeadlineExceeded status being
+  // returned.  A missing value or a value of { milliseconds = -1 } means
+  // never time out.
+  Timeout rate_limiter_timeout = 3;
 }
 
 message SampleStreamResponse {

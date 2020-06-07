@@ -40,6 +40,7 @@ REGISTER_OP("ReverbDataset")
     .Attr("max_in_flight_samples_per_worker: int = 100")
     .Attr("num_workers_per_iterator: int = -1")
     .Attr("max_samples_per_stream: int = -1")
+    .Attr("rate_limiter_timeout_ms: int = -1")
     .Attr("dtypes: list(type) >= 1")
     .Attr("shapes: list(shape) >= 1")
     .Output("dataset: variant")
@@ -82,6 +83,17 @@ equal to the number of threads available on the CPU.
 `max_samples_per_stream` (defaults to -1, i.e auto selected) is the maximum
 number of samples to fetch from a stream before a new call is made. Keeping this
 number low ensures that the data is fetched uniformly from all servers.
+
+`rate_limiter_timeout_ms` (defaults to -1, i.e. never time out) is the number of
+milliseconds an iterator should wait for new data from the sampler before timing
+out. This can be useful, e.g., when the Reverb server receives data in
+collection stages - and a dataset iterator should stop when no new data is
+available for a while. If `rate_limiter_timeout_ms >= 0`, an iterator that waits
+for data longer than this will close and mark the input sequence as finished.
+Note that the timeout behavior depends on the Table's rate limiter. For example,
+the table may contain data, but the rate limiter may pause sampling - and this
+can cause a timeout to occur. Note also that when `num_workers_per_iterator >
+1`, a timeout on any given worker will cause a timeout for the dataset.
 )doc");
 
 class ReverbDatasetOp : public tensorflow::data::DatasetOpKernel {
@@ -99,8 +111,14 @@ class ReverbDatasetOp : public tensorflow::data::DatasetOpKernel {
                                      &sampler_options_.max_samples_per_stream));
     OP_REQUIRES_OK(ctx, ctx->GetAttr("sequence_length", &sequence_length_));
     OP_REQUIRES_OK(ctx, ctx->GetAttr("emit_timesteps", &emit_timesteps_));
-    OP_REQUIRES_OK(ctx, ctx->GetAttr("dtypes", &dtypes_));
+    tensorflow::int64 rate_limiter_timeout_ms;
+    OP_REQUIRES_OK(
+        ctx, ctx->GetAttr("rate_limiter_timeout_ms", &rate_limiter_timeout_ms));
     OP_REQUIRES_OK(ctx, ctx->GetAttr("shapes", &shapes_));
+    OP_REQUIRES_OK(ctx, ctx->GetAttr("dtypes", &dtypes_));
+
+    sampler_options_.rate_limiter_timeout =
+        Int64MillisToNonnegativeDuration(rate_limiter_timeout_ms);
 
     if (!emit_timesteps_) {
       for (int i = 0; i < shapes_.size(); i++) {
@@ -184,6 +202,7 @@ class ReverbDatasetOp : public tensorflow::data::DatasetOpKernel {
       tensorflow::AttrValue max_samples_per_stream_attr;
       tensorflow::AttrValue sequence_length_attr;
       tensorflow::AttrValue emit_timesteps_attr;
+      tensorflow::AttrValue rate_limiter_timeout_ms_attr;
       tensorflow::AttrValue dtypes_attr;
       tensorflow::AttrValue shapes_attr;
 
@@ -194,6 +213,10 @@ class ReverbDatasetOp : public tensorflow::data::DatasetOpKernel {
       b->BuildAttrValue(sampler_options_.num_workers, &num_workers_attr);
       b->BuildAttrValue(sampler_options_.max_samples_per_stream,
                         &max_samples_per_stream_attr);
+      b->BuildAttrValue(
+          static_cast<tensorflow::int64>(NonnegativeDurationToInt64Millis(
+              sampler_options_.rate_limiter_timeout)),
+          &rate_limiter_timeout_ms_attr);
       b->BuildAttrValue(sequence_length_, &sequence_length_attr);
       b->BuildAttrValue(emit_timesteps_, &emit_timesteps_attr);
       b->BuildAttrValue(dtypes_, &dtypes_attr);
@@ -210,6 +233,7 @@ class ReverbDatasetOp : public tensorflow::data::DatasetOpKernel {
               {"max_samples_per_stream", max_samples_per_stream_attr},
               {"sequence_length", sequence_length_attr},
               {"emit_timesteps", emit_timesteps_attr},
+              {"rate_limiter_timeout_ms", rate_limiter_timeout_ms_attr},
               {"dtypes", dtypes_attr},
               {"shapes", shapes_attr},
           },
@@ -251,16 +275,16 @@ class ReverbDatasetOp : public tensorflow::data::DatasetOpKernel {
 
         // TODO(b/154929217): Expose this option so it can be set to infinite
         // outside of tests.
-        const auto kTimeout = absl::Seconds(30);
-        auto status =
-            client_->NewSampler(table_, sampler_options_,
-                                /*validation_dtypes=*/dtypes_,
-                                validation_shapes, kTimeout, &sampler_);
+        constexpr auto kValidationTimeout = absl::Seconds(30);
+        auto status = client_->NewSampler(table_, sampler_options_,
+                                          /*validation_dtypes=*/dtypes_,
+                                          validation_shapes, kValidationTimeout,
+                                          &sampler_);
         if (tensorflow::errors::IsDeadlineExceeded(status)) {
           REVERB_LOG(REVERB_WARNING)
               << "Unable to validate shapes and dtypes of new sampler for '"
               << table_ << "' as server could not be reached in time ("
-              << kTimeout
+              << kValidationTimeout
               << "). We were thus unable to fetch signature from server. The "
                  "sampler will be constructed without validating the dtypes "
                  "and shapes.";
@@ -273,8 +297,7 @@ class ReverbDatasetOp : public tensorflow::data::DatasetOpKernel {
           tensorflow::data::IteratorContext* ctx,
           std::vector<tensorflow::Tensor>* out_tensors,
           bool* end_of_sequence) override {
-        REVERB_CHECK(sampler_.get() != nullptr)
-            << "Initialize was not called?";
+        REVERB_CHECK(sampler_.get() != nullptr) << "Initialize was not called?";
 
         auto token = ctx->cancellation_manager()->get_cancellation_token();
         bool registered = ctx->cancellation_manager()->RegisterCallback(
@@ -316,9 +339,18 @@ class ReverbDatasetOp : public tensorflow::data::DatasetOpKernel {
 
         if (status.ok()) {
           *end_of_sequence = false;
+          return status;
+        } else if (tensorflow::errors::IsDeadlineExceeded(status) &&
+                   sampler_options_.rate_limiter_timeout <
+                       absl::InfiniteDuration() &&
+                   status.error_message().find("Rate Limiter") !=
+                       std::string::npos) {
+          // TODO(157580783): Move the error string above to a common library.
+          *end_of_sequence = true;
+          return tensorflow::Status::OK();
+        } else {
+          return status;
         }
-
-        return status;
       }
 
      protected:

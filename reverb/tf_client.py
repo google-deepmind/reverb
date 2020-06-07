@@ -56,7 +56,8 @@ class ReplayDataset(tf.data.Dataset):
                num_workers_per_iterator: int = -1,
                max_samples_per_stream: int = -1,
                sequence_length: Optional[int] = None,
-               emit_timesteps: bool = True):
+               emit_timesteps: bool = True,
+               rate_limiter_timeout_ms: int = -1):
     """Constructs a new ReplayDataset.
 
     Args:
@@ -70,34 +71,42 @@ class ReplayDataset(tf.data.Dataset):
         samples are fetched from single snapshot of the replay (followed by a
         period of lower activity as the samples are consumed). A good rule of
         thumb is to set this value to 2-3x times the batch size used.
-      num_workers_per_iterator: (Defaults to -1, i.e auto selected) The
-        number of worker threads to create per dataset iterator. When the
-        selected table uses a FIFO sampler (i.e a queue) then exactly 1 worker
-        must be used to avoid races causing invalid ordering of items. For all
-        other samplers, this value should be roughly equal to the number of
-        threads available on the CPU.
-      max_samples_per_stream: (Defaults to -1, i.e auto selected) The
-        maximum number of samples to fetch from a stream before a new call is
-        made. Keeping this number low ensures that the data is fetched
-        uniformly from all server.
+      num_workers_per_iterator: (Defaults to -1, i.e auto selected) The number
+        of worker threads to create per dataset iterator. When the selected
+        table uses a FIFO sampler (i.e a queue) then exactly 1 worker must be
+        used to avoid races causing invalid ordering of items. For all other
+        samplers, this value should be roughly equal to the number of threads
+        available on the CPU.
+      max_samples_per_stream: (Defaults to -1, i.e auto selected) The maximum
+        number of samples to fetch from a stream before a new call is made.
+        Keeping this number low ensures that the data is fetched uniformly from
+        all server.
       sequence_length: (Defaults to None, i.e unknown) The number of timesteps
         that each sample consists of. If set then the length of samples received
         from the server will be validated against this number.
       emit_timesteps: (Defaults to True) If set, timesteps instead of full
-        sequences are returned from the dataset. Returning sequences instead
-        of timesteps can be more efficient as the memcopies caused by the
-        splitting and batching of tensor can be avoided. Note that if set to
-        False then then all `shapes` must have dim[0] equal to
-        `sequence_length`.
+        sequences are returned from the dataset. Returning sequences instead of
+        timesteps can be more efficient as the memcopies caused by the splitting
+        and batching of tensor can be avoided. Note that if set to False then
+        then all `shapes` must have dim[0] equal to `sequence_length`.
+      rate_limiter_timeout_ms: (Defaults to -1: infinite).  Timeout
+        (in milliseconds) to wait on the rate limiter when sampling from the
+        table. If `rate_limiter_timeout_ms >= 0`, this is the timeout passed to
+        `Table::Sample` describing how long to wait for the rate limiter to
+        allow sampling. The first time that a request times out (across any of
+        the workers), the Dataset iterator is closed and the sequence is
+        considered finished.
 
     Raises:
       ValueError: If `dtypes` and `shapes` don't share the same structure.
-      ValueError: If max_in_flight_samples_per_worker is not a positive integer.
-      ValueError: If num_workers_per_iterator is not a positive integer or -1.
-      ValueError: If max_samples_per_stream is not a positive integer or -1.
-      ValueError: If sequence_length is not a positive integer or None.
-      ValueError: If emit_timesteps is False and not all items in shapes has
-        sequence_length as its leading dimension.
+      ValueError: If `max_in_flight_samples_per_worker` is not a
+        positive integer.
+      ValueError: If `num_workers_per_iterator` is not a positive integer or -1.
+      ValueError: If `max_samples_per_stream` is not a positive integer or -1.
+      ValueError: If `sequence_length` is not a positive integer or None.
+      ValueError: If `emit_timesteps is False` and not all items in `shapes` has
+        `sequence_length` as its leading dimension.
+      ValueError: If `rate_limiter_timeout_ms < -1`.
     """
     tree.assert_same_structure(dtypes, shapes, False)
     if max_in_flight_samples_per_worker < 1:
@@ -116,6 +125,9 @@ class ReplayDataset(tf.data.Dataset):
       raise ValueError(
           'sequence_length (%s) must be None or a positive integer' %
           sequence_length)
+    if rate_limiter_timeout_ms < -1:
+      raise ValueError('rate_limiter_timeout_ms (%d) must be an integer >= -1' %
+                       rate_limiter_timeout_ms)
 
     # Add the info fields.
     dtypes = replay_sample.ReplaySample(replay_sample.SampleInfo.tf_dtypes(),
@@ -155,6 +167,7 @@ class ReplayDataset(tf.data.Dataset):
     self._max_in_flight_samples_per_worker = max_in_flight_samples_per_worker
     self._num_workers_per_iterator = num_workers_per_iterator
     self._max_samples_per_stream = max_samples_per_stream
+    self._rate_limiter_timeout_ms = rate_limiter_timeout_ms
 
     if _is_tf1_runtime():
       # Disabling to avoid errors given the different tf.data.Dataset init args
@@ -176,7 +189,8 @@ class ReplayDataset(tf.data.Dataset):
         sequence_length=self._sequence_length or -1,
         max_in_flight_samples_per_worker=self._max_in_flight_samples_per_worker,
         num_workers_per_iterator=self._num_workers_per_iterator,
-        max_samples_per_stream=self._max_samples_per_stream)
+        max_samples_per_stream=self._max_samples_per_stream,
+        rate_limiter_timeout_ms=self._rate_limiter_timeout_ms)
 
   def _inputs(self) -> List[Any]:
     return []
@@ -291,15 +305,18 @@ class TFClient:
       return gen_client_ops.reverb_client_update_priorities(
           self._handle, table, keys, priorities, name=scope)
 
-  def dataset(self,
-              table: str,
-              dtypes: Sequence[Any],
-              shapes: Sequence[Any],
-              capacity: int = 100,
-              num_workers_per_iterator: int = -1,
-              max_samples_per_stream: int = -1,
-              sequence_length: Optional[int] = None,
-              emit_timesteps: bool = True) -> ReplayDataset:
+  def dataset(
+      self,
+      table: str,
+      dtypes: Sequence[Any],
+      shapes: Sequence[Any],
+      capacity: int = 100,
+      num_workers_per_iterator: int = -1,
+      max_samples_per_stream: int = -1,
+      sequence_length: Optional[int] = None,
+      emit_timesteps: bool = True,
+      rate_limiter_timeout_ms: int = -1,
+  ) -> ReplayDataset:
     """Creates a ReplayDataset which samples from Replay service.
 
     Note: Uses of Python lists are converted into tuples as nest used by the
@@ -310,9 +327,9 @@ class TFClient:
     Args:
       table: Probability table to sample from.
       dtypes: Dtypes of the data output. Can be nested.
-      shapes: Shapes of the data output. Can be nested. When `emit_timesteps`
-        is True this is the shape of a single timestep in the sampled items;
-        when it is False shapes must include `sequence_length`.
+      shapes: Shapes of the data output. Can be nested. When `emit_timesteps` is
+        True this is the shape of a single timestep in the sampled items; when
+        it is False shapes must include `sequence_length`.
       capacity: (Defaults to 100) Maximum number of samples requested by the
         workers with each request. Higher values give higher throughput but too
         big values can result in skewed sampling distributions as large number
@@ -333,11 +350,17 @@ class TFClient:
         that each sample consists of. If set then the length of samples received
         from the server will be validated against this number.
       emit_timesteps: (Defaults to True) If set, timesteps instead of full
-        sequences are retturned from the dataset. Returning sequences instead
-        of timesteps can be more efficient as the memcopies caused by the
-        splitting and batching of tensor can be avoided. Note that if set to
-        False then then all `shapes` must have dim[0] equal to
-        `sequence_length`.
+        sequences are retturned from the dataset. Returning sequences instead of
+        timesteps can be more efficient as the memcopies caused by the splitting
+        and batching of tensor can be avoided. Note that if set to False then
+        then all `shapes` must have dim[0] equal to `sequence_length`.
+      rate_limiter_timeout_ms: (Defaults to -1: infinite).  Timeout (in
+        milliseconds) to wait on the rate limiter when sampling from the table.
+        If `rate_limiter_timeout_ms >= 0`, this is the timeout passed to
+        `Table::Sample` describing how long to wait for the rate limiter to
+        allow sampling. The first time that a request times out (across any of
+        the workers), the Dataset iterator is closed and the sequence is
+        considered finished.
 
     Returns:
       A ReplayDataset with the above specification.
@@ -351,7 +374,8 @@ class TFClient:
         num_workers_per_iterator=num_workers_per_iterator,
         max_samples_per_stream=max_samples_per_stream,
         sequence_length=sequence_length,
-        emit_timesteps=emit_timesteps)
+        emit_timesteps=emit_timesteps,
+        rate_limiter_timeout_ms=rate_limiter_timeout_ms)
 
 
 def _convert_lists_to_tuples(structure: Any) -> Any:

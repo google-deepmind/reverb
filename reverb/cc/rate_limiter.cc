@@ -45,6 +45,9 @@ inline void EncodeAsDurationProto(const absl::Duration& d,
       absl::ToInt64Nanoseconds(d - absl::Seconds(proto->seconds())));
 }
 
+constexpr auto kTimeoutExceededErrorMessage =
+    "Rate Limiter: Timeout exceeded before the right to insert was acquired.";
+
 }  // namespace
 
 RateLimiter::RateLimiter(double samples_per_insert, int64_t min_size_to_sample,
@@ -76,8 +79,8 @@ RateLimiter::RateLimiter(const RateLimiterCheckpoint& checkpoint)
 tensorflow::Status RateLimiter::RegisterTable(Table* table) {
   if (table_) {
     return tensorflow::errors::FailedPrecondition(
-        "Attempting to registering a table ", table,
-        " (name: ", table->name(), ") with RateLimiter when is ",
+        "Attempting to registering a table ", table, " (name: ", table->name(),
+        ") with RateLimiter when is ",
         "already registered with this limiter: ", table_,
         " (name: ", table_->name(), ")");
   }
@@ -102,7 +105,7 @@ tensorflow::Status RateLimiter::AwaitCanInsert(absl::Mutex* mu,
       event.set_was_blocked();
       if (can_insert_cv_.WaitWithDeadline(mu, deadline)) {
         return tensorflow::errors::DeadlineExceeded(
-            "timeout exceeded before right to insert was acquired.");
+            kTimeoutExceededErrorMessage);
       }
     }
   }
@@ -137,7 +140,7 @@ tensorflow::Status RateLimiter::AwaitAndFinalizeSample(absl::Mutex* mu,
       event.set_was_blocked();
       if (can_sample_cv_.WaitWithDeadline(mu, deadline)) {
         return tensorflow::errors::DeadlineExceeded(
-            "timeout exceeded before right to sample was acquired.");
+            kTimeoutExceededErrorMessage);
       }
     }
   }

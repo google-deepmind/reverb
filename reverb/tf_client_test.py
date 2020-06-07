@@ -423,6 +423,67 @@ class DatasetTest(tf.test.TestCase, parameterized.TestCase):
       np.testing.assert_array_equal(sample.data[0],
                                     np.zeros((3, 3), dtype=np.float32))
 
+  def test_timeout_invalid_arguments(self):
+    client = tf_client.TFClient(self._client.server_address)
+
+    with self.assertRaisesRegex(ValueError, r'must be an integer >= -1'):
+      client.dataset(
+          table='dist',
+          dtypes=(tf.float32,),
+          shapes=(tf.TensorShape([3, 3]),),
+          rate_limiter_timeout_ms=-2)
+
+  def test_timeout(self):
+    client = tf_client.TFClient(self._client.server_address)
+
+    dataset_0s = client.dataset(
+        table='dist',
+        dtypes=(tf.float32,),
+        shapes=(tf.TensorShape([3, 3]),),
+        rate_limiter_timeout_ms=0)
+
+    dataset_1s = client.dataset(
+        table='dist',
+        dtypes=(tf.float32,),
+        shapes=(tf.TensorShape([3, 3]),),
+        rate_limiter_timeout_ms=1000)
+
+    dataset_2s = client.dataset(
+        table='dist',
+        dtypes=(tf.float32,),
+        shapes=(tf.TensorShape([3, 3]),),
+        rate_limiter_timeout_ms=2000)
+
+    start_time = time.time()
+    with self.assertRaisesWithPredicateMatch(tf.errors.OutOfRangeError,
+                                             r'End of sequence'):
+      self._sample_from(dataset_0s, 1)
+    duration = time.time() - start_time
+    self.assertGreaterEqual(duration, 0)
+    self.assertLess(duration, 5)
+
+    start_time = time.time()
+    with self.assertRaisesWithPredicateMatch(tf.errors.OutOfRangeError,
+                                             r'End of sequence'):
+      self._sample_from(dataset_1s, 1)
+    duration = time.time() - start_time
+    self.assertGreaterEqual(duration, 1)
+    self.assertLess(duration, 10)
+
+    start_time = time.time()
+    with self.assertRaisesWithPredicateMatch(tf.errors.OutOfRangeError,
+                                             r'End of sequence'):
+      self._sample_from(dataset_2s, 1)
+    duration = time.time() - start_time
+    self.assertGreaterEqual(duration, 2)
+    self.assertLess(duration, 10)
+
+    # If we insert some data, and the rate limiter doesn't force any waiting,
+    # then we can ask for a timeout of 0s and still get data back.
+    self._populate_replay()
+    got = self._sample_from(dataset_0s, 2)
+    self.assertLen(got, 2)
+
   @parameterized.parameters(['signatured'], ['bounded_spec_signatured'])
   def test_inconsistent_signature_size(self, table_name):
     self._populate_replay()

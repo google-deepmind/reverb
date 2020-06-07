@@ -155,8 +155,10 @@ class Table {
   // strategy passed to the constructor. We only allow the sample operation if
   // the `rate_limiter_` allows it. If the item has reached
   // `max_times_sampled_`, then we delete it before returning so it cannot be
-  // sampled again.
-  tensorflow::Status Sample(SampledItem* item);
+  // sampled again.  If `Sample` waits for `rate_limiter_` for longer than
+  // `timeout`, instead of sampling a `DeadlineExceeded` status is returned.
+  tensorflow::Status Sample(SampledItem* item,
+                            absl::Duration timeout = kDefaultTimeout);
 
   // Returns true iff the current state would allow for `num_samples` to be
   // sampled. Dies if `num_samples` is < 1.

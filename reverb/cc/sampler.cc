@@ -133,6 +133,7 @@ Sampler::Sampler(std::shared_ptr</* grpc_gen:: */ReverbService::StubInterface> s
       max_samples_per_stream_(options.max_samples_per_stream == kAutoSelectValue
                                   ? kDefaultMaxSamplesPerStream
                                   : options.max_samples_per_stream),
+      rate_limiter_timeout_(options.rate_limiter_timeout),
       active_sample_(nullptr),
       samples_(std::max<int>(options.num_workers, 1)) {
   REVERB_CHECK_GT(max_samples_, 0);
@@ -248,7 +249,8 @@ void Sampler::RunWorker(Worker* worker) {
     requested_ += samples_to_stream;
     mu_.Unlock();
 
-    auto result = worker->OpenStreamAndFetch(&samples_, samples_to_stream);
+    auto result = worker->OpenStreamAndFetch(&samples_, samples_to_stream,
+                                             rate_limiter_timeout_);
 
     {
       absl::WriterMutexLock lock(&mu_);
@@ -278,7 +280,7 @@ Sampler::Worker::Worker(
 
 std::pair<int64_t, grpc::Status> Sampler::Worker::OpenStreamAndFetch(
     deepmind::reverb::internal::Queue<std::unique_ptr<Sample>>* queue,
-    int64_t num_samples) {
+    int64_t num_samples, absl::Duration rate_limiter_timeout) {
   std::unique_ptr<grpc::ClientReaderWriterInterface<SampleStreamRequest,
                                                     SampleStreamResponse>>
       stream;
@@ -299,6 +301,8 @@ std::pair<int64_t, grpc::Status> Sampler::Worker::OpenStreamAndFetch(
     request.set_table(table_);
     request.set_num_samples(
         std::min(samples_per_request_, num_samples - num_samples_returned));
+    request.mutable_rate_limiter_timeout()->set_milliseconds(
+        NonnegativeDurationToInt64Millis(rate_limiter_timeout));
 
     if (!stream->Write(request)) {
       return {num_samples_returned, stream->Finish()};

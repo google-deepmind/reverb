@@ -16,7 +16,6 @@
 #define REVERB_CC_SUPPORT_UINT128_H_
 
 #include "reverb/cc/schema.pb.h"
-#include "reverb/cc/support/uint128.h"
 
 namespace deepmind {
 namespace reverb {

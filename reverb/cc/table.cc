@@ -175,9 +175,10 @@ tensorflow::Status Table::MutateItems(absl::Span<const KeyWithPriority> updates,
   return tensorflow::Status::OK();
 }
 
-tensorflow::Status Table::Sample(SampledItem* sampled_item) {
+tensorflow::Status Table::Sample(SampledItem* sampled_item,
+                                 absl::Duration timeout) {
   absl::WriterMutexLock lock(&mu_);
-  TF_RETURN_IF_ERROR(rate_limiter_->AwaitAndFinalizeSample(&mu_));
+  TF_RETURN_IF_ERROR(rate_limiter_->AwaitAndFinalizeSample(&mu_, timeout));
 
   ItemSelectorInterface::KeyWithProbability sample = sampler_->Sample();
   Item& item = data_.at(sample.key);
