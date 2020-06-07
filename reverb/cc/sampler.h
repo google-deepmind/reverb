@@ -51,7 +51,7 @@ inline absl::Duration Int64MillisToNonnegativeDuration(int64_t milliseconds) {
 class Sample {
  public:
   Sample(tensorflow::uint64 key, double probability,
-         tensorflow::int64 table_size,
+         tensorflow::int64 table_size, double priority,
          std::list<std::vector<tensorflow::Tensor>> chunks);
 
   // Returns the next time step from this sample as a flat sequence of tensors.
@@ -61,11 +61,11 @@ class Sample {
   // Returns the entire sample as a flat sequence of batched tensors.
   // CHECK-fails if `GetNextTimestep()` has already been called on this sample.
   // Return:
-  //   K+3 tensors each having a leading dimension of size N (= sample
-  //   length). The first thre tensors are 1D (length N) representing the key,
-  //   sample probability and table size respectively. The following K tensors
-  //   holds the actual timestep data batched into a tensor of shape [N,
-  //   ...original_shape].
+  //   K+4 tensors each having a leading dimension of size N (= sample
+  //   length). The first K tensors holds the actual timestep data batched into
+  //   a tensor of shape [N, ...original_shape]. The following four tensors are
+  //   1D (length N) tensors representing the key, sample probability, table
+  //   size and priority respectively.
   std::vector<tensorflow::Tensor> AsBatchedTimesteps();
 
   // Returns true if the end of the sample has been reached.
@@ -79,6 +79,8 @@ class Sample {
   // The size of the replay table this time step was sampled from at the time
   // of sampling.
   tensorflow::int64 table_size_;
+  // Priority of the replay item this time step was sampled from.
+  double priority_;
 
   // Total number of time steps in this sample.
   int64_t num_timesteps_;

@@ -348,10 +348,12 @@ class Client:
         key = int(step[0])
         probability = float(step[1])
         table_size = int(step[2])
-        data = step[3:]
+        priority = float(step[3])
+        data = step[4:]
         sequence.append(
             replay_sample.ReplaySample(
-                info=replay_sample.SampleInfo(key, probability, table_size),
+                info=replay_sample.SampleInfo(key, probability, table_size,
+                                              priority),
                 data=data))
 
       yield sequence

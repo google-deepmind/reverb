@@ -77,6 +77,33 @@ class ClientTest(absltest.TestCase):
         sample = next(self.client.sample(TABLE_NAME, 1))[0]
         self.assertAlmostEqual(sample.info.probability, 1.0 / i, 0.01)
 
+  def test_sample_sets_priority(self):
+    # Set the test context by manually mutating priorities to known ones.
+    for i in range(10):
+      self.client.insert(i, {TABLE_NAME: 1000.0})
+
+    def _sample_priorities(n=100):
+      return {
+          sample[0].info.key: sample[0].info.priority
+          for sample in self.client.sample(TABLE_NAME, n)
+      }
+
+    original_priorities = _sample_priorities(n=100)
+    self.assertNotEmpty(original_priorities)
+    self.assertSequenceAlmostEqual([1000.0] * len(original_priorities),
+                                   original_priorities.values())
+    expected_priorities = {
+        key: float(i) for i, key in enumerate(original_priorities)
+    }
+    self.client.mutate_priorities(TABLE_NAME, updates=expected_priorities)
+
+    # Resample and check priorities.
+    sampled_priorities = _sample_priorities(n=100)
+    self.assertNotEmpty(sampled_priorities)
+    for key, priority in sampled_priorities.items():
+      if key in expected_priorities:
+        self.assertAlmostEqual(expected_priorities[key], priority)
+
   def test_insert_raises_if_priorities_empty(self):
     with self.assertRaises(ValueError):
       self.client.insert([1], {})

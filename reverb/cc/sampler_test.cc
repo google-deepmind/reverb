@@ -33,7 +33,9 @@
 #include "reverb/cc/tensor_compression.h"
 #include "reverb/cc/testing/tensor_testutil.h"
 #include "reverb/cc/testing/time_testutil.h"
+#include "tensorflow/core/framework/tensor_shape.h"
 #include "tensorflow/core/framework/tensor_util.h"
+#include "tensorflow/core/framework/types.pb.h"
 #include "tensorflow/core/lib/core/status_test_util.h"
 
 namespace deepmind {
@@ -152,6 +154,18 @@ tensorflow::Tensor MakeTensor(int length) {
   return tensor;
 }
 
+template <tensorflow::DataType dtype>
+tensorflow::Tensor MakeConstantTensor(
+    const tensorflow::TensorShape& shape,
+    typename tensorflow::EnumToDataType<dtype>::Type value) {
+  tensorflow::Tensor tensor(dtype, shape);
+  for (int i = 0; i < tensor.NumElements(); i++) {
+    tensor.flat<typename tensorflow::EnumToDataType<dtype>::Type>().data()[i] =
+        value;
+  }
+  return tensor;
+}
+
 SampleStreamResponse MakeResponse(int item_length, bool delta_encode = false,
                                   int offset = 0, int data_length = 0) {
   if (data_length == 0) {
@@ -207,19 +221,44 @@ TEST(SamplerTest, SetsEndOfSequence) {
   EXPECT_TRUE(end_of_sequence);
 }
 
+TEST(SamplerTest, GetNextSampleReturnsPriority) {
+  std::vector<SampleStreamResponse> responses = {MakeResponse(5),
+                                                 MakeResponse(3)};
+  responses[0].mutable_info()->mutable_item()->set_priority(100.0);
+  responses[1].mutable_info()->mutable_item()->set_priority(101.0);
+  auto stub = MakeGoodStub(responses);
+  Sampler sampler(stub, "table", {2, 1});
+
+  std::vector<tensorflow::Tensor> first;
+  TF_EXPECT_OK(sampler.GetNextSample(&first));
+  EXPECT_THAT(first,
+              SizeIs(5));  // ID, probability, table size, priority, data.
+  ExpectTensorEqual<double>(
+      first[3], MakeConstantTensor<tensorflow::DT_DOUBLE>({5}, 100.0));
+
+  std::vector<tensorflow::Tensor> second;
+  TF_EXPECT_OK(sampler.GetNextSample(&second));
+  EXPECT_THAT(second,
+              SizeIs(5));  // ID, probability, table size, priority, data.
+  ExpectTensorEqual<double>(
+      second[3], MakeConstantTensor<tensorflow::DT_DOUBLE>({3}, 101.0));
+}
+
 TEST(SamplerTest, GetNextSampleReturnsWholeSequence) {
   auto stub = MakeGoodStub({MakeResponse(5), MakeResponse(3)});
   Sampler sampler(stub, "table", {2, 1});
 
   std::vector<tensorflow::Tensor> first;
   TF_EXPECT_OK(sampler.GetNextSample(&first));
-  EXPECT_THAT(first, SizeIs(4));  // ID, probability, table size, data.
-  ExpectTensorEqual<tensorflow::uint64>(first[3], MakeTensor(5));
+  EXPECT_THAT(first,
+              SizeIs(5));  // ID, probability, table size, priority, data.
+  ExpectTensorEqual<tensorflow::uint64>(first[4], MakeTensor(5));
 
   std::vector<tensorflow::Tensor> second;
   TF_EXPECT_OK(sampler.GetNextSample(&second));
-  EXPECT_THAT(second, SizeIs(4));  // ID, probability, table size, data.
-  ExpectTensorEqual<tensorflow::uint64>(second[3], MakeTensor(3));
+  EXPECT_THAT(second,
+              SizeIs(5));  // ID, probability, table size, priority, data.
+  ExpectTensorEqual<tensorflow::uint64>(second[4], MakeTensor(3));
 }
 
 TEST(SamplerTest, GetNextSampleTrimsSequence) {
@@ -232,23 +271,25 @@ TEST(SamplerTest, GetNextSampleTrimsSequence) {
 
   std::vector<tensorflow::Tensor> start_trimmed;
   TF_EXPECT_OK(sampler.GetNextSample(&start_trimmed));
-  ASSERT_THAT(start_trimmed, SizeIs(4));  // ID, probability, table size, data.
+  ASSERT_THAT(start_trimmed,
+              SizeIs(5));  // ID, probability, table size, priority, data.
   ExpectTensorEqual<tensorflow::uint64>(
-      start_trimmed[3],
+      start_trimmed[4],
       tensorflow::tensor::DeepCopy(MakeTensor(6).Slice(1, 6)));
 
   std::vector<tensorflow::Tensor> end_trimmed;
   TF_EXPECT_OK(sampler.GetNextSample(&end_trimmed));
-  ASSERT_THAT(end_trimmed, SizeIs(4));  // ID, probability, table size, data.
-  ExpectTensorEqual<tensorflow::uint64>(end_trimmed[3],
+  ASSERT_THAT(end_trimmed,
+              SizeIs(5));  // ID, probability, table size, priority, data.
+  ExpectTensorEqual<tensorflow::uint64>(end_trimmed[4],
                                         MakeTensor(4).Slice(0, 3));
 
   std::vector<tensorflow::Tensor> start_and_end_trimmed;
   TF_EXPECT_OK(sampler.GetNextSample(&start_and_end_trimmed));
   ASSERT_THAT(start_and_end_trimmed,
-              SizeIs(4));  // ID, probability, table size, data.
+              SizeIs(5));  // ID, probability, table size, priority, data.
   ExpectTensorEqual<tensorflow::uint64>(
-      start_and_end_trimmed[3],
+      start_and_end_trimmed[4],
       tensorflow::tensor::DeepCopy(MakeTensor(10).Slice(1, 3)));
 }
 
@@ -327,7 +368,7 @@ TEST(SamplerTest, UnpacksDeltaEncodedTensors) {
   TF_EXPECT_OK(sampler.GetNextSample(&encoded));
   ASSERT_EQ(not_encoded.size(), encoded.size());
   EXPECT_EQ(encoded[0].dtype(), tensorflow::DT_UINT64);
-  for (int i = 3; i < encoded.size(); i++) {
+  for (int i = 4; i < encoded.size(); i++) {
     ExpectTensorEqual<tensorflow::uint64>(encoded[i], not_encoded[i]);
   }
 }

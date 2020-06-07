@@ -93,6 +93,9 @@ message SampleInfo {
 
   // Number of items in the table at the time of the sample operation.
   int64 table_size = 3;
+
+  // Priority of the item.
+  double priority = 4;
 }
 
 // Metadata about the table, including (optional) data signature.

@@ -136,6 +136,7 @@ class ReplayDataset(tf.data.Dataset):
         replay_sample.SampleInfo(
             tf.TensorShape([sequence_length] if not emit_timesteps else []),
             tf.TensorShape([sequence_length] if not emit_timesteps else []),
+            tf.TensorShape([sequence_length] if not emit_timesteps else []),
             tf.TensorShape([sequence_length] if not emit_timesteps else [])),
         shapes)
 
@@ -238,10 +239,11 @@ class TFClient:
       for more details.
     """
     with tf.name_scope(name, f'{self._name}_sample', ['sample']) as scope:
-      key, probability, table_size, data = gen_client_ops.reverb_client_sample(
-          self._handle, table, tree.flatten(data_dtypes), name=scope)
+      (key, probability, table_size, priority,
+       data) = gen_client_ops.reverb_client_sample(
+           self._handle, table, tree.flatten(data_dtypes), name=scope)
       return replay_sample.ReplaySample(
-          replay_sample.SampleInfo(key, probability, table_size),
+          replay_sample.SampleInfo(key, probability, table_size, priority),
           tree.unflatten_as(data_dtypes, data))
 
   def insert(self,

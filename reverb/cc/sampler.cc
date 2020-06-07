@@ -118,7 +118,8 @@ tensorflow::Status AsSample(std::vector<SampleStreamResponse> responses,
   REVERB_CHECK_EQ(remaining, 0);
 
   *sample = absl::make_unique<Sample>(info.item().key(), info.probability(),
-                                      info.table_size(), std::move(chunks));
+                                      info.table_size(), info.item().priority(),
+                                      std::move(chunks));
   return tensorflow::Status::OK();
 }
 
@@ -349,11 +350,12 @@ void Sampler::Worker::Cancel() {
 }
 
 Sample::Sample(tensorflow::uint64 key, double probability,
-               tensorflow::int64 table_size,
+               tensorflow::int64 table_size, double priority,
                std::list<std::vector<tensorflow::Tensor>> chunks)
     : key_(key),
       probability_(probability),
       table_size_(table_size),
+      priority_(priority),
       num_timesteps_(0),
       num_data_tensors_(0),
       chunks_(std::move(chunks)),
@@ -374,10 +376,11 @@ std::vector<tensorflow::Tensor> Sample::GetNextTimestep() {
 
   // Construct the output tensors.
   std::vector<tensorflow::Tensor> result;
-  result.reserve(num_data_tensors_ + 3);
+  result.reserve(num_data_tensors_ + 4);
   result.push_back(tensorflow::Tensor(key_));
   result.push_back(tensorflow::Tensor(probability_));
   result.push_back(tensorflow::Tensor(table_size_));
+  result.push_back(tensorflow::Tensor(priority_));
 
   for (const auto& t : chunks_.front()) {
     auto slice = t.SubSlice(next_timestep_index_);
@@ -405,12 +408,13 @@ bool Sample::is_end_of_sample() const { return chunks_.empty(); }
 std::vector<tensorflow::Tensor> Sample::AsBatchedTimesteps() {
   CHECK(!next_timestep_called_) << "Some time steps have been lost.";
 
-  std::vector<tensorflow::Tensor> sequences(num_data_tensors_ + 3);
+  std::vector<tensorflow::Tensor> sequences(num_data_tensors_ + 4);
 
   // Initialize the first three items with the key, probability and table size.
   sequences[0] = InitializeTensor(key_, num_timesteps_);
   sequences[1] = InitializeTensor(probability_, num_timesteps_);
   sequences[2] = InitializeTensor(table_size_, num_timesteps_);
+  sequences[3] = InitializeTensor(priority_, num_timesteps_);
 
   // Prepare the data for concatenation.
   // data_tensors[i][j] is the j-th chunk of the i-th data tensor.
@@ -426,7 +430,7 @@ std::vector<tensorflow::Tensor> Sample::AsBatchedTimesteps() {
   }
 
   // Concatenate all chunks.
-  int64_t i = 3;
+  int64_t i = 4;
   for (const auto& chunks : data_tensors) {
     TF_CHECK_OK(tensorflow::tensor::Concat(chunks, &sequences[i++]));
   }

@@ -177,6 +177,9 @@ tensorflow::Status Client::NewSampler(
       // Third element of sampled signature is the size of the table.
       dtypes_and_shapes.push_back(
           {tensorflow::DT_INT64, tensorflow::PartialTensorShape({})});
+      // Fourth element of sampled signature is the priority value.
+      dtypes_and_shapes.push_back(
+          {tensorflow::DT_DOUBLE, tensorflow::PartialTensorShape({})});
       for (const auto& dtype_and_shape : *dtypes_and_shapes_no_info) {
         dtypes_and_shapes.push_back(dtype_and_shape);
       }

@@ -102,6 +102,7 @@ class SampleOpTest(tf.test.TestCase):
       self.assertNotEqual(sample.info.key, 0)
       self.assertEqual(sample.info.probability, 1)
       self.assertEqual(sample.info.table_size, 1)
+      self.assertEqual(sample.info.priority, 1)
 
   def test_dtype_mismatch_result_in_error_raised(self):
     data = [np.zeros((81, 81))]
@@ -496,7 +497,7 @@ class DatasetTest(tf.test.TestCase, parameterized.TestCase):
     with self.assertRaisesWithPredicateMatch(
         tf.errors.InvalidArgumentError,
         r'Inconsistent number of tensors requested from table \'{}\'.  '
-        r'Requested 5 tensors, but table signature shows 4 tensors.'.format(
+        r'Requested 6 tensors, but table signature shows 5 tensors.'.format(
             table_name)):
       self._sample_from(dataset, 10)
 
@@ -509,7 +510,7 @@ class DatasetTest(tf.test.TestCase, parameterized.TestCase):
         table=table_name, dtypes=(tf.int64,), shapes=(tf.TensorShape([3, 3]),))
     with self.assertRaisesWithPredicateMatch(
         tf.errors.InvalidArgumentError,
-        r'Requested incompatible tensor at flattened index 3 from table '
+        r'Requested incompatible tensor at flattened index 4 from table '
         r'\'{}\'.  Requested \(dtype, shape\): \(int64, \[3,3\]\).  '
         r'Signature \(dtype, shape\): \(float, \[\?,\?\]\)'.format(table_name)):
       self._sample_from(dataset, 10)
@@ -523,7 +524,7 @@ class DatasetTest(tf.test.TestCase, parameterized.TestCase):
         table=table_name, dtypes=(tf.float32,), shapes=(tf.TensorShape([3]),))
     with self.assertRaisesWithPredicateMatch(
         tf.errors.InvalidArgumentError,
-        r'Requested incompatible tensor at flattened index 3 from table '
+        r'Requested incompatible tensor at flattened index 4 from table '
         r'\'{}\'.  Requested \(dtype, shape\): \(float, \[3\]\).  '
         r'Signature \(dtype, shape\): \(float, \[\?,\?\]\)'.format(table_name)):
       self._sample_from(dataset, 10)
