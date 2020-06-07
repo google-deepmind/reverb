@@ -30,6 +30,8 @@ from reverb import tf_client
 import tensorflow.compat.v1 as tf
 import tree
 
+from tensorflow.python.framework import tensor_spec  # pylint:disable=g-direct-tensorflow-import
+
 
 def make_server():
   return server.Server(
@@ -53,6 +55,21 @@ def make_server():
               max_size=1000000,
               rate_limiter=rate_limiters.MinSize(1),
               signature=tf.TensorSpec(dtype=tf.float32, shape=(None, None))),
+          server.Table(
+              'bounded_spec_signatured',
+              sampler=item_selectors.Prioritized(priority_exponent=1),
+              remover=item_selectors.Fifo(),
+              max_size=1000000,
+              rate_limiter=rate_limiters.MinSize(1),
+              # Currently only the `shape` and `dtype` of the bounded spec
+              # is considered during signature check.
+              # TODO(b/158033101): Check the boundaries as well.
+              signature=tensor_spec.BoundedTensorSpec(
+                  dtype=tf.float32,
+                  shape=(None, None),
+                  minimum=(0.0, 0.0),
+                  maximum=(10.0, 10.)),
+          ),
       ],
       port=None,
   )
@@ -297,6 +314,7 @@ class DatasetTest(tf.test.TestCase, parameterized.TestCase):
     super().tearDown()
     self._client.reset('dist')
     self._client.reset('signatured')
+    self._client.reset('bounded_spec_signatured')
 
   @classmethod
   def tearDownClass(cls):
@@ -313,6 +331,10 @@ class DatasetTest(tf.test.TestCase, parameterized.TestCase):
               table='dist', num_timesteps=sequence_length, priority=1)
           writer.create_item(
               table='signatured', num_timesteps=sequence_length, priority=1)
+          writer.create_item(
+              table='bounded_spec_signatured',
+              num_timesteps=sequence_length,
+              priority=1)
 
   def _sample_from(self, dataset, num_samples):
     iterator = dataset.make_initializable_iterator()
@@ -401,46 +423,48 @@ class DatasetTest(tf.test.TestCase, parameterized.TestCase):
       np.testing.assert_array_equal(sample.data[0],
                                     np.zeros((3, 3), dtype=np.float32))
 
-  def test_inconsistent_signature_size(self):
+  @parameterized.parameters(['signatured'], ['bounded_spec_signatured'])
+  def test_inconsistent_signature_size(self, table_name):
     self._populate_replay()
 
     client = tf_client.TFClient(self._client.server_address)
     dataset = client.dataset(
-        table='signatured',
+        table=table_name,
         dtypes=(tf.float32, tf.float64),
         shapes=(tf.TensorShape([3, 3]), tf.TensorShape([])))
     with self.assertRaisesWithPredicateMatch(
         tf.errors.InvalidArgumentError,
-        r'Inconsistent number of tensors requested from table \'signatured\'.  '
-        r'Requested 5 tensors, but table signature shows 4 tensors.'):
+        r'Inconsistent number of tensors requested from table \'{}\'.  '
+        r'Requested 5 tensors, but table signature shows 4 tensors.'.format(
+            table_name)):
       self._sample_from(dataset, 10)
 
-  def test_incomatible_signature_dtype(self):
+  @parameterized.parameters(['signatured'], ['bounded_spec_signatured'])
+  def test_incomatible_signature_dtype(self, table_name):
     self._populate_replay()
 
     client = tf_client.TFClient(self._client.server_address)
     dataset = client.dataset(
-        table='signatured',
-        dtypes=(tf.int64,),
-        shapes=(tf.TensorShape([3, 3]),))
+        table=table_name, dtypes=(tf.int64,), shapes=(tf.TensorShape([3, 3]),))
     with self.assertRaisesWithPredicateMatch(
         tf.errors.InvalidArgumentError,
         r'Requested incompatible tensor at flattened index 3 from table '
-        r'\'signatured\'.  Requested \(dtype, shape\): \(int64, \[3,3\]\).  '
-        r'Signature \(dtype, shape\): \(float, \[\?,\?\]\)'):
+        r'\'{}\'.  Requested \(dtype, shape\): \(int64, \[3,3\]\).  '
+        r'Signature \(dtype, shape\): \(float, \[\?,\?\]\)'.format(table_name)):
       self._sample_from(dataset, 10)
 
-  def test_incompatible_signature_shape(self):
+  @parameterized.parameters(['signatured'], ['bounded_spec_signatured'])
+  def test_incompatible_signature_shape(self, table_name):
     self._populate_replay()
 
     client = tf_client.TFClient(self._client.server_address)
     dataset = client.dataset(
-        table='signatured', dtypes=(tf.float32,), shapes=(tf.TensorShape([3]),))
+        table=table_name, dtypes=(tf.float32,), shapes=(tf.TensorShape([3]),))
     with self.assertRaisesWithPredicateMatch(
         tf.errors.InvalidArgumentError,
         r'Requested incompatible tensor at flattened index 3 from table '
-        r'\'signatured\'.  Requested \(dtype, shape\): \(float, \[3\]\).  '
-        r'Signature \(dtype, shape\): \(float, \[\?,\?\]\)'):
+        r'\'{}\'.  Requested \(dtype, shape\): \(float, \[3\]\).  '
+        r'Signature \(dtype, shape\): \(float, \[\?,\?\]\)'.format(table_name)):
       self._sample_from(dataset, 10)
 
   @parameterized.parameters([1], [3], [10])
@@ -465,6 +489,10 @@ class DatasetTest(tf.test.TestCase, parameterized.TestCase):
       ('signatured', 3, 3),
       ('signatured', 3, 5),
       ('signatured', 10, 10),
+      ('bounded_spec_signatured', 1, 1),
+      ('bounded_spec_signatured', 3, 3),
+      ('bounded_spec_signatured', 3, 5),
+      ('bounded_spec_signatured', 10, 10),
   )
   def test_iterate_with_sequence_length(self, table_name, sequence_length,
                                         max_time_steps):
@@ -496,6 +524,9 @@ class DatasetTest(tf.test.TestCase, parameterized.TestCase):
       ('signatured', 1),
       ('signatured', 3),
       ('signatured', 10),
+      ('bounded_spec_signatured', 1),
+      ('bounded_spec_signatured', 3),
+      ('bounded_spec_signatured', 10),
   )
   def test_iterate_with_unknown_sequence_length(self, table_name,
                                                 sequence_length):
@@ -530,6 +561,8 @@ class DatasetTest(tf.test.TestCase, parameterized.TestCase):
       ('dist', 2, 1),
       ('signatured', 1, 2),
       ('signatured', 2, 1),
+      ('bounded_spec_signatured', 1, 2),
+      ('bounded_spec_signatured', 2, 1),
   )
   def test_checks_sequence_length_when_timesteps_emitted(
       self, table_name, actual_sequence_length, provided_sequence_length):
@@ -548,7 +581,10 @@ class DatasetTest(tf.test.TestCase, parameterized.TestCase):
 
   @parameterized.named_parameters(
       dict(testcase_name='TableDist', table_name='dist'),
-      dict(testcase_name='TableSignatured', table_name='signatured'))
+      dict(testcase_name='TableSignatured', table_name='signatured'),
+      dict(
+          testcase_name='TableBoundedSpecSignatured',
+          table_name='bounded_spec_signatured'))
   def test_iterate_batched(self, table_name):
     self._populate_replay()
 

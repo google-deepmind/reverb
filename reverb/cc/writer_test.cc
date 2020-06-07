@@ -62,6 +62,22 @@ tensorflow::StructuredValue MakeSignature(
   return signature;
 }
 
+tensorflow::StructuredValue MakeBoundedTensorSpecSignature(
+    tensorflow::DataType dtype = tensorflow::DT_FLOAT,
+    const tensorflow::PartialTensorShape& shape =
+        tensorflow::PartialTensorShape{},
+    const tensorflow::Tensor& min = tensorflow::Tensor(0.0f),
+    const tensorflow::Tensor& max = tensorflow::Tensor(10.0f)) {
+  tensorflow::StructuredValue signature;
+  auto* spec = signature.mutable_bounded_tensor_spec_value();
+  spec->set_dtype(dtype);
+  spec->set_name("tensor0");
+  shape.AsProto(spec->mutable_shape());
+  min.AsProtoField(spec->mutable_minimum());
+  max.AsProtoField(spec->mutable_maximum());
+  return signature;
+}
+
 MATCHER(IsChunk, "") { return arg.has_chunk(); }
 
 MATCHER_P4(IsItemWithRangeAndPriorityAndTable, offset, length, priority, table,
@@ -546,6 +562,21 @@ TEST(WriterTest, WriteTimeStepsMatchingSignature) {
   ASSERT_THAT(requests, SizeIs(2));
 }
 
+TEST(WriterTest, WriteTimeStepsMatchingBoundedSignature) {
+  std::vector<InsertStreamRequest> requests;
+  tensorflow::StructuredValue signature = MakeBoundedTensorSpecSignature(
+      tensorflow::DT_FLOAT, tensorflow::PartialTensorShape({}));
+  auto stub = MakeGoodStub(&requests, &signature);
+  Client client(stub);
+  std::unique_ptr<Writer> writer;
+  TF_EXPECT_OK(client.NewWriter(2, 6, /*delta_encoded=*/false, &writer));
+
+  TF_ASSERT_OK(writer->Append(MakeTimestep()));
+  TF_ASSERT_OK(writer->Append(MakeTimestep()));
+  TF_ASSERT_OK(writer->CreateItem("dist", 2, 1.0));
+  ASSERT_THAT(requests, SizeIs(2));
+}
+
 TEST(WriterTest, WriteTimeStepsNumTensorsDontMatchSignatureError) {
   std::vector<InsertStreamRequest> requests;
   tensorflow::StructuredValue signature = MakeSignature();
@@ -563,6 +594,24 @@ TEST(WriterTest, WriteTimeStepsNumTensorsDontMatchSignatureError) {
       ::testing::HasSubstr(
           "Append for timestep offset 0 was called with 2 tensors, "
           "but table requires 1 tensors per entry."));
+}
+
+TEST(WriterTest, WriteTimeStepsNumTensorsDontMatchBoundedSignatureError) {
+  std::vector<InsertStreamRequest> requests;
+  tensorflow::StructuredValue signature = MakeBoundedTensorSpecSignature();
+  auto stub = MakeGoodStub(&requests, &signature);
+  Client client(stub);
+  std::unique_ptr<Writer> writer;
+  TF_EXPECT_OK(client.NewWriter(2, 6, /*delta_encoded=*/false, &writer));
+
+  TF_ASSERT_OK(writer->Append(MakeTimestep(/*num_tensors=*/2)));
+  TF_ASSERT_OK(writer->Append(MakeTimestep(/*num_tensors=*/2)));
+  auto status = writer->CreateItem("dist", 2, 1.0);
+  EXPECT_EQ(status.code(), tensorflow::error::INVALID_ARGUMENT);
+  EXPECT_THAT(status.error_message(),
+              ::testing::HasSubstr(
+                  "Append for timestep offset 0 was called with 2 tensors, "
+                  "but table requires 1 tensors per entry."));
 }
 
 TEST(WriterTest, WriteTimeStepsInconsistentDtypeError) {
@@ -584,10 +633,50 @@ TEST(WriterTest, WriteTimeStepsInconsistentDtypeError) {
                   "int32 and shape compatible with <unknown>"));
 }
 
+TEST(WriterTest, WriteTimeStepsInconsistentDtypeErrorAgainstBoundedSpec) {
+  std::vector<InsertStreamRequest> requests;
+  tensorflow::StructuredValue signature =
+      MakeBoundedTensorSpecSignature(tensorflow::DT_INT32);
+  auto stub = MakeGoodStub(&requests, &signature);
+  Client client(stub);
+  std::unique_ptr<Writer> writer;
+  TF_EXPECT_OK(client.NewWriter(2, 6, /*delta_encoded=*/false, &writer));
+
+  TF_ASSERT_OK(writer->Append(MakeTimestep()));
+  TF_ASSERT_OK(writer->Append(MakeTimestep()));
+  auto status = writer->CreateItem("dist", 2, 1.0);
+  EXPECT_EQ(status.code(), tensorflow::error::INVALID_ARGUMENT);
+  EXPECT_THAT(status.error_message(),
+              ::testing::HasSubstr(
+                  "timestep offset 0 in (flattened) tensor location 0 with "
+                  "dtype float and shape [] but expected a tensor of dtype "
+                  "int32 and shape compatible with <unknown>"));
+}
+
 TEST(WriterTest, WriteTimeStepsInconsistentShapeError) {
   std::vector<InsertStreamRequest> requests;
   tensorflow::StructuredValue signature =
       MakeSignature(tensorflow::DT_FLOAT, tensorflow::PartialTensorShape({-1}));
+  auto stub = MakeGoodStub(&requests, &signature);
+  Client client(stub);
+  std::unique_ptr<Writer> writer;
+  TF_EXPECT_OK(client.NewWriter(2, 6, /*delta_encoded=*/false, &writer));
+
+  TF_ASSERT_OK(writer->Append(MakeTimestep()));
+  TF_ASSERT_OK(writer->Append(MakeTimestep()));
+  auto status = writer->CreateItem("dist", 2, 1.0);
+  EXPECT_EQ(status.code(), tensorflow::error::INVALID_ARGUMENT);
+  EXPECT_THAT(status.error_message(),
+              ::testing::HasSubstr(
+                  "timestep offset 0 in (flattened) tensor location 0 with "
+                  "dtype float and shape [] but expected a tensor of dtype "
+                  "float and shape compatible with [?]"));
+}
+
+TEST(WriterTest, WriteTimeStepsInconsistentShapeErrorAgainstBoundedSpec) {
+  std::vector<InsertStreamRequest> requests;
+  tensorflow::StructuredValue signature = MakeBoundedTensorSpecSignature(
+      tensorflow::DT_FLOAT, tensorflow::PartialTensorShape({-1}));
   auto stub = MakeGoodStub(&requests, &signature);
   Client client(stub);
   std::unique_ptr<Writer> writer;

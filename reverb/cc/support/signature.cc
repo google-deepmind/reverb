@@ -20,6 +20,7 @@
 #include "absl/strings/string_view.h"
 #include "tensorflow/core/framework/tensor.pb.h"
 #include "tensorflow/core/framework/types.h"
+#include "tensorflow/core/protobuf/struct.pb.h"
 
 namespace deepmind {
 namespace reverb {
@@ -51,6 +52,16 @@ tensorflow::Status FlatSignatureFromStructuredValue(
       (*dtypes_and_shapes)
           ->push_back({tensor_spec.dtype(),
                        tensorflow::PartialTensorShape(tensor_spec.shape())});
+    } break;
+    case tensorflow::StructuredValue::kBoundedTensorSpecValue: {
+      const auto& bounded_tensor_spec = value.bounded_tensor_spec_value();
+      // This stores the dtype and shape of the boundary tensor spec. Currently,
+      // the signature of such tensors only checked against these properties.
+      // TODO(b/158033101): Make the signature check fully support boundaries.
+      (*dtypes_and_shapes)
+          ->push_back(
+              {bounded_tensor_spec.dtype(),
+               tensorflow::PartialTensorShape(bounded_tensor_spec.shape())});
     } break;
     case tensorflow::StructuredValue::kListValue: {
       for (const auto& v : value.list_value().values()) {
