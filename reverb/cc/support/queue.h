@@ -87,16 +87,16 @@ class Queue {
   mutable absl::Mutex mu_;
 
   // Circular buffer. Initialized with fixed size `capacity_`.
-  std::vector<T> buffer_;
+  std::vector<T> buffer_ ABSL_GUARDED_BY(mu_);
 
   // Current number of elements.
-  int size_;
+  int size_ ABSL_GUARDED_BY(mu_);
 
   // Index of the beginning of the queue in the circular buffer.
-  int index_;
+  int index_ ABSL_GUARDED_BY(mu_);
 
   // Whether `Close()` was called.
-  bool closed_;
+  bool closed_ ABSL_GUARDED_BY(mu_);
 };
 
 }  // namespace internal
