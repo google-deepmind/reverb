@@ -48,10 +48,6 @@ namespace {
 
 using Extensions = std::vector<std::shared_ptr<TableExtensionInterface>>;
 
-inline bool IsAdjacent(const SequenceRange& a, const SequenceRange& b) {
-  return a.episode_id() == b.episode_id() && a.end() + 1 == b.start();
-}
-
 inline bool IsInsertedBefore(const PrioritizedItem& a,
                              const PrioritizedItem& b) {
   return a.inserted_at().seconds() < b.inserted_at().seconds() ||
