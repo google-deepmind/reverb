@@ -109,98 +109,108 @@ tensorflow::Status Table::InsertOrAssign(Item item) {
   auto key = item.item.key();
   auto priority = item.item.priority();
 
-  absl::WriterMutexLock lock(&mu_);
+  // If an item is deleted as part of the insert then we keep the data alive
+  // until the lock has been released.
+  Item deleted_item;
+  {
+    absl::WriterMutexLock lock(&mu_);
 
-  /// If item already exists in table then update its priority.
-  if (data_.contains(key)) {
-    return UpdateItem(key, priority);
+    /// If item already exists in table then update its priority.
+    if (data_.contains(key)) {
+      return UpdateItem(key, priority);
+    }
+
+    // Wait for the insert to be staged. While waiting the lock is released but
+    // once it returns the lock is aquired again. While waiting for the right to
+    // insert the operation might have transformed into an update.
+    TF_RETURN_IF_ERROR(rate_limiter_->AwaitCanInsert(&mu_));
+
+    if (data_.contains(key)) {
+      // If the insert was transformed into an update while waiting we need to
+      // notify the limiter so it let another insert call to proceed.
+      rate_limiter_->MaybeSignalCondVars(&mu_);
+      return UpdateItem(key, priority);
+    }
+
+    // Set the insertion timestamp after the lock has been acquired as this
+    // represents the order it was inserted into the sampler and remover.
+    EncodeAsTimestampProto(absl::Now(), item.item.mutable_inserted_at());
+    data_[key] = std::move(item);
+
+    TF_RETURN_IF_ERROR(sampler_->Insert(key, priority));
+    TF_RETURN_IF_ERROR(remover_->Insert(key, priority));
+
+    auto it = data_.find(key);
+    for (auto& extension : extensions_) {
+      extension->OnInsert(&mu_, it->second);
+    }
+
+    // Increment references to the episode/s the item is referencing.
+    // We increment before a possible call to DeleteItem since the sampler can
+    // return this key.
+    for (const auto& chunk : it->second.chunks) {
+      ++episode_refs_[chunk->data().sequence_range().episode_id()];
+    }
+
+    // Remove an item if we exceeded `max_size_`.
+    if (data_.size() > max_size_) {
+      TF_RETURN_IF_ERROR(DeleteItem(remover_->Sample().key, &deleted_item));
+    }
+
+    // Now that the new item has been inserted and an older item has
+    // (potentially) been removed the insert can be finalized.
+    rate_limiter_->Insert(&mu_);
   }
-
-  // Wait for the insert to be staged. While waiting the lock is released but
-  // once it returns the lock is aquired again. While waiting for the right to
-  // insert the operation might have transformed into an update.
-  TF_RETURN_IF_ERROR(rate_limiter_->AwaitCanInsert(&mu_));
-
-  if (data_.contains(key)) {
-    // If the insert was transformed into an update while waiting we need to
-    // notify the limiter so it let another insert call to proceed.
-    rate_limiter_->MaybeSignalCondVars(&mu_);
-    return UpdateItem(key, priority);
-  }
-
-  // Set the insertion timestamp after the lock has been acquired as this
-  // represents the order it was inserted into the sampler and remover.
-  EncodeAsTimestampProto(absl::Now(), item.item.mutable_inserted_at());
-  data_[key] = std::move(item);
-
-  TF_RETURN_IF_ERROR(sampler_->Insert(key, priority));
-  TF_RETURN_IF_ERROR(remover_->Insert(key, priority));
-
-  auto it = data_.find(key);
-  for (auto& extension : extensions_) {
-    extension->OnInsert(&mu_, it->second);
-  }
-
-  // Increment references to the episode/s the item is referencing.
-  // We increment before a possible call to DeleteItem since the sampler can
-  // return this key.
-  for (const auto& chunk : it->second.chunks) {
-    ++episode_refs_[chunk->data().sequence_range().episode_id()];
-  }
-
-  // Remove an item if we exceeded `max_size_`.
-  if (data_.size() > max_size_) {
-    TF_RETURN_IF_ERROR(DeleteItem(remover_->Sample().key));
-  }
-
-  // Now that the new item has been inserted and an older item has
-  // (potentially) been removed the insert can be finalized.
-  rate_limiter_->Insert(&mu_);
 
   return tensorflow::Status::OK();
 }
 
 tensorflow::Status Table::MutateItems(absl::Span<const KeyWithPriority> updates,
                                       absl::Span<const Key> deletes) {
-  absl::WriterMutexLock lock(&mu_);
-
-  for (Key key : deletes) {
-    TF_RETURN_IF_ERROR(DeleteItem(key));
+  std::vector<Item> deleted_items(deletes.size());
+  {
+    absl::WriterMutexLock lock(&mu_);
+    for (int i = 0; i < deletes.size(); i++) {
+      TF_RETURN_IF_ERROR(DeleteItem(deletes[i], &deleted_items[i]));
+    }
+    for (const auto& item : updates) {
+      TF_RETURN_IF_ERROR(UpdateItem(item.key(), item.priority()));
+    }
   }
-
-  for (const auto& item : updates) {
-    TF_RETURN_IF_ERROR(UpdateItem(item.key(), item.priority()));
-  }
-
   return tensorflow::Status::OK();
 }
 
 tensorflow::Status Table::Sample(SampledItem* sampled_item,
                                  absl::Duration timeout) {
-  absl::WriterMutexLock lock(&mu_);
-  TF_RETURN_IF_ERROR(rate_limiter_->AwaitAndFinalizeSample(&mu_, timeout));
+  // Keep references to the (potentially) deleted item alive until the lock has
+  // been released.
+  Item deleted_item;
+  {
+    absl::WriterMutexLock lock(&mu_);
+    TF_RETURN_IF_ERROR(rate_limiter_->AwaitAndFinalizeSample(&mu_, timeout));
 
-  ItemSelectorInterface::KeyWithProbability sample = sampler_->Sample();
-  Item& item = data_.at(sample.key);
+    auto sample = sampler_->Sample();
+    Item& item = data_[sample.key];
 
-  // Increment the sample count.
-  item.item.set_times_sampled(item.item.times_sampled() + 1);
+    // Increment the sample count.
+    item.item.set_times_sampled(item.item.times_sampled() + 1);
 
-  // Copy Details of the sampled item.
-  sampled_item->item = item.item;
-  sampled_item->chunks = item.chunks;
-  sampled_item->probability = sample.probability;
-  sampled_item->table_size = data_.size();
+    // Copy Details of the sampled item.
+    sampled_item->item = item.item;
+    sampled_item->chunks = item.chunks;
+    sampled_item->probability = sample.probability;
+    sampled_item->table_size = data_.size();
 
-  // Notify extensions which item was sampled.
-  for (auto& extension : extensions_) {
-    extension->OnSample(&mu_, item);
-  }
+    // Notify extensions which item was sampled.
+    for (auto& extension : extensions_) {
+      extension->OnSample(&mu_, item);
+    }
 
-  // If there is an upper bound of the number of times an item can be sampled
-  // and it is now reached then delete the item before the lock is released.
-  if (item.item.times_sampled() == max_times_sampled_) {
-    TF_RETURN_IF_ERROR(DeleteItem(item.item.key()));
+    // If there is an upper bound of the number of times an item can be sampled
+    // and it is now reached then delete the item before the lock is released.
+    if (item.item.times_sampled() == max_times_sampled_) {
+      TF_RETURN_IF_ERROR(DeleteItem(item.item.key(), &deleted_item));
+    }
   }
 
   return tensorflow::Status::OK();
@@ -214,17 +224,18 @@ int64_t Table::size() const {
 const std::string& Table::name() const { return name_; }
 
 TableInfo Table::info() const {
-  absl::ReaderMutexLock lock(&mu_);
   TableInfo info;
+
   info.set_name(name_);
   info.set_max_size(max_size_);
   info.set_max_times_sampled(max_times_sampled_);
-  *info.mutable_rate_limiter_info() = rate_limiter_->Info(&mu_);
 
   if (signature_) {
     *info.mutable_signature() = *signature_;
   }
 
+  absl::ReaderMutexLock lock(&mu_);
+  *info.mutable_rate_limiter_info() = rate_limiter_->Info(&mu_);
   *info.mutable_sampler_options() = sampler_->options();
   *info.mutable_remover_options() = remover_->options();
   info.set_current_size(data_.size());
@@ -238,7 +249,7 @@ void Table::Close() {
   rate_limiter_->Cancel(&mu_);
 }
 
-tensorflow::Status Table::DeleteItem(Table::Key key) {
+tensorflow::Status Table::DeleteItem(Table::Key key, Item* deleted_item) {
   auto it = data_.find(key);
   if (it == data_.end()) return tensorflow::Status::OK();
 
@@ -256,6 +267,7 @@ tensorflow::Status Table::DeleteItem(Table::Key key) {
     }
   }
 
+  *deleted_item = std::move(it->second);
   data_.erase(it);
   rate_limiter_->Delete(&mu_);
   TF_RETURN_IF_ERROR(sampler_->Delete(key));
@@ -303,12 +315,13 @@ tensorflow::Status Table::Reset() {
 }
 
 Table::CheckpointAndChunks Table::Checkpoint() {
-  absl::ReaderMutexLock lock(&mu_);
-
   PriorityTableCheckpoint checkpoint;
   checkpoint.set_table_name(name());
   checkpoint.set_max_size(max_size_);
   checkpoint.set_max_times_sampled(max_times_sampled_);
+
+  absl::ReaderMutexLock lock(&mu_);
+
   *checkpoint.mutable_sampler() = sampler_->options();
   *checkpoint.mutable_remover() = remover_->options();
 
@@ -342,7 +355,8 @@ tensorflow::Status Table::InsertCheckpointItem(Table::Item item) {
   TF_RETURN_IF_ERROR(sampler_->Insert(item.item.key(), item.item.priority()));
   TF_RETURN_IF_ERROR(remover_->Insert(item.item.key(), item.item.priority()));
 
-  auto it = data_.emplace(item.item.key(), std::move(item)).first;
+  const auto key = item.item.key();
+  auto it = data_.emplace(key, std::move(item)).first;
   for (auto& extension : extensions_) {
     extension->OnInsert(&mu_, it->second);
   }

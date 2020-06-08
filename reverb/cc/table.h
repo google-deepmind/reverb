@@ -248,7 +248,11 @@ class Table {
 
   // Deletes the item associated with the key from `data_`, `sampler_` and
   // `remover_`. Ignores the key if it cannot be found.
-  tensorflow::Status DeleteItem(Key key) ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_);
+  //
+  // The deleted item is returned in order to allow the deallocation of the
+  // underlying item to be postponed until the lock has been released.
+  tensorflow::Status DeleteItem(Key key, Item* deleted_item)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_);
 
   // Distribution used for sampling.
   std::shared_ptr<ItemSelectorInterface> sampler_ ABSL_GUARDED_BY(mu_);
