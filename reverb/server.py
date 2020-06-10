@@ -160,12 +160,18 @@ class Table:
         signature=signature_proto_str)
 
   @classmethod
-  def queue(cls, name: str, max_size: int):
+  def queue(cls,
+            name: str,
+            max_size: int,
+            extensions: Sequence[TableExtensionBase] = (),
+            signature: Optional[reverb_types.SpecNest] = None):
     """Constructs a Table which acts like a queue.
 
     Args:
       name: Name of the priority table (aka queue).
       max_size: Maximum number of items in the priority table (aka queue).
+      extensions: See documentation in the constructor.
+      signature: See documentation in the constructor.
 
     Returns:
       Table which behaves like a queue of size `max_size`.
@@ -176,15 +182,23 @@ class Table:
         remover=item_selectors.Fifo(),
         max_size=max_size,
         max_times_sampled=1,
-        rate_limiter=rate_limiters.Queue(max_size))
+        rate_limiter=rate_limiters.Queue(max_size),
+        extensions=extensions,
+        signature=signature)
 
   @classmethod
-  def stack(cls, name: str, max_size: int):
+  def stack(cls,
+            name: str,
+            max_size: int,
+            extensions: Sequence[TableExtensionBase] = (),
+            signature: Optional[reverb_types.SpecNest] = None):
     """Constructs a Table which acts like a stack.
 
     Args:
       name: Name of the priority table (aka stack).
       max_size: Maximum number of items in the priority table (aka stack).
+      extensions: See documentation in the constructor.
+      signature: See documentation in the constructor.
 
     Returns:
       Table which behaves like a stack of size `max_size`.
@@ -195,7 +209,9 @@ class Table:
         remover=item_selectors.Lifo(),
         max_size=max_size,
         max_times_sampled=1,
-        rate_limiter=rate_limiters.Stack(max_size))
+        rate_limiter=rate_limiters.Stack(max_size),
+        extensions=extensions,
+        signature=signature)
 
   @property
   def name(self):
