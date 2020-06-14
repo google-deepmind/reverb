@@ -26,47 +26,69 @@ namespace internal {
 
 // Thread-safe and closable queue with fixed capacity (buffered channel).
 //
-// A call to `Push()` inserts an item while `Pop()` removes and retrieves an
+// A call to `Push()` inserts an item while `Pop` removes and retrieves an
 // item in fifo order. Once the maximum capacity has been reached, calls to
-// `Push()` block until the queue is no longer full. Similarly, `Pop()` blocks
-// if there are no items in the queue. `Close()` can be called to unblock any
-// pending and future calls to `Push()` and `Pop()`.
+// `Push` block until the queue is no longer full. Similarly, `Pop` blocks
+// if there are no items in the queue. `Close` can be called to unblock any
+// pending and future calls to `Push` and `Pop`.
 //
-// Note: This implementation is only intended for a single producer and single
-// consumer use case, where Close() is called by the consumer. The
-// implementation has not been tested for other use cases!
+// When `SetLastItemPushed` is called, all pending and future calls to `Push`
+// will return immediately just as if `Close` had been called. When the queue is
+// empty and `SetLastItemPushed` has been called, then the `Close` is
+// automatically called. Note that this can occur with the call to
+// `SetLastItemPushed` or with subsequent calls to `Pop`
+//
 template <typename T>
 class Queue {
  public:
   // `capacity` is the maximum number of elements which the queue can hold.
   explicit Queue(int capacity)
-      : buffer_(capacity), size_(0), index_(0), closed_(false) {}
+      : buffer_(capacity),
+        size_(0),
+        index_(0),
+        closed_(false),
+        last_item_pushed_(false) {}
 
   // Closes the queue. All pending and future calls to `Push()` and `Pop()` are
   // unblocked and return false without performing the operation. Additional
   // calls of Close after the first one have no effect.
-  void Close() {
+  void Close() ABSL_LOCKS_EXCLUDED(mu_) {
     absl::MutexLock lock(&mu_);
     closed_ = true;
   }
 
   // Pushes an item to the queue. Blocks if the queue has reached `capacity`. On
   // success, `true` is returned. If the queue is closed, `false` is returned.
-  bool Push(T x) {
+  bool Push(T x) ABSL_LOCKS_EXCLUDED(mu_) {
     absl::MutexLock lock(&mu_);
     mu_.Await(absl::Condition(
-        +[](Queue* q) { return q->closed_ || q->size_ < q->buffer_.size(); },
+        +[](Queue* q) {
+          return q->closed_ || q->last_item_pushed_ ||
+                 q->size_ < q->buffer_.size();
+        },
         this));
-    if (closed_) return false;
+    if (closed_ || last_item_pushed_) return false;
     buffer_[(index_ + size_) % buffer_.size()] = std::move(x);
     ++size_;
     return true;
   }
 
+  // Marks that no more items will be pushed to the queue.
+  void SetLastItemPushed() ABSL_LOCKS_EXCLUDED(mu_) {
+    absl::MutexLock lock(&mu_);
+    last_item_pushed_ = true;
+    if (size_ == 0) {
+      closed_ = true;
+    }
+  }
+
   // Removes an element from the queue and move-assigns it to *item. Blocks if
   // the queue is empty. On success, `true` is returned. If the queue was
   // closed, `false` is returned.
-  bool Pop(T* item) {
+  //
+  // If called after `SetLastItemPushed` and the final item of the queue is
+  // returned then queue is closed.
+  bool Pop(T* item) ABSL_LOCKS_EXCLUDED(mu_) {
     absl::MutexLock lock(&mu_);
     mu_.Await(absl::Condition(
         +[](Queue* q) { return q->closed_ || q->size_ > 0; }, this));
@@ -74,11 +96,14 @@ class Queue {
     *item = std::move(buffer_[index_]);
     index_ = (index_ + 1) % buffer_.size();
     --size_;
+    if (size_ == 0 && last_item_pushed_) {
+      closed_ = true;
+    }
     return true;
   }
 
   // Current number of elements.
-  int size() const {
+  int size() const ABSL_LOCKS_EXCLUDED(mu_) {
     absl::ReaderMutexLock lock(&mu_);
     return size_;
   }
@@ -97,6 +122,11 @@ class Queue {
 
   // Whether `Close()` was called.
   bool closed_ ABSL_GUARDED_BY(mu_);
+
+  // Whether `SetLastItemPushed()` has been called. When set then push calls are
+  // treated the same as if `Closed()` had been called. If set and the queue is
+  // empty after a pop call then `closed_` is set.
+  bool last_item_pushed_ ABSL_GUARDED_BY(mu_);
 };
 
 }  // namespace internal

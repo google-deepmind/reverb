@@ -119,6 +119,45 @@ TEST(QueueTest, SizeReturnsNumberOfElements) {
   EXPECT_EQ(q.size(), 1);
 }
 
+TEST(QueueTest, PushFailsAfterSetLastItemPushed) {
+  Queue<int> q(3);
+  q.SetLastItemPushed();
+  EXPECT_FALSE(q.Push(1));
+}
+
+TEST(QueueTest, ExistingItemsCanBePoppedAfterSetLastItemPushed) {
+  Queue<int> q(3);
+
+  q.Push(1);
+  q.Push(2);
+
+  q.SetLastItemPushed();
+
+  int v;
+  ASSERT_TRUE(q.Pop(&v));
+  EXPECT_EQ(v, 1);
+  ASSERT_TRUE(q.Pop(&v));
+  EXPECT_EQ(v, 2);
+
+  // Queue is now empty and no items can be pushed so it is effectively closed.
+  EXPECT_FALSE(q.Pop(&v));
+}
+
+TEST(QueueTest, BlockingPopReturnsIfSetLastItemPushedCalled) {
+  Queue<int> q(2);
+  absl::Notification n;
+  bool ok;
+  auto t = StartThread("", [&q, &n, &ok] {
+    int output;
+    ok = q.Pop(&output);
+    n.Notify();
+  });
+  ASSERT_FALSE(n.HasBeenNotified());
+  q.SetLastItemPushed();
+  n.WaitForNotification();
+  EXPECT_FALSE(ok);
+}
+
 }  // namespace
 }  // namespace internal
 }  // namespace reverb
