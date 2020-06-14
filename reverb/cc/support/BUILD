@@ -32,6 +32,20 @@ reverb_cc_library(
 )
 
 reverb_cc_library(
+    name = "cleanup",
+    hdrs = ["cleanup.h"],
+    deps = reverb_absl_deps(),
+)
+
+reverb_cc_test(
+    name = "cleanup_test",
+    srcs = ["cleanup_test.cc"],
+    deps = [
+        ":cleanup",
+    ],
+)
+
+reverb_cc_library(
     name = "intrusive_heap",
     srcs = ["intrusive_heap.cc"],
     hdrs = ["intrusive_heap.h"],
