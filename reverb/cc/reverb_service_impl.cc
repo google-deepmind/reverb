@@ -21,11 +21,16 @@
 #include "absl/container/flat_hash_map.h"
 #include "absl/container/flat_hash_set.h"
 #include "absl/strings/str_cat.h"
+#include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "reverb/cc/checkpointing/interface.h"
 #include "reverb/cc/platform/logging.h"
+#include "reverb/cc/platform/thread.h"
 #include "reverb/cc/reverb_service.grpc.pb.h"
+#include "reverb/cc/reverb_service.pb.h"
+#include "reverb/cc/support/cleanup.h"
 #include "reverb/cc/support/grpc_util.h"
+#include "reverb/cc/support/queue.h"
 #include "reverb/cc/support/uint128.h"
 #include "tensorflow/core/lib/core/errors.h"
 #include "tensorflow/core/lib/core/status.h"
@@ -119,11 +124,22 @@ grpc::Status ReverbServiceImpl::InsertStreamInternal(
     grpc::ServerContext* context,
     grpc::ServerReaderInterface<InsertStreamRequest>* reader,
     InsertStreamResponse* response) {
+  // Start a background thread that unpacks the data ahead of time.
+  deepmind::reverb::internal::Queue<InsertStreamRequest> queue(1);
+  auto read_thread = internal::StartThread("ReadThread", [reader, &queue]() {
+    InsertStreamRequest request;
+    while (reader->Read(&request) && queue.Push(std::move(request))) {
+      request = InsertStreamRequest();
+    }
+    queue.SetLastItemPushed();
+  });
+  auto cleanup = internal::MakeCleanup([&queue] { queue.Close(); });
+
   absl::flat_hash_map<ChunkStore::Key, std::shared_ptr<ChunkStore::Chunk>>
       chunks;
-  InsertStreamRequest request;
 
-  while (reader->Read(&request)) {
+  InsertStreamRequest request;
+  while (queue.Pop(&request)) {
     if (request.has_chunk()) {
       ChunkStore::Key key = request.chunk().chunk_key();
       std::shared_ptr<ChunkStore::Chunk> chunk =

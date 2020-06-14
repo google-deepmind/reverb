@@ -223,9 +223,12 @@ reverb_cc_library(
         ":reverb_service_cc_proto",
         ":schema_cc_proto",
         "//reverb/cc/checkpointing:interface",
+        "//reverb/cc/platform:thread",
         "//reverb/cc/platform:logging",
         "//reverb/cc/support:grpc_util",
         "//reverb/cc/support:uint128",
+        "//reverb/cc/support:queue",
+        "//reverb/cc/support:cleanup",
     ] + reverb_tf_deps() + reverb_grpc_deps() + reverb_absl_deps(),
 )
 
