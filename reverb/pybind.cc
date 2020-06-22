@@ -495,31 +495,32 @@ PYBIND11_MODULE(libpybind, m) {
            py::arg("min_diff"), py::arg("max_diff"));
 
   py::class_<Table, std::shared_ptr<Table>>(m, "Table")
-      .def(py::init([](const std::string &name,
-                       const std::shared_ptr<ItemSelectorInterface> &sampler,
-                       const std::shared_ptr<ItemSelectorInterface> &remover,
-                       int max_size, int max_times_sampled,
-                       const std::shared_ptr<RateLimiter> &rate_limiter,
-                       const std::vector<std::shared_ptr<
-                           TableExtensionInterface>> &extensions,
-                       const absl::optional<std::string> &serialized_signature =
-                           absl::nullopt) -> Table * {
-             absl::optional<tensorflow::StructuredValue> signature =
-                 absl::nullopt;
-             if (serialized_signature) {
-               signature.emplace();
-               if (!signature->ParseFromString(*serialized_signature)) {
-                 MaybeRaiseFromStatus(tensorflow::errors::InvalidArgument(
-                     "Unable to deserialize StructuredValue from "
-                     "serialized proto bytes: '",
-                     *serialized_signature, "'"));
-                 return nullptr;
-               }
-             }
-             return new Table(name, sampler, remover, max_size,
-                              max_times_sampled, rate_limiter, extensions,
-                              std::move(signature));
-           }),
+      .def(py::init(
+               [](const std::string &name,
+                  const std::shared_ptr<ItemSelectorInterface> &sampler,
+                  const std::shared_ptr<ItemSelectorInterface> &remover,
+                  int max_size, int max_times_sampled,
+                  const std::shared_ptr<RateLimiter> &rate_limiter,
+                  const std::vector<std::shared_ptr<TableExtensionInterface>>
+                      &extensions,
+                  const absl::optional<std::string> &serialized_signature =
+                      absl::nullopt) -> Table * {
+                 absl::optional<tensorflow::StructuredValue> signature =
+                     absl::nullopt;
+                 if (serialized_signature) {
+                   signature.emplace();
+                   if (!signature->ParseFromString(*serialized_signature)) {
+                     MaybeRaiseFromStatus(tensorflow::errors::InvalidArgument(
+                         "Unable to deserialize StructuredValue from "
+                         "serialized proto bytes: '",
+                         *serialized_signature, "'"));
+                     return nullptr;
+                   }
+                 }
+                 return new Table(name, sampler, remover, max_size,
+                                  max_times_sampled, rate_limiter, extensions,
+                                  std::move(signature));
+               }),
            py::arg("name"), py::arg("sampler"), py::arg("remover"),
            py::arg("max_size"), py::arg("max_times_sampled"),
            py::arg("rate_limiter"), py::arg("extensions"), py::arg("signature"))
@@ -533,6 +534,10 @@ PYBIND11_MODULE(libpybind, m) {
       .def("Append", &Writer::Append, py::call_guard<py::gil_scoped_release>())
       .def("CreateItem", &Writer::CreateItem,
            py::call_guard<py::gil_scoped_release>())
+      .def(
+          "Flush",
+          [](Writer *writer) { MaybeRaiseFromStatus(writer->Flush()); },
+          py::call_guard<py::gil_scoped_release>())
       .def("Close", &Writer::Close, py::call_guard<py::gil_scoped_release>());
 
   py::class_<Sampler>(m, "Sampler")
@@ -635,18 +640,18 @@ PYBIND11_MODULE(libpybind, m) {
       py::call_guard<py::gil_scoped_release>());
 
   py::class_<Server, std::shared_ptr<Server>>(m, "Server")
-      .def(py::init(
-               [](std::vector<std::shared_ptr<Table>> priority_tables, int port,
-                  std::shared_ptr<CheckpointerInterface> checkpointer =
-                      nullptr) {
-                 std::unique_ptr<Server> server;
-                 MaybeRaiseFromStatus(StartServer(std::move(priority_tables),
-                                                  port, std::move(checkpointer),
-                                                  &server));
-                 return server.release();
-               }),
-           py::arg("priority_tables"), py::arg("port"),
-           py::arg("checkpointer") = nullptr)
+      .def(
+          py::init([](std::vector<std::shared_ptr<Table>> priority_tables,
+                      int port,
+                      std::shared_ptr<CheckpointerInterface> checkpointer =
+                          nullptr) {
+            std::unique_ptr<Server> server;
+            MaybeRaiseFromStatus(StartServer(std::move(priority_tables), port,
+                                             std::move(checkpointer), &server));
+            return server.release();
+          }),
+          py::arg("priority_tables"), py::arg("port"),
+          py::arg("checkpointer") = nullptr)
       .def("Stop", &Server::Stop, py::call_guard<py::gil_scoped_release>())
       .def("Wait", &Server::Wait, py::call_guard<py::gil_scoped_release>())
       .def("InProcessClient", &Server::InProcessClient,

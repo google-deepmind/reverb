@@ -217,10 +217,23 @@ tensorflow::Status Writer::CreateItem(const std::string& table,
   return tensorflow::Status::OK();
 }
 
+tensorflow::Status Writer::Flush() {
+  if (closed_) {
+    return tensorflow::errors::FailedPrecondition(
+        "Calling method Flush after Close has been called");
+  }
+
+  if (!pending_items_.empty()) {
+    return Finish();
+  }
+  return tensorflow::Status::OK();
+}
+
 tensorflow::Status Writer::Close() {
-  if (closed_)
+  if (closed_) {
     return tensorflow::errors::FailedPrecondition(
         "Calling method Close after Close has been called");
+  }
   if (!pending_items_.empty()) {
     TF_RETURN_IF_ERROR(Finish());
   }

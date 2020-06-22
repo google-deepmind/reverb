@@ -72,6 +72,14 @@ class Writer {
   // calling this method.
   tensorflow::Status Close();
 
+  // Creates a new batch from the content of `buffer_` and writes all
+  // `pending_items_`.  This is useful to force any pending items to be sent to
+  // the replay buffer.
+
+  // TODO(b/159623854): Add a configurable timeout and pipe it through to the
+  // python API.
+  tensorflow::Status Flush();
+
  private:
   // Creates a new batch from the content of `buffer_` and inserts it into
   // `chunks_`. If `pending_items_` is not empty then the items are streamed to

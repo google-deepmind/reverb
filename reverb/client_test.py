@@ -233,7 +233,27 @@ class ClientTest(absltest.TestCase):
     self.assertEqual(loaded_client._server_address, self.client._server_address)
     loaded_client.insert([0], {TABLE_NAME: 1.0})
 
-  def test_multithreaded_writer(self):
+  def test_multithreaded_writer_using_flush(self):
+    # Ensure that we don't have any errors caused by multithreaded use of
+    # writers or clients.
+    pool = multithreading.Pool(64)
+    def _write(i):
+      writer = self.client.writer(1)
+      writer.append([i])
+      # Make sure that flush before create_item doesn't create trouble.
+      writer.flush()
+      writer.create_item(TABLE_NAME, 1, 1.0)
+      writer.flush()
+
+    for _ in range(5):
+      pool.map(_write, list(range(256)))
+
+    info = self.client.server_info()[TABLE_NAME]
+    self.assertEqual(info.current_size, 1000)
+    pool.close()
+    pool.join()
+
+  def test_multithreaded_writer_using_scope(self):
     # Ensure that we don't have any errors caused by multithreaded use of
     # writers or clients.
     pool = multithreading.Pool(64)

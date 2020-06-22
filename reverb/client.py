@@ -155,6 +155,9 @@ class Writer:
     This method is what effectively makes data available for sampling. See the
     docstring of `append` for an illustrative example of the behavior.
 
+    Note: The item is not always immediately pushed.  To ensure items
+    are pushed to the service, call `writer.flush()` or `writer.close()`.
+
     Args:
       table: Name of the priority table to insert the item into.
       num_timesteps: The number of most recently added timesteps that the new
@@ -171,6 +174,17 @@ class Writer:
       raise ValueError('num_timesteps (%d) must be a positive integer')
     self._writer.CreateItem(table, num_timesteps, priority)
 
+  def flush(self):
+    """Flushes the stream to the ReverbService.
+
+    This method sends any pending items from the local buffer to the service.
+
+    Raises:
+      tf.errors.OpError: If there is trouble packing or sending the data, e.g.
+        if shapes are inconsistent or if there was data loss.
+    """
+    self._writer.Flush()
+
   def close(self):
     """Closes the stream to the ReverbService.
 
@@ -179,7 +193,9 @@ class Writer:
     Note: Writer-object must be abandoned after this method called.
 
     Raises:
-      ValueError: If already has been called.
+      ValueError: If `close` has already been called once.
+      tf.errors.OpError: If there is trouble packing or sending the data, e.g.
+        if shapes are inconsistent or if there was data loss.
     """
     if self._closed:
       raise ValueError('close() has already been called on Writer.')

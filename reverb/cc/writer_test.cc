@@ -453,6 +453,39 @@ TEST(WriterTest, ReturnsCloseErrorsIfAllItemsNotWritten) {
   EXPECT_EQ(writer.Close().code(), tensorflow::error::INTERNAL);
 }
 
+TEST(WriterTest, FlushWritesItem) {
+  std::vector<InsertStreamRequest> requests;
+  auto stub = MakeGoodStub(&requests);
+  Writer writer(stub, /*chunk_length=*/2, /*max_timesteps=*/4);
+
+  // Insert an item which is shorter than the batch and thus should not be
+  // automatically flushed.
+  TF_EXPECT_OK(writer.Append(MakeTimestep()));
+  EXPECT_THAT(requests, SizeIs(0));
+  // No Item, Flush does nothing.
+  TF_EXPECT_OK(writer.Flush());
+  EXPECT_THAT(requests, SizeIs(0));
+  TF_EXPECT_OK(writer.CreateItem("dist", 1, 1.0));
+  EXPECT_THAT(requests, SizeIs(0));
+  // Flush the item and make sure it doesn't result in an error.
+  TF_EXPECT_OK(writer.Flush());
+  EXPECT_THAT(requests, SizeIs(2));
+  EXPECT_THAT(requests[0], IsChunk());
+  EXPECT_THAT(requests[1],
+              IsItemWithRangeAndPriorityAndTable(0, 1, 1.0, "dist"));
+
+  // Repeat.
+  TF_EXPECT_OK(writer.Append(MakeTimestep()));
+  EXPECT_THAT(requests, SizeIs(2));
+  TF_EXPECT_OK(writer.CreateItem("dist", 1, 1.0));
+  EXPECT_THAT(requests, SizeIs(2));
+  TF_EXPECT_OK(writer.Flush());
+  EXPECT_THAT(requests, SizeIs(4));
+  EXPECT_THAT(requests[2], IsChunk());
+  EXPECT_THAT(requests[3],
+              IsItemWithRangeAndPriorityAndTable(0, 1, 1.0, "dist"));
+}
+
 TEST(WriterTest, SequenceRangeIsSetOnChunks) {
   std::vector<InsertStreamRequest> requests;
   auto stub = MakeGoodStub(&requests);
