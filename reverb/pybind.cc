@@ -569,12 +569,17 @@ PYBIND11_MODULE(libpybind, m) {
       .def(
           "NewSampler",
           [](Client *client, const std::string &table, int64_t max_samples,
-             size_t buffer_size) {
+             size_t buffer_size, int64_t validation_timeout_ms) {
             std::unique_ptr<Sampler> sampler;
             Sampler::Options options;
             options.max_samples = max_samples;
             options.max_in_flight_samples_per_worker = buffer_size;
-            MaybeRaiseFromStatus(client->NewSampler(table, options, &sampler));
+            absl::Duration validation_timeout =
+                (validation_timeout_ms < 0)
+                    ? absl::InfiniteDuration()
+                    : absl::Milliseconds(validation_timeout_ms);
+            MaybeRaiseFromStatus(client->NewSampler(
+                table, options, validation_timeout, &sampler));
             return sampler;
           },
           py::call_guard<py::gil_scoped_release>())

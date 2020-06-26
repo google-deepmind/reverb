@@ -288,7 +288,11 @@ class ReverbDatasetOp : public tensorflow::data::DatasetOpKernel {
               << "). We were thus unable to fetch signature from server. The "
                  "sampler will be constructed without validating the dtypes "
                  "and shapes.";
-          return client_->NewSampler(table_, sampler_options_, &sampler_);
+          // Ask for a NewSampler with negative validation_timeout Duration,
+          // which causes it to skip the validation and return an OK status.
+          return client_->NewSampler(
+              table_, sampler_options_,
+              /*validation_timeout=*/-absl::InfiniteDuration(), &sampler_);
         }
         return status;
       }

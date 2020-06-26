@@ -41,6 +41,7 @@ class _SampleInfo(NamedTuple):
 
   @classmethod
   def tf_dtypes(cls):
+    """Info dtypes corresponding to (key, probability, table_size, priority)."""
     return cls(tf.uint64, tf.double, tf.int64, tf.double)
 
 

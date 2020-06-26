@@ -78,8 +78,8 @@ tensorflow::Status Writer::Append(std::vector<tensorflow::Tensor> data) {
   }
   if (!buffer_.empty() && buffer_.front().size() != data.size()) {
     return tensorflow::errors::InvalidArgument(
-        "Number of tensors per timestep was inconsistent. Previously ",
-        buffer_.front().size(), " now ", data.size());
+        "Number of tensors per timestep was inconsistent. Previously it was ",
+        buffer_.front().size(), ", but is now ", data.size(), ".");
   }
 
   // Store flattened signature into inserted_dtypes_and_shapes_
@@ -87,7 +87,7 @@ tensorflow::Status Writer::Append(std::vector<tensorflow::Tensor> data) {
   dtypes_and_shapes_t->reserve(data.size());
   for (const auto& t : data) {
     dtypes_and_shapes_t->push_back(
-        {t.dtype(), tensorflow::PartialTensorShape(t.shape())});
+        {/*name=*/"", t.dtype(), tensorflow::PartialTensorShape(t.shape())});
   }
   std::swap(dtypes_and_shapes_t,
             inserted_dtypes_and_shapes_[insert_dtypes_and_shapes_location_]);

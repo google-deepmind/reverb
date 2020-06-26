@@ -61,8 +61,14 @@ class Client {
 
   // Upon successful return, `sampler` will contain an instance of
   // Sampler.
+  //
+  // This version tries to look up `dtypes_and_shapes` for `table` via
+  // `ServerInfo` call, and passes this to `sampler`.  The `validation_timeout`
+  // parameter controls how long the wait is on `ServerInfo` if this data is
+  // not already cached.
   tensorflow::Status NewSampler(const std::string& table,
                                 const Sampler::Options& options,
+                                absl::Duration validation_timeout,
                                 std::unique_ptr<Sampler>* sampler);
 
   // Upon successful return, `sampler` will contain an instance of
@@ -79,12 +85,11 @@ class Client {
   // **NOTE** Because the sampler always prepends the entry key and
   // priority tensors when returning samples, the `validation_{dtypes, shapes}`
   // vectors must always be prepended with the signatures of these outputs.
-  // Specifically, the user must pass:
+  // Specifically, the user must pass as prefix the SampleInfo shapes and
+  // dtypes.  See `GetDtypesAndShapesForSampler` for the most up-to-date
+  // expected prefix.
   //
-  //   validation_dtypes[0:1] = {DT_UINT64, DT_DOUBLE}
-  //   validation_shapes[0:1] = {PartialTensorShape({}), PartialTensorShape({})}
-  //
-  // and the remaining elements should be the dtypes/shapes of the entries
+  // The remaining elements should be the dtypes/shapes of the entries
   // expected in table signature.
   //
   tensorflow::Status NewSampler(
@@ -110,9 +115,26 @@ class Client {
  private:
   const std::shared_ptr</* grpc_gen:: */ReverbService::StubInterface> stub_;
 
+  // Upon successful return, `sampler` will contain an instance of
+  // Sampler.  This version is called by the public `NewSampler` methods.
+  //
+  // Care should be made to ensure that `dtypes_and_shapes` here includes
+  // the prefix tensors associated with the SampleInfo.
+  tensorflow::Status NewSampler(const std::string& table,
+                                const Sampler::Options& options,
+                                internal::DtypesAndShapes dtypes_and_shapes,
+                                std::unique_ptr<Sampler>* sampler);
+
   tensorflow::Status MaybeUpdateServerInfoCache(
       absl::Duration timeout,
       std::shared_ptr<internal::FlatSignatureMap>* cached_flat_signatures);
+
+  // Uses MaybeUpdateServerInfoCache to get ServerInfo and pull the
+  // dtypes_and_shapes for `table`.  If `table` is not in the ServerInfo, then
+  // dtypes_and_shapes is set to absl::nullopt.
+  tensorflow::Status GetDtypesAndShapesForSampler(
+      const std::string& table, absl::Duration validation_timeout,
+      internal::DtypesAndShapes* dtypes_and_shapes);
 
   // Purely functional request for server info.  Does not update any internal
   // caches.

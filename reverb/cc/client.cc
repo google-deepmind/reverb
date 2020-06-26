@@ -71,6 +71,14 @@ tensorflow::Status Client::MaybeUpdateServerInfoCache(
     }
   }
 
+  if (timeout == -absl::InfiniteDuration()) {
+    // If timeout is -infinity, the user asked for data to be returned
+    // immediately and without error; but we don't have anything already cached.
+    // Just act like everything is fine! (Return empty signatures).
+    *cached_flat_signatures = std::make_shared<internal::FlatSignatureMap>();
+    return tensorflow::Status::OK();
+  }
+
   // This performs an RPC, so don't run it within a mutex.
   // Note, this operation can run into a race condition where multiple
   // threads of the same Client request server info, get different
@@ -133,21 +141,42 @@ tensorflow::Status Client::MutatePriorities(
   return FromGrpcStatus(stub_->MutatePriorities(&context, request, &response));
 }
 
-tensorflow::Status Client::NewSampler(const std::string& table,
-                                      const Sampler::Options& options,
-                                      std::unique_ptr<Sampler>* sampler) {
-  *sampler = absl::make_unique<Sampler>(stub_, table, options);
+tensorflow::Status Client::NewSampler(
+    const std::string& table, const Sampler::Options& options,
+    internal::DtypesAndShapes dtypes_and_shapes,
+    std::unique_ptr<Sampler>* sampler) {
+  *sampler = absl::make_unique<Sampler>(stub_, table, options,
+                                        std::move(dtypes_and_shapes));
   return tensorflow::Status::OK();
 }
 
-tensorflow::Status Client::NewSampler(
-    const std::string& table, const Sampler::Options& options,
-    const tensorflow::DataTypeVector& validation_dtypes,
-    const std::vector<tensorflow::PartialTensorShape>& validation_shapes,
-    absl::Duration validation_timeout, std::unique_ptr<Sampler>* sampler) {
+tensorflow::Status Client::NewSampler(const std::string& table,
+                                      const Sampler::Options& options,
+                                      absl::Duration validation_timeout,
+                                      std::unique_ptr<Sampler>* sampler) {
+  internal::DtypesAndShapes dtypes_and_shapes;
+  auto status = GetDtypesAndShapesForSampler(table, validation_timeout,
+                                             &dtypes_and_shapes);
+
+  if (tensorflow::errors::IsDeadlineExceeded(status)) {
+    REVERB_LOG(REVERB_WARNING)
+        << "Unable to validate shapes and dtypes of new sampler for '" << table
+        << "' as server could not be reached in time (" << validation_timeout
+        << "). We were thus unable to fetch signature from server. The "
+           "sampler will be constructed without validating the dtypes "
+           "and shapes.";
+  }
+
+  return NewSampler(table, options, std::move(dtypes_and_shapes), sampler);
+}
+
+tensorflow::Status Client::GetDtypesAndShapesForSampler(
+    const std::string& table, absl::Duration validation_timeout,
+    internal::DtypesAndShapes* dtypes_and_shapes) {
   // TODO(b/154928265): caching this request?  For example, if
   // it's been N seconds or minutes, it may be time to
   // get an updated ServerInfo and see if there are new tables.
+
   std::shared_ptr<internal::FlatSignatureMap> cached_flat_signatures;
   TF_RETURN_IF_ERROR(
       MaybeUpdateServerInfoCache(validation_timeout, &cached_flat_signatures));
@@ -163,55 +192,92 @@ tensorflow::Status Client::NewSampler(
         << "' in server signature.  Perhaps the table hasn't yet been added to "
            "the server?  Available tables: ["
         << absl::StrJoin(table_names, ", ") << "].";
+    dtypes_and_shapes->reset();
+  } else if (!iter->second) {
+    // Found the table, but signature is empty.
+    dtypes_and_shapes->reset();
   } else {
-    const auto& dtypes_and_shapes_no_info = iter->second;
-    // Only perform check if the table had a signature associated with it.
-    if (dtypes_and_shapes_no_info) {
-      std::vector<tensorflow::DtypeAndPartialTensorShape> dtypes_and_shapes;
-      // First element of sampled signature is the key.
-      dtypes_and_shapes.push_back(
-          {tensorflow::DT_UINT64, tensorflow::PartialTensorShape({})});
-      // Second element of sampled signature is the probability value.
-      dtypes_and_shapes.push_back(
-          {tensorflow::DT_DOUBLE, tensorflow::PartialTensorShape({})});
-      // Third element of sampled signature is the size of the table.
-      dtypes_and_shapes.push_back(
-          {tensorflow::DT_INT64, tensorflow::PartialTensorShape({})});
-      // Fourth element of sampled signature is the priority value.
-      dtypes_and_shapes.push_back(
-          {tensorflow::DT_DOUBLE, tensorflow::PartialTensorShape({})});
-      for (const auto& dtype_and_shape : *dtypes_and_shapes_no_info) {
-        dtypes_and_shapes.push_back(dtype_and_shape);
-      }
-      if (dtypes_and_shapes.size() != validation_shapes.size()) {
+    // Found the table, and found a signature.  Add the 4-element prefix for the
+    // SampleInfo.
+    const auto& old_dtypes_and_shapes = iter->second;
+    std::vector<internal::TensorSpec> dtypes_and_shapes_vec;
+    dtypes_and_shapes_vec.reserve(4 + old_dtypes_and_shapes->size());
+    // First element of sampled signature is the key.
+    dtypes_and_shapes_vec.push_back(
+        {"key", tensorflow::DT_UINT64, tensorflow::PartialTensorShape({})});
+    // Second element of sampled signature is the probability value.
+    dtypes_and_shapes_vec.push_back({"probability", tensorflow::DT_DOUBLE,
+                                     tensorflow::PartialTensorShape({})});
+    // Third element of sampled signature is the size of the table.
+    dtypes_and_shapes_vec.push_back({"table_size", tensorflow::DT_INT64,
+                                     tensorflow::PartialTensorShape({})});
+    // Fourth element of sampled signature is the priority value.
+    dtypes_and_shapes_vec.push_back({"priority", tensorflow::DT_DOUBLE,
+                                     tensorflow::PartialTensorShape({})});
+    for (const auto& dtype_and_shape : *old_dtypes_and_shapes) {
+      dtypes_and_shapes_vec.push_back(dtype_and_shape);
+    }
+
+    dtypes_and_shapes->emplace(std::move(dtypes_and_shapes_vec));
+  }
+  return tensorflow::Status::OK();
+}
+
+tensorflow::Status Client::NewSampler(
+    const std::string& table, const Sampler::Options& options,
+    const tensorflow::DataTypeVector& validation_dtypes,
+    const std::vector<tensorflow::PartialTensorShape>& validation_shapes,
+    absl::Duration validation_timeout, std::unique_ptr<Sampler>* sampler) {
+  if (validation_dtypes.size() != validation_shapes.size()) {
+    return tensorflow::errors::InvalidArgument(
+        "validation_shapes.size() != validation_dtypes.size() (",
+        validation_shapes.size(), " vs. ", validation_dtypes.size(), ")");
+  }
+
+  internal::DtypesAndShapes dtypes_and_shapes;
+  TF_RETURN_IF_ERROR(GetDtypesAndShapesForSampler(table, validation_timeout,
+                                                  &dtypes_and_shapes));
+  // Only perform check if the table had a signature associated with it.
+  if (dtypes_and_shapes) {
+    if (dtypes_and_shapes->size() != validation_shapes.size()) {
+      return tensorflow::errors::InvalidArgument(
+          "Inconsistent number of tensors requested from table '", table,
+          "'.  Requested ", validation_shapes.size(),
+          " tensors, but table signature shows ", dtypes_and_shapes->size(),
+          " tensors.  Table signature: ",
+          internal::DtypesShapesString(*dtypes_and_shapes));
+    }
+    for (int i = 0; i < dtypes_and_shapes->size(); ++i) {
+      if (dtypes_and_shapes->at(i).dtype != validation_dtypes[i] ||
+          !dtypes_and_shapes->at(i).shape.IsCompatibleWith(
+              validation_shapes[i])) {
         return tensorflow::errors::InvalidArgument(
-            "Inconsistent number of tensors requested from table '", table,
-            "'.  Requested ", validation_shapes.size(),
-            " tensors, but table signature shows ", dtypes_and_shapes.size(),
-            " tensors.  Table signature: ",
-            internal::DtypesShapesString(dtypes_and_shapes));
-      }
-      for (int i = 0; i < dtypes_and_shapes.size(); ++i) {
-        if (dtypes_and_shapes[i].dtype != validation_dtypes[i] ||
-            !dtypes_and_shapes[i].shape.IsCompatibleWith(
-                validation_shapes[i])) {
-          return tensorflow::errors::InvalidArgument(
-              "Requested incompatible tensor at flattened index ", i,
-              " from table '", table, "'.  Requested (dtype, shape): (",
-              tensorflow::DataTypeString(validation_dtypes[i]), ", ",
-              validation_shapes[i].DebugString(),
-              ").  Signature (dtype, shape): (",
-              tensorflow::DataTypeString(dtypes_and_shapes[i].dtype), ", ",
-              dtypes_and_shapes[i].shape.DebugString(), ").  Table signature: ",
-              internal::DtypesShapesString(dtypes_and_shapes));
-        }
+            "Requested incompatible tensor at flattened index ", i,
+            " from table '", table, "'.  Requested (dtype, shape): (",
+            tensorflow::DataTypeString(validation_dtypes[i]), ", ",
+            validation_shapes[i].DebugString(),
+            ").  Signature (dtype, shape): (",
+            tensorflow::DataTypeString(dtypes_and_shapes->at(i).dtype), ", ",
+            dtypes_and_shapes->at(i).shape.DebugString(),
+            ").  Table signature: ",
+            internal::DtypesShapesString(*dtypes_and_shapes));
       }
     }
+  } else {
+    // dtypes_and_shapes lacks any signature info; build it from
+    // the validation inputs.
+    std::vector<internal::TensorSpec> dtypes_and_shapes_vec;
+    dtypes_and_shapes_vec.reserve(validation_shapes.size());
+    for (int i = 0; i < validation_shapes.size(); ++i) {
+      dtypes_and_shapes_vec.push_back(
+          {/*name=*/"?", validation_dtypes[i], validation_shapes[i]});
+    }
+    dtypes_and_shapes.emplace(std::move(dtypes_and_shapes_vec));
   }
 
   // TODO(b/154927849): Do sanity checks on the buffer_size and max_samples.
   // TODO(b/154928566): Maybe we don't even need to expose the buffer_size.
-  return NewSampler(table, options, sampler);
+  return NewSampler(table, options, std::move(dtypes_and_shapes), sampler);
 }
 
 tensorflow::Status Client::GetServerInfo(absl::Duration timeout,

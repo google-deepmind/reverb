@@ -150,8 +150,13 @@ class SampleOp : public tensorflow::OpKernel {
     options.max_samples = 1;
     options.max_in_flight_samples_per_worker = 1;
 
-    OP_REQUIRES_OK(context,
-                   resource->client()->NewSampler(table, options, &sampler));
+    // TODO(b/154929217): Expose this option so it can be set to infinite
+    // outside of tests.
+    constexpr auto kValidationTimeout = absl::Seconds(30);
+    OP_REQUIRES_OK(
+        context, resource->client()->NewSampler(
+                     table, options, /*validation_timeout=*/kValidationTimeout,
+                     &sampler));
     OP_REQUIRES_OK(context, sampler->GetNextTimestep(&sample, nullptr));
     OP_REQUIRES(context, sample.size() == context->num_outputs(),
                 InvalidArgument(

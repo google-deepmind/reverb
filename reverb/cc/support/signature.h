@@ -23,6 +23,7 @@
 #include "absl/strings/string_view.h"
 #include "absl/types/optional.h"
 #include "reverb/cc/schema.pb.h"
+#include "tensorflow/core/framework/tensor.h"
 #include "tensorflow/core/framework/tensor_shape.h"
 #include "tensorflow/core/framework/types.h"
 #include "tensorflow/core/lib/hash/hash.h"
@@ -32,8 +33,13 @@ namespace deepmind {
 namespace reverb {
 namespace internal {
 
-typedef absl::optional<std::vector<tensorflow::DtypeAndPartialTensorShape>>
-    DtypesAndShapes;
+struct TensorSpec {
+  std::string name;
+  tensorflow::DataType dtype;
+  tensorflow::PartialTensorShape shape;
+};
+
+typedef absl::optional<std::vector<TensorSpec>> DtypesAndShapes;
 
 tensorflow::Status FlatSignatureFromTableInfo(
     const TableInfo& info, DtypesAndShapes* dtypes_and_shapes);
@@ -54,8 +60,10 @@ typedef absl::flat_hash_map<std::string, internal::DtypesAndShapes>
     FlatSignatureMap;
 
 std::string DtypesShapesString(
-    const std::vector<tensorflow::DtypeAndPartialTensorShape>&
-        dtypes_and_shapes);
+    const std::vector<internal::TensorSpec>& dtypes_and_shapes);
+
+std::vector<internal::TensorSpec> SpecsFromTensors(
+    const std::vector<tensorflow::Tensor>& tensors);
 
 }  // namespace internal
 }  // namespace reverb

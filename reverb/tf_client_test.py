@@ -175,7 +175,7 @@ class UpdatePrioritiesOpTest(tf.test.TestCase):
           table=tf.constant('dist'),
           keys=tf.constant([update_key], dtype=tf.uint64),
           priorities=tf.constant([3], dtype=tf.float64))
-      self.assertEqual(None, session.run(update_op))
+      self.assertIsNone(session.run(update_op))
 
     # The updated item now has priority 3 and the other 3 items have priority 1
     # each. The probability of sampling the new item should thus be 50%. We
@@ -271,7 +271,7 @@ class InsertOpTest(tf.test.TestCase):
       sample_op = client.sample('dist', [tf.int8])
 
       # Check that insert op succeeds.
-      self.assertEqual(None, session.run(insert_op))
+      self.assertIsNone(session.run(insert_op))
 
       # Check that the sampled data matches the inserted.
       sample = session.run(sample_op)
@@ -293,7 +293,7 @@ class InsertOpTest(tf.test.TestCase):
       ]
 
       # Check that insert op succeeds.
-      self.assertEqual(None, session.run(insert_op))
+      self.assertIsNone(session.run(insert_op))
 
       # Check that the sampled data matches the inserted in all tables.
       for sample_op in sample_ops:
@@ -502,7 +502,7 @@ class DatasetTest(tf.test.TestCase, parameterized.TestCase):
       self._sample_from(dataset, 10)
 
   @parameterized.parameters(['signatured'], ['bounded_spec_signatured'])
-  def test_incomatible_signature_dtype(self, table_name):
+  def test_incompatible_signature_dtype(self, table_name):
     self._populate_replay()
 
     client = tf_client.TFClient(self._client.server_address)
@@ -514,6 +514,18 @@ class DatasetTest(tf.test.TestCase, parameterized.TestCase):
         r'\'{}\'.  Requested \(dtype, shape\): \(int64, \[3,3\]\).  '
         r'Signature \(dtype, shape\): \(float, \[\?,\?\]\)'.format(table_name)):
       self._sample_from(dataset, 10)
+
+    dataset_emit_sequences = client.dataset(
+        table=table_name,
+        dtypes=(tf.int64,),
+        shapes=(tf.TensorShape([None, 3, 3]),),
+        emit_timesteps=False)
+    with self.assertRaisesWithPredicateMatch(
+        tf.errors.InvalidArgumentError,
+        r'Requested incompatible tensor at flattened index 4 from table '
+        r'\'{}\'.  Requested \(dtype, shape\): \(int64, \[3,3\]\).  '
+        r'Signature \(dtype, shape\): \(float, \[\?,\?\]\)'.format(table_name)):
+      self._sample_from(dataset_emit_sequences, 10)
 
   @parameterized.parameters(['signatured'], ['bounded_spec_signatured'])
   def test_incompatible_signature_shape(self, table_name):
@@ -529,6 +541,18 @@ class DatasetTest(tf.test.TestCase, parameterized.TestCase):
         r'Signature \(dtype, shape\): \(float, \[\?,\?\]\)'.format(table_name)):
       self._sample_from(dataset, 10)
 
+    dataset_emit_sequences = client.dataset(
+        table=table_name,
+        dtypes=(tf.float32,),
+        shapes=(tf.TensorShape([None, 3]),),
+        emit_timesteps=False)
+    with self.assertRaisesWithPredicateMatch(
+        tf.errors.InvalidArgumentError,
+        r'Requested incompatible tensor at flattened index 4 from table '
+        r'\'{}\'.  Requested \(dtype, shape\): \(float, \[3\]\).  '
+        r'Signature \(dtype, shape\): \(float, \[\?,\?\]\)'.format(table_name)):
+      self._sample_from(dataset_emit_sequences, 10)
+
   @parameterized.parameters([1], [3], [10])
   def test_incompatible_shape_when_using_sequence_length(self, sequence_length):
     client = tf_client.TFClient(self._client.server_address)
@@ -539,6 +563,30 @@ class DatasetTest(tf.test.TestCase, parameterized.TestCase):
           shapes=(tf.TensorShape([sequence_length + 1, 3, 3]),),
           emit_timesteps=False,
           sequence_length=sequence_length)
+
+  def test_incompatible_dataset_shapes_and_types_without_signature(self):
+    self._populate_replay()
+    client = tf_client.TFClient(self._client.server_address)
+    ds_wrong_shape = client.dataset(
+        table='dist', dtypes=(tf.float32,), shapes=(tf.TensorShape([]),))
+    with self.assertRaisesRegex(
+        tf.errors.InvalidArgumentError,
+        r'Specification has \(dtype, shape\): \(float, \[\]\).  '
+        r'Tensor has \(dtype, shape\): \(float, \[3,3\]\).'):
+      self._sample_from(ds_wrong_shape, 1)
+
+    ds_full_sequences_wrong_shape = client.dataset(
+        table='dist',
+        dtypes=(tf.float32,),
+        shapes=(tf.TensorShape([None]),),
+        emit_timesteps=False,
+    )
+
+    with self.assertRaisesRegex(
+        tf.errors.InvalidArgumentError,
+        r'Specification has \(dtype, shape\): \(float, \[\]\).  '
+        r'Tensor has \(dtype, shape\): \(float, \[3,3\]\).'):
+      self._sample_from(ds_full_sequences_wrong_shape, 1)
 
   @parameterized.parameters(
       ('dist', 1, 1),

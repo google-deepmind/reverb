@@ -173,6 +173,7 @@ reverb_cc_library(
         "//reverb/cc/platform:logging",
         "//reverb/cc/platform:thread",
         "//reverb/cc/support:grpc_util",
+        "//reverb/cc/support:signature",
         "//reverb/cc/support:queue",
     ] + reverb_tf_deps() + reverb_grpc_deps() + reverb_absl_deps(),
 )

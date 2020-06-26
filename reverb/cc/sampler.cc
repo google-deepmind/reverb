@@ -94,8 +94,8 @@ tensorflow::Status AsSample(std::vector<SampleStreamResponse> responses,
         if (batch_size != batch.dim_size(0)) {
           return tensorflow::errors::Internal(
               "Chunks of the same response must have identical batch size, but "
-              "first chunk has batch size ", batch_size,
-              " while the current chunk has batch size ",
+              "first chunk has batch size ",
+              batch_size, " while the current chunk has batch size ",
               batch.dim_size(0));
         }
       }
@@ -126,8 +126,10 @@ tensorflow::Status AsSample(std::vector<SampleStreamResponse> responses,
 }  // namespace
 
 Sampler::Sampler(std::shared_ptr</* grpc_gen:: */ReverbService::StubInterface> stub,
-                 const std::string& table, const Options& options)
+                 const std::string& table, const Options& options,
+                 internal::DtypesAndShapes dtypes_and_shapes)
     : stub_(std::move(stub)),
+      table_(table),
       max_samples_(options.max_samples == kUnlimitedMaxSamples
                        ? INT64_MAX
                        : options.max_samples),
@@ -136,7 +138,8 @@ Sampler::Sampler(std::shared_ptr</* grpc_gen:: */ReverbService::StubInterface> s
                                   : options.max_samples_per_stream),
       rate_limiter_timeout_(options.rate_limiter_timeout),
       active_sample_(nullptr),
-      samples_(std::max<int>(options.num_workers, 1)) {
+      samples_(std::max<int>(options.num_workers, 1)),
+      dtypes_and_shapes_(std::move(dtypes_and_shapes)) {
   REVERB_CHECK_GT(max_samples_, 0);
   REVERB_CHECK_GT(options.max_in_flight_samples_per_worker, 0);
   REVERB_CHECK(options.num_workers == kAutoSelectValue ||
@@ -169,6 +172,7 @@ tensorflow::Status Sampler::GetNextTimestep(
   TF_RETURN_IF_ERROR(MaybeSampleNext());
 
   *data = active_sample_->GetNextTimestep();
+  TF_RETURN_IF_ERROR(ValidateAgainstOutputSpec(*data, /*time_step=*/true));
 
   if (end_of_sequence != nullptr) {
     *end_of_sequence = active_sample_->is_end_of_sample();
@@ -186,10 +190,63 @@ tensorflow::Status Sampler::GetNextSample(
     std::vector<tensorflow::Tensor>* data) {
   std::unique_ptr<Sample> sample;
   TF_RETURN_IF_ERROR(PopNextSample(&sample));
-  *data = sample->AsBatchedTimesteps();
+  TF_RETURN_IF_ERROR(sample->AsBatchedTimesteps(data));
+  TF_RETURN_IF_ERROR(ValidateAgainstOutputSpec(*data, /*time_step=*/false));
 
   absl::WriterMutexLock lock(&mu_);
   if (++returned_ == max_samples_) samples_.Close();
+  return tensorflow::Status::OK();
+}
+
+tensorflow::Status Sampler::ValidateAgainstOutputSpec(
+    const std::vector<tensorflow::Tensor>& data, bool time_step) {
+  if (!dtypes_and_shapes_) {
+    return tensorflow::Status::OK();
+  }
+
+  if (data.size() != dtypes_and_shapes_->size()) {
+    return tensorflow::errors::InvalidArgument(
+        "Inconsistent number of tensors received from table '", table_,
+        "'.  Specification has ", dtypes_and_shapes_->size(),
+        " tensors, but data coming from the table shows ", data.size(),
+        " tensors.\nTable signature: ",
+        internal::DtypesShapesString(*dtypes_and_shapes_),
+        ".\nIncoming tensor signature: ",
+        internal::DtypesShapesString(internal::SpecsFromTensors(data)));
+  }
+
+  for (int i = 0; i < data.size(); ++i) {
+    tensorflow::TensorShape elem_shape;
+    if (!time_step) {
+      // Remove the outer dimension from data[i].shape() so we can properly
+      // compare against the spec (which doesn't have the sequence dimension).
+      elem_shape = data[i].shape();
+      if (elem_shape.dims() == 0) {
+        return tensorflow::errors::InvalidArgument(
+            "Invalid tensor shape received from table '", table_,
+            "'.  "
+            "time_step is false but data[",
+            i,
+            "] has scalar shape "
+            "(no time dimension).");
+      }
+      elem_shape.RemoveDim(0);
+    }
+
+    auto* shape_ptr = time_step ? &(data[i].shape()) : &elem_shape;
+    if (data[i].dtype() != dtypes_and_shapes_->at(i).dtype ||
+        !dtypes_and_shapes_->at(i).shape.IsCompatibleWith(*shape_ptr)) {
+      return tensorflow::errors::InvalidArgument(
+          "Received incompatible tensor at flattened index ", i,
+          " from table '", table_, "'.  Specification has (dtype, shape): (",
+          tensorflow::DataTypeString(dtypes_and_shapes_->at(i).dtype), ", ",
+          dtypes_and_shapes_->at(i).shape.DebugString(),
+          ").  Tensor has (dtype, shape): (",
+          tensorflow::DataTypeString(data[i].dtype()), ", ",
+          shape_ptr->DebugString(), ").\nTable signature: ",
+          internal::DtypesShapesString(*dtypes_and_shapes_));
+    }
+  }
   return tensorflow::Status::OK();
 }
 
@@ -405,8 +462,12 @@ std::vector<tensorflow::Tensor> Sample::GetNextTimestep() {
 
 bool Sample::is_end_of_sample() const { return chunks_.empty(); }
 
-std::vector<tensorflow::Tensor> Sample::AsBatchedTimesteps() {
-  CHECK(!next_timestep_called_) << "Some time steps have been lost.";
+tensorflow::Status Sample::AsBatchedTimesteps(
+    std::vector<tensorflow::Tensor>* data) {
+  if (next_timestep_called_) {
+    return tensorflow::errors::DataLoss(
+        "Sample::AsBatchedTimesteps: Some time steps have been lost.");
+  }
 
   std::vector<tensorflow::Tensor> sequences(num_data_tensors_ + 4);
 
@@ -432,10 +493,12 @@ std::vector<tensorflow::Tensor> Sample::AsBatchedTimesteps() {
   // Concatenate all chunks.
   int64_t i = 4;
   for (const auto& chunks : data_tensors) {
-    TF_CHECK_OK(tensorflow::tensor::Concat(chunks, &sequences[i++]));
+    TF_RETURN_IF_ERROR(tensorflow::tensor::Concat(chunks, &sequences[i++]));
   }
 
-  return sequences;
+  std::swap(sequences, *data);
+
+  return tensorflow::Status::OK();
 }
 
 }  // namespace reverb

@@ -27,6 +27,7 @@
 #include "reverb/cc/platform/thread.h"
 #include "reverb/cc/reverb_service.grpc.pb.h"
 #include "reverb/cc/support/queue.h"
+#include "reverb/cc/support/signature.h"
 #include "tensorflow/core/framework/tensor.h"
 #include "tensorflow/core/lib/core/status.h"
 
@@ -66,7 +67,7 @@ class Sample {
   //   a tensor of shape [N, ...original_shape]. The following four tensors are
   //   1D (length N) tensors representing the key, sample probability, table
   //   size and priority respectively.
-  std::vector<tensorflow::Tensor> AsBatchedTimesteps();
+  tensorflow::Status AsBatchedTimesteps(std::vector<tensorflow::Tensor>* data);
 
   // Returns true if the end of the sample has been reached.
   ABSL_MUST_USE_RESULT bool is_end_of_sample() const;
@@ -198,8 +199,10 @@ class Sampler {
   // `stub` is a connected gRPC stub to the ReverbService.
   // `table` is the name of the `Table` to sample from.
   // `options` defines details of how to samples.
+  // `dtypes_and_shapes` describes the output signature (if any) to expect.
   Sampler(std::shared_ptr</* grpc_gen:: */ReverbService::StubInterface> stub,
-          const std::string& table, const Options& options);
+          const std::string& table, const Options& options,
+          internal::DtypesAndShapes dtypes_and_shapes = absl::nullopt);
 
   // Joins worker threads through call to `Close`.
   virtual ~Sampler();
@@ -223,6 +226,14 @@ class Sampler {
   Sampler& operator=(const Sampler&) = delete;
 
  private:
+  // Validates the `data` vector against `dtypes_and_shapes`.
+  //
+  // `data` is the data received by GetNextTimeStep or GetNextSample.
+  // `time_step` is `true` if `GetNextTimeStep` is the caller and `false`
+  //   if `GetNextSample` is the caller.
+  tensorflow::Status ValidateAgainstOutputSpec(
+      const std::vector<tensorflow::Tensor>& data, bool time_step);
+
   class Worker {
    public:
     // Constructs a new worker without creating a stream to a server.
@@ -288,6 +299,9 @@ class Sampler {
   // uniform sampling when using multiple backends.
   std::shared_ptr</* grpc_gen:: */ReverbService::StubInterface> stub_;
 
+  // Name of the table we are sampling from.
+  std::string table_;
+
   // The maximum number of samples to fetch. Calls to `GetNextTimestep` or
   // `GetNextSample` after `max_samples_` has been returned will result in
   // OutOfRangeError.
@@ -319,6 +333,12 @@ class Sampler {
 
   // Queue of complete samples (timesteps batched up by into sequence).
   internal::Queue<std::unique_ptr<Sample>> samples_;
+
+  // The dtypes and shapes users expect from either `GetNextTimestep` or
+  // `GetNextSample` (whichever they plan to call).  May be absl::nullopt,
+  // meaning unknown.
+  const internal::DtypesAndShapes dtypes_and_shapes_;
+  const internal::DtypesAndShapes dtypes_and_shapes_for_sequence_;
 
   // Set if `Close` called.
   bool closed_ ABSL_GUARDED_BY(mu_) = false;

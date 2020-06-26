@@ -18,6 +18,7 @@
 
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "tensorflow/core/framework/tensor.h"
 #include "tensorflow/core/framework/tensor.pb.h"
 #include "tensorflow/core/framework/types.h"
 #include "tensorflow/core/protobuf/struct.pb.h"
@@ -50,7 +51,7 @@ tensorflow::Status FlatSignatureFromStructuredValue(
     case tensorflow::StructuredValue::kTensorSpecValue: {
       const auto& tensor_spec = value.tensor_spec_value();
       (*dtypes_and_shapes)
-          ->push_back({tensor_spec.dtype(),
+          ->push_back({tensor_spec.name(), tensor_spec.dtype(),
                        tensorflow::PartialTensorShape(tensor_spec.shape())});
     } break;
     case tensorflow::StructuredValue::kBoundedTensorSpecValue: {
@@ -60,7 +61,7 @@ tensorflow::Status FlatSignatureFromStructuredValue(
       // TODO(b/158033101): Make the signature check fully support boundaries.
       (*dtypes_and_shapes)
           ->push_back(
-              {bounded_tensor_spec.dtype(),
+              {bounded_tensor_spec.name(), bounded_tensor_spec.dtype(),
                tensorflow::PartialTensorShape(bounded_tensor_spec.shape())});
     } break;
     case tensorflow::StructuredValue::kListValue: {
@@ -102,14 +103,14 @@ tensorflow::Status FlatSignatureFromStructuredValue(
 }
 
 std::string DtypesShapesString(
-    const std::vector<tensorflow::DtypeAndPartialTensorShape>&
-        dtypes_and_shapes) {
+    const std::vector<internal::TensorSpec>& dtypes_and_shapes) {
   std::vector<std::string> strings;
   strings.reserve(dtypes_and_shapes.size());
-  for (const auto& p : dtypes_and_shapes) {
-    strings.push_back(absl::StrCat(
-        "Tensor<name: '?', dtype: ", tensorflow::DataTypeString(p.dtype),
-        ", shape: ", p.shape.DebugString(), ">"));
+  for (int i = 0; i < dtypes_and_shapes.size(); ++i) {
+    const auto& p = dtypes_and_shapes[i];
+    strings.push_back(absl::StrCat(i, ": Tensor<name: '", p.name, "', dtype: ",
+                                   tensorflow::DataTypeString(p.dtype),
+                                   ", shape: ", p.shape.DebugString(), ">"));
   }
   return absl::StrJoin(strings, ", ");
 }
@@ -178,6 +179,17 @@ tensorflow::Status FlatPathFromStructuredValue(
   }
   return tensorflow::Status::OK();
 }
+
+std::vector<internal::TensorSpec> SpecsFromTensors(
+    const std::vector<tensorflow::Tensor>& tensors) {
+  std::vector<internal::TensorSpec> spec;
+  spec.reserve(tensors.size());
+  for (const auto& t : tensors) {
+    spec.push_back({"", t.dtype(), t.shape()});
+  }
+  return spec;
+}
+
 
 }  // namespace internal
 }  // namespace reverb
