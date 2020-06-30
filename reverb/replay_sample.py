@@ -21,7 +21,7 @@ import numpy as np
 import tensorflow.compat.v1 as tf
 
 
-class _SampleInfo(NamedTuple):
+class SampleInfo(NamedTuple):
   """Extra details about the sampled item.
 
   Fields:
@@ -43,26 +43,6 @@ class _SampleInfo(NamedTuple):
   def tf_dtypes(cls):
     """Info dtypes corresponding to (key, probability, table_size, priority)."""
     return cls(tf.uint64, tf.double, tf.int64, tf.double)
-
-
-# This makes the value of the field `priority` return with the value of
-# `probability` when `priority` is not defined. This is needed to make test pass
-# which expects this defined (e.g. when interleave dataset with another one
-# containing defined priorities).
-# TODO(b/156414572): Remove this once the change is available in nightly.
-class SampleInfo(_SampleInfo):
-  """SampleInfo which sets priority to probability if it is not provided."""
-
-  def __new__(cls,
-              key: Union[np.ndarray, tf.Tensor],
-              probability: Union[np.ndarray, tf.Tensor],
-              table_size: Union[np.ndarray, tf.Tensor],
-              priority: Union[None, np.ndarray, tf.Tensor] = None):
-    if priority is None:
-      return super(SampleInfo, cls).__new__(
-          cls, key, probability, table_size, priority=probability)
-    return super(SampleInfo, cls).__new__(
-        cls, key, probability, table_size, priority=priority)
 
 
 class ReplaySample(NamedTuple):
