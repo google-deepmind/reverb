@@ -145,7 +145,8 @@ class TFClient:
               num_workers_per_iterator: int = -1,
               max_samples_per_stream: int = -1,
               sequence_length: Optional[int] = None,
-              emit_timesteps: bool = True) -> dataset.ReplayDataset:
+              emit_timesteps: bool = True,
+              rate_limiter_timeout_ms: int = -1) -> dataset.ReplayDataset:
     """DEPRECATED, please use dataset.ReplayDataset instead.
 
     A tf.data.Dataset which samples timesteps from the ReverbService.
@@ -185,6 +186,13 @@ class TFClient:
         timesteps can be more efficient as the memcopies caused by the splitting
         and batching of tensor can be avoided. Note that if set to False then
         then all `shapes` must have dim[0] equal to `sequence_length`.
+      rate_limiter_timeout_ms: (Defaults to -1: infinite).  Timeout (in
+        milliseconds) to wait on the rate limiter when sampling from the table.
+        If `rate_limiter_timeout_ms >= 0`, this is the timeout passed to
+        `Table::Sample` describing how long to wait for the rate limiter to
+        allow sampling. The first time that a request times out (across any of
+        the workers), the Dataset iterator is closed and the sequence is
+        considered finished.
 
     Returns:
       A ReplayDataset with the above specification.
@@ -201,4 +209,5 @@ class TFClient:
         num_workers_per_iterator=num_workers_per_iterator,
         max_samples_per_stream=max_samples_per_stream,
         sequence_length=sequence_length,
-        emit_timesteps=emit_timesteps)
+        emit_timesteps=emit_timesteps,
+        rate_limiter_timeout_ms=rate_limiter_timeout_ms)
