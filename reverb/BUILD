@@ -22,6 +22,7 @@ reverb_pytype_strict_library(
     srcs_version = "PY3",
     deps = [
         ":client",
+        ":dataset",
         ":errors",
         ":item_selectors",
         ":rate_limiters",
@@ -116,8 +117,19 @@ reverb_pytype_library(
     srcs_version = "PY3",
     strict_deps = True,
     deps = [
+        ":dataset",
         ":replay_sample",
         "//reverb/cc/ops:gen_client_ops",
+    ],
+)
+
+reverb_pytype_library(
+    name = "dataset",
+    srcs = ["dataset.py"],
+    srcs_version = "PY3",
+    strict_deps = True,
+    deps = [
+        ":replay_sample",
         "//reverb/cc/ops:gen_dataset_op",
     ],
 )
@@ -171,7 +183,6 @@ reverb_py_test(
     timeout = "short",
     srcs = ["tf_client_test.py"],
     python_version = "PY3",
-    shard_count = 6,
     deps = [
         ":client",
         ":item_selectors",
@@ -179,6 +190,21 @@ reverb_py_test(
         ":replay_sample",
         ":server",
         ":tf_client",
+    ],
+)
+
+reverb_py_test(
+    name = "dataset_test",
+    timeout = "short",
+    srcs = ["dataset_test.py"],
+    python_version = "PY3",
+    deps = [
+        ":client",
+        ":dataset",
+        ":item_selectors",
+        ":rate_limiters",
+        ":replay_sample",
+        ":server",
     ],
 )
 

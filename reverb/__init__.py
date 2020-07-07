@@ -30,6 +30,8 @@ from reverb import rate_limiters
 from reverb.client import Client
 from reverb.client import Writer
 
+from reverb.dataset import ReplayDataset
+
 from reverb.errors import DeadlineExceededError
 from reverb.errors import ReverbError
 
@@ -41,5 +43,4 @@ from reverb.replay_sample import SampleInfo
 from reverb.server import Server
 from reverb.server import Table
 
-from reverb.tf_client import ReplayDataset
 from reverb.tf_client import TFClient
