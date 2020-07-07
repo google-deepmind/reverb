@@ -129,6 +129,7 @@ reverb_pytype_library(
     srcs_version = "PY3",
     strict_deps = True,
     deps = [
+        ":client",
         ":replay_sample",
         "//reverb/cc/ops:gen_dataset_op",
     ],
@@ -201,6 +202,7 @@ reverb_py_test(
     deps = [
         ":client",
         ":dataset",
+        ":errors",
         ":item_selectors",
         ":rate_limiters",
         ":replay_sample",

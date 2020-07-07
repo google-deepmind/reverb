@@ -22,10 +22,11 @@ from absl.testing import parameterized
 import numpy as np
 from reverb import client
 from reverb import dataset as reverb_dataset
+from reverb import errors
 from reverb import item_selectors
 from reverb import rate_limiters
 from reverb import replay_sample
-from reverb import server
+from reverb import server as reverb_server
 import tensorflow.compat.v1 as tf
 import tree
 
@@ -33,22 +34,22 @@ from tensorflow.python.framework import tensor_spec  # pylint:disable=g-direct-t
 
 
 def make_server():
-  return server.Server(
+  return reverb_server.Server(
       tables=[
-          server.Table(
+          reverb_server.Table(
               'dist',
               sampler=item_selectors.Prioritized(priority_exponent=1),
               remover=item_selectors.Fifo(),
               max_size=1000000,
               rate_limiter=rate_limiters.MinSize(1)),
-          server.Table(
+          reverb_server.Table(
               'signatured',
               sampler=item_selectors.Prioritized(priority_exponent=1),
               remover=item_selectors.Fifo(),
               max_size=1000000,
               rate_limiter=rate_limiters.MinSize(1),
               signature=tf.TensorSpec(dtype=tf.float32, shape=(None, None))),
-          server.Table(
+          reverb_server.Table(
               'bounded_spec_signatured',
               sampler=item_selectors.Prioritized(priority_exponent=1),
               remover=item_selectors.Fifo(),
@@ -706,6 +707,103 @@ class ReplayDatasetTest(tf.test.TestCase, parameterized.TestCase):
       thread.start()
       with self.assertRaises(tf.errors.CancelledError):
         sess.run(item)
+
+
+class FromTableSignatureTest(tf.test.TestCase):
+
+  def test_table_not_found(self):
+    server = reverb_server.Server([
+        reverb_server.Table.queue('table_a', 10),
+        reverb_server.Table.queue('table_c', 10),
+        reverb_server.Table.queue('table_b', 10),
+    ])
+    address = f'localhost:{server.port}'
+
+    with self.assertRaisesWithPredicateMatch(
+        ValueError,
+        f'Server at {address} does not contain any table named not_found. '
+        f'Found: table_a, table_b, table_c.'):
+      reverb_dataset.ReplayDataset.from_table_signature(
+          address, 'not_found', 100)
+
+  def test_server_not_found(self):
+    with self.assertRaises(errors.DeadlineExceededError):
+      reverb_dataset.ReplayDataset.from_table_signature(
+          'localhost:1234', 'not_found', 100, get_signature_timeout_secs=1)
+
+  def test_table_does_not_have_signature(self):
+    server = make_server()
+    address = f'localhost:{server.port}'
+    with self.assertRaisesWithPredicateMatch(
+        ValueError, f'Table dist at {address} does not have a signature.'):
+      reverb_dataset.ReplayDataset.from_table_signature(
+          address, 'dist', 100)
+
+  def test_sets_dtypes_from_signature(self):
+    signature = {
+        'a': {
+            'b': tf.TensorSpec([3, 3], tf.float32),
+            'c': tf.TensorSpec([], tf.int64),
+        },
+        'x': tf.TensorSpec([None], tf.uint64),
+    }
+
+    server = reverb_server.Server(
+        [reverb_server.Table.queue('queue', 10, signature=signature)])
+
+    dataset = reverb_dataset.ReplayDataset.from_table_signature(
+        f'localhost:{server.port}', 'queue', 100)
+    self.assertDictEqual(dataset.element_spec.data, signature)
+
+  def test_sets_dtypes_from_bounded_spec_signature(self):
+    bounded_spec_signature = {
+        'a': {
+            'b': tensor_spec.BoundedTensorSpec([3, 3], tf.float32, 0, 3),
+            'c': tensor_spec.BoundedTensorSpec([], tf.int64, 0, 5),
+        },
+    }
+
+    server = reverb_server.Server([
+        reverb_server.Table.queue(
+            'queue', 10, signature=bounded_spec_signature)
+    ])
+
+    dataset = reverb_dataset.ReplayDataset.from_table_signature(
+        f'localhost:{server.port}', 'queue', 100)
+    self.assertDictEqual(
+        dataset.element_spec.data, {
+            'a': {
+                'b': tf.TensorSpec([3, 3], tf.float32),
+                'c': tf.TensorSpec([], tf.int64),
+            },
+        })
+
+  def test_combines_sequence_length_with_signature_if_not_emit_timestamps(self):
+    server = reverb_server.Server([
+        reverb_server.Table.queue(
+            'queue',
+            10,
+            signature={
+                'a': {
+                    'b': tf.TensorSpec([3, 3], tf.float32),
+                    'c': tf.TensorSpec([], tf.int64),
+                },
+            })
+    ])
+
+    dataset = reverb_dataset.ReplayDataset.from_table_signature(
+        f'localhost:{server.port}',
+        'queue',
+        100,
+        emit_timesteps=False,
+        sequence_length=5)
+    self.assertDictEqual(
+        dataset.element_spec.data, {
+            'a': {
+                'b': tf.TensorSpec([5, 3, 3], tf.float32),
+                'c': tf.TensorSpec([5], tf.int64),
+            },
+        })
 
 
 if __name__ == '__main__':

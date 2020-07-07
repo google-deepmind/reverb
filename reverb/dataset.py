@@ -17,6 +17,7 @@
 
 from typing import Any, List, Optional
 
+from reverb import client as reverb_client
 from reverb import replay_sample
 import tensorflow.compat.v1 as tf
 import tree
@@ -178,6 +179,76 @@ class ReplayDataset(tf.data.Dataset):
       # DatasetV2 requires the dataset as a variant tensor during init.
       super().__init__(self._as_variant_tensor())
       # pytype: enable=wrong-arg-count
+
+  @classmethod
+  def from_table_signature(cls,
+                           server_address: str,
+                           table: str,
+                           max_in_flight_samples_per_worker: int,
+                           num_workers_per_iterator: int = -1,
+                           max_samples_per_stream: int = -1,
+                           sequence_length: Optional[int] = None,
+                           emit_timesteps: bool = True,
+                           rate_limiter_timeout_ms: int = -1,
+                           get_signature_timeout_secs: Optional[int] = None,):
+    """Constructs a ReplayDataset using the table's signature to infer specs.
+
+    Note: The signature must be provided to `Table` at construction. See
+    `Table.__init__` (./server.py) for more details.
+
+    Args:
+      server_address: Address of gRPC ReverbService.
+      table: Table to read the signature and sample from.
+      max_in_flight_samples_per_worker: See __init__ for details.
+      num_workers_per_iterator: See __init__ for details.
+      max_samples_per_stream: See __init__ for details.
+      sequence_length: See __init__ for details.
+      emit_timesteps: See __init__ for details.
+      rate_limiter_timeout_ms: See __init__ for details.
+      get_signature_timeout_secs: Timeout in seconds to wait for server to
+        respond when fetching the table signature. By default no timeout is set
+        and the call will block indefinetely if the server does not respond.
+
+    Returns:
+      ReplayDataset using the specs defined by the table signature to build
+        `shapes` and `dtypes`.
+
+    Raises:
+      ValueError: If `table` does not exist on server at `server_address`.
+      ValueError: If `table` does not have a signature.
+      errors.DeadlineExceededError: If `get_signature_timeout_secs` provided and
+        exceeded.
+      ValueError: See __init__.
+    """
+    client = reverb_client.Client(server_address)
+    info = client.server_info(get_signature_timeout_secs)
+    if table not in info:
+      raise ValueError(
+          f'Server at {server_address} does not contain any table named '
+          f'{table}. Found: {", ".join(sorted(info.keys()))}.')
+
+    if not info[table].signature:
+      raise ValueError(
+          f'Table {table} at {server_address} does not have a signature.')
+
+    shapes = tree.map_structure(lambda x: x.shape, info[table].signature)
+    dtypes = tree.map_structure(lambda x: x.dtype, info[table].signature)
+
+    if not emit_timesteps:
+      batch_dim = tf.TensorShape([sequence_length])
+      shapes = tree.map_structure(batch_dim.concatenate, shapes)
+
+    return cls(
+        server_address=server_address,
+        table=table,
+        shapes=shapes,
+        dtypes=dtypes,
+        max_in_flight_samples_per_worker=max_in_flight_samples_per_worker,
+        num_workers_per_iterator=num_workers_per_iterator,
+        max_samples_per_stream=max_samples_per_stream,
+        sequence_length=sequence_length,
+        emit_timesteps=emit_timesteps,
+        rate_limiter_timeout_ms=rate_limiter_timeout_ms)
 
   def _as_variant_tensor(self):
     return gen_dataset_op.reverb_dataset(
