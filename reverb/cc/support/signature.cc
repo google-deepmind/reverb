@@ -139,6 +139,12 @@ tensorflow::Status FlatPathFromStructuredValue(
     case tensorflow::StructuredValue::kTensorSpecValue:
       paths->push_back(std::string(prefix));
       break;
+    case tensorflow::StructuredValue::kBoundedTensorSpecValue:
+      // The path does not store the bounds from the bounded spec as currently
+      // those bounds are not checked as part of the signature check.
+      // TODO(b/158033101): Make the signature check fully support boundaries.
+      paths->push_back(std::string(prefix));
+      break;
     case tensorflow::StructuredValue::kListValue: {
       for (int i = 0; i < value.list_value().values_size(); i++) {
         TF_RETURN_IF_ERROR(FlatPathFromStructuredValue(
