@@ -629,7 +629,12 @@ PYBIND11_MODULE(libpybind, m) {
            })
       .def("Checkpoint", [](Client *client) {
         std::string path;
-        MaybeRaiseFromStatus(client->Checkpoint(&path));
+        tensorflow::Status status;
+        {
+          py::gil_scoped_release g;
+          status = client->Checkpoint(&path);
+        }
+        MaybeRaiseFromStatus(status);
         return path;
       });
 
