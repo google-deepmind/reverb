@@ -33,12 +33,6 @@ namespace deepmind {
 namespace reverb {
 namespace {
 
-bool IsTransientError(const tensorflow::Status& status) {
-  return tensorflow::errors::IsDeadlineExceeded(status) ||
-         tensorflow::errors::IsUnavailable(status) ||
-         tensorflow::errors::IsCancelled(status);
-}
-
 int PositiveModulo(int value, int divisor) {
   if (divisor == 0) return value;
 
@@ -303,15 +297,13 @@ tensorflow::Status Writer::Finish() {
 }
 
 tensorflow::Status Writer::WriteWithRetries() {
-  tensorflow::Status status;
   while (true) {
     if (WritePendingData()) return tensorflow::Status::OK();
     stream_->WritesDone();
-    status = FromGrpcStatus(stream_->Finish());
+    auto status = FromGrpcStatus(stream_->Finish());
     stream_ = nullptr;
-    if (!IsTransientError(status)) break;
+    if (!tensorflow::errors::IsUnavailable(status)) return status;
   }
-  return status;
 }
 
 bool Writer::WritePendingData() {

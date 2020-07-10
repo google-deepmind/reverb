@@ -38,7 +38,6 @@ namespace reverb {
 namespace {
 
 using ::deepmind::reverb::testing::Partially;
-using ::tensorflow::errors::DeadlineExceeded;
 using ::tensorflow::errors::Internal;
 using ::tensorflow::errors::Unavailable;
 using ::testing::ElementsAre;
@@ -278,28 +277,23 @@ TEST(WriterTest, FailsIfMethodsCalledAfterClose) {
 }
 
 TEST(WriterTest, RetriesOnTransientError) {
-  std::vector<tensorflow::Status> transient_errors(
-      {DeadlineExceeded(""), Unavailable("")});
+  std::vector<InsertStreamRequest> requests;
+  // 1 fail, then all success.
+  auto stub = MakeFlakyStub(&requests, 0, 1, ToGrpcStatus(Unavailable("")));
+  Writer writer(stub, 2, 10);
 
-  for (const auto& error : transient_errors) {
-    std::vector<InsertStreamRequest> requests;
-    // 1 fail, then all success.
-    auto stub = MakeFlakyStub(&requests, 0, 1, ToGrpcStatus(error));
-    Writer writer(stub, 2, 10);
+  TF_ASSERT_OK(writer.Append(MakeTimestep()));
+  TF_ASSERT_OK(writer.Append(MakeTimestep()));
+  TF_ASSERT_OK(writer.CreateItem("dist", 1, 1.0));
 
-    TF_ASSERT_OK(writer.Append(MakeTimestep()));
-    TF_ASSERT_OK(writer.Append(MakeTimestep()));
-    TF_ASSERT_OK(writer.CreateItem("dist", 1, 1.0));
-
-    ASSERT_THAT(requests, SizeIs(3));
-    EXPECT_THAT(requests[0], IsChunk());
-    EXPECT_THAT(requests[1], IsChunk());
-    EXPECT_THAT(requests[0], testing::EqualsProto(requests[1]));
-    EXPECT_THAT(requests[2],
-                IsItemWithRangeAndPriorityAndTable(1, 1, 1.0, "dist"));
-    EXPECT_THAT(requests[2].item().item().chunk_keys(),
-                ElementsAre(requests[0].chunk().chunk_key()));
-  }
+  ASSERT_THAT(requests, SizeIs(3));
+  EXPECT_THAT(requests[0], IsChunk());
+  EXPECT_THAT(requests[1], IsChunk());
+  EXPECT_THAT(requests[0], testing::EqualsProto(requests[1]));
+  EXPECT_THAT(requests[2],
+              IsItemWithRangeAndPriorityAndTable(1, 1, 1.0, "dist"));
+  EXPECT_THAT(requests[2].item().item().chunk_keys(),
+              ElementsAre(requests[0].chunk().chunk_key()));
 }
 
 TEST(WriterTest, DoesNotRetryOnNonTransientError) {
@@ -328,8 +322,7 @@ TEST(WriterTest, CallsCloseWhenObjectDestroyed) {
 
 TEST(WriterTest, ResendsOnlyTheChunksTheRemainingItemsNeedWithNewStream) {
   std::vector<InsertStreamRequest> requests;
-  auto stub =
-      MakeFlakyStub(&requests, 3, 1, ToGrpcStatus(DeadlineExceeded("")));
+  auto stub = MakeFlakyStub(&requests, 3, 1, ToGrpcStatus(Unavailable("")));
   Writer writer(stub, 2, 10);
 
   TF_ASSERT_OK(writer.Append(MakeTimestep()));
