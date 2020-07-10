@@ -74,10 +74,6 @@ message InsertStreamRequest {
     // chunks that has been sent been sent on the stream thus far and kept after
     // previous insertion requests.
     PriorityInsertion item = 2;
-
-    // Signature for a single step. This is used so we don't have to send the
-    // shapes with every item. Sent every
-    tensorflow.StructuredValue flat_signature = 3;
   }
 }
 
