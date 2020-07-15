@@ -273,8 +273,6 @@ class ReverbDatasetOp : public tensorflow::data::DatasetOpKernel {
           }
         }
 
-        // TODO(b/154929217): Expose this option so it can be set to infinite
-        // outside of tests.
         constexpr auto kValidationTimeout = absl::Seconds(30);
         auto status = client_->NewSampler(table_, sampler_options_,
                                           /*validation_dtypes=*/dtypes_,
