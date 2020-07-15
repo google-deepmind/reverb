@@ -139,7 +139,9 @@ ItemSelectorInterface::KeyWithProbability PrioritizedSelector::Sample() {
   }
   REVERB_CHECK_LT(index, size);
   const double picked_weight = NodeValue(index);
-  REVERB_CHECK_LT(target_weight, picked_weight);
+  REVERB_LOG_IF(REVERB_ERROR, target_weight >= picked_weight)
+      << "Target weight should be smaller than picked weight (target_weight: "
+      << target_weight << " >= picked_weight:" << picked_weight << ").";
   return {sum_tree_[index].key, picked_weight / total_weight};
 }
 
