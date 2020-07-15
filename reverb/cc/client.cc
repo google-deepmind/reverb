@@ -276,7 +276,6 @@ tensorflow::Status Client::NewSampler(
   }
 
   // TODO(b/154927849): Do sanity checks on the buffer_size and max_samples.
-  // TODO(b/154928566): Maybe we don't even need to expose the buffer_size.
   return NewSampler(table, options, std::move(dtypes_and_shapes), sampler);
 }
 
