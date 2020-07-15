@@ -128,7 +128,6 @@ class ClientHandleOp : public tensorflow::ResourceOpKernel<ClientResource> {
   TF_DISALLOW_COPY_AND_ASSIGN(ClientHandleOp);
 };
 
-// TODO(b/154929314): Change this to an async op.
 class SampleOp : public tensorflow::OpKernel {
  public:
   explicit SampleOp(tensorflow::OpKernelConstruction* context)
@@ -150,8 +149,6 @@ class SampleOp : public tensorflow::OpKernel {
     options.max_samples = 1;
     options.max_in_flight_samples_per_worker = 1;
 
-    // TODO(b/154929217): Expose this option so it can be set to infinite
-    // outside of tests.
     constexpr auto kValidationTimeout = absl::Seconds(30);
     OP_REQUIRES_OK(
         context, resource->client()->NewSampler(
