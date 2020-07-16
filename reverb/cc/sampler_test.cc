@@ -37,6 +37,7 @@
 #include "tensorflow/core/framework/tensor_util.h"
 #include "tensorflow/core/framework/types.pb.h"
 #include "tensorflow/core/lib/core/status_test_util.h"
+#include "tensorflow/core/protobuf/error_codes.pb.h"
 
 namespace deepmind {
 namespace reverb {
@@ -575,6 +576,57 @@ TEST(SamplerDeathTest, DiesIfNumWorkersIsInvalid) {
 
   options.num_workers = -2;
   ASSERT_DEATH(Sampler sampler(MakeGoodStub({}), "table", options), "");
+}
+
+TEST(SamplerOptionsTest, ValidateDefaultOptions) {
+  Sampler::Options options;
+  TF_EXPECT_OK(options.Validate());
+}
+
+TEST(SamplerOptionsTest, ValidateChecksMaxSamples) {
+  Sampler::Options options;
+  options.max_samples = 0;
+  EXPECT_EQ(options.Validate().code(), tensorflow::error::INVALID_ARGUMENT);
+  options.max_samples = Sampler::kUnlimitedMaxSamples;
+  TF_EXPECT_OK(options.Validate());
+  options.max_samples = -2;
+  EXPECT_EQ(options.Validate().code(), tensorflow::error::INVALID_ARGUMENT);
+}
+
+TEST(SamplerOptionsTest, ValidateChecksMaxInFlightSamplesPerWorker) {
+  Sampler::Options options;
+  options.max_in_flight_samples_per_worker = 0;
+  EXPECT_EQ(options.Validate().code(), tensorflow::error::INVALID_ARGUMENT);
+  options.max_in_flight_samples_per_worker = -2;
+  EXPECT_EQ(options.Validate().code(), tensorflow::error::INVALID_ARGUMENT);
+}
+
+TEST(SamplerOptionsTest, ValidateChecksNumWorkers) {
+  Sampler::Options options;
+  options.num_workers = 0;
+  EXPECT_EQ(options.Validate().code(), tensorflow::error::INVALID_ARGUMENT);
+  options.num_workers = Sampler::kAutoSelectValue;
+  TF_EXPECT_OK(options.Validate());
+  options.num_workers = -2;
+  EXPECT_EQ(options.Validate().code(), tensorflow::error::INVALID_ARGUMENT);
+}
+
+TEST(SamplerOptionsTest, ValidateChecksMaxSamplesPerStream) {
+  Sampler::Options options;
+  options.max_samples_per_stream = 0;
+  EXPECT_EQ(options.Validate().code(), tensorflow::error::INVALID_ARGUMENT);
+  options.max_samples_per_stream = Sampler::kAutoSelectValue;
+  TF_EXPECT_OK(options.Validate());
+  options.max_samples_per_stream = -2;
+  EXPECT_EQ(options.Validate().code(), tensorflow::error::INVALID_ARGUMENT);
+}
+
+TEST(SamplerOptionsTest, ValidateChecksRateLimiterTimeout) {
+  Sampler::Options options;
+  options.rate_limiter_timeout = -absl::Seconds(1);
+  EXPECT_EQ(options.Validate().code(), tensorflow::error::INVALID_ARGUMENT);
+  options.rate_limiter_timeout = absl::ZeroDuration();
+  TF_EXPECT_OK(options.Validate());
 }
 
 }  // namespace

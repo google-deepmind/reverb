@@ -145,6 +145,7 @@ tensorflow::Status Client::NewSampler(
     const std::string& table, const Sampler::Options& options,
     internal::DtypesAndShapes dtypes_and_shapes,
     std::unique_ptr<Sampler>* sampler) {
+  TF_RETURN_IF_ERROR(options.Validate());
   *sampler = absl::make_unique<Sampler>(stub_, table, options,
                                         std::move(dtypes_and_shapes));
   return tensorflow::Status::OK();
@@ -275,7 +276,6 @@ tensorflow::Status Client::NewSampler(
     dtypes_and_shapes.emplace(std::move(dtypes_and_shapes_vec));
   }
 
-  // TODO(b/154927849): Do sanity checks on the buffer_size and max_samples.
   return NewSampler(table, options, std::move(dtypes_and_shapes), sampler);
 }
 

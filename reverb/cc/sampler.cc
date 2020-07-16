@@ -19,6 +19,7 @@
 
 #include "grpcpp/impl/codegen/client_context.h"
 #include "grpcpp/impl/codegen/sync_stream.h"
+#include "absl/time/time.h"
 #include "reverb/cc/platform/logging.h"
 #include "reverb/cc/platform/thread.h"
 #include "reverb/cc/reverb_service.pb.h"
@@ -26,6 +27,7 @@
 #include "reverb/cc/tensor_compression.h"
 #include "tensorflow/core/framework/tensor_util.h"
 #include "tensorflow/core/lib/core/status.h"
+#include "tensorflow/core/platform/errors.h"
 
 namespace deepmind {
 namespace reverb {
@@ -498,6 +500,36 @@ tensorflow::Status Sample::AsBatchedTimesteps(
 
   std::swap(sequences, *data);
 
+  return tensorflow::Status::OK();
+}
+
+tensorflow::Status Sampler::Options::Validate() const {
+  if (max_samples < 1 && max_samples != kUnlimitedMaxSamples) {
+    return tensorflow::errors::InvalidArgument(
+        "max_samples (", max_samples, ") must be ", kUnlimitedMaxSamples,
+        " or >= 1");
+  }
+  if (max_in_flight_samples_per_worker < 1) {
+    return tensorflow::errors::InvalidArgument(
+        "max_in_flight_samples_per_worker (", max_in_flight_samples_per_worker,
+        ") has to be >= 1");
+  }
+  if (num_workers < 1 && num_workers != kAutoSelectValue) {
+    return tensorflow::errors::InvalidArgument("num_workers (", num_workers,
+                                               ") must be ", kAutoSelectValue,
+                                               " or >= 1");
+  }
+  if (max_samples_per_stream < 1 &&
+      max_samples_per_stream != kUnlimitedMaxSamples) {
+    return tensorflow::errors::InvalidArgument(
+        "max_samples_per_stream (", max_samples_per_stream, ") must be ",
+        kAutoSelectValue, " or >= 1");
+  }
+  if (rate_limiter_timeout < absl::ZeroDuration()) {
+    return tensorflow::errors::InvalidArgument("rate_limiter_timeout (",
+                                               rate_limiter_timeout,
+                                               ") must not be negative.");
+  }
   return tensorflow::Status::OK();
 }
 

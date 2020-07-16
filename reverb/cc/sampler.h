@@ -192,6 +192,10 @@ class Sampler {
     // The default is to wait forever - or until the connection closes, or
     // `Close` is called, whichever comes first.
     absl::Duration rate_limiter_timeout = absl::InfiniteDuration();
+
+    // Checks that field values are valid and returns `InvalidArgument` if any
+    // field value invalid.
+    tensorflow::Status Validate() const;
   };
 
   // Constructs a new `Sampler`.
