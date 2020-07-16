@@ -455,21 +455,23 @@ TEST(TableTest, CheckpointSanityCheck) {
   want.mutable_rate_limiter()->set_min_size_to_sample(3);
   want.mutable_rate_limiter()->set_min_diff(-10);
 
-  EXPECT_THAT(checkpoint.checkpoint,
-              Partially(testing::EqualsProto("table_name: 'dist' "
-                                             "max_size: 10 "
-                                             "max_times_sampled: 1 "
-                                             "items: { key: 1 } "
-                                             "rate_limiter: { "
-                                             "  samples_per_insert: 1.0"
-                                             "  min_size_to_sample: 3"
-                                             "  min_diff: -10"
-                                             "  max_diff: 7"
-                                             "  sample_count: 0"
-                                             "  insert_count: 1"
-                                             "} "
-                                             "sampler: { uniform: true } "
-                                             "remover: { fifo: true } ")));
+  EXPECT_THAT(checkpoint.checkpoint, Partially(testing::EqualsProto(R"pb(
+                table_name: 'dist'
+                max_size: 10
+                max_times_sampled: 1
+                num_deleted_episodes: 0
+                items: { key: 1 }
+                rate_limiter: {
+                  samples_per_insert: 1.0
+                  min_size_to_sample: 3
+                  min_diff: -10
+                  max_diff: 7
+                  sample_count: 0
+                  insert_count: 1
+                }
+                sampler: { uniform: true }
+                remover: { fifo: true }
+              )pb")));
 }
 
 TEST(TableTest, BlocksSamplesWhenSizeToSmallDueToAutoDelete) {
@@ -628,6 +630,113 @@ TEST(TableTest, NumEpisodes) {
   // it is the last reference to the episode.
   TF_EXPECT_OK(table->MutateItems({}, {1}));
   EXPECT_EQ(table->num_episodes(), 1);
+}
+
+TEST(TableTest, NumDeletedEpisodes) {
+  auto table = MakeUniformTable("dist");
+
+  std::vector<SequenceRange> ranges{
+      testing::MakeSequenceRange(100, 0, 5),
+      testing::MakeSequenceRange(100, 6, 10),
+      testing::MakeSequenceRange(101, 0, 5),
+  };
+
+  // Should initially be zero.
+  EXPECT_EQ(table->num_deleted_episodes(), 0);
+
+  // Manually setting the count can be done just after construction.
+  table->set_num_deleted_episodes_from_checkpoint(1);
+  EXPECT_EQ(table->num_deleted_episodes(), 1);
+
+  // Add two items referencing the same episode and one item that reference a
+  // second episode. This should not have any impact on the number of deleted
+  // episodes.
+  TF_EXPECT_OK(table->InsertOrAssign(MakeItem(1, 1, {ranges[0]})));
+  TF_EXPECT_OK(table->InsertOrAssign(MakeItem(2, 1, {ranges[1]})));
+  TF_EXPECT_OK(table->InsertOrAssign(MakeItem(3, 1, {ranges[2]})));
+  EXPECT_EQ(table->num_deleted_episodes(), 1);
+
+  // Removing one of the items that reference the episode shared by two items
+  // should not impact the number of deleted episodes.
+  TF_EXPECT_OK(table->MutateItems({}, {2}));
+  EXPECT_EQ(table->num_deleted_episodes(), 1);
+
+  // Removing the ONLY item that references the second episode should result
+  // in the deleted items count being incremented.
+  TF_EXPECT_OK(table->MutateItems({}, {3}));
+  EXPECT_EQ(table->num_deleted_episodes(), 2);
+
+  // Removing the second (and last) item referencing the first episode should
+  // also result in the deleted episodes count being incremented.
+  TF_EXPECT_OK(table->MutateItems({}, {1}));
+  EXPECT_EQ(table->num_deleted_episodes(), 3);
+
+  // Resetting the table should bring the count back to zero.
+  TF_EXPECT_OK(table->Reset());
+  EXPECT_EQ(table->num_deleted_episodes(), 0);
+}
+
+TEST(TableDeathTest, SetNumDeletedEpisodesFromCheckpointOnNonEmptyTable) {
+  auto table = MakeUniformTable("dist");
+  TF_EXPECT_OK(table->InsertOrAssign(MakeItem(1, 1)));
+  ASSERT_DEATH(table->set_num_deleted_episodes_from_checkpoint(1), "");
+}
+
+TEST(TableDeathTest, SetNumDeletedEpisodesFromCheckpointCalledTwice) {
+  auto table = MakeUniformTable("dist");
+  table->set_num_deleted_episodes_from_checkpoint(1);
+  ASSERT_DEATH(table->set_num_deleted_episodes_from_checkpoint(1), "");
+}
+
+TEST(TableTest, Info) {
+  Table table(
+      /*name=*/"dist",
+      /*sampler=*/absl::make_unique<UniformSelector>(),
+      /*remover=*/absl::make_unique<FifoSelector>(),
+      /*max_size=*/10,
+      /*max_times_sampled=*/1,
+      absl::make_unique<RateLimiter>(
+          /*samples_per_insert=*/1.0,
+          /*min_size_to_sample=*/1,
+          /*min_diff=*/-1,
+          /*max_diff=*/5));
+  table.set_num_deleted_episodes_from_checkpoint(5);
+
+  // Insert two items (each with different episodes).
+  TF_EXPECT_OK(table.InsertOrAssign(MakeItem(1, 1)));
+  TF_EXPECT_OK(table.InsertOrAssign(MakeItem(2, 1)));
+
+  // Sample an item. This will trigger the removal of that item since
+  // `max_times_sampled` is 1.
+  Table::SampledItem sample;
+  TF_EXPECT_OK(table.Sample(&sample));
+
+  EXPECT_THAT(table.info(), testing::EqualsProto(R"pb(
+                name: 'dist'
+                sampler_options { uniform: true }
+                remover_options { fifo: true is_deterministic: true }
+                max_size: 10
+                max_times_sampled: 1
+                rate_limiter_info {
+                  samples_per_insert: 1
+                  min_diff: -1
+                  max_diff: 5
+                  min_size_to_sample: 1
+                  insert_stats {
+                    completed: 2
+                    completed_wait_time {}
+                    pending_wait_time {}
+                  }
+                  sample_stats {
+                    completed: 1
+                    completed_wait_time {}
+                    pending_wait_time {}
+                  }
+                }
+                current_size: 1
+                num_episodes: 1
+                num_deleted_episodes: 6
+              )pb"));
 }
 
 }  // namespace

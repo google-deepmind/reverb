@@ -6,6 +6,7 @@ import "reverb/cc/schema.proto";
 
 // Configs for reconstructing a distribution to its initial state.
 
+// Next ID: 9.
 message PriorityTableCheckpoint {
   // Name of the table.
   string table_name = 1;
@@ -31,6 +32,10 @@ message PriorityTableCheckpoint {
   // will be reproduced using the order of `items.
   KeyDistributionOptions sampler = 4;
   KeyDistributionOptions remover = 5;
+
+  // The total number of episodes that were at some point referenced by items
+  // in the table but have since been removed.
+  int64 num_deleted_episodes = 8;
 }
 
 message RateLimiterCheckpoint {

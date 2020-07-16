@@ -291,6 +291,8 @@ tensorflow::Status TFRecordCheckpointer::Load(
         /*max_times_sampled=*/checkpoint.max_times_sampled(),
         /*rate_limiter=*/std::move(rate_limiter),
         /*extensions=*/std::move(extensions));
+    table->set_num_deleted_episodes_from_checkpoint(
+        checkpoint.num_deleted_episodes());
 
     for (const auto& checkpoint_item : checkpoint.items()) {
       Table::Item insert_item;

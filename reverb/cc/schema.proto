@@ -103,7 +103,7 @@ message SampleInfo {
 // These fields correspond to initialization arguments of the
 // `Table` class, unless noted otherwise.
 //
-// Next ID: 10.
+// Next ID: 11.
 message TableInfo {
   // Table's name.
   string name = 8;
@@ -133,6 +133,10 @@ message TableInfo {
 
   // Number of episodes referenced by the items in the table.
   int64 num_episodes = 9;
+
+  // Number of episodes once referenced by items in the table but no longer is.
+  // The total number of episodes thus is `num_episodes + num_deleted_episodes`.
+  int64 num_deleted_episodes = 10;
 }
 
 message RateLimiterCallStats {

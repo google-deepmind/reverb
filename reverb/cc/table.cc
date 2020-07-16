@@ -71,6 +71,7 @@ Table::Table(std::string name, std::shared_ptr<ItemSelectorInterface> sampler,
              absl::optional<tensorflow::StructuredValue> signature)
     : sampler_(std::move(sampler)),
       remover_(std::move(remover)),
+      num_deleted_episodes_(0),
       max_size_(max_size),
       max_times_sampled_(max_times_sampled),
       name_(std::move(name)),
@@ -236,6 +237,7 @@ TableInfo Table::info() const {
   *info.mutable_remover_options() = remover_->options();
   info.set_current_size(data_.size());
   info.set_num_episodes(episode_refs_.size());
+  info.set_num_deleted_episodes(num_deleted_episodes_);
 
   return info;
 }
@@ -260,6 +262,7 @@ tensorflow::Status Table::DeleteItem(Table::Key key, Item* deleted_item) {
     REVERB_CHECK(ep_it != episode_refs_.end());
     if (--(ep_it->second) == 0) {
       episode_refs_.erase(ep_it);
+      num_deleted_episodes_++;
     }
   }
 
@@ -303,6 +306,8 @@ tensorflow::Status Table::Reset() {
   sampler_->Clear();
   remover_->Clear();
 
+  num_deleted_episodes_ = 0;
+
   data_.clear();
 
   rate_limiter_->Reset(&mu_);
@@ -317,6 +322,8 @@ Table::CheckpointAndChunks Table::Checkpoint() {
   checkpoint.set_max_times_sampled(max_times_sampled_);
 
   absl::ReaderMutexLock lock(&mu_);
+
+  checkpoint.set_num_deleted_episodes(num_deleted_episodes_);
 
   *checkpoint.mutable_sampler() = sampler_->options();
   *checkpoint.mutable_remover() = remover_->options();
@@ -439,6 +446,17 @@ Table::UnsafeClearExtensions() {
   }
 
   return extensions;
+}
+
+int64_t Table::num_deleted_episodes() const {
+  absl::ReaderMutexLock lock(&mu_);
+  return num_deleted_episodes_;
+}
+
+void Table::set_num_deleted_episodes_from_checkpoint(int64_t value) {
+  absl::WriterMutexLock lock(&mu_);
+  REVERB_CHECK(data_.empty() && num_deleted_episodes_ == 0);
+  num_deleted_episodes_ = value;
 }
 
 }  // namespace reverb

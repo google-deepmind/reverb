@@ -214,6 +214,16 @@ class Table {
   // Number of episodes in the table.
   int64_t num_episodes() const ABSL_LOCKS_EXCLUDED(mu_);
 
+  // Number of episodes that previously were in the table but has since been
+  // deleted.
+  int64_t num_deleted_episodes() const ABSL_LOCKS_EXCLUDED(mu_);
+
+  // "Manually" set the number of deleted episodes. This is only intended to be
+  // called when reconstructing a Table from a checkpoint and will trigger death
+  // unless it is the very first interaction with the table.
+  void set_num_deleted_episodes_from_checkpoint(int64_t value)
+      ABSL_LOCKS_EXCLUDED(mu_);
+
   const std::string& name() const;
 
   // Metadata about the table, including the current state of the rate limiter.
@@ -266,6 +276,11 @@ class Table {
 
   // Count of references from chunks referenced by items.
   absl::flat_hash_map<uint64_t, int64_t> episode_refs_ ABSL_GUARDED_BY(mu_);
+
+  // The total number of episodes that were at some point referenced by items
+  // in the table but have since been removed. Is set to 0 when `Reset()`
+  // called.
+  int64_t num_deleted_episodes_ ABSL_GUARDED_BY(mu_);
 
   // Maximum number of items that this container can hold. InsertOrAssign()
   // respects this limit when inserting a new item.
