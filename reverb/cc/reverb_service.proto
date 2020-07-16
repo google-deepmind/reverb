@@ -3,7 +3,6 @@ syntax = "proto3";
 package deepmind.reverb;
 
 import "reverb/cc/schema.proto";
-import "tensorflow/core/protobuf/struct.proto";
 
 service ReverbService {
   // Writes all in-memory data to disk. We store the tables
