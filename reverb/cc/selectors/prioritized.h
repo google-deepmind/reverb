@@ -61,6 +61,9 @@ class PrioritizedSelector : public ItemSelectorInterface {
 
   KeyDistributionOptions options() const override;
 
+  // Returns the sum stored at a node for testing purposes only.
+  double NodeSumTestingOnly(size_t index) const;
+
  private:
   struct Node {
     Key key;
@@ -69,6 +72,10 @@ class PrioritizedSelector : public ItemSelectorInterface {
     // `NodeValue()` can be used to get the exponentiated priority of a node
     // without its children.
     double sum = 0;
+    // The exponentiated priority of this node. This can be computed from `sum`,
+    // however, this calculation becomes less accurate over time as rounding
+    // errors accumulate.
+    double value = 0;
   };
 
   // Gets the individual value of a node in `sum_tree_` without the summed up
@@ -80,8 +87,17 @@ class PrioritizedSelector : public ItemSelectorInterface {
   double NodeSum(size_t index) const;
 
   // Sets the individual value of a node in the `sum_tree_`. This does not
-  // include the value of the descendants.
+  // include the value of the descendants. Usually, this operation's runtime is
+  // in O(log n). However, if floating point rounding errors have accumulated to
+  // a point where the intermediate sums deviate from their true values more
+  // than 1e-4, the tree is reinitialized, which takes O(n) time.
   void SetNode(size_t index, double value);
+
+  // Computes the sum tree. This may be necessary if rounding errors have
+  // compounded due to repeated partial tree updates. For example, sums may
+  // become negative due to rounding errors (e.g. x - (x + epsilon) < 0 where
+  // epsilon is a small rounding error).
+  void ReinitializeSumTree();
 
   // Controls the degree of prioritization. Priorities are raised to this
   // exponent before adding them to the `SumTree` as weights. A non-negative

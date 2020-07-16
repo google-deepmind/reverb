@@ -140,6 +140,23 @@ TEST(PrioritizedSelectorTest, SetsPriorityExponentInOptions) {
           "prioritized: { priority_exponent: 0.5 } is_deterministic: false"));
 }
 
+TEST(PrioritizedSelector, RoundingErrors) {
+  PrioritizedSelector prioritized(1.0);
+
+  TF_EXPECT_OK(prioritized.Insert(0, 1e-15));
+  for (int i = 0; i < 10000; ++i) {
+    TF_EXPECT_OK(prioritized.Insert(i + 1, 0.3));
+  }
+
+  for (int i = 0; i < 10000; ++i) {
+    TF_EXPECT_OK(prioritized.Delete(i + 1));
+  }
+
+  // The root node should now have a value of 1e-15. However, due to rounding
+  // errors the value will be negative unless we re-initialize the tree.
+  EXPECT_GE(prioritized.NodeSumTestingOnly(0), 0.0);
+}
+
 TEST(PrioritizedDeathTest, ClearThenSample) {
   PrioritizedSelector prioritized(kInitialPriorityExponent);
   for (int i = 0; i < 100; i++) {

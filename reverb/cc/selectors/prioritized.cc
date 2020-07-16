@@ -27,6 +27,10 @@ namespace deepmind {
 namespace reverb {
 namespace {
 
+// If the approximation error at a node exceeds this threshold, the sum tree is
+// reinitialized.
+constexpr double kMaxApproximationError = 1e-4;
+
 // A priority of zero should correspond to zero probability, even if the
 // priority exponent is zero. So this modified version of std::pow is used to
 // turn priorities into weights. Expects base and exponent to be non-negative.
@@ -84,7 +88,7 @@ tensorflow::Status PrioritizedSelector::Insert(Key key, double priority) {
                                                " already inserted.");
   }
   sum_tree_[index].key = key;
-  REVERB_CHECK_EQ(sum_tree_[index].sum, 0);
+
   SetNode(index, power(priority, priority_exponent_));
   return tensorflow::Status::OK();
 }
@@ -148,6 +152,7 @@ ItemSelectorInterface::KeyWithProbability PrioritizedSelector::Sample() {
 void PrioritizedSelector::Clear() {
   for (size_t i = 0; i < key_to_index_.size(); ++i) {
     sum_tree_[i].sum = 0;
+    sum_tree_[i].value = 0;
   }
   key_to_index_.clear();
 }
@@ -160,21 +165,59 @@ KeyDistributionOptions PrioritizedSelector::options() const {
 }
 
 double PrioritizedSelector::NodeValue(size_t index) const {
-  const size_t left_index = 2 * index + 1;
-  const size_t right_index = 2 * index + 2;
-  return sum_tree_[index].sum - NodeSum(left_index) - NodeSum(right_index);
+  return sum_tree_[index].value;
 }
 
 double PrioritizedSelector::NodeSum(size_t index) const {
   return index < key_to_index_.size() ? sum_tree_[index].sum : 0;
 }
 
+double PrioritizedSelector::NodeSumTestingOnly(size_t index) const {
+  return NodeSum(index);
+}
+
+// Updates the sum stored in a node and tracks if the tree needs to be
+// re-initialized.
+// Ensure the sum never becomes negative (it may happen because of rounding
+// errors).
+#define UPDATE_SUM(i)                                          \
+  sum_tree_[(i)].sum += difference;                            \
+  if (sum_tree_[(i)].sum < 0) sum_tree_[(i)].sum = 0.0;        \
+  error = std::abs(sum_tree_[(i)].sum - NodeSum(2 * (i) + 1) - \
+                   NodeSum(2 * (i) + 2) - sum_tree_[(i)].value);
+
 void PrioritizedSelector::SetNode(size_t index, double value) {
-  double difference = value - NodeValue(index);
-  sum_tree_[index].sum += difference;
-  while (index != 0) {
+  const double difference = value - NodeValue(index);
+
+  // The floating point approximation error of the last node update.
+  double error = 0.0;
+
+  // Update the subject node.
+  sum_tree_[index].value = value;
+  UPDATE_SUM(index);
+
+  // Update all parents until we find the root node.
+  while (index != 0 && error <= kMaxApproximationError) {
     index = (index - 1) / 2;
-    sum_tree_[index].sum += difference;
+    UPDATE_SUM(index);
+  }
+
+  // If floating-point errors have built up, re-initialize the tree.
+  if (error > kMaxApproximationError) {
+    REVERB_LOG(REVERB_WARNING)
+        << "Tree needs to be initialized because node with index " << index
+        << " has approximation error " << error
+        << ", which exceeds the threshold of " << kMaxApproximationError;
+    ReinitializeSumTree();
+  }
+}
+
+#undef UPDATE_SUM
+
+void PrioritizedSelector::ReinitializeSumTree() {
+  // Re-initialize the sums from the leaves to the root node.
+  for (int64_t i = sum_tree_.size() - 1; i >= 0; --i) {
+    sum_tree_[i].sum = NodeValue(i) + NodeSum(2 * i + 1) + NodeSum(2 * i + 2);
   }
 }
 
