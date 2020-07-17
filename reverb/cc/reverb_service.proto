@@ -114,6 +114,14 @@ message SampleStreamRequest {
   // returned.  A missing value or a value of { milliseconds = -1 } means
   // never time out.
   Timeout rate_limiter_timeout = 3;
+
+  // Maximum number of items to sample with each call to the table.
+  //
+  // When >= 1, up to this many items are fetched from the table with each call
+  // without releasing the lock.
+  //
+  // When set to -1, the server is free to select the value.
+  int64 flexible_batch_size = 4;
 }
 
 message SampleStreamResponse {

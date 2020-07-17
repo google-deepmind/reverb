@@ -146,6 +146,8 @@ Sampler::Sampler(std::shared_ptr</* grpc_gen:: */ReverbService::StubInterface> s
   REVERB_CHECK_GT(options.max_in_flight_samples_per_worker, 0);
   REVERB_CHECK(options.num_workers == kAutoSelectValue ||
                options.num_workers > 0);
+  REVERB_CHECK(options.flexible_batch_size == kAutoSelectValue ||
+               options.flexible_batch_size > 0);
 
   int64_t num_workers = options.num_workers == kAutoSelectValue
                           ? kDefaultNumWorkers
@@ -160,7 +162,8 @@ Sampler::Sampler(std::shared_ptr</* grpc_gen:: */ReverbService::StubInterface> s
 
   for (int i = 0; i < num_workers; i++) {
     workers_.push_back(absl::make_unique<Worker>(
-        stub_, table, options.max_in_flight_samples_per_worker));
+        stub_, table, options.max_in_flight_samples_per_worker,
+        options.flexible_batch_size));
     worker_threads_.push_back(internal::StartThread(
         absl::StrCat("SampleWorker", i),
         [this, worker = workers_[i].get()] { RunWorker(worker); }));
@@ -333,10 +336,11 @@ void Sampler::RunWorker(Worker* worker) {
 
 Sampler::Worker::Worker(
     std::shared_ptr</* grpc_gen:: */ReverbService::StubInterface> stub,
-    std::string table, int64_t samples_per_request)
+    std::string table, int64_t samples_per_request, int32_t flexible_batch_size)
     : stub_(std::move(stub)),
       table_(std::move(table)),
-      samples_per_request_(samples_per_request) {}
+      samples_per_request_(samples_per_request),
+      flexible_batch_size_(flexible_batch_size) {}
 
 std::pair<int64_t, grpc::Status> Sampler::Worker::OpenStreamAndFetch(
     deepmind::reverb::internal::Queue<std::unique_ptr<Sample>>* queue,
@@ -363,6 +367,7 @@ std::pair<int64_t, grpc::Status> Sampler::Worker::OpenStreamAndFetch(
         std::min(samples_per_request_, num_samples - num_samples_returned));
     request.mutable_rate_limiter_timeout()->set_milliseconds(
         NonnegativeDurationToInt64Millis(rate_limiter_timeout));
+    request.set_flexible_batch_size(flexible_batch_size_);
 
     if (!stream->Write(request)) {
       return {num_samples_returned, stream->Finish()};

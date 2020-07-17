@@ -110,6 +110,7 @@ class FakeSampleStream
     if (requests_.empty()) return false;
     request->set_table(requests_.front().table());
     request->set_num_samples(requests_.front().num_samples());
+    request->set_flexible_batch_size(-1);
     requests_.pop_front();
     return true;
   }

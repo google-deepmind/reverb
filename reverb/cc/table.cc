@@ -38,8 +38,7 @@
 #include "reverb/cc/schema.pb.h"
 #include "reverb/cc/selectors/interface.h"
 #include "reverb/cc/table_extensions/interface.h"
-#include "tensorflow/core/lib/core/errors.h"
-#include "tensorflow/core/lib/core/status.h"
+#include "tensorflow/core/platform/errors.h"
 #include "tensorflow/core/platform/status.h"
 
 namespace deepmind {
@@ -179,34 +178,64 @@ tensorflow::Status Table::MutateItems(absl::Span<const KeyWithPriority> updates,
 
 tensorflow::Status Table::Sample(SampledItem* sampled_item,
                                  absl::Duration timeout) {
-  // Keep references to the (potentially) deleted item alive until the lock has
+  std::vector<SampledItem> items;
+  TF_RETURN_IF_ERROR(SampleFlexibleBatch(&items, 1, timeout));
+  *sampled_item = std::move(items[0]);
+  return tensorflow::Status::OK();
+}
+
+tensorflow::Status Table::SampleFlexibleBatch(std::vector<SampledItem>* items,
+                                              int batch_size,
+                                              absl::Duration timeout) {
+  // Keep references to the (potentially) deleted items alive until the lock has
   // been released.
-  Item deleted_item;
+  std::vector<Item> deleted_items;
   {
     absl::WriterMutexLock lock(&mu_);
-    TF_RETURN_IF_ERROR(rate_limiter_->AwaitAndFinalizeSample(&mu_, timeout));
+    for (int i = 0; i < batch_size; i++) {
+      if (auto status = rate_limiter_->AwaitAndFinalizeSample(&mu_, timeout);
+          !status.ok()) {
+        // Deadline exceeded errors encountered after the first call means that
+        // it was not possible to proceed with another sample without awaiting
+        // changes. If this happens then we simply return the items that we
+        // sampled so far.
+        if (i != 0 && tensorflow::errors::IsDeadlineExceeded(status)) {
+          return tensorflow::Status::OK();
+        }
+        return status;
+      }
 
-    auto sample = sampler_->Sample();
-    Item& item = data_[sample.key];
+      // All calls but the first should return immediately if the rate limiter
+      // does not allow for another sample call to proceed.
+      timeout = absl::ZeroDuration();
 
-    // Increment the sample count.
-    item.item.set_times_sampled(item.item.times_sampled() + 1);
+      auto sample = sampler_->Sample();
+      Item& item = data_[sample.key];
 
-    // Copy Details of the sampled item.
-    sampled_item->item = item.item;
-    sampled_item->chunks = item.chunks;
-    sampled_item->probability = sample.probability;
-    sampled_item->table_size = data_.size();
+      // Increment the sample count.
+      item.item.set_times_sampled(item.item.times_sampled() + 1);
 
-    // Notify extensions which item was sampled.
-    for (auto& extension : extensions_) {
-      extension->OnSample(&mu_, item);
-    }
+      // Copy Details of the sampled item.
+      SampledItem sampled_item = {
+          .item = item.item,
+          .chunks = item.chunks,
+          .probability = sample.probability,
+          .table_size = static_cast<int64_t>(data_.size()),
+      };
+      items->push_back(std::move(sampled_item));
 
-    // If there is an upper bound of the number of times an item can be sampled
-    // and it is now reached then delete the item before the lock is released.
-    if (item.item.times_sampled() == max_times_sampled_) {
-      TF_RETURN_IF_ERROR(DeleteItem(item.item.key(), &deleted_item));
+      // Notify extensions which item was sampled.
+      for (auto& extension : extensions_) {
+        extension->OnSample(&mu_, item);
+      }
+
+      // If there is an upper bound of the number of times an item can be
+      // sampled and it is now reached then delete the item before the lock is
+      // released.
+      if (item.item.times_sampled() == max_times_sampled_) {
+        deleted_items.emplace_back();
+        TF_RETURN_IF_ERROR(DeleteItem(item.item.key(), &deleted_items.back()));
+      }
     }
   }
 

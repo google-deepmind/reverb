@@ -158,6 +158,9 @@ class Sampler {
   // incorrect behavior for FIFO samplers.
   static const int kDefaultNumWorkers = 1;
 
+  // By default samples are fetched one by one.
+  static const int kDefaultFlexibleBatchSize = 1;
+
   struct Options {
     // `max_samples` is the maximum number of samples the object will return.
     // Must be a positive number or `kUnlimitedMaxSamples`.
@@ -192,6 +195,16 @@ class Sampler {
     // The default is to wait forever - or until the connection closes, or
     // `Close` is called, whichever comes first.
     absl::Duration rate_limiter_timeout = absl::InfiniteDuration();
+
+    // --- EXPERIMENTAL ---
+    //
+    // The maximum number of items to sampled from `Table` with single call.
+    // Values > 1 enables `Table::SampleFlexibleBatch` to return more than one
+    // item (but no more than `flexible_batch_size`) in a single call without
+    // releasing the table lock iff the rate limiter allows it.
+    //
+    // When set to `kAutoSelectValue`, `kDefaultFlexibleBatchSize` is used.
+    int flexible_batch_size = kAutoSelectValue;
 
     // Checks that field values are valid and returns `InvalidArgument` if any
     // field value invalid.
@@ -243,7 +256,8 @@ class Sampler {
     // Constructs a new worker without creating a stream to a server.
     explicit Worker(
         std::shared_ptr</* grpc_gen:: */ReverbService::StubInterface> stub,
-        std::string table, int64_t samples_per_request);
+        std::string table, int64_t samples_per_request,
+        int32_t flexible_batch_size);
 
     // Cancels the stream and marks the worker as closed. Active and future
     // calls to `OpenStreamAndFetch` will return status `CANCELLED`.
@@ -269,6 +283,11 @@ class Sampler {
 
     // The maximum number of samples to request in a "batch".
     const int64_t samples_per_request_;
+
+    // Upper limit of the number of items that may be sampled in a single call
+    // to
+    // `Table::SampleFlexibleBatch` (lock not released between samples).
+    const int32_t flexible_batch_size_;
 
     // Context of the active stream.
     std::unique_ptr<grpc::ClientContext> context_ ABSL_GUARDED_BY(mu_);

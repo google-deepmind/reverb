@@ -160,12 +160,35 @@ class Table {
   tensorflow::Status Sample(SampledItem* item,
                             absl::Duration timeout = kDefaultTimeout);
 
+  // Attempts to sample up to `batch_size` items (without releasing the lock).
+  //
+  // The behaviour is as follows:
+  //
+  //   1. Block (for at most `timeout`) until `rate_limiter_` allows (at least)
+  //      one sample operation to proceed. At this point an exclusive lock on
+  //      the table is acquired.
+  //   2. If `timeout` was exceeded, return `DeadlineExceededError`.
+  //   3. Select item using `sampler_`, push item to output vector `items`,
+  //      call extensions and delete item from table if `max_times_sampled_`
+  //      reached.
+  //   4. (Without releasing the lock) IFF `rate_limiter_` allows for one more
+  //      sample operation to proceed AND `items->size() < batch_size` then go
+  //      to 3, otherwise return OK.
+  //
+  // Note that the timeout is ONLY used when waiting for the first sample
+  // operation to be "approved" by the rate limiter. The remaining items of the
+  // batch will only be added if these can proceeed without releasing the lock
+  // and awaiting state changes in the rate limiter.
+  tensorflow::Status SampleFlexibleBatch(
+      std::vector<SampledItem>* items, int batch_size,
+      absl::Duration timeout = kDefaultTimeout);
+
   // Returns true iff the current state would allow for `num_samples` to be
   // sampled. Dies if `num_samples` is < 1.
   //
-  // TODO(b/153258711): This currently ignores max_size and max_times_sampled
-  // arguments to the table, and will return true if e.g. there are
-  // 2 items in the table, max_times_sampled=1, and num_samples=3.
+  // TODO(b/153258711): This currently ignores max_size and
+  // max_times_sampled arguments to the table, and will return true if e.g.
+  // there are 2 items in the table, max_times_sampled=1, and num_samples=3.
   bool CanSample(int num_samples) const;
 
   // Returns true iff the current state would allow for `num_inserts` to be

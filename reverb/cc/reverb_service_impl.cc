@@ -14,6 +14,7 @@
 
 #include "reverb/cc/reverb_service_impl.h"
 
+#include <algorithm>
 #include <list>
 #include <memory>
 #include <vector>
@@ -28,6 +29,7 @@
 #include "reverb/cc/platform/thread.h"
 #include "reverb/cc/reverb_service.grpc.pb.h"
 #include "reverb/cc/reverb_service.pb.h"
+#include "reverb/cc/sampler.h"
 #include "reverb/cc/support/cleanup.h"
 #include "reverb/cc/support/grpc_util.h"
 #include "reverb/cc/support/queue.h"
@@ -249,41 +251,59 @@ grpc::Status ReverbServiceImpl::SampleStreamInternal(
       return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT,
                           "`num_samples` must be > 0.");
     }
+    if (request.flexible_batch_size() <= 0 &&
+        request.flexible_batch_size() != Sampler::kAutoSelectValue) {
+      return grpc::Status(
+          grpc::StatusCode::INVALID_ARGUMENT,
+          absl::StrCat("`flexible_batch_size` must be > 0 or ",
+                       Sampler::kAutoSelectValue, " (for auto tuning)."));
+    }
     Table* table = PriorityTableByName(request.table());
     if (table == nullptr) return TableNotFound(request.table());
 
     int count = 0;
-    while (!context->IsCancelled() && count++ != request.num_samples()) {
-      Table::SampledItem sample;
-      if (auto status = table->Sample(&sample, timeout); !status.ok()) {
+
+    while (!context->IsCancelled() && count != request.num_samples()) {
+      std::vector<Table::SampledItem> samples;
+      int32_t max_batch_size = std::min<int32_t>(
+          request.flexible_batch_size() == Sampler::kAutoSelectValue
+              ? Sampler::kDefaultFlexibleBatchSize
+              : request.flexible_batch_size(),
+          request.num_samples() - count);
+      if (auto status =
+              table->SampleFlexibleBatch(&samples, max_batch_size, timeout);
+          !status.ok()) {
         return ToGrpcStatus(status);
       }
+      count += samples.size();
 
-      for (int i = 0; i < sample.chunks.size(); i++) {
-        SampleStreamResponse response;
-        response.set_end_of_sequence(i + 1 == sample.chunks.size());
+      for (auto& sample : samples) {
+        for (int i = 0; i < sample.chunks.size(); i++) {
+          SampleStreamResponse response;
+          response.set_end_of_sequence(i + 1 == sample.chunks.size());
 
-        // Attach the info to the first message.
-        if (i == 0) {
-          *response.mutable_info()->mutable_item() = sample.item;
-          response.mutable_info()->set_probability(sample.probability);
-          response.mutable_info()->set_table_size(sample.table_size);
+          // Attach the info to the first message.
+          if (i == 0) {
+            *response.mutable_info()->mutable_item() = sample.item;
+            response.mutable_info()->set_probability(sample.probability);
+            response.mutable_info()->set_table_size(sample.table_size);
+          }
+
+          // We const cast to avoid copying the proto.
+          response.set_allocated_data(
+              const_cast<ChunkData*>(&sample.chunks[i]->data()));
+
+          grpc::WriteOptions options;
+          options.set_no_compression();  // Data is already compressed.
+          bool ok = stream->Write(response, options);
+          response.release_data();
+          if (!ok) {
+            return Internal("Failed to write to Sample stream.");
+          }
+
+          // We no longer need our chunk reference, so we free it.
+          sample.chunks[i] = nullptr;
         }
-
-        // We const cast to avoid copying the proto.
-        response.set_allocated_data(
-            const_cast<ChunkData*>(&sample.chunks[i]->data()));
-
-        grpc::WriteOptions options;
-        options.set_no_compression();  // Data is already compressed.
-        bool ok = stream->Write(response, options);
-        response.release_data();
-        if (!ok) {
-          return Internal("Failed to write to Sample stream.");
-        }
-
-        // We no longer need our chunk reference, so we free it.
-        sample.chunks[i] = nullptr;
       }
     }
 

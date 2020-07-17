@@ -222,6 +222,7 @@ reverb_cc_library(
         ":table",
         ":reverb_service_cc_grpc_proto",
         ":reverb_service_cc_proto",
+        ":sampler",
         ":schema_cc_proto",
         "//reverb/cc/checkpointing:interface",
         "//reverb/cc/platform:thread",
