@@ -629,6 +629,16 @@ TEST(SamplerOptionsTest, ValidateChecksRateLimiterTimeout) {
   TF_EXPECT_OK(options.Validate());
 }
 
+TEST(SamplerOptionsTest, ValidateChecksFlexibleBatchSize) {
+  Sampler::Options options;
+  options.flexible_batch_size = 0;
+  EXPECT_EQ(options.Validate().code(), tensorflow::error::INVALID_ARGUMENT);
+  options.flexible_batch_size = Sampler::kAutoSelectValue;
+  TF_EXPECT_OK(options.Validate());
+  options.flexible_batch_size = -2;
+  EXPECT_EQ(options.Validate().code(), tensorflow::error::INVALID_ARGUMENT);
+}
+
 }  // namespace
 }  // namespace reverb
 }  // namespace deepmind

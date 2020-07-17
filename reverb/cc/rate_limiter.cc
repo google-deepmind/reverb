@@ -202,13 +202,18 @@ void RateLimiter::MaybeSignalCondVars(absl::Mutex* mu) {
 }
 
 RateLimiterInfo RateLimiter::Info(absl::Mutex* mu) const {
+  RateLimiterInfo info_proto = InfoWithoutCallStats();
+  insert_stats_.ToProto(mu, info_proto.mutable_insert_stats());
+  sample_stats_.ToProto(mu, info_proto.mutable_sample_stats());
+  return info_proto;
+}
+
+RateLimiterInfo RateLimiter::InfoWithoutCallStats() const {
   RateLimiterInfo info_proto;
   info_proto.set_samples_per_insert(samples_per_insert_);
   info_proto.set_min_diff(min_diff_);
   info_proto.set_max_diff(max_diff_);
   info_proto.set_min_size_to_sample(min_size_to_sample_);
-  insert_stats_.ToProto(mu, info_proto.mutable_insert_stats());
-  sample_stats_.ToProto(mu, info_proto.mutable_sample_stats());
   return info_proto;
 }
 

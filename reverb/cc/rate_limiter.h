@@ -116,6 +116,10 @@ class RateLimiter {
   // Configuration and call stats of the limiter.
   RateLimiterInfo Info(absl::Mutex* mu) const ABSL_SHARED_LOCKS_REQUIRED(mu);
 
+  // Same as Info but without call stats. Can be called without locking parent
+  // table.
+  RateLimiterInfo InfoWithoutCallStats() const;
+
   // Creates a copy of all COMPLETED events created since (inclusive)
   // `min_X_event_id`.
   RateLimiterEventHistory GetEventHistory(absl::Mutex* mu,

@@ -528,12 +528,17 @@ tensorflow::Status Sampler::Options::Validate() const {
       max_samples_per_stream != kUnlimitedMaxSamples) {
     return tensorflow::errors::InvalidArgument(
         "max_samples_per_stream (", max_samples_per_stream, ") must be ",
-        kAutoSelectValue, " or >= 1");
+        kUnlimitedMaxSamples, " or >= 1");
   }
   if (rate_limiter_timeout < absl::ZeroDuration()) {
     return tensorflow::errors::InvalidArgument("rate_limiter_timeout (",
                                                rate_limiter_timeout,
                                                ") must not be negative.");
+  }
+  if (flexible_batch_size < 1 && flexible_batch_size != kAutoSelectValue) {
+    return tensorflow::errors::InvalidArgument(
+        "flexible_batch_size (", flexible_batch_size, ") must be ",
+        kAutoSelectValue, " or >= 1");
   }
   return tensorflow::Status::OK();
 }

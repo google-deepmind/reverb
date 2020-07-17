@@ -488,5 +488,30 @@ void Table::set_num_deleted_episodes_from_checkpoint(int64_t value) {
   num_deleted_episodes_ = value;
 }
 
+int32_t Table::DefaultFlexibleBatchSize() const {
+  const auto& rl_info = rate_limiter_->InfoWithoutCallStats();
+  // When a samples per insert ratio is provided then match the batch size with
+  // the ratio. Bigger values can result in worse performance when the error
+  // range (min_diff -> max_diff) is small.
+  if (rl_info.samples_per_insert() > 1) {
+    return rl_info.samples_per_insert();
+  }
+
+  // If a min size limiter is used then we allow for big batches (64) to enable
+  // the samplers to run almost completely unconstrained. If a max_times_sampled
+  // is used then we reduce the batch size to avoid a single sample stream
+  // consuming all the items and starving the other. Note that we check for
+  // negative error buffers as very large/small max/min diffs could result in
+  // overflow (which only occurs when using a min size limiter).
+  double error_buffer = rl_info.max_diff() - rl_info.min_diff();
+  if (rl_info.samples_per_insert() == 1 &&
+      (error_buffer > max_size_ * 1000 || error_buffer < 0)) {
+    return max_times_sampled_ < 1 ? 64 : max_times_sampled_;
+  }
+
+  // If all else fails, default to one sample per call.
+  return 1;
+}
+
 }  // namespace reverb
 }  // namespace deepmind

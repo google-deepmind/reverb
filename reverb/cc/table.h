@@ -271,6 +271,9 @@ class Table {
       std::initializer_list<TableExtensionInterface*> exclude)
       ABSL_ASSERT_EXCLUSIVE_LOCK(mu_);
 
+  // Suggestion of default batch size to use in `SampleFlexibleBatch`.
+  int32_t DefaultFlexibleBatchSize() const;
+
  private:
   // Updates item priority in `data_`, `samper_`, `remover_` and calls
   // `OnUpdate` on all extensions not part of `exclude`.
@@ -319,7 +322,7 @@ class Table {
   // Controls what operations can proceed. A shared_ptr is used to allow the
   // Python layer to interact with the object after it has been passed to the
   // table.
-  std::shared_ptr<RateLimiter> rate_limiter_ ABSL_GUARDED_BY(mu_);
+  std::shared_ptr<RateLimiter> rate_limiter_;
 
   // Extensions implement hooks that are executed while holding `mu_` as part
   // of insert, delete, update or reset operations.

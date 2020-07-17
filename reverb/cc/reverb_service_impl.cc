@@ -260,6 +260,7 @@ grpc::Status ReverbServiceImpl::SampleStreamInternal(
     }
     Table* table = PriorityTableByName(request.table());
     if (table == nullptr) return TableNotFound(request.table());
+    int32_t default_flexible_batch_size = table->DefaultFlexibleBatchSize();
 
     int count = 0;
 
@@ -267,7 +268,7 @@ grpc::Status ReverbServiceImpl::SampleStreamInternal(
       std::vector<Table::SampledItem> samples;
       int32_t max_batch_size = std::min<int32_t>(
           request.flexible_batch_size() == Sampler::kAutoSelectValue
-              ? Sampler::kDefaultFlexibleBatchSize
+              ? default_flexible_batch_size
               : request.flexible_batch_size(),
           request.num_samples() - count);
       if (auto status =
