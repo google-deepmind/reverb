@@ -196,7 +196,6 @@ reverb_py_test(
 
 reverb_py_test(
     name = "dataset_test",
-    timeout = "short",
     srcs = ["dataset_test.py"],
     python_version = "PY3",
     deps = [
