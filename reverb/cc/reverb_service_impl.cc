@@ -240,11 +240,10 @@ grpc::Status ReverbServiceImpl::SampleStreamInternal(
   if (!stream->Read(&request)) {
     return Internal("Could not read initial request");
   }
-  int64_t timeout_ms = request.has_rate_limiter_timeout()
-                         ? request.rate_limiter_timeout().milliseconds()
-                         : -1;
-  absl::Duration timeout = (timeout_ms < 0) ? absl::InfiniteDuration()
-                                            : absl::Milliseconds(timeout_ms);
+  absl::Duration timeout =
+      request.has_rate_limiter_timeout()
+          ? absl::Milliseconds(request.rate_limiter_timeout().milliseconds())
+          : absl::InfiniteDuration();
 
   do {
     if (request.num_samples() <= 0) {
