@@ -19,15 +19,21 @@
 #include <string>
 #include <utility>
 
+#include "absl/base/thread_annotations.h"
 #include "absl/container/flat_hash_set.h"
+#include "absl/functional/bind_front.h"
 #include "absl/strings/str_cat.h"
+#include "absl/synchronization/mutex.h"
 #include "reverb/cc/platform/logging.h"
+#include "reverb/cc/platform/thread.h"
+#include "reverb/cc/reverb_service.pb.h"
 #include "reverb/cc/schema.pb.h"
 #include "reverb/cc/support/grpc_util.h"
 #include "reverb/cc/tensor_compression.h"
 #include "tensorflow/core/framework/tensor.h"
 #include "tensorflow/core/framework/tensor_util.h"
 #include "tensorflow/core/lib/core/status.h"
+#include "tensorflow/core/platform/errors.h"
 
 namespace deepmind {
 namespace reverb {
@@ -49,11 +55,14 @@ int PositiveModulo(int value, int divisor) {
 
 Writer::Writer(std::shared_ptr</* grpc_gen:: */ReverbService::StubInterface> stub,
                int chunk_length, int max_timesteps, bool delta_encoded,
-               std::shared_ptr<internal::FlatSignatureMap> signatures)
+               std::shared_ptr<internal::FlatSignatureMap> signatures,
+               absl::optional<int> max_in_flight_items)
     : stub_(std::move(stub)),
       chunk_length_(chunk_length),
       max_timesteps_(max_timesteps),
       delta_encoded_(delta_encoded),
+      max_in_flight_items_(std::move(max_in_flight_items)),
+      num_items_in_flight_(0),
       signatures_(std::move(signatures)),
       next_chunk_key_(NewID()),
       episode_id_(NewID()),
@@ -220,7 +229,58 @@ tensorflow::Status Writer::Flush() {
   if (!pending_items_.empty()) {
     return Finish();
   }
+  if (!ConfirmItems(0)) {
+    return tensorflow::errors::Internal(
+        "Error when confirming that all items written to table.");
+  }
   return tensorflow::Status::OK();
+}
+
+tensorflow::Status Writer::StopItemConfirmationWorker() {
+  // There is nothing to stop if there are no limitations on the number of
+  // in flight items.
+  if (!max_in_flight_items_.has_value()) return tensorflow::Status::OK();
+
+  absl::MutexLock lock(&mu_);
+  item_confirmation_worker_stop_requested_ = true;
+
+  mu_.Await(absl::Condition(
+      +[](bool* running) { return !(*running); },
+      &item_confirmation_worker_running_));
+
+  item_confirmation_worker_stop_requested_ = false;
+  item_confirmation_worker_thread_ = nullptr;
+
+  if (num_items_in_flight_ > 0) {
+    return tensorflow::errors::DataLoss(
+        "Item confirmation worker were stopped when ", num_items_in_flight_,
+        " unconfirmed items (sent to server but validation response not yet "
+        "received).");
+  }
+  num_items_in_flight_ = 0;
+  return tensorflow::Status::OK();
+}
+
+void Writer::StartItemConfirmationWorker() {
+  // Don't do anything if confirmations are not going to be sent anyway.
+  if (!max_in_flight_items_.has_value()) return;
+
+  absl::MutexLock lock(&mu_);
+
+  // Sanity check the state of the writer. None of these should ever trigger in
+  // the absence of fatal bugs.
+  REVERB_CHECK(stream_ != nullptr);
+  REVERB_CHECK(item_confirmation_worker_thread_ == nullptr);
+  REVERB_CHECK_EQ(num_items_in_flight_, 0);
+  REVERB_CHECK(!item_confirmation_worker_running_);
+  REVERB_CHECK(!item_confirmation_worker_stop_requested_);
+
+  item_confirmation_worker_thread_ = internal::StartThread(
+      "WriterItemConfirmer",
+      absl::bind_front(&Writer::ItemConfirmationWorker, this));
+  mu_.Await(absl::Condition(
+      +[](bool* started) { return *started; },
+      &item_confirmation_worker_running_));
 }
 
 tensorflow::Status Writer::Close() {
@@ -233,6 +293,9 @@ tensorflow::Status Writer::Close() {
   }
   if (stream_) {
     stream_->WritesDone();
+    REVERB_LOG_IF(REVERB_ERROR, !ConfirmItems(0))
+        << "Unable to confirm that items were written.";
+    TF_RETURN_IF_ERROR(StopItemConfirmationWorker());
     auto status = stream_->Finish();
     if (!status.ok()) {
       REVERB_LOG(REVERB_INFO) << "Received error when closing the stream: "
@@ -300,6 +363,7 @@ tensorflow::Status Writer::WriteWithRetries() {
   while (true) {
     if (WritePendingData()) return tensorflow::Status::OK();
     stream_->WritesDone();
+    TF_RETURN_IF_ERROR(StopItemConfirmationWorker());
     auto status = FromGrpcStatus(stream_->Finish());
     stream_ = nullptr;
     if (!tensorflow::errors::IsUnavailable(status)) return status;
@@ -310,7 +374,8 @@ bool Writer::WritePendingData() {
   if (!stream_) {
     streamed_chunk_keys_.clear();
     context_ = absl::make_unique<grpc::ClientContext>();
-    stream_ = stub_->InsertStream(context_.get(), &response_);
+    stream_ = stub_->InsertStream(context_.get());
+    StartItemConfirmationWorker();
   }
 
   // Stream all chunks which are referenced by the pending items and haven't
@@ -341,12 +406,22 @@ bool Writer::WritePendingData() {
     }
   }
   while (!pending_items_.empty()) {
+    if (max_in_flight_items_.has_value() &&
+        !ConfirmItems(max_in_flight_items_.value() - 1)) {
+      return false;
+    }
     InsertStreamRequest request;
     *request.mutable_item()->mutable_item() = pending_items_.front();
     *request.mutable_item()->mutable_keep_chunk_keys() = {
         keep_chunk_keys.begin(), keep_chunk_keys.end()};
+    request.mutable_item()->set_send_confirmation(
+        max_in_flight_items_.has_value());
     if (!stream_->Write(request)) return false;
     pending_items_.pop_front();
+    if (request.item().send_confirmation()) {
+      absl::MutexLock lock(&mu_);
+      ++num_items_in_flight_;
+    }
   }
 
   return true;
@@ -354,6 +429,15 @@ bool Writer::WritePendingData() {
 
 uint64_t Writer::NewID() {
   return absl::Uniform<uint64_t>(bit_gen_, 0, UINT64_MAX);
+}
+
+bool Writer::ConfirmItems(int limit) {
+  absl::ReaderMutexLock lock(&mu_);
+  auto done = [limit, this]() ABSL_SHARED_LOCKS_REQUIRED(mu_) {
+    return num_items_in_flight_ <= limit || !item_confirmation_worker_running_;
+  };
+  mu_.Await(absl::Condition(&done));
+  return num_items_in_flight_ <= limit;
 }
 
 tensorflow::Status Writer::GetFlatSignature(
@@ -379,6 +463,34 @@ tensorflow::Status Writer::GetFlatSignature(
   }
   *dtypes_and_shapes = &(iter->second);
   return tensorflow::Status::OK();
+}
+
+void Writer::ItemConfirmationWorker() {
+  InsertStreamResponse response;
+  while (true) {
+    {
+      absl::MutexLock lock(&mu_);
+
+      // Setting this will unblock `StartItemConfirmationWorker` when Await is
+      // called.
+      item_confirmation_worker_running_ = true;
+
+      // Wait until an item has been sent we expect the server to respond or
+      // until the reader has been explicitly requested to stop prematurely.
+      mu_.Await(absl::Condition(
+          +[](Writer* w) ABSL_SHARED_LOCKS_REQUIRED(mu_) {
+            return w->num_items_in_flight_ > 0 ||
+                   w->item_confirmation_worker_stop_requested_;
+          },
+          this));
+      if (item_confirmation_worker_stop_requested_) break;
+    }
+    if (!stream_->Read(&response)) break;
+    absl::WriterMutexLock lock(&mu_);
+    num_items_in_flight_--;
+  }
+  absl::WriterMutexLock lock(&mu_);
+  item_confirmation_worker_running_ = false;
 }
 
 }  // namespace reverb

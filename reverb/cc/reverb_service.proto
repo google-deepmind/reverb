@@ -13,7 +13,9 @@ service ReverbService {
 
   // Inserts chunks into the ChunkStore and items into tables. This
   // operation is a stream that is called by `Writer`. A stream mesasage
-  // either inserts a chunk or an item into a table.
+  // either inserts a chunk or an item into a table. When an item that requested
+  // a confirmation has been successfully inserted into the table the server
+  // respond with the ID of the inserted item.
   //
   // Important: We keep a reference to each chunk that was written to
   // the stream. When inserting an item into a table, this item is
@@ -22,7 +24,8 @@ service ReverbService {
   // specified in `keep_chunk_keys`. This means the typical
   // order of stream messages is something like: [CHUNK C1] [CHUNK C2] [ITEM
   // USING C1&C2 AND KEEP C2] [CHUNK C3] [ITEM USING C2&C3]
-  rpc InsertStream(stream InsertStreamRequest) returns (InsertStreamResponse) {}
+  rpc InsertStream(stream InsertStreamRequest)
+      returns (stream InsertStreamResponse) {}
 
   // Changes the items in a table. The operations might be
   // applied partially if an error occurs.
@@ -63,6 +66,10 @@ message InsertStreamRequest {
     // result in an internal reference which prevents the chunks from deletion
     // until the next priority insertion.
     repeated uint64 keep_chunk_keys = 2;
+
+    // If set then the server will send a confirmation when the item has been
+    // inserted/updated. Only
+    bool send_confirmation = 3;
   }
 
   oneof payload {
@@ -76,7 +83,10 @@ message InsertStreamRequest {
   }
 }
 
-message InsertStreamResponse {}
+message InsertStreamResponse {
+  // ID of inserted/updated items.
+  uint64 key = 1;
+}
 
 message MutatePrioritiesRequest {
   // Name of the table that the operations below should be
