@@ -253,12 +253,11 @@ class Client:
         writer.create_item(
             table=table, num_timesteps=1, priority=priority)
 
-  def writer(
-      self,
-      max_sequence_length: int,
-      delta_encoded: bool = False,
-      chunk_length: int = None,
-  ) -> Writer:
+  def writer(self,
+             max_sequence_length: int,
+             delta_encoded: bool = False,
+             chunk_length: Optional[int] = None,
+             max_in_flight_items: Optional[int] = None) -> Writer:
     """Constructs a writer with a `max_sequence_length` buffer.
 
     The writer can be used to stream data of any length. `max_sequence_length`
@@ -290,6 +289,13 @@ class Client:
         and compression. Set by default to `min(10, max_sequence_length)` but
         can be overridden to achieve better compression rates when using longer
         sequences with a small overlap.
+      max_in_flight_items: The maximum number of items allowed to be "in flight"
+        at the same time. An item is considered to be "in flight" if it has been
+        sent to the server but the response confirming that the operation
+        succeeded has not yet been received. Note that "in flight" items does
+        NOT include items that are in the client buffer due to the current chunk
+        not having reached its desired length yet. None (default) result in an
+        unlimited number of "in flight" items.
 
     Returns:
       A `Writer` with `max_sequence_length`.
@@ -298,6 +304,7 @@ class Client:
       ValueError: If max_sequence_length < 1.
       ValueError: if chunk_length > max_sequence_length.
       ValueError: if chunk_length < 1.
+      ValueError: If max_in_flight_items < 1.
     """
     if max_sequence_length < 1:
       raise ValueError('max_sequence_length (%d) must be a positive integer' %
@@ -311,9 +318,14 @@ class Client:
           'chunk_length (%d) must be a positive integer le to max_sequence_length (%d)'
           % (chunk_length, max_sequence_length))
 
+    if max_in_flight_items is not None and max_in_flight_items < 1:
+      raise ValueError(
+          f'max_in_flight_items ({max_in_flight_items}) must be None or a '
+          f'positive integer')
+
     return Writer(
-        self._client.NewWriter(chunk_length, max_sequence_length,
-                               delta_encoded))
+        self._client.NewWriter(chunk_length, max_sequence_length, delta_encoded,
+                               max_in_flight_items))
 
   def sample(
       self,

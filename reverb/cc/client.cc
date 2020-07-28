@@ -20,6 +20,7 @@
 #include "grpcpp/support/channel_arguments.h"
 #include "absl/strings/string_view.h"
 #include "absl/time/time.h"
+#include "absl/types/optional.h"
 #include "reverb/cc/platform/grpc_utils.h"
 #include "reverb/cc/platform/logging.h"
 #include "reverb/cc/reverb_service.pb.h"
@@ -108,6 +109,7 @@ tensorflow::Status Client::MaybeUpdateServerInfoCache(
 
 tensorflow::Status Client::NewWriter(int chunk_length, int max_timesteps,
                                      bool delta_encoded,
+                                     absl::optional<int> max_in_flight_items,
                                      std::unique_ptr<Writer>* writer) {
   // TODO(b/154928265): caching this request?  For example, if
   // it's been N seconds or minutes, it may be time to
@@ -118,10 +120,16 @@ tensorflow::Status Client::NewWriter(int chunk_length, int max_timesteps,
   // some limits.
   TF_RETURN_IF_ERROR(MaybeUpdateServerInfoCache(absl::InfiniteDuration(),
                                                 &cached_flat_signatures));
-  *writer = absl::make_unique<Writer>(stub_, chunk_length, max_timesteps,
-                                      delta_encoded,
-                                      std::move(cached_flat_signatures));
+  *writer = absl::make_unique<Writer>(
+      stub_, chunk_length, max_timesteps, delta_encoded,
+      std::move(cached_flat_signatures), std::move(max_in_flight_items));
   return tensorflow::Status::OK();
+}
+tensorflow::Status Client::NewWriter(int chunk_length, int max_timesteps,
+                                     bool delta_encoded,
+                                     std::unique_ptr<Writer>* writer) {
+  return NewWriter(chunk_length, max_timesteps, delta_encoded, absl::nullopt,
+                   writer);
 }
 
 tensorflow::Status Client::MutatePriorities(

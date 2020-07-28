@@ -58,6 +58,10 @@ class Client {
   tensorflow::Status NewWriter(int chunk_length, int max_timesteps,
                                bool delta_encoded,
                                std::unique_ptr<Writer>* writer);
+  tensorflow::Status NewWriter(int chunk_length, int max_timesteps,
+                               bool delta_encoded,
+                               absl::optional<int> max_in_flight_items,
+                               std::unique_ptr<Writer>* writer);
 
   // Upon successful return, `sampler` will contain an instance of
   // Sampler.

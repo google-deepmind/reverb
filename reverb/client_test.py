@@ -137,6 +137,13 @@ class ClientTest(absltest.TestCase):
     with self.assertRaises(ValueError):
       self.client.writer(2, chunk_length=3)
 
+  def test_writer_raises_if_max_in_flight_items_lt_1(self):
+    self.client.writer(1, max_in_flight_items=1)
+    self.client.writer(1, max_in_flight_items=2)
+
+    with self.assertRaises(ValueError):
+      self.client.writer(1, max_in_flight_items=-1)
+
   def test_writer(self):
     with self.client.writer(2) as writer:
       writer.append([0])

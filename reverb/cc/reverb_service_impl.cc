@@ -117,20 +117,20 @@ grpc::Status ReverbServiceImpl::Checkpoint(grpc::ServerContext* context,
 
 grpc::Status ReverbServiceImpl::InsertStream(
     grpc::ServerContext* context,
-    grpc::ServerReader<InsertStreamRequest>* reader,
-    InsertStreamResponse* response) {
-  return InsertStreamInternal(context, reader, response);
+    grpc::ServerReaderWriter<InsertStreamResponse, InsertStreamRequest>*
+        stream) {
+  return InsertStreamInternal(context, stream);
 }
 
 grpc::Status ReverbServiceImpl::InsertStreamInternal(
     grpc::ServerContext* context,
-    grpc::ServerReaderInterface<InsertStreamRequest>* reader,
-    InsertStreamResponse* response) {
+    grpc::ServerReaderWriterInterface<InsertStreamResponse,
+                                      InsertStreamRequest>* stream) {
   // Start a background thread that unpacks the data ahead of time.
   deepmind::reverb::internal::Queue<InsertStreamRequest> queue(1);
-  auto read_thread = internal::StartThread("ReadThread", [reader, &queue]() {
+  auto read_thread = internal::StartThread("ReadThread", [stream, &queue]() {
     InsertStreamRequest request;
-    while (reader->Read(&request) && queue.Push(std::move(request))) {
+    while (stream->Read(&request) && queue.Push(std::move(request))) {
       request = InsertStreamRequest();
     }
     queue.SetLastItemPushed();
@@ -173,10 +173,23 @@ grpc::Status ReverbServiceImpl::InsertStreamInternal(
       Table* table = PriorityTableByName(table_name);
       if (table == nullptr) return TableNotFound(table_name);
 
-      item.item = *request.mutable_item()->mutable_item();
+      const auto item_key = request.item().item().key();
+      item.item = std::move(*request.mutable_item()->mutable_item());
 
       if (auto status = table->InsertOrAssign(item); !status.ok()) {
         return ToGrpcStatus(status);
+      }
+
+      // Let caller know that the item has been inserted if requested by the
+      // caller.
+      if (request.item().send_confirmation()) {
+        InsertStreamResponse response;
+        response.set_key(item_key);
+        if (!stream->Write(response)) {
+          return Internal(absl::StrCat(
+              "Error when sending confirmation that item ", item_key,
+              " has been successfully inserted/updated."));
+        }
       }
 
       // Only keep specified chunks.

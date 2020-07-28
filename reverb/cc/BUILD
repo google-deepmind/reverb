@@ -84,11 +84,15 @@ reverb_cc_test(
     deps = [
         ":client",
         ":reverb_service_cc_grpc_proto",
+        ":reverb_service_cc_proto",
         ":writer",
         "//reverb/cc/support:grpc_util",
         "//reverb/cc/support:uint128",
+        "//reverb/cc/support:queue",
+        "//reverb/cc/platform:logging",
+        "//reverb/cc/platform:thread",
         "//reverb/cc/testing:proto_test_util",
-    ] + reverb_tf_deps() + reverb_grpc_deps(),
+    ] + reverb_tf_deps() + reverb_grpc_deps() + reverb_absl_deps(),
 )
 
 reverb_cc_test(
@@ -189,6 +193,7 @@ reverb_cc_library(
         ":schema_cc_proto",
         ":tensor_compression",
         "//reverb/cc/platform:logging",
+        "//reverb/cc/platform:thread",
         "//reverb/cc/support:grpc_util",
         "//reverb/cc/support:signature",
     ] + reverb_tf_deps() + reverb_grpc_deps() + reverb_absl_deps(),

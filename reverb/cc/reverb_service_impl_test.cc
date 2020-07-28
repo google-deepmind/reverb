@@ -46,8 +46,9 @@ const double kMaxDiff = DBL_MAX;
 
 int64_t nextId = 1;
 
-class FakeInsertStreamReader
-    : public grpc::ServerReaderInterface<InsertStreamRequest> {
+class FakeInsertStream
+    : public grpc::ServerReaderWriterInterface<InsertStreamResponse,
+                                               InsertStreamRequest> {
  public:
   void AddChunk(int64_t key) {
     InsertStreamRequest request;
@@ -57,7 +58,8 @@ class FakeInsertStreamReader
 
   PrioritizedItem AddItem(absl::string_view table,
                           const std::vector<int64_t>& sequence_chunks,
-                          const std::vector<int64_t>& keep_chunks = {}) {
+                          const std::vector<int64_t>& keep_chunks = {},
+                          bool send_confirmation = false) {
     PrioritizedItem item;
     item.set_key(nextId++);
     item.set_table(table.data(), table.size());
@@ -72,6 +74,7 @@ class FakeInsertStreamReader
     *request.mutable_item()->mutable_keep_chunk_keys() = {keep_chunks.begin(),
                                                           keep_chunks.end()};
     *request.mutable_item()->mutable_item() = item;
+    request.mutable_item()->set_send_confirmation(send_confirmation);
     read_buffer_.push_back(std::move(request));
     return item;
   }
@@ -83,11 +86,20 @@ class FakeInsertStreamReader
     return true;
   }
 
+  bool Write(const InsertStreamResponse& response,
+             grpc::WriteOptions options) override {
+    responses_.push_back(response);
+    return true;
+  }
+
   void SendInitialMetadata() override {}
   bool NextMessageSize(uint32_t*) override { return false; }
 
+  std::vector<InsertStreamResponse> responses() const { return responses_; }
+
  private:
   std::list<InsertStreamRequest> read_buffer_;
+  std::vector<InsertStreamResponse> responses_;
 };
 
 class FakeSampleStream
@@ -169,12 +181,12 @@ std::unique_ptr<ReverbServiceImpl> MakeService(int max_size) {
 TEST(ReverbServiceImplTest, SampleAfterInsertWorks) {
   std::unique_ptr<ReverbServiceImpl> service = MakeService(10);
 
-  FakeInsertStreamReader reader;
-  reader.AddChunk(1);
-  reader.AddChunk(2);
-  reader.AddChunk(3);
-  PrioritizedItem item = reader.AddItem("dist", {2, 3});
-  ASSERT_TRUE(service->InsertStreamInternal(nullptr, &reader, nullptr).ok());
+  FakeInsertStream stream;
+  stream.AddChunk(1);
+  stream.AddChunk(2);
+  stream.AddChunk(3);
+  PrioritizedItem item = stream.AddItem("dist", {2, 3});
+  ASSERT_TRUE(service->InsertStreamInternal(nullptr, &stream).ok());
 
   for (int i = 0; i < 5; i++) {
     FakeSampleStream stream;
@@ -202,60 +214,73 @@ TEST(ReverbServiceImplTest, InsertChunksWithoutItemWorks) {
   std::unique_ptr<ReverbServiceImpl> service = MakeService(10);
   grpc::ServerContext context;
 
-  FakeInsertStreamReader reader;
-  reader.AddChunk(1);
-  reader.AddChunk(2);
-  EXPECT_OK(service->InsertStreamInternal(&context, &reader, nullptr));
+  FakeInsertStream stream;
+  stream.AddChunk(1);
+  stream.AddChunk(2);
+  EXPECT_OK(service->InsertStreamInternal(&context, &stream));
 }
 
 TEST(ReverbServiceImplTest, InsertSameChunkTwiceWorks) {
   std::unique_ptr<ReverbServiceImpl> service = MakeService(10);
   grpc::ServerContext context;
 
-  FakeInsertStreamReader reader;
-  reader.AddChunk(1);
-  reader.AddChunk(1);
-  EXPECT_OK(service->InsertStreamInternal(&context, &reader, nullptr));
+  FakeInsertStream stream;
+  stream.AddChunk(1);
+  stream.AddChunk(1);
+  EXPECT_OK(service->InsertStreamInternal(&context, &stream));
 }
 
 TEST(ReverbServiceImplTest, InsertItemWithoutKeptChunkFails) {
   std::unique_ptr<ReverbServiceImpl> service = MakeService(10);
   grpc::ServerContext context;
 
-  FakeInsertStreamReader reader;
-  reader.AddChunk(1);
-  reader.AddChunk(2);
-  reader.AddItem("dist", {1, 2});
-  reader.AddItem("dist", {2, 3});
-  EXPECT_EQ(
-      service->InsertStreamInternal(&context, &reader, nullptr).error_code(),
-      grpc::StatusCode::INTERNAL);
+  FakeInsertStream stream;
+  stream.AddChunk(1);
+  stream.AddChunk(2);
+  stream.AddItem("dist", {1, 2});
+  stream.AddItem("dist", {2, 3});
+  EXPECT_EQ(service->InsertStreamInternal(&context, &stream).error_code(),
+            grpc::StatusCode::INTERNAL);
 }
 
 TEST(ReverbServiceImplTest, InsertItemWithKeptChunkWorks) {
   std::unique_ptr<ReverbServiceImpl> service = MakeService(10);
   grpc::ServerContext context;
 
-  FakeInsertStreamReader reader;
-  reader.AddChunk(1);
-  reader.AddChunk(2);
-  reader.AddItem("dist", {1, 2}, {2});
-  reader.AddItem("dist", {2, 3});
-  EXPECT_EQ(
-      service->InsertStreamInternal(&context, &reader, nullptr).error_code(),
-      grpc::StatusCode::INTERNAL);
+  FakeInsertStream stream;
+  stream.AddChunk(1);
+  stream.AddChunk(2);
+  stream.AddItem("dist", {1, 2}, {2});
+  stream.AddItem("dist", {2, 3});
+  EXPECT_EQ(service->InsertStreamInternal(&context, &stream).error_code(),
+            grpc::StatusCode::INTERNAL);
 }
 
 TEST(ReverbServiceImplTest, InsertItemWithMissingChunksFails) {
   std::unique_ptr<ReverbServiceImpl> service = MakeService(10);
   grpc::ServerContext context;
 
-  FakeInsertStreamReader reader;
-  reader.AddChunk(1);
-  reader.AddItem("dist", {2});
-  EXPECT_EQ(
-      service->InsertStreamInternal(&context, &reader, nullptr).error_code(),
-      grpc::StatusCode::INTERNAL);
+  FakeInsertStream stream;
+  stream.AddChunk(1);
+  stream.AddItem("dist", {2});
+  EXPECT_EQ(service->InsertStreamInternal(&context, &stream).error_code(),
+            grpc::StatusCode::INTERNAL);
+}
+
+TEST(ReverbServiceImplTest, InsertStreamRespondsWithItemKeys) {
+  std::unique_ptr<ReverbServiceImpl> service = MakeService(10);
+  grpc::ServerContext context;
+
+  FakeInsertStream stream;
+  stream.AddChunk(1);
+  auto first_id = nextId;
+  stream.AddItem("dist", {1}, {1}, /*send_confirmation=*/true);
+  stream.AddItem("dist", {1}, {1}, /*send_confirmation=*/false);
+  stream.AddItem("dist", {1}, {}, /*send_confirmation=*/true);
+  EXPECT_OK(service->InsertStreamInternal(&context, &stream));
+  EXPECT_THAT(stream.responses(), ::testing::SizeIs(2));
+  EXPECT_EQ(stream.responses()[0].key(), first_id);
+  EXPECT_EQ(stream.responses()[1].key(), first_id + 2);
 }
 
 TEST(ReverbServiceImplTest, SampleBlocksUntilEnoughInserts) {
@@ -273,10 +298,10 @@ TEST(ReverbServiceImplTest, SampleBlocksUntilEnoughInserts) {
   EXPECT_FALSE(notification.HasBeenNotified());
 
   // Insert an item.
-  FakeInsertStreamReader reader;
-  reader.AddChunk(1);
-  reader.AddItem("dist", {1});
-  ASSERT_TRUE(service->InsertStreamInternal(nullptr, &reader, nullptr).ok());
+  FakeInsertStream stream;
+  stream.AddChunk(1);
+  stream.AddItem("dist", {1});
+  ASSERT_TRUE(service->InsertStreamInternal(nullptr, &stream).ok());
 
   // The sample should now complete because there is data to sample.
   notification.WaitForNotification();
@@ -287,10 +312,10 @@ TEST(ReverbServiceImplTest, SampleBlocksUntilEnoughInserts) {
 TEST(ReverbServiceImplTest, MutateDeletionWorks) {
   std::unique_ptr<ReverbServiceImpl> service = MakeService(10);
 
-  FakeInsertStreamReader reader;
-  reader.AddChunk(1);
-  PrioritizedItem item = reader.AddItem("dist", {1});
-  ASSERT_TRUE(service->InsertStreamInternal(nullptr, &reader, nullptr).ok());
+  FakeInsertStream stream;
+  stream.AddChunk(1);
+  PrioritizedItem item = stream.AddItem("dist", {1});
+  ASSERT_TRUE(service->InsertStreamInternal(nullptr, &stream).ok());
 
   EXPECT_EQ(service->tables()["dist"]->size(), 1);
 
@@ -318,21 +343,20 @@ TEST(ReverbServiceImplTest, AnyCallWithInvalidDistributionFails) {
       service->MutatePriorities(nullptr, &mutate_request, nullptr).error_code(),
       grpc::StatusCode::NOT_FOUND);
 
-  FakeInsertStreamReader reader;
-  reader.AddChunk(1);
-  reader.AddItem("invalid", {1});
-  EXPECT_EQ(
-      service->InsertStreamInternal(nullptr, &reader, nullptr).error_code(),
-      grpc::StatusCode::NOT_FOUND);
+  FakeInsertStream stream;
+  stream.AddChunk(1);
+  stream.AddItem("invalid", {1});
+  EXPECT_EQ(service->InsertStreamInternal(nullptr, &stream).error_code(),
+            grpc::StatusCode::NOT_FOUND);
 }
 
 TEST(ReverbServiceImplTest, ResetWorks) {
   std::unique_ptr<ReverbServiceImpl> service = MakeService(10);
 
-  FakeInsertStreamReader reader;
-  reader.AddChunk(1);
-  PrioritizedItem item = reader.AddItem("dist", {1});
-  ASSERT_TRUE(service->InsertStreamInternal(nullptr, &reader, nullptr).ok());
+  FakeInsertStream stream;
+  stream.AddChunk(1);
+  PrioritizedItem item = stream.AddItem("dist", {1});
+  ASSERT_TRUE(service->InsertStreamInternal(nullptr, &stream).ok());
 
   EXPECT_EQ(service->tables()["dist"]->size(), 1);
 
@@ -402,10 +426,10 @@ TEST(ReverbServiceImplTest, CheckpointAndLoadFromCheckpoint) {
 
   // Insert an item.
   {
-    FakeInsertStreamReader reader;
-    reader.AddChunk(1);
-    reader.AddItem("dist", {1});
-    ASSERT_TRUE(service->InsertStreamInternal(nullptr, &reader, nullptr).ok());
+    FakeInsertStream stream;
+    stream.AddChunk(1);
+    stream.AddItem("dist", {1});
+    ASSERT_TRUE(service->InsertStreamInternal(nullptr, &stream).ok());
   }
 
   EXPECT_EQ(service->tables()["dist"]->size(), 1);

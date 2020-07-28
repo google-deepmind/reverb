@@ -47,14 +47,15 @@ class ReverbServiceImpl : public /* grpc_gen:: */ReverbService::Service {
                           const CheckpointRequest* request,
                           CheckpointResponse* response) override;
 
-  grpc::Status InsertStream(grpc::ServerContext* context,
-                            grpc::ServerReader<InsertStreamRequest>* reader,
-                            InsertStreamResponse* response) override;
+  grpc::Status InsertStream(
+      grpc::ServerContext* context,
+      grpc::ServerReaderWriter<InsertStreamResponse, InsertStreamRequest>*
+          stream) override;
 
   grpc::Status InsertStreamInternal(
       grpc::ServerContext* context,
-      grpc::ServerReaderInterface<InsertStreamRequest>* reader,
-      InsertStreamResponse* response);
+      grpc::ServerReaderWriterInterface<InsertStreamResponse,
+                                        InsertStreamRequest>* stream);
 
   grpc::Status MutatePriorities(grpc::ServerContext* context,
                                 const MutatePrioritiesRequest* request,

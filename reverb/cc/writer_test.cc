@@ -15,6 +15,7 @@
 #include "reverb/cc/writer.h"
 
 #include <algorithm>
+#include <queue>
 #include <string>
 
 #include "grpcpp/impl/codegen/call_op_set.h"
@@ -22,10 +23,16 @@
 #include "grpcpp/impl/codegen/sync_stream.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
+#include "absl/synchronization/notification.h"
+#include "absl/time/clock.h"
+#include "absl/time/time.h"
 #include "reverb/cc/client.h"
+#include "reverb/cc/platform/thread.h"
 #include "reverb/cc/reverb_service.grpc.pb.h"
+#include "reverb/cc/reverb_service.pb.h"
 #include "reverb/cc/reverb_service_mock.grpc.pb.h"
 #include "reverb/cc/support/grpc_util.h"
+#include "reverb/cc/support/queue.h"
 #include "reverb/cc/support/uint128.h"
 #include "reverb/cc/testing/proto_test_util.h"
 #include "tensorflow/core/lib/core/errors.h"
@@ -42,6 +49,8 @@ using ::tensorflow::errors::Internal;
 using ::tensorflow::errors::Unavailable;
 using ::testing::ElementsAre;
 using ::testing::SizeIs;
+
+constexpr auto kNotificationTimeout = absl::Milliseconds(200);
 
 std::vector<tensorflow::Tensor> MakeTimestep(int num_tensors = 1) {
   tensorflow::Tensor tensor(1.0f);
@@ -88,18 +97,45 @@ MATCHER_P4(IsItemWithRangeAndPriorityAndTable, offset, length, priority, table,
          arg.item().item().table() == table;
 }
 
-class FakeWriter : public grpc::ClientWriterInterface<InsertStreamRequest> {
+class FakeInsertStream
+    : public grpc::ClientReaderWriterInterface<InsertStreamRequest,
+                                               InsertStreamResponse> {
  public:
-  FakeWriter(std::vector<InsertStreamRequest>* requests, int num_success_writes,
-             grpc::Status bad_status)
+  FakeInsertStream(std::vector<InsertStreamRequest>* requests,
+                   int num_success_writes, grpc::Status bad_status,
+                   internal::Queue<uint64_t>* response_ids = nullptr)
       : requests_(requests),
         num_success_writes_(num_success_writes),
-        bad_status_(std::move(bad_status)) {}
+        bad_status_(std::move(bad_status)),
+        response_ids_(response_ids) {}
 
   bool Write(const InsertStreamRequest& msg,
              grpc::WriteOptions options) override {
     requests_->push_back(msg);
+    if (msg.item().send_confirmation()) {
+      written_item_ids_.push(msg.item().item().key());
+    }
     return num_success_writes_-- > 0;
+  }
+
+  bool Read(InsertStreamResponse* response) override {
+    // If an explicit response IDs queue was provided then we block until it is
+    // nonempty.
+    if (response_ids_ != nullptr) {
+      uint64_t id;
+      CHECK(response_ids_->Pop(&id));
+      response->set_key(id);
+      return true;
+    }
+
+    // If the response IDs queue wasn't explicitly provided then we fallback to
+    // return IDs of that has been sent to the fake server
+    if (written_item_ids_.empty()) {
+      return false;
+    }
+    response->set_key(written_item_ids_.front());
+    written_item_ids_.pop();
+    return true;
   }
 
   grpc::Status Finish() override {
@@ -108,17 +144,30 @@ class FakeWriter : public grpc::ClientWriterInterface<InsertStreamRequest> {
 
   bool WritesDone() override { return num_success_writes_-- > 0; }
 
+  bool NextMessageSize(uint32_t* sz) override {
+    if (written_item_ids_.empty()) {
+      return false;
+    }
+    InsertStreamResponse response;
+    *sz = response.ByteSizeLong();
+    return true;
+  }
+
+  void WaitForInitialMetadata() override {}
+
  private:
   std::vector<InsertStreamRequest>* requests_;
+  std::queue<uint64_t> written_item_ids_;
   int num_success_writes_;
   grpc::Status bad_status_;
+  internal::Queue<uint64_t>* response_ids_;
 };
 
 class FakeStub : public /* grpc_gen:: */MockReverbServiceStub {
  public:
-  explicit FakeStub(std::list<FakeWriter*> writers,
+  explicit FakeStub(std::list<FakeInsertStream*> streams,
                     const tensorflow::StructuredValue* signature = nullptr)
-      : writers_(std::move(writers)) {
+      : streams_(std::move(streams)) {
     if (signature) {
       *response_.mutable_tables_state_id() =
           Uint128ToMessage(absl::MakeUint128(1, 2));
@@ -131,17 +180,17 @@ class FakeStub : public /* grpc_gen:: */MockReverbServiceStub {
     // Since writers where allocated with New we manually free the memory if
     // the writer hasn't already been passed to the Writer where it is
     // handled as a unique ptr and thus is destroyed with ~Writer.
-    while (!writers_.empty()) {
-      auto writer = writers_.front();
+    while (!streams_.empty()) {
+      auto writer = streams_.front();
       delete writer;
-      writers_.pop_front();
+      streams_.pop_front();
     }
   }
 
-  grpc::ClientWriterInterface<InsertStreamRequest>* InsertStreamRaw(
-      grpc::ClientContext* context, InsertStreamResponse* response) override {
-    auto writer = writers_.front();
-    writers_.pop_front();
+  grpc::ClientReaderWriterInterface<InsertStreamRequest, InsertStreamResponse>*
+  InsertStreamRaw(grpc::ClientContext* context) override {
+    auto writer = streams_.front();
+    streams_.pop_front();
     return writer;
   }
 
@@ -154,28 +203,29 @@ class FakeStub : public /* grpc_gen:: */MockReverbServiceStub {
 
  private:
   ServerInfoResponse response_;
-  std::list<FakeWriter*> writers_;
+  std::list<FakeInsertStream*> streams_;
 };
 
 std::shared_ptr<FakeStub> MakeGoodStub(
     std::vector<InsertStreamRequest>* requests,
     const tensorflow::StructuredValue* signature = nullptr) {
-  FakeWriter* writer =
-      new FakeWriter(requests, 10000, ToGrpcStatus(Internal("")));
-  return std::make_shared<FakeStub>(std::list<FakeWriter*>{writer}, signature);
+  FakeInsertStream* stream =
+      new FakeInsertStream(requests, 10000, ToGrpcStatus(Internal("")));
+  return std::make_shared<FakeStub>(std::list<FakeInsertStream*>{stream},
+                                    signature);
 }
 
 std::shared_ptr<FakeStub> MakeFlakyStub(
     std::vector<InsertStreamRequest>* requests, int num_success, int num_fail,
     grpc::Status error) {
-  std::list<FakeWriter*> writers;
-  writers.push_back(new FakeWriter(requests, num_success, error));
+  std::list<FakeInsertStream*> streams;
+  streams.push_back(new FakeInsertStream(requests, num_success, error));
   for (int i = 1; i < num_fail; i++) {
-    writers.push_back(new FakeWriter(requests, 0, error));
+    streams.push_back(new FakeInsertStream(requests, 0, error));
   }
-  writers.push_back(
-      new FakeWriter(requests, 10000, ToGrpcStatus(Internal(""))));
-  return std::make_shared<FakeStub>(std::move(writers));
+  streams.push_back(
+      new FakeInsertStream(requests, 10000, ToGrpcStatus(Internal(""))));
+  return std::make_shared<FakeStub>(std::move(streams));
 }
 
 TEST(WriterTest, DoesNotSendTimestepsWhenThereAreNoItems) {
@@ -717,6 +767,122 @@ TEST(WriterTest, WriteTimeStepsInconsistentShapeErrorAgainstBoundedSpec) {
                   "timestep offset 0 in (flattened) tensor location 0 with "
                   "dtype float and shape [] but expected a tensor of dtype "
                   "float and shape compatible with [?]"));
+}
+
+std::pair<std::shared_ptr<FakeStub>, std::unique_ptr<internal::Queue<uint64_t>>>
+MakeStubWithExplicitResponseQueue(std::vector<InsertStreamRequest>* requests) {
+  auto response_ids = absl::make_unique<internal::Queue<uint64_t>>(100);
+  FakeInsertStream* stream = new FakeInsertStream(
+      requests, 10000, ToGrpcStatus(Internal("")), response_ids.get());
+  auto stub = std::make_shared<FakeStub>(std::list<FakeInsertStream*>{stream});
+  return {std::move(stub), std::move(response_ids)};
+}
+
+TEST(WriterTest, CloseBlocksUntilAllItemsConfirmed) {
+  std::vector<InsertStreamRequest> requests;
+  auto pair = MakeStubWithExplicitResponseQueue(&requests);
+  auto response_ids = std::move(pair.second);
+  Writer writer(pair.first, 2, 2, false, nullptr, 100);
+
+  // Creating the items should not result in any blocking as the number of in
+  // flight items is 100.
+  TF_ASSERT_OK(writer.Append(MakeTimestep()));
+  TF_ASSERT_OK(writer.CreateItem("dist", 1, 1.0));
+  TF_ASSERT_OK(writer.Append(MakeTimestep()));
+  TF_ASSERT_OK(writer.CreateItem("dist", 2, 1.0));
+
+  // Attempt to close the writer from a separate thread.
+  absl::Notification notification;
+  auto close_thread = internal::StartThread("Close", [&writer, &notification] {
+    REVERB_CHECK(writer.Close().ok());
+    notification.Notify();
+  });
+
+  // The close call should not be able to complete as the server hasn't
+  // confirmed that all the IDs have been written.
+  EXPECT_FALSE(
+      notification.WaitForNotificationWithTimeout(kNotificationTimeout));
+
+  // Sending the response for the first item should not be enough.
+  ASSERT_TRUE(response_ids->Push(1));
+  EXPECT_FALSE(
+      notification.WaitForNotificationWithTimeout(kNotificationTimeout));
+
+  // Sending response for the second (and last) item should unblock the Close
+  // call.
+  ASSERT_TRUE(response_ids->Push(2));
+  notification.WaitForNotification();
+}
+
+TEST(WriterTest, FlushBlocksUntilAllItemsConfirmed) {
+  std::vector<InsertStreamRequest> requests;
+  auto pair = MakeStubWithExplicitResponseQueue(&requests);
+  auto response_ids = std::move(pair.second);
+  Writer writer(pair.first, 2, 2, false, nullptr, 100);
+
+  // Creating the items should not result in any blocking as the number of in
+  // flight items is 100.
+  TF_ASSERT_OK(writer.Append(MakeTimestep()));
+  TF_ASSERT_OK(writer.CreateItem("dist", 1, 1.0));
+  TF_ASSERT_OK(writer.Append(MakeTimestep()));
+  TF_ASSERT_OK(writer.CreateItem("dist", 2, 1.0));
+
+  // Attempt to flush the writer from a separate thread.
+  absl::Notification notification;
+  auto flush_thread = internal::StartThread("Flush", [&writer, &notification] {
+    REVERB_CHECK(writer.Flush().ok());
+    notification.Notify();
+  });
+
+  // The flush call should not be able to complete as the server hasn't
+  // confirmed that all the IDs have been written.
+  EXPECT_FALSE(
+      notification.WaitForNotificationWithTimeout(kNotificationTimeout));
+
+  // Sending the response for the first item should not be enough.
+  ASSERT_TRUE(response_ids->Push(1));
+  EXPECT_FALSE(
+      notification.WaitForNotificationWithTimeout(kNotificationTimeout));
+
+  // Sending response for the second (and last) item should unblock the Close
+  // call.
+  ASSERT_TRUE(response_ids->Push(2));
+  notification.WaitForNotification();
+}
+
+TEST(WriterTest, BlocksWhenMaxInFlighItemsReached) {
+  std::vector<InsertStreamRequest> requests;
+  auto pair = MakeStubWithExplicitResponseQueue(&requests);
+  auto response_ids = std::move(pair.second);
+  Writer writer(pair.first, 1, 2, false, nullptr, 2);
+
+  // Creating two items should not result in any blocking as it does not exceed
+  // the maximum number of in flight items.
+  TF_ASSERT_OK(writer.Append(MakeTimestep()));
+  TF_ASSERT_OK(writer.CreateItem("dist", 1, 1.0));
+  TF_ASSERT_OK(writer.Append(MakeTimestep()));
+  TF_ASSERT_OK(writer.CreateItem("dist", 2, 1.0));
+
+  // Attempt to send one more items in a separate thread.
+  absl::Notification notification;
+  auto thread = internal::StartThread("InsertItem", [&writer, &notification] {
+    TF_ASSERT_OK(writer.Append(MakeTimestep()));
+    TF_ASSERT_OK(writer.CreateItem("dist", 2, 1.0));
+    notification.Notify();
+  });
+
+  // Initially the third item should be blocked.
+  ASSERT_FALSE(
+      notification.WaitForNotificationWithTimeout(kNotificationTimeout));
+
+  // Confirming one item should unblock the pending item.
+  ASSERT_TRUE(response_ids->Push(1));
+  notification.WaitForNotification();
+
+  // Send the remaining responses to unblock any pending reads without
+  // cancelling the stream.
+  ASSERT_TRUE(response_ids->Push(2));
+  ASSERT_TRUE(response_ids->Push(3));
 }
 
 }  // namespace
