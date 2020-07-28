@@ -32,17 +32,26 @@ OUTPUT_DIR=/tmp/reverb/dist/
 PYTHON_TESTS=true
 
 ABI=cp36
+PIP_PKG_EXTRA_ARGS="" # Extra args passed to `build_pip_package`.
 
 if [[ $# -lt 1 ]] ; then
   echo "Usage:"
+  echo "--release [Indicates this is a release build. Otherwise nightly.]"
   echo "--python [3.6(default)|3.7|3.8]"
   echo "--clean  [true to run bazel clean]"
+  echo "--tf_dep_override  [Required tensorflow version to pass to setup.py."
+  echo "                    Examples: tensorflow==2.3.0rc0  or tensorflow>=2.3.0]"
+  echo "--python_tests  [true (default) to run python tests.]"
+  echo "--output_dir  [location to copy .whl file.]"
   exit 1
 fi
 
 while [[ $# -gt -0 ]]; do
   key="$1"
   case $key in
+      --release)
+      PIP_PKG_EXTRA_ARGS="${PIP_PKG_EXTRA_ARGS} --release" # Indicates this is a release build.
+      ;;
       --python)
       PYTHON_VERSION="$2" # Python version to build against.
       shift
@@ -57,6 +66,11 @@ while [[ $# -gt -0 ]]; do
       ;;
       --output_dir)
       OUTPUT_DIR="$2"
+      shift
+      ;;
+      --tf_dep_override)
+      # Setup.py is told this is the tensorflow dependency.
+      PIP_PKG_EXTRA_ARGS="${PIP_PKG_EXTRA_ARGS} --tf-version ${2}"
       shift
       ;;
     *)
@@ -98,7 +112,7 @@ bazel test -c opt --copt=-mavx --config=manylinux2010 --test_output=errors //rev
 
 # Builds Reverb and creates the wheel package.
 bazel build -c opt --copt=-mavx --config=manylinux2010 reverb/pip_package:build_pip_package
-./bazel-bin/reverb/pip_package/build_pip_package --dst $OUTPUT_DIR
+./bazel-bin/reverb/pip_package/build_pip_package --dst $OUTPUT_DIR $PIP_PKG_EXTRA_ARGS
 
 # Installs pip package.
 $PYTHON_BIN_PATH -mpip install ${OUTPUT_DIR}*${ABI}*.whl
