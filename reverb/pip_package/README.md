@@ -34,10 +34,10 @@ $ docker build --tag tensorflow:reverb_release \
   --build-arg python_version="python3.6 python3.7 python3.8" \
   - < "$REVERB_DIR/docker/release.dockerfile"
 
-# oss_build.sh will build a .whl for Python 3.6 by default
+# Builds reverb for all supported versions of Python.
 $ docker run --rm --mount "type=bind,src=$REVERB_DIR,dst=/tmp/reverb" \
   tensorflow:reverb_release bash oss_build.sh --clean true \
-  --tf_dep_override "tensorflow>=2.3.0" --release
+  --tf_dep_override "tensorflow>=2.3.0" --release --python "3.6 3.7 3.8"
 ```
 
 <a id='Develop'></a>
