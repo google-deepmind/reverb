@@ -10,7 +10,7 @@
 #
 # bazel test -c opt --copt=-mavx --config=manylinux2010 --test_output=errors //reverb/...
 
-ARG cpu_base_image="tensorflow/tensorflow:2.1.0-custom-op-ubuntu16"
+ARG cpu_base_image="tensorflow/tensorflow:2.2.0-custom-op-ubuntu16"
 ARG base_image=$cpu_base_image
 FROM $base_image
 
