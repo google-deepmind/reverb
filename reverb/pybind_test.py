@@ -28,7 +28,7 @@ class TestNdArrayToTensorAndBack(parameterized.TestCase):
   def setUpClass(cls):
     super(TestNdArrayToTensorAndBack, cls).setUpClass()
     cls._server = reverb.Server(
-        tables=[reverb.Table.queue(TABLE_NAME, 1)],
+        tables=[reverb.Table.queue(TABLE_NAME, 1000)],
         port=None,
     )
     cls._client = cls._server.in_process_client()
@@ -70,6 +70,18 @@ class TestNdArrayToTensorAndBack(parameterized.TestCase):
     sample = next(self._client.sample(TABLE_NAME))
     got = sample[0].data[0]
     np.testing.assert_array_equal(data, got)
+
+  def test_stress_string_memory_leak(self):
+    with self._client.writer(1) as writer:
+      for i in range(100):
+        writer.append(['string_' + ('a' * 100 * i)])
+        writer.create_item(TABLE_NAME, 1, 1)
+
+    for i in range(100):
+      sample = next(self._client.sample(TABLE_NAME))
+      got = sample[0].data[0]
+      np.testing.assert_array_equal(got, b'string_' + (b'a' * 100 * i))
+
 
 if __name__ == '__main__':
   absltest.main()
