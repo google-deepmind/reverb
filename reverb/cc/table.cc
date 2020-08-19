@@ -350,6 +350,10 @@ Table::CheckpointAndChunks Table::Checkpoint() {
   checkpoint.set_max_size(max_size_);
   checkpoint.set_max_times_sampled(max_times_sampled_);
 
+  if (signature_.has_value()) {
+    *checkpoint.mutable_signature() = signature_.value();
+  }
+
   absl::ReaderMutexLock lock(&mu_);
 
   checkpoint.set_num_deleted_episodes(num_deleted_episodes_);

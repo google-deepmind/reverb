@@ -50,6 +50,7 @@ reverb_cc_test(
         "//reverb/cc/checkpointing:checkpoint_cc_proto",
         "//reverb/cc/selectors:fifo",
         "//reverb/cc/selectors:uniform",
+        "//reverb/cc/table_extensions:interface",
         "//reverb/cc/platform:thread",
         "//reverb/cc/testing:proto_test_util",
     ] + reverb_tf_deps() + reverb_absl_deps(),

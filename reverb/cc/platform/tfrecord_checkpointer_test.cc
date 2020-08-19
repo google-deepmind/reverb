@@ -30,6 +30,9 @@
 #include "reverb/cc/selectors/uniform.h"
 #include "reverb/cc/table.h"
 #include "reverb/cc/testing/proto_test_util.h"
+#include "tensorflow/core/framework/tensor_shape.h"
+#include "tensorflow/core/framework/tensor_shape.pb.h"
+#include "tensorflow/core/framework/types.pb.h"
 #include "tensorflow/core/lib/core/status_test_util.h"
 #include "tensorflow/core/lib/io/path.h"
 #include "tensorflow/core/platform/env.h"
@@ -40,7 +43,7 @@ namespace {
 
 using ::deepmind::reverb::testing::EqualsProto;
 
-inline std::string MakeRoot() {
+std::string MakeRoot() {
   std::string name;
   REVERB_CHECK(tensorflow::Env::Default()->LocalTempFilename(&name));
   return name;
@@ -61,6 +64,22 @@ std::unique_ptr<Table> MakePrioritizedTable(const std::string& name,
       absl::make_unique<RateLimiter>(1.0, 1, -DBL_MAX, DBL_MAX));
 }
 
+std::unique_ptr<Table> MakeSignatureTable(const std::string& name) {
+  tensorflow::StructuredValue signature;
+  auto* spec =
+      signature.mutable_list_value()->add_values()->mutable_tensor_spec_value();
+  spec->set_dtype(tensorflow::DT_INT32);
+  tensorflow::TensorShapeProto shape;
+  tensorflow::TensorShape({2}).AsProto(spec->mutable_shape());
+
+  return absl::make_unique<Table>(
+      name, absl::make_unique<UniformSelector>(),
+      absl::make_unique<FifoSelector>(), 1000, 0,
+      absl::make_unique<RateLimiter>(1.0, 1, -DBL_MAX, +DBL_MAX),
+      std::vector<std::shared_ptr<TableExtensionInterface>>(),
+      std::move(signature));
+}
+
 TEST(TFRecordCheckpointerTest, CreatesDirectoryInRoot) {
   std::string root = MakeRoot();
   TFRecordCheckpointer checkpointer(root);
@@ -78,6 +97,7 @@ TEST(TFRecordCheckpointerTest, SaveAndLoad) {
   tables.push_back(MakeUniformTable("uniform"));
   tables.push_back(MakePrioritizedTable("prioritized_a", 0.5));
   tables.push_back(MakePrioritizedTable("prioritized_b", 0.9));
+  tables.push_back(MakeSignatureTable("signature"));
 
   std::vector<ChunkStore::Key> chunk_keys;
   for (int i = 0; i < 100; i++) {
@@ -101,13 +121,15 @@ TEST(TFRecordCheckpointerTest, SaveAndLoad) {
 
   std::string path;
   TF_ASSERT_OK(checkpointer.Save(
-      {tables[0].get(), tables[1].get(), tables[2].get()}, 1, &path));
+      {tables[0].get(), tables[1].get(), tables[2].get(), tables[3].get()}, 1,
+      &path));
 
   ChunkStore loaded_chunk_store;
   std::vector<std::shared_ptr<Table>> loaded_tables;
   loaded_tables.push_back(MakeUniformTable("uniform"));
   loaded_tables.push_back(MakePrioritizedTable("prioritized_a", 0.5));
   loaded_tables.push_back(MakePrioritizedTable("prioritized_b", 0.9));
+  loaded_tables.push_back(MakeSignatureTable("signature"));
   TF_ASSERT_OK(checkpointer.Load(tensorflow::io::Basename(path),
                                  &loaded_chunk_store, &loaded_tables));
 
@@ -119,6 +141,10 @@ TEST(TFRecordCheckpointerTest, SaveAndLoad) {
   for (int i = 0; i < tables.size(); i++) {
     EXPECT_EQ(loaded_tables[i]->size(), tables[i]->size());
   }
+
+  // Check that the signature is properly loaded.
+  EXPECT_THAT(loaded_tables[3]->signature(),
+              Optional(EqualsProto(tables[3]->signature().value())));
 
   // Sample a random item and check that it matches the item in the original
   // table.

@@ -283,14 +283,20 @@ tensorflow::Status TFRecordCheckpointer::Load(
     auto rate_limiter =
         std::make_shared<RateLimiter>(checkpoint.rate_limiter());
     auto extensions = tables->at(index)->UnsafeClearExtensions();
+    auto signature =
+        checkpoint.has_signature()
+            ? absl::make_optional(std::move(checkpoint.signature()))
+            : absl::nullopt;
 
     auto table = std::make_shared<Table>(
-        /*name=*/checkpoint.table_name(), /*sampler=*/std::move(sampler),
+        /*name=*/checkpoint.table_name(),
+        /*sampler=*/std::move(sampler),
         /*remover=*/std::move(remover),
         /*max_size=*/checkpoint.max_size(),
         /*max_times_sampled=*/checkpoint.max_times_sampled(),
         /*rate_limiter=*/std::move(rate_limiter),
-        /*extensions=*/std::move(extensions));
+        /*extensions=*/std::move(extensions),
+        /*signature=*/std::move(signature));
     table->set_num_deleted_episodes_from_checkpoint(
         checkpoint.num_deleted_episodes());
 

@@ -3,10 +3,11 @@ syntax = "proto3";
 package deepmind.reverb;
 
 import "reverb/cc/schema.proto";
+import "tensorflow/core/protobuf/struct.proto";
 
 // Configs for reconstructing a distribution to its initial state.
 
-// Next ID: 9.
+// Next ID: 10.
 message PriorityTableCheckpoint {
   // Name of the table.
   string table_name = 1;
@@ -36,6 +37,9 @@ message PriorityTableCheckpoint {
   // The total number of episodes that were at some point referenced by items
   // in the table but have since been removed.
   int64 num_deleted_episodes = 8;
+
+  // Optional data signature for tensors stored in the table.
+  tensorflow.StructuredValue signature = 9;
 }
 
 message RateLimiterCheckpoint {

@@ -34,9 +34,14 @@
 #include "reverb/cc/schema.pb.h"
 #include "reverb/cc/selectors/fifo.h"
 #include "reverb/cc/selectors/uniform.h"
+#include "reverb/cc/table_extensions/interface.h"
 #include "reverb/cc/testing/proto_test_util.h"
+#include "tensorflow/core/framework/tensor_shape.h"
+#include "tensorflow/core/framework/tensor_shape.pb.h"
+#include "tensorflow/core/framework/types.pb.h"
 #include "tensorflow/core/lib/core/status.h"
 #include "tensorflow/core/lib/core/status_test_util.h"
+#include "tensorflow/core/protobuf/struct.pb.h"
 
 namespace deepmind {
 namespace reverb {
@@ -438,9 +443,18 @@ TEST(TableTest, CheckpointOrderItems) {
 }
 
 TEST(TableTest, CheckpointSanityCheck) {
+  tensorflow::StructuredValue signature;
+  auto* spec =
+      signature.mutable_list_value()->add_values()->mutable_tensor_spec_value();
+  spec->set_dtype(tensorflow::DT_FLOAT);
+  tensorflow::TensorShapeProto shape;
+  tensorflow::TensorShape({1, 2}).AsProto(spec->mutable_shape());
+
   Table table("dist", absl::make_unique<UniformSelector>(),
               absl::make_unique<FifoSelector>(), 10, 1,
-              absl::make_unique<RateLimiter>(1.0, 3, -10, 7));
+              absl::make_unique<RateLimiter>(1.0, 3, -10, 7),
+              std::vector<std::shared_ptr<TableExtensionInterface>>(),
+              signature);
 
   TF_EXPECT_OK(table.InsertOrAssign(MakeItem(1, 123)));
 
@@ -471,6 +485,23 @@ TEST(TableTest, CheckpointSanityCheck) {
                 }
                 sampler: { uniform: true }
                 remover: { fifo: true }
+                signature: {
+                  list_value: {
+                    values: {
+                      tensor_spec_value: {
+                        shape: {
+                          dim: {
+                            size: 1
+                          }
+                          dim: {
+                            size: 2
+                          }
+                        }
+                        dtype: DT_FLOAT
+                      }
+                    }
+                  }
+                }
               )pb")));
 }
 
