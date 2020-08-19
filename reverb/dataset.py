@@ -15,7 +15,7 @@
 
 """TFClient provides tf-ops for interacting with Reverb."""
 
-from typing import Any, List, Optional
+from typing import Any, List, Optional, Union
 
 from reverb import client as reverb_client
 from reverb import replay_sample
@@ -48,8 +48,8 @@ class ReplayDataset(tf.data.Dataset):
   """
 
   def __init__(self,
-               server_address: str,
-               table: str,
+               server_address: Union[str, tf.Tensor],
+               table: Union[str, tf.Tensor],
                dtypes: Any,
                shapes: Any,
                max_in_flight_samples_per_worker: int,

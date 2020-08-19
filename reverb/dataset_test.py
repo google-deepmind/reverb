@@ -184,8 +184,8 @@ class ReplayDatasetTest(tf.test.TestCase, parameterized.TestCase):
     self._populate_replay()
 
     dataset = reverb_dataset.ReplayDataset(
-        self._client.server_address,
-        table='dist',
+        tf.constant(self._client.server_address),
+        table=tf.constant('dist'),
         dtypes=(tf.float32,),
         shapes=(tf.TensorShape([3, 3]),),
         max_in_flight_samples_per_worker=100)
@@ -196,6 +196,66 @@ class ReplayDatasetTest(tf.test.TestCase, parameterized.TestCase):
       self.assertIsInstance(sample.info.key, np.uint64)
       np.testing.assert_array_equal(sample.data[0],
                                     np.zeros((3, 3), dtype=np.float32))
+
+  def test_distribution_strategy(self):
+    self._populate_replay()
+
+    physical_devices = tf.config.list_physical_devices('CPU')
+
+    configs = tf.config.experimental.get_virtual_device_configuration(
+        physical_devices[0])
+    if configs is None:
+      virtual_devices = [tf.config.experimental.VirtualDeviceConfiguration()
+                         for _ in range(4)]
+      tf.config.experimental.set_virtual_device_configuration(
+          physical_devices[0], virtual_devices)
+
+    strategy = tf.distribute.MirroredStrategy(['/cpu:%d' % i for i in range(4)])
+
+    def reverb_dataset_fn(i):
+      tf.print('Creating dataset for replica; index:', i)
+      return reverb_dataset.ReplayDataset(
+          self._client.server_address,
+          table=tf.constant('dist'),
+          dtypes=(tf.float32,),
+          shapes=(tf.TensorShape([3, 3]),),
+          max_in_flight_samples_per_worker=100).take(2)
+
+    def dataset_fn(_):
+      return tf.data.Dataset.range(4).flat_map(reverb_dataset_fn).take(2 * 4)
+
+    ds = strategy.experimental_distribute_datasets_from_function(dataset_fn)
+
+    def check_probabilities(_, v):
+      probability = v.info.probability
+      self.assertLen(probability.values, 4)
+      # Don't use any math ops since tensor values seem to contain
+      # unaligned tensors on some systems; but tf.print doesn't check alignment.
+      #
+      # This seems to be caused by a compatibility issue where DistStrat isn't
+      # well tested when eager mode is disabled.  So instead of treating this
+      # as a true TF bug, we just work around it.  We can remove this hack and
+      # convert it to e.g. tf.assert_greater type check if/when we enable eager
+      # execution for these tests.
+      tf.print('Probability values:', probability.values)
+
+    def get_next_value(v):
+      return tf.distribute.get_replica_context().merge_call(
+          check_probabilities, args=(v,))
+
+    @tf.function
+    def run_strategy(ds_):
+      i = tf.constant(0)
+      for v in ds_:
+        strategy.run(get_next_value, args=(v,))
+        i += 1
+      return i
+
+    rs = run_strategy(ds)
+
+    # Each iteration contains 4 items - one from each replica.  We take 8 items
+    # total, so there should be 2 iterations.
+    self.assertEqual(2, self.evaluate(rs))
 
   def test_timeout_invalid_arguments(self):
     with self.assertRaisesRegex(ValueError, r'must be an integer >= -1'):

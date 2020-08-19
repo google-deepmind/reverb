@@ -33,8 +33,8 @@ using ::tensorflow::errors::InvalidArgument;
 using ::tensorflow::errors::Unimplemented;
 
 REGISTER_OP("ReverbDataset")
-    .Attr("server_address: string")
-    .Attr("table: string")
+    .Input("server_address: string")
+    .Input("table: string")
     .Attr("sequence_length: int = -1")
     .Attr("emit_timesteps: bool = true")
     .Attr("max_in_flight_samples_per_worker: int = 100")
@@ -100,8 +100,6 @@ class ReverbDatasetOp : public tensorflow::data::DatasetOpKernel {
  public:
   explicit ReverbDatasetOp(tensorflow::OpKernelConstruction* ctx)
       : tensorflow::data::DatasetOpKernel(ctx) {
-    OP_REQUIRES_OK(ctx, ctx->GetAttr("server_address", &server_address_));
-    OP_REQUIRES_OK(ctx, ctx->GetAttr("table", &table_));
     OP_REQUIRES_OK(
         ctx, ctx->GetAttr("max_in_flight_samples_per_worker",
                           &sampler_options_.max_in_flight_samples_per_worker));
@@ -143,7 +141,16 @@ class ReverbDatasetOp : public tensorflow::data::DatasetOpKernel {
 
   void MakeDataset(tensorflow::OpKernelContext* ctx,
                    tensorflow::data::DatasetBase** output) override {
-    *output = new Dataset(ctx, server_address_, dtypes_, shapes_, table_,
+    tensorflow::tstring server_address;
+    tensorflow::tstring table;
+    OP_REQUIRES_OK(ctx,
+                   tensorflow::data::ParseScalarArgument<tensorflow::tstring>(
+                       ctx, "server_address", &server_address));
+    OP_REQUIRES_OK(ctx,
+                   tensorflow::data::ParseScalarArgument<tensorflow::tstring>(
+                       ctx, "table", &table));
+
+    *output = new Dataset(ctx, server_address, dtypes_, shapes_, table,
                           sampler_options_, sequence_length_, emit_timesteps_);
   }
 
@@ -195,8 +202,6 @@ class ReverbDatasetOp : public tensorflow::data::DatasetOpKernel {
     tensorflow::Status AsGraphDefInternal(
         tensorflow::data::SerializationContext* ctx, DatasetGraphDefBuilder* b,
         tensorflow::Node** output) const override {
-      tensorflow::AttrValue server_address_attr;
-      tensorflow::AttrValue table_attr;
       tensorflow::AttrValue max_in_flight_samples_per_worker_attr;
       tensorflow::AttrValue num_workers_attr;
       tensorflow::AttrValue max_samples_per_stream_attr;
@@ -206,8 +211,12 @@ class ReverbDatasetOp : public tensorflow::data::DatasetOpKernel {
       tensorflow::AttrValue dtypes_attr;
       tensorflow::AttrValue shapes_attr;
 
-      b->BuildAttrValue(server_address_, &server_address_attr);
-      b->BuildAttrValue(table_, &table_attr);
+      tensorflow::Node* server_address = nullptr;
+      tensorflow::Node* table = nullptr;
+      TF_RETURN_IF_ERROR(
+          b->AddScalar<tensorflow::tstring>(server_address_, &server_address));
+      TF_RETURN_IF_ERROR(b->AddScalar<tensorflow::tstring>(table_, &table));
+
       b->BuildAttrValue(sampler_options_.max_in_flight_samples_per_worker,
                         &max_in_flight_samples_per_worker_attr);
       b->BuildAttrValue(sampler_options_.num_workers, &num_workers_attr);
@@ -223,10 +232,10 @@ class ReverbDatasetOp : public tensorflow::data::DatasetOpKernel {
       b->BuildAttrValue(shapes_, &shapes_attr);
 
       TF_RETURN_IF_ERROR(b->AddDataset(
-          this, {},
+          this,
+          /*inputs=*/{server_address, table},
+          /*attrs=*/
           {
-              {"server_address", server_address_attr},
-              {"table", table_attr},
               {"max_in_flight_samples_per_worker",
                max_in_flight_samples_per_worker_attr},
               {"num_workers_per_iterator", num_workers_attr},
@@ -390,8 +399,6 @@ class ReverbDatasetOp : public tensorflow::data::DatasetOpKernel {
     std::unique_ptr<Client> client_;
   };  // Dataset.
 
-  std::string server_address_;
-  std::string table_;
   Sampler::Options sampler_options_;
   int sequence_length_;
   bool emit_timesteps_;
