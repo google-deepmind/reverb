@@ -193,7 +193,9 @@ class UpdatePrioritiesOp : public tensorflow::OpKernel {
         InvalidArgument("Tensors `keys` and `priorities` must be of rank 1."));
     OP_REQUIRES(context, keys->shape() == priorities->shape(),
                 InvalidArgument(
-                    "Tensors `keys` and `priorities` do not match in shape."));
+                    "Tensors `keys` and `priorities` do not match in shape (",
+                    keys->shape().DebugString(), " vs. ",
+                    priorities->shape().DebugString(), ")"));
 
     std::string table_str = table->scalar<tstring>()();
     std::vector<KeyWithPriority> updates;
