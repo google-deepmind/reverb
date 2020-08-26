@@ -134,9 +134,11 @@ tensorflow::Status Client::NewWriter(int chunk_length, int max_timesteps,
 
 tensorflow::Status Client::MutatePriorities(
     absl::string_view table, const std::vector<KeyWithPriority>& updates,
-    const std::vector<uint64_t>& deletes) {
+    const std::vector<uint64_t>& deletes,
+    absl::Duration timeout) {
   grpc::ClientContext context;
   context.set_wait_for_ready(true);
+  context.set_deadline(absl::ToChronoTime(absl::Now() + timeout));
   MutatePrioritiesRequest request;
   request.set_table(table.data(), table.size());
   for (const KeyWithPriority& item : updates) {

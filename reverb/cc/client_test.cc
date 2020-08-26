@@ -14,6 +14,7 @@
 
 #include "reverb/cc/client.h"
 
+#include <chrono>  // NOLINT(build/c++11) - grpc API requires it.
 #include <memory>
 
 #include "grpcpp/impl/codegen/client_context.h"
@@ -37,12 +38,14 @@ class FakeStub : public /* grpc_gen:: */MockReverbServiceStub {
   grpc::Status MutatePriorities(grpc::ClientContext* context,
                                 const MutatePrioritiesRequest& request,
                                 MutatePrioritiesResponse* response) override {
+    last_deadline_ = context->deadline();
     mutate_priorities_request_ = request;
     return grpc::Status::OK;
   }
 
   grpc::Status Reset(grpc::ClientContext* context, const ResetRequest& request,
                      ResetResponse* response) override {
+    last_deadline_ = context->deadline();
     reset_request_ = request;
     return grpc::Status::OK;
   }
@@ -50,6 +53,7 @@ class FakeStub : public /* grpc_gen:: */MockReverbServiceStub {
   grpc::Status Checkpoint(grpc::ClientContext* context,
                           const CheckpointRequest& request,
                           CheckpointResponse* response) override {
+    last_deadline_ = context->deadline();
     response->set_checkpoint_path(kCheckpointPath);
     return grpc::Status::OK;
   }
@@ -57,19 +61,25 @@ class FakeStub : public /* grpc_gen:: */MockReverbServiceStub {
   grpc::Status ServerInfo(grpc::ClientContext* context,
                           const ServerInfoRequest& request,
                           ServerInfoResponse* response) override {
+    last_deadline_ = context->deadline();
     *response->mutable_tables_state_id() =
         Uint128ToMessage(absl::MakeUint128(1, 2));
     response->add_table_info()->set_max_size(2);
     return grpc::Status::OK;
   }
 
-  const MutatePrioritiesRequest& mutate_priorities_request() {
+  const MutatePrioritiesRequest& mutate_priorities_request() const {
     return mutate_priorities_request_;
   }
 
-  const ResetRequest& reset_request() { return reset_request_; }
+  std::chrono::system_clock::time_point last_deadline() const {
+    return last_deadline_;
+  }
+
+  const ResetRequest& reset_request() const { return reset_request_; }
 
  private:
+  std::chrono::system_clock::time_point last_deadline_;
   MutatePrioritiesRequest mutate_priorities_request_;
   ResetRequest reset_request_;
 };
@@ -94,6 +104,20 @@ TEST(ClientTest, MutatePrioritiesFilled) {
   expected.add_delete_keys(4);
   EXPECT_THAT(stub->mutate_priorities_request(),
               testing::EqualsProto(expected));
+}
+
+TEST(ClientTest, Deadline) {
+  auto stub = std::make_shared<FakeStub>();
+  Client client(stub);
+  auto pair = testing::MakeKeyWithPriority(123, 456);
+
+  TF_EXPECT_OK(client.MutatePriorities("table", {pair}, {4}));
+  EXPECT_EQ(stub->last_deadline(),
+            std::chrono::system_clock::time_point::max());
+
+  TF_EXPECT_OK(client.MutatePriorities("table", {pair}, {4}, absl::Seconds(1)));
+  EXPECT_LE(stub->last_deadline(),
+            absl::ToChronoTime(absl::Now() + absl::Seconds(1)));
 }
 
 TEST(ClientTest, ResetRequestFilled) {

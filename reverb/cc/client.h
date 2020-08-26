@@ -102,9 +102,14 @@ class Client {
       const std::vector<tensorflow::PartialTensorShape>& validation_shapes,
       absl::Duration validation_timeout, std::unique_ptr<Sampler>* sampler);
 
+  // Simultaneously mutates priorities and deletes elements from replay table
+  // `table`. If `timeout` is specified, function may return a
+  // DEADLINE_EXCEEDED error. If `timeout` is not specified, function may block
+  // indefinitely.
   tensorflow::Status MutatePriorities(
       absl::string_view table, const std::vector<KeyWithPriority>& updates,
-      const std::vector<uint64_t>& deletes);
+      const std::vector<uint64_t>& deletes,
+      absl::Duration timeout = absl::InfiniteDuration());
 
   tensorflow::Status Reset(const std::string& table);
 
