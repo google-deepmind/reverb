@@ -64,6 +64,11 @@ class Writer {
   // size is <= `max_chunks_`. If unsuccessful all internal state is reverted.
   tensorflow::Status Append(std::vector<tensorflow::Tensor> data);
 
+  // Appends a batched sequence of timesteps. Equivalent to calling `Append` `T`
+  // times where `T` is batch size of `sequence`. The shapes of the elements of
+  // `sequence` thus have `[T] + shape_of_single_timestep_element`.
+  tensorflow::Status AppendSequence(std::vector<tensorflow::Tensor> sequence);
+
   // Adds a new PrioritizedItem to `table` spanning the last `num_timesteps` and
   // pushes new item to `pending_items_`. If `buffer_` is empty then the new
   // item is streamed to the ReverbService. If unsuccessful all internal state

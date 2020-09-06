@@ -149,6 +149,56 @@ class Writer:
     """
     self._writer.Append(tree.flatten(data))
 
+  def append_sequence(self, sequence: Any):
+    """Appends sequence of data to the internal buffer.
+
+    Each element in `sequence` must have the same leading dimension [T].
+
+    A call to `append_sequence` is equivalent to splitting `sequence` along its
+    first dimension and calling `append` once for each slice.
+
+    For example:
+
+    ```python
+
+      with client.writer(max_sequence_length=2) as writer:
+        sequence = np.array([[1, 2, 3],
+                             [4, 5, 6]])
+
+        # Insert two timesteps.
+        writer.append_batch([sequence])
+
+        # Create an item that references the step [4, 5, 6].
+        writer.create_item('my_table', num_timesteps=1, priority=1.0)
+
+        # Create an item that references the steps [1, 2, 3] and [4, 5, 6].
+        writer.create_item('my_table', num_timesteps=2, priority=1.0)
+
+    ```
+
+    Is equivalent to:
+
+    ```python
+
+      with client.writer(max_sequence_length=2) as writer:
+        # Insert two timesteps.
+        writer.append([np.array([1, 2, 3])])
+        writer.append([np.array([4, 5, 6])])
+
+        # Create an item that references the step [4, 5, 6].
+        writer.create_item('my_table', num_timesteps=1, priority=1.0)
+
+        # Create an item that references the steps [1, 2, 3] and [4, 5, 6].
+        writer.create_item('my_table', num_timesteps=2, priority=1.0)
+
+    ```
+
+    Args:
+      sequence: Batched (possibly nested) structure to make available for items
+        to reference.
+    """
+    self._writer.AppendSequence(tree.flatten(sequence))
+
   def create_item(self, table: str, num_timesteps: int, priority: float):
     """Creates an item and sends it to the ReverbService.
 

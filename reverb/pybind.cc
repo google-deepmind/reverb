@@ -532,6 +532,8 @@ PYBIND11_MODULE(libpybind, m) {
 
   py::class_<Writer>(m, "Writer")
       .def("Append", &Writer::Append, py::call_guard<py::gil_scoped_release>())
+      .def("AppendSequence", &Writer::AppendSequence,
+           py::call_guard<py::gil_scoped_release>())
       .def("CreateItem", &Writer::CreateItem,
            py::call_guard<py::gil_scoped_release>())
       .def(

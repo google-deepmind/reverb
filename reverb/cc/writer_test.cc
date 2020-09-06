@@ -35,6 +35,8 @@
 #include "reverb/cc/support/queue.h"
 #include "reverb/cc/support/uint128.h"
 #include "reverb/cc/testing/proto_test_util.h"
+#include "tensorflow/core/framework/tensor.h"
+#include "tensorflow/core/framework/tensor_util.h"
 #include "tensorflow/core/lib/core/errors.h"
 #include "tensorflow/core/lib/core/status.h"
 #include "tensorflow/core/lib/core/status_test_util.h"
@@ -52,8 +54,13 @@ using ::testing::SizeIs;
 
 constexpr auto kNotificationTimeout = absl::Milliseconds(200);
 
-std::vector<tensorflow::Tensor> MakeTimestep(int num_tensors = 1) {
-  tensorflow::Tensor tensor(1.0f);
+std::vector<tensorflow::Tensor> MakeTimestep(
+    int num_tensors = 1,
+    const tensorflow::TensorShape& shape = tensorflow::TensorShape{}) {
+  tensorflow::Tensor tensor(tensorflow::DT_FLOAT, shape);
+  for (int i = 0; i < tensor.NumElements(); i++) {
+    tensor.flat<float>().data()[i] = 1.0;
+  }
   std::vector<tensorflow::Tensor> res(num_tensors, tensor);
   return res;
 }
@@ -883,6 +890,81 @@ TEST(WriterTest, BlocksWhenMaxInFlighItemsReached) {
   // cancelling the stream.
   ASSERT_TRUE(response_ids->Push(2));
   ASSERT_TRUE(response_ids->Push(3));
+}
+
+TEST(WriterTest, AppendSequenceBehavesLikeMutlipleAppendCalls) {
+  const auto kBatchSize = 10;
+  const auto kChunkLength = 5;
+  const auto kTensorsPerStep = 3;
+
+  std::vector<std::vector<tensorflow::Tensor>> steps;
+  for (int i = 0; i < kBatchSize; i++) {
+    steps.push_back(
+        MakeTimestep(kTensorsPerStep, tensorflow::TensorShape({1})));
+  }
+
+  std::vector<tensorflow::Tensor> batch(kTensorsPerStep);
+  for (int i = 0; i < kTensorsPerStep; i++) {
+    std::vector<tensorflow::Tensor> column(kBatchSize);
+    std::transform(steps.begin(), steps.end(), column.begin(),
+                   [i](const auto& step) { return step[i]; });
+    TF_ASSERT_OK(tensorflow::tensor::Concat(column, &batch[i]));
+  }
+
+  std::vector<InsertStreamRequest> simple_requests;
+  std::vector<InsertStreamRequest> batch_requests;
+
+  auto simple_stub = MakeGoodStub(&simple_requests);
+  auto batch_stub = MakeGoodStub(&batch_requests);
+
+  Writer simple_writer(simple_stub, kChunkLength, kBatchSize);
+  Writer batch_writer(batch_stub, kChunkLength, kBatchSize);
+
+  for (const auto& step : steps) {
+    TF_ASSERT_OK(simple_writer.Append(step));
+  }
+
+  TF_ASSERT_OK(batch_writer.AppendSequence(batch));
+
+  EXPECT_EQ(simple_requests.size(), batch_requests.size());
+  for (int i = 0; i < simple_requests.size(); i++) {
+    EXPECT_THAT(simple_requests[i], testing::EqualsProto(batch_requests[i]));
+  }
+}
+
+TEST(WriterTest, AppendSequenceCalledWithScalar) {
+  std::vector<InsertStreamRequest> requests;
+  Writer writer(MakeGoodStub(&requests), 1, 1);
+  auto status = writer.AppendSequence({tensorflow::Tensor(1.0)});
+  EXPECT_EQ(status.code(), tensorflow::error::INVALID_ARGUMENT);
+  EXPECT_THAT(status.error_message(),
+              ::testing::HasSubstr(
+                  "AppendSequence called with scalar tensor at index 0."));
+}
+
+TEST(WriterTest, AppendSequenceCalledWithEmptyBatch) {
+  std::vector<InsertStreamRequest> requests;
+  Writer writer(MakeGoodStub(&requests), 1, 1);
+  auto status = writer.AppendSequence({});
+  EXPECT_EQ(status.code(), tensorflow::error::INVALID_ARGUMENT);
+  EXPECT_THAT(status.error_message(),
+              ::testing::HasSubstr("AppendSequence called with empty data."));
+}
+
+TEST(WriterTest, AppendSequenceCalledWithNonEqualBatchSizes) {
+  std::vector<InsertStreamRequest> requests;
+  Writer writer(MakeGoodStub(&requests), 1, 1);
+  auto status = writer.AppendSequence({
+      tensorflow::Tensor(tensorflow::DT_FLOAT, {2, 2}),
+      tensorflow::Tensor(tensorflow::DT_FLOAT, {3}),
+  });
+  EXPECT_EQ(status.code(), tensorflow::error::INVALID_ARGUMENT);
+  EXPECT_THAT(
+      status.error_message(),
+      ::testing::HasSubstr(
+          "AppendSequence called with tensors of non equal batch dimension: "
+          "0: Tensor<name: '', dtype: float, shape: [2,2]>, "
+          "1: Tensor<name: '', dtype: float, shape: [3]>."));
 }
 
 }  // namespace

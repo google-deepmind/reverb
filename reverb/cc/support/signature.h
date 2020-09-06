@@ -61,6 +61,7 @@ typedef absl::flat_hash_map<std::string, internal::DtypesAndShapes>
 
 std::string DtypesShapesString(
     const std::vector<internal::TensorSpec>& dtypes_and_shapes);
+std::string DtypesShapesString(const std::vector<tensorflow::Tensor>& tensors);
 
 std::vector<internal::TensorSpec> SpecsFromTensors(
     const std::vector<tensorflow::Tensor>& tensors);

@@ -20,6 +20,7 @@ import multiprocessing.dummy as multithreading
 import pickle
 
 from absl.testing import absltest
+import numpy as np
 from reverb import client
 from reverb import errors
 from reverb import item_selectors
@@ -152,11 +153,13 @@ class ClientTest(absltest.TestCase):
       writer.create_item(TABLE_NAME, 2, 1.0)
       writer.append([2])
       writer.create_item(TABLE_NAME, 1, 1.0)
+      writer.append_sequence([np.array([3, 4])])
+      writer.create_item(TABLE_NAME, 2, 1.0)
 
     freqs = self._get_sample_frequency()
-    self.assertLen(freqs, 3)
+    self.assertLen(freqs, 4)
     for freq in freqs:
-      self.assertAlmostEqual(freq, 0.33, delta=0.05)
+      self.assertAlmostEqual(freq, 0.25, delta=0.05)
 
   def test_mutate_priorities_update(self):
     self.client.insert([0], {TABLE_NAME: 1.0})

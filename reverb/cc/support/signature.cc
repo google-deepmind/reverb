@@ -115,6 +115,10 @@ std::string DtypesShapesString(
   return absl::StrJoin(strings, ", ");
 }
 
+std::string DtypesShapesString(const std::vector<tensorflow::Tensor>& tensors) {
+  return DtypesShapesString(SpecsFromTensors(tensors));
+}
+
 tensorflow::StructuredValue StructuredValueFromChunkData(
     const ChunkData& chunk_data) {
   tensorflow::StructuredValue value;

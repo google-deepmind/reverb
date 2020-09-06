@@ -18,6 +18,7 @@
 #include <iterator>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "absl/base/thread_annotations.h"
 #include "absl/container/flat_hash_set.h"
@@ -29,6 +30,7 @@
 #include "reverb/cc/reverb_service.pb.h"
 #include "reverb/cc/schema.pb.h"
 #include "reverb/cc/support/grpc_util.h"
+#include "reverb/cc/support/signature.h"
 #include "reverb/cc/tensor_compression.h"
 #include "tensorflow/core/framework/tensor.h"
 #include "tensorflow/core/framework/tensor_util.h"
@@ -110,6 +112,36 @@ tensorflow::Status Writer::Append(std::vector<tensorflow::Tensor> data) {
               inserted_dtypes_and_shapes_[insert_dtypes_and_shapes_location_]);
   }
   return status;
+}
+
+tensorflow::Status Writer::AppendSequence(
+    std::vector<tensorflow::Tensor> sequence) {
+  if (sequence.empty()) {
+    return tensorflow::errors::InvalidArgument(
+        "AppendSequence called with empty data.");
+  }
+  for (int i = 0; i < sequence.size(); i++) {
+    if (sequence[i].shape().dims() == 0) {
+      return tensorflow::errors::InvalidArgument(
+          "AppendSequence called with scalar tensor at index ", i, ".");
+    }
+    if (sequence[i].shape().dim_size(0) != sequence[0].shape().dim_size(0)) {
+      return tensorflow::errors::InvalidArgument(
+          "AppendSequence called with tensors of non equal batch dimension: ",
+          internal::DtypesShapesString(sequence), ".");
+    }
+  }
+
+  for (int i = 0; i < sequence[0].dim_size(0); i++) {
+    std::vector<tensorflow::Tensor> step;
+    step.reserve(sequence.size());
+    for (const auto& column : sequence) {
+      step.push_back(column.SubSlice(i));
+    }
+    TF_RETURN_IF_ERROR(Append(std::move(step)));
+  }
+
+  return tensorflow::Status::OK();
 }
 
 tensorflow::Status Writer::CreateItem(const std::string& table,
