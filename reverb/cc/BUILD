@@ -170,7 +170,6 @@ reverb_cc_library(
     name = "sampler",
     srcs = ["sampler.cc"],
     hdrs = ["sampler.h"],
-    visibility = ["//reverb:__subpackages__"],
     deps = [
         ":reverb_service_cc_grpc_proto",
         ":reverb_service_cc_proto",
