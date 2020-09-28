@@ -92,7 +92,7 @@ reverb_pybind_extension(
     srcs = ["pybind.cc"],
     module_name = "libpybind",
     srcs_version = "PY3ONLY",
-    visibility = ["//reverb:__subpackages__"],
+    visibility = [":__subpackages__"],
     deps = [
         "//reverb/cc:table",
         "//reverb/cc:client",
