@@ -13,8 +13,6 @@ package(default_visibility = ["//reverb:__subpackages__"])
 
 licenses(["notice"])
 
-exports_files(["LICENSE"])
-
 reverb_cc_library(
     name = "tfrecord_checkpointer",
     srcs = ["tfrecord_checkpointer.cc"],
