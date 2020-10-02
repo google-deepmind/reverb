@@ -170,7 +170,7 @@ grpc::Status ReverbServiceImpl::InsertStreamInternal(
       }
 
       const auto& table_name = request.item().item().table();
-      Table* table = PriorityTableByName(table_name);
+      Table* table = TableByName(table_name);
       if (table == nullptr) return TableNotFound(table_name);
 
       const auto item_key = request.item().item().key();
@@ -214,7 +214,7 @@ grpc::Status ReverbServiceImpl::InsertStreamInternal(
 grpc::Status ReverbServiceImpl::MutatePriorities(
     grpc::ServerContext* context, const MutatePrioritiesRequest* request,
     MutatePrioritiesResponse* response) {
-  Table* table = PriorityTableByName(request->table());
+  Table* table = TableByName(request->table());
   if (table == nullptr) return TableNotFound(request->table());
 
   auto status = table->MutateItems(
@@ -228,7 +228,7 @@ grpc::Status ReverbServiceImpl::MutatePriorities(
 grpc::Status ReverbServiceImpl::Reset(grpc::ServerContext* context,
                                       const ResetRequest* request,
                                       ResetResponse* response) {
-  Table* table = PriorityTableByName(request->table());
+  Table* table = TableByName(request->table());
   if (table == nullptr) return TableNotFound(request->table());
 
   auto status = table->Reset();
@@ -271,7 +271,7 @@ grpc::Status ReverbServiceImpl::SampleStreamInternal(
           absl::StrCat("`flexible_batch_size` must be > 0 or ",
                        Sampler::kAutoSelectValue, " (for auto tuning)."));
     }
-    Table* table = PriorityTableByName(request.table());
+    Table* table = TableByName(request.table());
     if (table == nullptr) return TableNotFound(request.table());
     int32_t default_flexible_batch_size = table->DefaultFlexibleBatchSize();
 
@@ -327,7 +327,7 @@ grpc::Status ReverbServiceImpl::SampleStreamInternal(
   return grpc::Status::OK;
 }
 
-Table* ReverbServiceImpl::PriorityTableByName(absl::string_view name) const {
+Table* ReverbServiceImpl::TableByName(absl::string_view name) const {
   auto it = tables_.find(name);
   if (it == tables_.end()) return nullptr;
   return it->second.get();

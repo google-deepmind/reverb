@@ -91,7 +91,7 @@ class ReverbServiceImpl : public /* grpc_gen:: */ReverbService::Service {
   tensorflow::Status Initialize(std::vector<std::shared_ptr<Table>> tables);
 
   // Lookups the table for a given name. Returns nullptr if not found.
-  Table* PriorityTableByName(absl::string_view name) const;
+  Table* TableByName(absl::string_view name) const;
 
   // Checkpointer used to restore state in the constructor and to save data
   // when `Checkpoint` is called. Note that if `checkpointer_` is nullptr then
