@@ -34,12 +34,10 @@ namespace deepmind {
 namespace reverb {
 namespace {
 
-constexpr int kMaxMessageSize = 30 * 1000 * 1000;
-
 grpc::ChannelArguments CreateChannelArguments() {
   grpc::ChannelArguments arguments;
-  arguments.SetMaxReceiveMessageSize(kMaxMessageSize);
-  arguments.SetMaxSendMessageSize(kMaxMessageSize);
+  arguments.SetMaxReceiveMessageSize(-1);  // Unlimited.
+  arguments.SetMaxSendMessageSize(-1);     // Unlimited.
   arguments.SetInt(GRPC_ARG_MAX_RECONNECT_BACKOFF_MS, 30 * 1000);
   arguments.SetLoadBalancingPolicyName("round_robin");
   return arguments;

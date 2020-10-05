@@ -25,7 +25,8 @@
 namespace deepmind {
 namespace reverb {
 
-constexpr int kMaxMessageSize = 300 * 1024 * 1024;
+// Unlimited.
+constexpr int kMaxMessageSize = -1;
 
 class Server {
  public:
