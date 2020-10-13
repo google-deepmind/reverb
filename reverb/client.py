@@ -166,7 +166,7 @@ class Writer:
                              [4, 5, 6]])
 
         # Insert two timesteps.
-        writer.append_batch([sequence])
+        writer.append_sequence([sequence])
 
         # Create an item that references the step [4, 5, 6].
         writer.create_item('my_table', num_timesteps=1, priority=1.0)
