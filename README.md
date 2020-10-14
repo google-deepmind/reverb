@@ -1,6 +1,6 @@
 # Reverb
-![PyPI - Python Version](https://img.shields.io/pypi/pyversions/dm-reverb-nightly)
-[![PyPI version](https://badge.fury.io/py/dm-reverb-nightly.svg)](https://badge.fury.io/py/dm-reverb-nightly)
+![PyPI - Python Version](https://img.shields.io/pypi/pyversions/dm-reverb)
+[![PyPI version](https://badge.fury.io/py/dm-reverb.svg)](https://badge.fury.io/py/dm-reverb)
 
 Reverb is an efficient and easy-to-use data storage and transport system
 designed for machine learning research. Reverb is primarily used as an
@@ -27,25 +27,35 @@ do our best to keep things in working order, things may break or segfault.
 
 > :warning: Reverb currently only supports Linux based OSes.
 
-The recommended way to install Reverb is with `pip`, but we provide docker images
-that can be used to build Reverb from source.
+The recommended way to install Reverb is with `pip`. We also provide instructions
+to build from source using the same docker images we use for releases.
 
-### Using pip
-
-Note: Reverb requires TensorFlow >= 2.3.0 and thus requires the
-[tf-nightly==2.3.0.dev20200604](https://pypi.org/project/tf-nightly/2.3.0.dev20200604/) package until a stable 2.3
-[tensorflow](https://pypi.org/project/tensorflow/) release is available.
+TensorFlow can be installed separately or as part of the `pip` install.
+Installing TensorFlow as part of the install ensures compatibility.
 
 ```shell
-$ pip install tf-nightly==2.3.0.dev20200604
+$ pip install dm-reverb[tensorflow]
+
+# Without Tensorflow install and version dependency check.
+$ pip install dm-reverb
+```
+
+### Nightly builds
+
+[![PyPI version](https://badge.fury.io/py/dm-reverb-nightly.svg)](https://badge.fury.io/py/dm-reverb-nightly)
+
+```shell
+$ pip install dm-reverb-nightly[tensorflow]
+
+# Without Tensorflow install and version dependency check.
 $ pip install dm-reverb-nightly
+
 ```
 
 ### Build from source
 
-Please see
-[this guide](reverb/pip_package/README.md#how-to-develop-and-build-reverb-with-the-docker-containers)
-for details on how to build Reverb from source.
+[This guide](reverb/pip_package/README.md#how-to-develop-and-build-reverb-with-the-docker-containers)
+details how to build Reverb from source.
 
 ## Quick Start
 
