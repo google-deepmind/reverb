@@ -30,7 +30,7 @@ Lifo = pybind.LifoSelector
 Prioritized = pybind.PrioritizedSelector
 Uniform = pybind.UniformSelector
 
-DistributionType = Union[Fifo, Heap, Lifo, Prioritized, Uniform]
+SelectorType = Union[Fifo, Heap, Lifo, Prioritized, Uniform]
 
 # Note that this is effectively treated as `Any`; see b/109648354.
 SpecNest = Union[

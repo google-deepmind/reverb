@@ -98,8 +98,8 @@ class Table:
 
   def __init__(self,
                name: str,
-               sampler: reverb_types.DistributionType,
-               remover: reverb_types.DistributionType,
+               sampler: reverb_types.SelectorType,
+               remover: reverb_types.SelectorType,
                max_size: int,
                rate_limiter: rate_limiters.RateLimiter,
                max_times_sampled: int = 0,
