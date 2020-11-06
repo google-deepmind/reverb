@@ -69,7 +69,7 @@ class ChunkStore {
     mutable size_t data_byte_size_ = 0;
   };
 
-  // Starts `cleaner_`. `cleanp_batch_size` is the number of keys the cleaner
+  // Starts `cleaner_`. `cleanup_batch_size` is the number of keys the cleaner
   // should wait for before acquiring the lock and erasing them from `data_`.
   explicit ChunkStore(int cleanup_batch_size = 1000);
 
@@ -85,7 +85,7 @@ class ChunkStore {
   // does not exist or if `Close` has been called. On success, the returned
   // items are in the same order as given in `keys`.
   tensorflow::Status Get(absl::Span<const Key> keys,
-                         std::vector<std::shared_ptr<Chunk>> *chunks)
+                         std::vector<std::shared_ptr<Chunk>>* chunks)
       ABSL_LOCKS_EXCLUDED(mu_);
 
   // Blocks until `num_chunks` expired entries have been cleaned up from
@@ -109,7 +109,7 @@ class ChunkStore {
   mutable absl::Mutex mu_;
 
   // Queue of keys of deleted items that will be cleaned up by `cleaner_`. Note
-  // the queue have to be allocated on the heap in order to avoid dereferncing
+  // the queue have to be allocated on the heap in order to avoid dereferencing
   // errors caused by a stack allocated ChunkStore getting destroyed before all
   // Chunk have been destroyed.
   std::shared_ptr<internal::Queue<Key>> delete_keys_;
