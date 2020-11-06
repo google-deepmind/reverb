@@ -117,8 +117,8 @@ tensorflow::Status Table::InsertOrAssign(Item item) {
     }
 
     // Wait for the insert to be staged. While waiting the lock is released but
-    // once it returns the lock is aquired again. While waiting for the right to
-    // insert the operation might have transformed into an update.
+    // once it returns the lock is acquired again. While waiting for the right
+    // to insert the operation might have transformed into an update.
     TF_RETURN_IF_ERROR(rate_limiter_->AwaitCanInsert(&mu_));
 
     if (data_.contains(key)) {
