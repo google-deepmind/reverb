@@ -38,6 +38,13 @@ $ docker build --tag tensorflow:reverb_release \
 $ docker run --rm --mount "type=bind,src=$REVERB_DIR,dst=/tmp/reverb" \
   tensorflow:reverb_release bash oss_build.sh --clean true \
   --tf_dep_override "tensorflow>=2.3.0" --release --python "3.6 3.7 3.8"
+
+# If building Reverb against a TensorFlow RC `>=` is not effective because
+# pip does not recognize 2.4.0rc0 as greater than 2.3.0. The command below is
+# the pattern to follow.
+$ docker run --rm --mount "type=bind,src=$REVERB_DIR,dst=/tmp/reverb" \
+  tensorflow:reverb_release bash oss_build.sh --clean true \
+  --tf_dep_override "tensorflow==2.4.0rc0" --release --python "3.6 3.7 3.8"
 ```
 
 <a id='Develop'></a>
