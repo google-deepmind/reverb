@@ -25,7 +25,7 @@ reverb_kernel_library(
         "//reverb/cc:client",
         "//reverb/cc:sampler",
         "//reverb/cc/platform:logging",
-    ],
+    ] + reverb_absl_deps(),
 )
 
 reverb_gen_op_wrapper_py(

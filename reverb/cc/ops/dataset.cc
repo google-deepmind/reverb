@@ -14,6 +14,7 @@
 
 #include "tensorflow/core/framework/dataset.h"
 
+#include "absl/strings/match.h"
 #include "reverb/cc/client.h"
 #include "reverb/cc/platform/logging.h"
 #include "reverb/cc/sampler.h"
@@ -41,6 +42,7 @@ REGISTER_OP("ReverbDataset")
     .Attr("num_workers_per_iterator: int = -1")
     .Attr("max_samples_per_stream: int = -1")
     .Attr("rate_limiter_timeout_ms: int = -1")
+    .Attr("flexible_batch_size: int = -1")
     .Attr("dtypes: list(type) >= 1")
     .Attr("shapes: list(shape) >= 1")
     .Output("dataset: variant")
@@ -94,6 +96,17 @@ Note that the timeout behavior depends on the Table's rate limiter. For example,
 the table may contain data, but the rate limiter may pause sampling - and this
 can cause a timeout to occur. Note also that when `num_workers_per_iterator >
 1`, a timeout on any given worker will cause a timeout for the dataset.
+
+`flexible_batch_size` [EXPERIMENTAL] (defaults to -1, i.e auto selected) is the
+maximum number of items to sampled from `Table` with single call. Values > 1
+enables `Table::SampleFlexibleBatch` to return more than one item (but no more
+than `flexible_batch_size`) in a single call without releasing the table lock
+iff the rate limiter allows it.
+NOTE! It is unlikely that you need to tune this value yourself. The
+auto selected value should almost always be preferred.
+Larger `flexible_batch_size` values result a bias towards sampling over
+inserts. In highly overloaded systems this results in higher sample QPS
+and lower insert QPS compared to lower `flexible_batch_size` values.
 )doc");
 
 class ReverbDatasetOp : public tensorflow::data::DatasetOpKernel {
@@ -107,6 +120,8 @@ class ReverbDatasetOp : public tensorflow::data::DatasetOpKernel {
                                      &sampler_options_.num_workers));
     OP_REQUIRES_OK(ctx, ctx->GetAttr("max_samples_per_stream",
                                      &sampler_options_.max_samples_per_stream));
+    OP_REQUIRES_OK(ctx, ctx->GetAttr("flexible_batch_size",
+                                     &sampler_options_.flexible_batch_size));
     OP_REQUIRES_OK(ctx, ctx->GetAttr("sequence_length", &sequence_length_));
     OP_REQUIRES_OK(ctx, ctx->GetAttr("emit_timesteps", &emit_timesteps_));
     tensorflow::int64 rate_limiter_timeout_ms;
@@ -137,6 +152,8 @@ class ReverbDatasetOp : public tensorflow::data::DatasetOpKernel {
                                     shapes_[i].dim_size(0), "."));
       }
     }
+
+    OP_REQUIRES_OK(ctx, sampler_options_.Validate());
   }
 
   void MakeDataset(tensorflow::OpKernelContext* ctx,
@@ -208,6 +225,7 @@ class ReverbDatasetOp : public tensorflow::data::DatasetOpKernel {
       tensorflow::AttrValue sequence_length_attr;
       tensorflow::AttrValue emit_timesteps_attr;
       tensorflow::AttrValue rate_limiter_timeout_ms_attr;
+      tensorflow::AttrValue flexible_batch_size_attr;
       tensorflow::AttrValue dtypes_attr;
       tensorflow::AttrValue shapes_attr;
 
@@ -228,6 +246,8 @@ class ReverbDatasetOp : public tensorflow::data::DatasetOpKernel {
           &rate_limiter_timeout_ms_attr);
       b->BuildAttrValue(sequence_length_, &sequence_length_attr);
       b->BuildAttrValue(emit_timesteps_, &emit_timesteps_attr);
+      b->BuildAttrValue(sampler_options_.flexible_batch_size,
+                        &flexible_batch_size_attr);
       b->BuildAttrValue(dtypes_, &dtypes_attr);
       b->BuildAttrValue(shapes_, &shapes_attr);
 
@@ -243,6 +263,7 @@ class ReverbDatasetOp : public tensorflow::data::DatasetOpKernel {
               {"sequence_length", sequence_length_attr},
               {"emit_timesteps", emit_timesteps_attr},
               {"rate_limiter_timeout_ms", rate_limiter_timeout_ms_attr},
+              {"flexible_batch_size", flexible_batch_size_attr},
               {"dtypes", dtypes_attr},
               {"shapes", shapes_attr},
           },
@@ -332,7 +353,7 @@ class ReverbDatasetOp : public tensorflow::data::DatasetOpKernel {
           }
           if (step_within_sample_ == sequence_length_ && !last_timestep) {
             return InvalidArgument(
-                "Receieved sequence did not terminate after expected number of "
+                "Received sequence did not terminate after expected number of "
                 "steps (",
                 sequence_length_, ").");
           }
@@ -354,8 +375,7 @@ class ReverbDatasetOp : public tensorflow::data::DatasetOpKernel {
         } else if (tensorflow::errors::IsDeadlineExceeded(status) &&
                    sampler_options_.rate_limiter_timeout <
                        absl::InfiniteDuration() &&
-                   status.error_message().find("Rate Limiter") !=
-                       std::string::npos) {
+                   absl::StrContains(status.error_message(), "Rate Limiter")) {
           // TODO(157580783): Move the error string above to a common library.
           *end_of_sequence = true;
           return tensorflow::Status::OK();

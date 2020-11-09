@@ -57,7 +57,8 @@ class ReplayDataset(tf.data.Dataset):
                max_samples_per_stream: int = -1,
                sequence_length: Optional[int] = None,
                emit_timesteps: bool = True,
-               rate_limiter_timeout_ms: int = -1):
+               rate_limiter_timeout_ms: int = -1,
+               flexible_batch_size: int = -1):
     """Constructs a new ReplayDataset.
 
     Args:
@@ -96,6 +97,17 @@ class ReplayDataset(tf.data.Dataset):
         allow sampling. The first time that a request times out (across any of
         the workers), the Dataset iterator is closed and the sequence is
         considered finished.
+      flexible_batch_size: (Defaults to -1: auto selected) The maximum number of
+        items to sampled from `Table` with single call. Values > 1 enables
+        `Table::SampleFlexibleBatch` to return more than one item (but no more
+        than `flexible_batch_size`) in a single call without releasing the
+        table lock iff the rate limiter allows it.
+        NOTE! It is unlikely that you need to tune this value yourself. The
+        auto selected value should almost always be preferred.
+        Larger `flexible_batch_size` values result a bias towards sampling over
+        inserts. In highly overloaded systems this results in higher sample QPS
+        and lower insert QPS compared to lower `flexible_batch_size` values.
+
 
     Raises:
       ValueError: If `dtypes` and `shapes` don't share the same structure.
@@ -107,6 +119,7 @@ class ReplayDataset(tf.data.Dataset):
       ValueError: If `emit_timesteps is False` and not all items in `shapes` has
         `sequence_length` as its leading dimension.
       ValueError: If `rate_limiter_timeout_ms < -1`.
+      ValueError: If `flexible_batch_size` is not a positive integer or -1.
     """
     tree.assert_same_structure(dtypes, shapes, False)
     if max_in_flight_samples_per_worker < 1:
@@ -128,6 +141,10 @@ class ReplayDataset(tf.data.Dataset):
     if rate_limiter_timeout_ms < -1:
       raise ValueError('rate_limiter_timeout_ms (%d) must be an integer >= -1' %
                        rate_limiter_timeout_ms)
+    if flexible_batch_size < 1 and flexible_batch_size != -1:
+      raise ValueError(
+          'flexible_batch_size (%d) must be a positive integer or -1' %
+          flexible_batch_size)
 
     # Add the info fields.
     dtypes = replay_sample.ReplaySample(replay_sample.SampleInfo.tf_dtypes(),
@@ -190,7 +207,8 @@ class ReplayDataset(tf.data.Dataset):
                            sequence_length: Optional[int] = None,
                            emit_timesteps: bool = True,
                            rate_limiter_timeout_ms: int = -1,
-                           get_signature_timeout_secs: Optional[int] = None,):
+                           get_signature_timeout_secs: Optional[int] = None,
+                           flexible_batch_size: int = -1):
     """Constructs a ReplayDataset using the table's signature to infer specs.
 
     Note: The signature must be provided to `Table` at construction. See
@@ -207,7 +225,8 @@ class ReplayDataset(tf.data.Dataset):
       rate_limiter_timeout_ms: See __init__ for details.
       get_signature_timeout_secs: Timeout in seconds to wait for server to
         respond when fetching the table signature. By default no timeout is set
-        and the call will block indefinetely if the server does not respond.
+        and the call will block indefinitely if the server does not respond.
+      flexible_batch_size: See __init__ for details.
 
     Returns:
       ReplayDataset using the specs defined by the table signature to build
@@ -248,7 +267,8 @@ class ReplayDataset(tf.data.Dataset):
         max_samples_per_stream=max_samples_per_stream,
         sequence_length=sequence_length,
         emit_timesteps=emit_timesteps,
-        rate_limiter_timeout_ms=rate_limiter_timeout_ms)
+        rate_limiter_timeout_ms=rate_limiter_timeout_ms,
+        flexible_batch_size=flexible_batch_size)
 
   def _as_variant_tensor(self):
     return gen_dataset_op.reverb_dataset(
