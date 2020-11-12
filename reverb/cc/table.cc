@@ -92,7 +92,7 @@ Table::~Table() {
 
 std::vector<Table::Item> Table::Copy(size_t count) const {
   std::vector<Item> items;
-  absl::ReaderMutexLock lock(&mu_);
+  absl::MutexLock lock(&mu_);
   items.reserve(count == 0 ? data_.size() : count);
   for (auto it = data_.cbegin();
        it != data_.cend() && (count == 0 || items.size() < count); it++) {
@@ -109,7 +109,7 @@ tensorflow::Status Table::InsertOrAssign(Item item) {
   // until the lock has been released.
   Item deleted_item;
   {
-    absl::WriterMutexLock lock(&mu_);
+    absl::MutexLock lock(&mu_);
 
     /// If item already exists in table then update its priority.
     if (data_.contains(key)) {
@@ -165,7 +165,7 @@ tensorflow::Status Table::MutateItems(absl::Span<const KeyWithPriority> updates,
                                       absl::Span<const Key> deletes) {
   std::vector<Item> deleted_items(deletes.size());
   {
-    absl::WriterMutexLock lock(&mu_);
+    absl::MutexLock lock(&mu_);
     for (int i = 0; i < deletes.size(); i++) {
       TF_RETURN_IF_ERROR(DeleteItem(deletes[i], &deleted_items[i]));
     }
@@ -191,7 +191,7 @@ tensorflow::Status Table::SampleFlexibleBatch(std::vector<SampledItem>* items,
   // been released.
   std::vector<Item> deleted_items;
   {
-    absl::WriterMutexLock lock(&mu_);
+    absl::MutexLock lock(&mu_);
     for (int i = 0; i < batch_size; i++) {
       if (auto status = rate_limiter_->AwaitAndFinalizeSample(&mu_, timeout);
           !status.ok()) {
@@ -243,7 +243,7 @@ tensorflow::Status Table::SampleFlexibleBatch(std::vector<SampledItem>* items,
 }
 
 int64_t Table::size() const {
-  absl::ReaderMutexLock lock(&mu_);
+  absl::MutexLock lock(&mu_);
   return data_.size();
 }
 
@@ -260,7 +260,7 @@ TableInfo Table::info() const {
     *info.mutable_signature() = *signature_;
   }
 
-  absl::ReaderMutexLock lock(&mu_);
+  absl::MutexLock lock(&mu_);
   *info.mutable_rate_limiter_info() = rate_limiter_->Info(&mu_);
   *info.mutable_sampler_options() = sampler_->options();
   *info.mutable_remover_options() = remover_->options();
@@ -272,7 +272,7 @@ TableInfo Table::info() const {
 }
 
 void Table::Close() {
-  absl::WriterMutexLock lock(&mu_);
+  absl::MutexLock lock(&mu_);
   rate_limiter_->Cancel(&mu_);
 }
 
@@ -326,7 +326,7 @@ tensorflow::Status Table::UpdateItem(
 }
 
 tensorflow::Status Table::Reset() {
-  absl::WriterMutexLock lock(&mu_);
+  absl::MutexLock lock(&mu_);
 
   for (auto& extension : extensions_) {
     extension->OnReset(&mu_);
@@ -354,7 +354,7 @@ Table::CheckpointAndChunks Table::Checkpoint() {
     *checkpoint.mutable_signature() = signature_.value();
   }
 
-  absl::ReaderMutexLock lock(&mu_);
+  absl::MutexLock lock(&mu_);
 
   checkpoint.set_num_deleted_episodes(num_deleted_episodes_);
 
@@ -381,7 +381,7 @@ Table::CheckpointAndChunks Table::Checkpoint() {
 }
 
 tensorflow::Status Table::InsertCheckpointItem(Table::Item item) {
-  absl::WriterMutexLock lock(&mu_);
+  absl::MutexLock lock(&mu_);
   REVERB_CHECK_LE(data_.size() + 1, max_size_)
       << "InsertCheckpointItem called on already full Table";
   REVERB_CHECK(!data_.contains(item.item.key()))
@@ -405,7 +405,7 @@ tensorflow::Status Table::InsertCheckpointItem(Table::Item item) {
 }
 
 bool Table::Get(Table::Key key, Table::Item* item) {
-  absl::ReaderMutexLock lock(&mu_);
+  absl::MutexLock lock(&mu_);
   auto it = data_.find(key);
   if (it != data_.end()) {
     *item = it->second;
@@ -415,14 +415,14 @@ bool Table::Get(Table::Key key, Table::Item* item) {
 }
 
 const absl::flat_hash_map<Table::Key, Table::Item>* Table::RawLookup() {
-  mu_.AssertReaderHeld();
+  mu_.AssertHeld();
   return &data_;
 }
 
 void Table::UnsafeAddExtension(
     std::shared_ptr<TableExtensionInterface> extension) {
   TF_CHECK_OK(extension->RegisterTable(&mu_, this));
-  absl::WriterMutexLock lock(&mu_);
+  absl::MutexLock lock(&mu_);
   REVERB_CHECK(data_.empty());
   extensions_.push_back(std::move(extension));
 }
@@ -437,24 +437,24 @@ const absl::optional<tensorflow::StructuredValue>& Table::signature() const {
 }
 
 bool Table::CanSample(int num_samples) const {
-  absl::ReaderMutexLock lock(&mu_);
+  absl::MutexLock lock(&mu_);
   return rate_limiter_->CanSample(&mu_, num_samples);
 }
 
 bool Table::CanInsert(int num_inserts) const {
-  absl::ReaderMutexLock lock(&mu_);
+  absl::MutexLock lock(&mu_);
   return rate_limiter_->CanInsert(&mu_, num_inserts);
 }
 
 RateLimiterEventHistory Table::GetRateLimiterEventHistory(
     size_t min_insert_event_id, size_t min_sample_event_id) const {
-  absl::ReaderMutexLock lock(&mu_);
+  absl::MutexLock lock(&mu_);
   return rate_limiter_->GetEventHistory(&mu_, min_insert_event_id,
                                         min_sample_event_id);
 }
 
 int64_t Table::num_episodes() const {
-  absl::ReaderMutexLock lock(&mu_);
+  absl::MutexLock lock(&mu_);
   return episode_refs_.size();
 }
 
@@ -469,7 +469,7 @@ std::vector<std::shared_ptr<TableExtensionInterface>>
 Table::UnsafeClearExtensions() {
   std::vector<std::shared_ptr<TableExtensionInterface>> extensions;
   {
-    absl::WriterMutexLock lock(&mu_);
+    absl::MutexLock lock(&mu_);
     REVERB_CHECK(data_.empty());
     extensions.swap(extensions_);
   }
@@ -482,12 +482,12 @@ Table::UnsafeClearExtensions() {
 }
 
 int64_t Table::num_deleted_episodes() const {
-  absl::ReaderMutexLock lock(&mu_);
+  absl::MutexLock lock(&mu_);
   return num_deleted_episodes_;
 }
 
 void Table::set_num_deleted_episodes_from_checkpoint(int64_t value) {
-  absl::WriterMutexLock lock(&mu_);
+  absl::MutexLock lock(&mu_);
   REVERB_CHECK(data_.empty() && num_deleted_episodes_ == 0);
   num_deleted_episodes_ = value;
 }

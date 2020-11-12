@@ -223,16 +223,16 @@ class Table {
 
   // Get pointer to `data_`. Must only be called by extensions while lock held.
   const absl::flat_hash_map<Key, Item>* RawLookup()
-      ABSL_ASSERT_SHARED_LOCK(mu_);
+      ABSL_ASSERT_EXCLUSIVE_LOCK(mu_);
 
   // Removes all items and resets the RateLimiter to its initial state.
   tensorflow::Status Reset();
 
   // Generate a checkpoint from the table's current state.
-  CheckpointAndChunks Checkpoint();
+  CheckpointAndChunks Checkpoint() ABSL_LOCKS_EXCLUDED(mu_);
 
   // Number of items in the table distribution.
-  int64_t size() const;
+  int64_t size() const ABSL_LOCKS_EXCLUDED(mu_);
 
   // Number of episodes in the table.
   int64_t num_episodes() const ABSL_LOCKS_EXCLUDED(mu_);
