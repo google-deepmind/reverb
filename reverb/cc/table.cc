@@ -187,6 +187,9 @@ tensorflow::Status Table::Sample(SampledItem* sampled_item,
 tensorflow::Status Table::SampleFlexibleBatch(std::vector<SampledItem>* items,
                                               int batch_size,
                                               absl::Duration timeout) {
+  // Allocate memory outside of critical section.
+  items->reserve(batch_size);
+
   // Keep references to the (potentially) deleted items alive until the lock has
   // been released.
   std::vector<Item> deleted_items;
