@@ -28,6 +28,7 @@
 #include "reverb/cc/reverb_service.grpc.pb.h"
 #include "reverb/cc/support/queue.h"
 #include "reverb/cc/support/signature.h"
+#include "reverb/cc/table.h"
 #include "tensorflow/core/framework/tensor.h"
 #include "tensorflow/core/lib/core/status.h"
 
@@ -97,6 +98,21 @@ class Sample {
 
   // True if GetNextTimestep() has been called on this sample.
   bool next_timestep_called_;
+};
+
+// SamplerWorker implements strategy for fetching samples from table.
+class SamplerWorker {
+ public:
+  virtual ~SamplerWorker() = default;
+
+  // When called, future calls to FetchSampes must return CancelledError.
+  virtual void Cancel() = 0;
+
+  // Attempt to sample up to `num_samples` and push results to `queue`. Returns
+  // when `num_samples` pushed to `queue` or error encountered.
+  virtual std::pair<int64_t, tensorflow::Status> FetchSamples(
+      internal::Queue<std::unique_ptr<Sample>>* queue, int64_t num_samples,
+      absl::Duration rate_limiter_timeout) = 0;
 };
 
 // The `Sampler` class should be used to retrieve samples from a
@@ -211,14 +227,22 @@ class Sampler {
     tensorflow::Status Validate() const;
   };
 
-  // Constructs a new `Sampler`.
+  // Constructs a new `Sampler` using gRPC streams.
   //
   // `stub` is a connected gRPC stub to the ReverbService.
-  // `table` is the name of the `Table` to sample from.
+  // `table_name` is the name of the `Table` to sample from.
   // `options` defines details of how to samples.
   // `dtypes_and_shapes` describes the output signature (if any) to expect.
   Sampler(std::shared_ptr</* grpc_gen:: */ReverbService::StubInterface> stub,
-          const std::string& table, const Options& options,
+          const std::string& table_name, const Options& options,
+          internal::DtypesAndShapes dtypes_and_shapes = absl::nullopt);
+
+  // Constructs a new `Sampler` which samples directly from local `table`.
+  //
+  // `table` is the table to sample from.
+  // `options` defines details of how to samples.
+  // `dtypes_and_shapes` describes the output signature (if any) to expect.
+  Sampler(std::shared_ptr<Table> table, const Options& options,
           internal::DtypesAndShapes dtypes_and_shapes = absl::nullopt);
 
   // Joins worker threads through call to `Close`.
@@ -243,6 +267,9 @@ class Sampler {
   Sampler& operator=(const Sampler&) = delete;
 
  private:
+  Sampler(std::vector<std::unique_ptr<SamplerWorker>>, const std::string& table,
+          const Options& options, internal::DtypesAndShapes dtypes_and_shapes);
+
   // Validates the `data` vector against `dtypes_and_shapes`.
   //
   // `data` is the data received by GetNextTimeStep or GetNextSample.
@@ -251,54 +278,7 @@ class Sampler {
   tensorflow::Status ValidateAgainstOutputSpec(
       const std::vector<tensorflow::Tensor>& data, bool time_step);
 
-  class Worker {
-   public:
-    // Constructs a new worker without creating a stream to a server.
-    explicit Worker(
-        std::shared_ptr</* grpc_gen:: */ReverbService::StubInterface> stub,
-        std::string table, int64_t samples_per_request,
-        int32_t flexible_batch_size);
-
-    // Cancels the stream and marks the worker as closed. Active and future
-    // calls to `OpenStreamAndFetch` will return status `CANCELLED`.
-    void Cancel();
-
-    // Opens a new `SampleStream` to a server and requests `num_samples` samples
-    // in batches with maximum size `samples_per_request`, with a timeout to
-    // pass to the `Table::Sample` call. Once complete (either
-    // done, from a non transient error, or from timing out), the stream is
-    // closed and the number of samples pushed to `queue` is returned together
-    // with the status of the stream.  A timeout will cause the Status type
-    // DeadlineExceeded to be returned.
-    std::pair<int64_t, grpc::Status> OpenStreamAndFetch(
-        internal::Queue<std::unique_ptr<Sample>>* queue, int64_t num_samples,
-        absl::Duration rate_limiter_timeout);
-
-   private:
-    // Stub used to open `SampleStream`-streams to a server.
-    std::shared_ptr</* grpc_gen:: */ReverbService::StubInterface> stub_;
-
-    // Name of the `Table` to sample from.
-    const std::string table_;
-
-    // The maximum number of samples to request in a "batch".
-    const int64_t samples_per_request_;
-
-    // Upper limit of the number of items that may be sampled in a single call
-    // to
-    // `Table::SampleFlexibleBatch` (lock not released between samples).
-    const int32_t flexible_batch_size_;
-
-    // Context of the active stream.
-    std::unique_ptr<grpc::ClientContext> context_ ABSL_GUARDED_BY(mu_);
-
-    // True if `Cancel` has been called.
-    bool closed_ ABSL_GUARDED_BY(mu_) = false;
-
-    absl::Mutex mu_;
-  };
-
-  void RunWorker(Worker* worker) ABSL_LOCKS_EXCLUDED(mu_);
+  void RunWorker(SamplerWorker* worker) ABSL_LOCKS_EXCLUDED(mu_);
 
   // If `active_sample_` has been read, blocks until a sample has been retrieved
   // (popped from `samples_`) and populates `active_sample_`.
@@ -346,8 +326,11 @@ class Sampler {
   int64_t returned_ ABSL_GUARDED_BY(mu_) = 0;
 
   // Workers and threads managing the worker with the same index.
-  std::vector<std::unique_ptr<Worker>> workers_;
+  std::vector<std::unique_ptr<SamplerWorker>> workers_;
   std::vector<std::unique_ptr<internal::Thread>> worker_threads_;
+
+  // OK or the first non transient error encountered by a worker.
+  tensorflow::Status worker_status_ ABSL_GUARDED_BY(mu_);
 
   // Remaining timesteps of the currently active sample. Not that this is not
   // protected by mutex as concurrent calls to `GetNextTimestep` is not
@@ -365,9 +348,6 @@ class Sampler {
 
   // Set if `Close` called.
   bool closed_ ABSL_GUARDED_BY(mu_) = false;
-
-  // OK or the first non transient error encountered by a worker.
-  grpc::Status stream_status_ ABSL_GUARDED_BY(mu_);
 
   mutable absl::Mutex mu_;
 };

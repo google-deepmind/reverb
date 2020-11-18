@@ -78,6 +78,11 @@ class ReverbServiceImpl : public /* grpc_gen:: */ReverbService::Service {
                           const ServerInfoRequest* request,
                           ServerInfoResponse* response) override;
 
+  grpc::Status InitializeConnection(
+      grpc::ServerContext* context,
+      grpc::ServerReaderWriter<InitializeConnectionResponse,
+                               InitializeConnectionRequest>* stream) override;
+
   // Gets a copy of the table lookup.
   internal::flat_hash_map<std::string, std::shared_ptr<Table>> tables() const;
 

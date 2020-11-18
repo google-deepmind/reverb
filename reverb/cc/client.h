@@ -118,11 +118,17 @@ class Client {
   // Requests ServerInfo. Forces an update of internal signature caches.
   tensorflow::Status ServerInfo(absl::Duration timeout,
                                 struct ServerInfo* info);
-  // Waits indefinetely for server to respond.
+  // Waits indefinitely for server to respond.
   tensorflow::Status ServerInfo(struct ServerInfo* info);
 
  private:
   const std::shared_ptr</* grpc_gen:: */ReverbService::StubInterface> stub_;
+
+  // Request direct access to Table managed by server. Result will only be
+  // populated when the stub was created using a localhost address of a server
+  // running in the same process.
+  tensorflow::Status GetLocalTablePtr(absl::string_view table_name,
+                                      std::shared_ptr<Table>* out);
 
   // Upon successful return, `sampler` will contain an instance of
   // Sampler.  This version is called by the public `NewSampler` methods.

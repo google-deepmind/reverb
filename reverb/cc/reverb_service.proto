@@ -48,6 +48,37 @@ service ReverbService {
 
   // Get updated information on all of the tables on the server.
   rpc ServerInfo(ServerInfoRequest) returns (ServerInfoResponse) {}
+
+  // Get memory address of heap allocated Table pointer. This can only be used
+  // when the client is running in the same process as the server.
+  rpc InitializeConnection(stream InitializeConnectionRequest)
+      returns (stream InitializeConnectionResponse) {}
+}
+
+message InitializeConnectionRequest {
+  // Process ID of the client. The server will verify that it matches its own
+  // process ID.
+  int64 pid = 1;
+
+  // Name of the table to fetch.
+  string table_name = 2;
+
+  // Confirmation that the client has assumed ownership of the heap allocated
+  // object.
+  bool ownership_transferred = 3;
+}
+
+message InitializeConnectionResponse {
+  // Memory address of heap alocated shared_ptr<Table>. The client will
+  // dereference the pointer to copy construct its own shared_ptr<Table> and
+  // send a second request to the server to acknowledge that it no longer need
+  // the shared_ptr created by the server. The server can then safely destroy
+  // the original shared_ptr.
+  //
+  // Note! If the server is not running in the same process then this field will
+  // be 0. The stream will still return OK so the client is responsible for
+  // checking that the address is nonzero.
+  int64 address = 1;
 }
 
 message CheckpointRequest {}

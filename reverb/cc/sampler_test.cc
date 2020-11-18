@@ -30,7 +30,9 @@
 #include "reverb/cc/platform/logging.h"
 #include "reverb/cc/reverb_service.pb.h"
 #include "reverb/cc/reverb_service_mock.grpc.pb.h"
+#include "reverb/cc/selectors/fifo.h"
 #include "reverb/cc/tensor_compression.h"
+#include "reverb/cc/testing/proto_test_util.h"
 #include "reverb/cc/testing/tensor_testutil.h"
 #include "reverb/cc/testing/time_testutil.h"
 #include "tensorflow/core/framework/tensor_shape.h"
@@ -44,6 +46,7 @@ namespace reverb {
 namespace {
 
 using test::ExpectTensorEqual;
+using testing::MakeSequenceRange;
 using ::testing::SizeIs;
 
 class FakeStream
@@ -189,7 +192,66 @@ SampleStreamResponse MakeResponse(int item_length, bool delta_encode = false,
   return response;
 }
 
-TEST(SamplerTest, SendsFirstRequest) {
+std::shared_ptr<Table> MakeTable(int max_size = 100) {
+  return std::make_shared<Table>(
+      /*name=*/"queue",
+      /*sampler=*/std::make_shared<FifoSelector>(),
+      /*remover=*/std::make_shared<FifoSelector>(),
+      /*max_size=*/max_size,
+      /*max_times_sampled=*/1,
+      /*rate_limiter=*/std::make_shared<RateLimiter>(1, 1, 0, max_size));
+}
+
+ChunkData MakeChunkData(uint64_t key, SequenceRange range) {
+  ChunkData chunk;
+  chunk.set_chunk_key(key);
+  auto t = MakeTensor(range.end() - range.start() + 1);
+  CompressTensorAsProto(t, chunk.add_data());
+  *chunk.mutable_sequence_range() = std::move(range);
+
+  return chunk;
+}
+
+TableItem MakeItem(uint64_t key, double priority,
+                   const std::vector<SequenceRange>& sequences, int32_t offset,
+                   int32_t length) {
+  TableItem item;
+
+  std::vector<ChunkData> data(sequences.size());
+  for (int i = 0; i < sequences.size(); i++) {
+    data[i] = MakeChunkData(key * 100 + i, sequences[i]);
+    item.chunks.push_back(std::make_shared<ChunkStore::Chunk>(data[i]));
+  }
+
+  item.item = testing::MakePrioritizedItem(key, priority, data);
+  item.item.mutable_sequence_range()->set_offset(offset);
+  item.item.mutable_sequence_range()->set_length(length);
+
+  return item;
+}
+
+void InsertItem(Table* table, uint64_t key, double priority,
+                std::vector<int> sequence_lengths, int32_t offset = 0,
+                int32_t length = 0) {
+  if (length == 0) {
+    length =
+        std::accumulate(sequence_lengths.begin(), sequence_lengths.end(), 0) -
+        offset;
+  }
+
+  std::vector<SequenceRange> ranges(sequence_lengths.size());
+  int step_index = 0;
+  for (int i = 0; i < sequence_lengths.size(); i++) {
+    ranges[i] = MakeSequenceRange(100 * key, step_index,
+                                  step_index + sequence_lengths[i] - 1);
+    step_index += sequence_lengths[i];
+  }
+
+  TF_EXPECT_OK(
+      table->InsertOrAssign(MakeItem(key, priority, ranges, offset, length)));
+}
+
+TEST(GrpcSamplerTest, SendsFirstRequest) {
   auto stub = MakeGoodStub({MakeResponse(1)});
   Sampler sampler(stub, "table", {1, 1, 1});
   std::vector<tensorflow::Tensor> sample;
@@ -198,7 +260,7 @@ TEST(SamplerTest, SendsFirstRequest) {
   EXPECT_THAT(stub->requests(), SizeIs(1));
 }
 
-TEST(SamplerTest, SetsEndOfSequence) {
+TEST(GrpcSamplerTest, SetsEndOfSequence) {
   auto stub = MakeGoodStub({MakeResponse(2), MakeResponse(1)});
   Sampler sampler(stub, "table", {2, 1});
 
@@ -222,7 +284,31 @@ TEST(SamplerTest, SetsEndOfSequence) {
   EXPECT_TRUE(end_of_sequence);
 }
 
-TEST(SamplerTest, GetNextSampleReturnsPriority) {
+TEST(LocalSamplerTest, SetsEndOfSequence) {
+  auto table = MakeTable();
+  InsertItem(table.get(), 1, 1.0, {2});
+  InsertItem(table.get(), 2, 1.0, {1});
+
+  Sampler sampler(table, {2});
+
+  std::vector<tensorflow::Tensor> sample;
+  bool end_of_sequence;
+
+  // First sequence has 2 timesteps so first timestep should not be the end of
+  // a sequence.
+  TF_EXPECT_OK(sampler.GetNextTimestep(&sample, &end_of_sequence));
+  EXPECT_FALSE(end_of_sequence);
+
+  // Second timestep is the end of the first sequence.
+  TF_EXPECT_OK(sampler.GetNextTimestep(&sample, &end_of_sequence));
+  EXPECT_TRUE(end_of_sequence);
+
+  // Third timestep is the first and only timestep of the second sequence.
+  TF_EXPECT_OK(sampler.GetNextTimestep(&sample, &end_of_sequence));
+  EXPECT_TRUE(end_of_sequence);
+}
+
+TEST(GrpcSamplerTest, GetNextSampleReturnsPriority) {
   std::vector<SampleStreamResponse> responses = {MakeResponse(5),
                                                  MakeResponse(3)};
   responses[0].mutable_info()->mutable_item()->set_priority(100.0);
@@ -245,7 +331,31 @@ TEST(SamplerTest, GetNextSampleReturnsPriority) {
       second[3], MakeConstantTensor<tensorflow::DT_DOUBLE>({3}, 101.0));
 }
 
-TEST(SamplerTest, GetNextSampleReturnsWholeSequence) {
+TEST(LocalSamplerTest, GetNextSampleReturnsPriority) {
+  auto table = MakeTable();
+  InsertItem(table.get(), 1, 100.0, {5});
+  InsertItem(table.get(), 2, 101.0, {3});
+
+  Sampler::Options options;
+  options.max_samples = 2;
+  Sampler sampler(table, options);
+
+  std::vector<tensorflow::Tensor> first;
+  TF_EXPECT_OK(sampler.GetNextSample(&first));
+  EXPECT_THAT(first,
+              SizeIs(5));  // ID, probability, table size, priority, data.
+  ExpectTensorEqual<double>(
+      first[3], MakeConstantTensor<tensorflow::DT_DOUBLE>({5}, 100.0));
+
+  std::vector<tensorflow::Tensor> second;
+  TF_EXPECT_OK(sampler.GetNextSample(&second));
+  EXPECT_THAT(second,
+              SizeIs(5));  // ID, probability, table size, priority, data.
+  ExpectTensorEqual<double>(
+      second[3], MakeConstantTensor<tensorflow::DT_DOUBLE>({3}, 101.0));
+}
+
+TEST(GrpcSamplerTest, GetNextSampleReturnsWholeSequence) {
   auto stub = MakeGoodStub({MakeResponse(5), MakeResponse(3)});
   Sampler sampler(stub, "table", {2, 1});
 
@@ -262,7 +372,27 @@ TEST(SamplerTest, GetNextSampleReturnsWholeSequence) {
   ExpectTensorEqual<tensorflow::uint64>(second[4], MakeTensor(3));
 }
 
-TEST(SamplerTest, GetNextSampleTrimsSequence) {
+TEST(LocalSamplerTest, GetNextSampleReturnsWholeSequence) {
+  auto table = MakeTable();
+  InsertItem(table.get(), 1, 1.0, {5});
+  InsertItem(table.get(), 2, 1.0, {3});
+
+  Sampler sampler(table, {2});
+
+  std::vector<tensorflow::Tensor> first;
+  TF_EXPECT_OK(sampler.GetNextSample(&first));
+  EXPECT_THAT(first,
+              SizeIs(5));  // ID, probability, table size, priority, data.
+  ExpectTensorEqual<tensorflow::uint64>(first[4], MakeTensor(5));
+
+  std::vector<tensorflow::Tensor> second;
+  TF_EXPECT_OK(sampler.GetNextSample(&second));
+  EXPECT_THAT(second,
+              SizeIs(5));  // ID, probability, table size, priority, data.
+  ExpectTensorEqual<tensorflow::uint64>(second[4], MakeTensor(3));
+}
+
+TEST(GrpcSamplerTest, GetNextSampleTrimsSequence) {
   auto stub = MakeGoodStub({
       MakeResponse(5, false, 1, 6),   // Trim offset at the start.
       MakeResponse(3, false, 0, 4),   // Trim timestep from end.
@@ -294,7 +424,66 @@ TEST(SamplerTest, GetNextSampleTrimsSequence) {
       tensorflow::tensor::DeepCopy(MakeTensor(10).Slice(1, 3)));
 }
 
-TEST(SamplerTest, RespectsBufferSizeAndMaxSamples) {
+TEST(LocalSamplerTest, GetNextSampleTrimsSequence) {
+  auto table = MakeTable();
+  InsertItem(table.get(), 1, 1.0, {5}, 1, 4);     // Trim offset at the start.
+  InsertItem(table.get(), 2, 1.0, {3}, 0, 2);     // Trim at the end.
+  InsertItem(table.get(), 3, 1.0, {2, 3}, 1, 2);  // Trim offset and end.
+
+  Sampler sampler(table, {3});
+
+  std::vector<tensorflow::Tensor> start_trimmed;
+  TF_EXPECT_OK(sampler.GetNextSample(&start_trimmed));
+  ASSERT_THAT(start_trimmed,
+              SizeIs(5));  // ID, probability, table size, priority, data.
+  ExpectTensorEqual<tensorflow::uint64>(
+      start_trimmed[4],
+      tensorflow::tensor::DeepCopy(MakeTensor(5).Slice(1, 5)));
+
+  std::vector<tensorflow::Tensor> end_trimmed;
+  TF_EXPECT_OK(sampler.GetNextSample(&end_trimmed));
+  ASSERT_THAT(end_trimmed,
+              SizeIs(5));  // ID, probability, table size, priority, data.
+  ExpectTensorEqual<tensorflow::uint64>(end_trimmed[4],
+                                        MakeTensor(3).Slice(0, 2));
+
+  std::vector<tensorflow::Tensor> start_and_end_trimmed;
+  TF_EXPECT_OK(sampler.GetNextSample(&start_and_end_trimmed));
+  ASSERT_THAT(start_and_end_trimmed,
+              SizeIs(5));  // ID, probability, table size, priority, data.
+
+  tensorflow::Tensor start_and_end_trimmer_want;
+  TF_EXPECT_OK(tensorflow::tensor::Concat(
+      {
+          tensorflow::tensor::DeepCopy(MakeTensor(2).Slice(1, 2)),
+          tensorflow::tensor::DeepCopy(MakeTensor(3).Slice(0, 1)),
+      },
+      &start_and_end_trimmer_want));
+
+  ExpectTensorEqual<tensorflow::uint64>(start_and_end_trimmed[4],
+                                        start_and_end_trimmer_want);
+}
+
+TEST(LocalSamplerTest, Close) {
+  auto table = MakeTable();
+  InsertItem(table.get(), 1, 1.0, {5});
+  InsertItem(table.get(), 2, 1.0, {3});
+
+  Sampler sampler(table, {3});
+
+  std::vector<tensorflow::Tensor> first;
+  TF_EXPECT_OK(sampler.GetNextSample(&first));
+
+  std::vector<tensorflow::Tensor> second;
+  TF_EXPECT_OK(sampler.GetNextSample(&second));
+
+  sampler.Close();
+
+  std::vector<tensorflow::Tensor> third;
+  EXPECT_EQ(sampler.GetNextSample(&third).code(), tensorflow::error::CANCELLED);
+}
+
+TEST(GrpcSamplerTest, RespectsBufferSizeAndMaxSamples) {
   const int kMaxSamples = 20;
   const int kMaxInFlightSamplesPerWorker = 11;
   const int kNumWorkers = 1;
@@ -360,7 +549,7 @@ TEST(SamplerTest, RespectsBufferSizeAndMaxSamples) {
   EXPECT_THAT(stub->requests(), SizeIs(2));
 }
 
-TEST(SamplerTest, UnpacksDeltaEncodedTensors) {
+TEST(GrpcSamplerTest, UnpacksDeltaEncodedTensors) {
   auto stub = MakeGoodStub({MakeResponse(10, false), MakeResponse(10, true)});
   Sampler sampler(stub, "table", {2, 1});
   std::vector<tensorflow::Tensor> not_encoded;
@@ -374,7 +563,7 @@ TEST(SamplerTest, UnpacksDeltaEncodedTensors) {
   }
 }
 
-TEST(SamplerTest, GetNextTimestepForwardsFatalServerError) {
+TEST(GrpcSamplerTest, GetNextTimestepForwardsFatalServerError) {
   const int kNumWorkers = 4;
   const int kItemLength = 10;
   const auto kError = grpc::Status(grpc::StatusCode::NOT_FOUND, "");
@@ -396,7 +585,20 @@ TEST(SamplerTest, GetNextTimestepForwardsFatalServerError) {
   sampler.Close();
 }
 
-TEST(SamplerTest, GetNextSampleForwardsFatalServerError) {
+TEST(LocalSamplerTest, GetSampleForwardsFatalServerError) {
+  auto table = MakeTable();
+
+  Sampler::Options options;
+  options.rate_limiter_timeout = absl::Milliseconds(10);
+  Sampler sampler(table, options);
+
+  std::vector<tensorflow::Tensor> sample;
+  auto status = sampler.GetNextSample(&sample);
+  EXPECT_EQ(status.code(), tensorflow::error::DEADLINE_EXCEEDED);
+  sampler.Close();
+}
+
+TEST(GrpcSamplerTest, GetNextSampleForwardsFatalServerError) {
   const int kNumWorkers = 4;
   const int kItemLength = 10;
   const auto kError = grpc::Status(grpc::StatusCode::NOT_FOUND, "");
@@ -416,7 +618,21 @@ TEST(SamplerTest, GetNextSampleForwardsFatalServerError) {
   EXPECT_EQ(status.code(), tensorflow::error::NOT_FOUND);
 }
 
-TEST(SamplerTest, GetNextTimestepRetriesTransientErrors) {
+TEST(LocalSamplerTest, GetNextTimestepForwardsFatalServerError) {
+  auto table = MakeTable();
+
+  Sampler::Options options;
+  options.rate_limiter_timeout = absl::Milliseconds(10);
+  Sampler sampler(table, options);
+
+  std::vector<tensorflow::Tensor> sample;
+  bool end_of_sequence;
+  auto status = sampler.GetNextTimestep(&sample, &end_of_sequence);
+  EXPECT_EQ(status.code(), tensorflow::error::DEADLINE_EXCEEDED);
+  sampler.Close();
+}
+
+TEST(GrpcSamplerTest, GetNextTimestepRetriesTransientErrors) {
   const int kNumWorkers = 2;
   const int kItemLength = 10;
   const auto kError = grpc::Status(grpc::StatusCode::UNAVAILABLE, "");
@@ -436,7 +652,7 @@ TEST(SamplerTest, GetNextTimestepRetriesTransientErrors) {
   }
 }
 
-TEST(SamplerTest, GetNextSampleRetriesTransientErrors) {
+TEST(GrpcSamplerTest, GetNextSampleRetriesTransientErrors) {
   const int kNumWorkers = 2;
   const int kItemLength = 10;
   const auto kError = grpc::Status(grpc::StatusCode::UNAVAILABLE, "");
@@ -455,7 +671,7 @@ TEST(SamplerTest, GetNextSampleRetriesTransientErrors) {
   }
 }
 
-TEST(SamplerTest, GetNextTimestepReturnsErrorIfMaximumSamplesExceeded) {
+TEST(GrpcSamplerTest, GetNextTimestepReturnsErrorIfMaximumSamplesExceeded) {
   auto stub = MakeGoodStub({MakeResponse(1), MakeResponse(1), MakeResponse(1)});
   Sampler sampler(stub, "table", {2, 1, 1});
   std::vector<tensorflow::Tensor> sample;
@@ -466,7 +682,23 @@ TEST(SamplerTest, GetNextTimestepReturnsErrorIfMaximumSamplesExceeded) {
             tensorflow::error::OUT_OF_RANGE);
 }
 
-TEST(SamplerTest, GetNextSampleReturnsErrorIfMaximumSamplesExceeded) {
+TEST(LocalSamplerTest, GetNextTimestepReturnsErrorIfMaximumSamplesExceeded) {
+  auto table = MakeTable();
+  InsertItem(table.get(), 1, 1.0, {1});
+  InsertItem(table.get(), 2, 1.0, {1});
+  InsertItem(table.get(), 3, 1.0, {1});
+
+  Sampler sampler(table, {2});
+
+  std::vector<tensorflow::Tensor> sample;
+  bool end_of_sequence;
+  TF_EXPECT_OK(sampler.GetNextTimestep(&sample, &end_of_sequence));
+  TF_EXPECT_OK(sampler.GetNextTimestep(&sample, &end_of_sequence));
+  EXPECT_EQ(sampler.GetNextTimestep(&sample, &end_of_sequence).code(),
+            tensorflow::error::OUT_OF_RANGE);
+}
+
+TEST(GrpcSamplerTest, GetNextSampleReturnsErrorIfMaximumSamplesExceeded) {
   auto stub = MakeGoodStub({MakeResponse(5), MakeResponse(5), MakeResponse(5)});
   Sampler sampler(stub, "table", {2, 1, 1});
   std::vector<tensorflow::Tensor> sample;
@@ -476,7 +708,22 @@ TEST(SamplerTest, GetNextSampleReturnsErrorIfMaximumSamplesExceeded) {
             tensorflow::error::OUT_OF_RANGE);
 }
 
-TEST(SamplerTest, StressTestWithoutErrors) {
+TEST(LocalSamplerTest, GetNextSampleReturnsErrorIfMaximumSamplesExceeded) {
+  auto table = MakeTable();
+  InsertItem(table.get(), 1, 1.0, {2});
+  InsertItem(table.get(), 2, 1.0, {2});
+  InsertItem(table.get(), 3, 1.0, {2});
+
+  Sampler sampler(table, {2});
+
+  std::vector<tensorflow::Tensor> sample;
+  TF_EXPECT_OK(sampler.GetNextSample(&sample));
+  TF_EXPECT_OK(sampler.GetNextSample(&sample));
+  EXPECT_EQ(sampler.GetNextSample(&sample).code(),
+            tensorflow::error::OUT_OF_RANGE);
+}
+
+TEST(GrpcSamplerTest, StressTestWithoutErrors) {
   const int kNumWorkers = 100;  // Should be larger than the number of CPUs.
   const int kMaxSamples = 10000;
   const int kMaxSamplesPerStream = 50;
@@ -510,7 +757,36 @@ TEST(SamplerTest, StressTestWithoutErrors) {
             tensorflow::error::OUT_OF_RANGE);
 }
 
-TEST(SamplerTest, StressTestWithTransientErrors) {
+TEST(LocalSamplerTest, StressTestWithoutErrors) {
+  const int kNumWorkers = 100;  // Should be larger than the number of CPUs.
+  const int kMaxSamples = 10000;
+  const int kItemLength = 3;
+
+  auto table = MakeTable(kMaxSamples);
+  for (int i = 0; i < kMaxSamples; i++) {
+    InsertItem(table.get(), i, 1.0, {kItemLength});
+  }
+
+  Sampler::Options options;
+  options.num_workers = kNumWorkers;
+  options.max_samples = kMaxSamples;
+  Sampler sampler(table, options);
+
+  for (int i = 0; i < kItemLength * kMaxSamples; i++) {
+    std::vector<tensorflow::Tensor> sample;
+    bool end_of_sequence;
+    TF_EXPECT_OK(sampler.GetNextTimestep(&sample, &end_of_sequence));
+  }
+
+  // There should be no more samples left.
+  std::vector<tensorflow::Tensor> sample;
+  bool end_of_sequence;
+  EXPECT_EQ(sampler.GetNextTimestep(&sample, &end_of_sequence).code(),
+            tensorflow::error::OUT_OF_RANGE);
+  sampler.Close();
+}
+
+TEST(GrpcSamplerTest, StressTestWithTransientErrors) {
   const int kNumWorkers = 100;  // Should be larger than the number of CPUs.
   const int kMaxSamples = 10000;
   const int kMaxSamplesPerStream = 50;
@@ -553,9 +829,11 @@ TEST(SamplerDeathTest, DiesIfMaxInFlightSamplesPerWorkerIsNonPositive) {
 
   options.max_in_flight_samples_per_worker = 0;
   ASSERT_DEATH(Sampler sampler(MakeGoodStub({}), "table", options), "");
+  ASSERT_DEATH(Sampler sampler(nullptr, options), "");
 
   options.max_in_flight_samples_per_worker = -1;
   ASSERT_DEATH(Sampler sampler(MakeGoodStub({}), "table", options), "");
+  ASSERT_DEATH(Sampler sampler(nullptr, options), "");
 }
 
 TEST(SamplerDeathTest, DiesIfMaxSamplesInvalid) {
@@ -563,9 +841,11 @@ TEST(SamplerDeathTest, DiesIfMaxSamplesInvalid) {
 
   options.max_samples = -2;
   ASSERT_DEATH(Sampler sampler(MakeGoodStub({}), "table", options), "");
+  ASSERT_DEATH(Sampler sampler(nullptr, options), "");
 
   options.max_samples = 0;
   ASSERT_DEATH(Sampler sampler(MakeGoodStub({}), "table", options), "");
+  ASSERT_DEATH(Sampler sampler(nullptr, options), "");
 }
 
 TEST(SamplerDeathTest, DiesIfNumWorkersIsInvalid) {
@@ -573,9 +853,11 @@ TEST(SamplerDeathTest, DiesIfNumWorkersIsInvalid) {
 
   options.num_workers = 0;
   ASSERT_DEATH(Sampler sampler(MakeGoodStub({}), "table", options), "");
+  ASSERT_DEATH(Sampler sampler(nullptr, options), "");
 
   options.num_workers = -2;
   ASSERT_DEATH(Sampler sampler(MakeGoodStub({}), "table", options), "");
+  ASSERT_DEATH(Sampler sampler(nullptr, options), "");
 }
 
 TEST(SamplerOptionsTest, ValidateDefaultOptions) {
