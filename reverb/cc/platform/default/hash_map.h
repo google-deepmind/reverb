@@ -16,14 +16,104 @@
 #define REVERB_CC_PLATFORM_DEFAULT_HASH_MAP_H_
 
 #include "absl/container/flat_hash_map.h"
+#include "absl/strings/cord.h"
+#include "absl/strings/string_view.h"
+#include "tensorflow/core/platform/hash.h"
 
 namespace deepmind {
 namespace reverb {
 namespace internal {
 
-template <class K, class V,
-          class Hash = typename absl::flat_hash_map<K, V>::hasher,
-          class Eq = typename absl::flat_hash_map<K, V>::key_equal,
+// The hash of an object of type T is computed by using ConsistentHash.
+template <class T, class E = void>
+struct HashEq {
+  using Hash = tensorflow::hash<T>;
+  using Eq = std::equal_to<T>;
+};
+
+struct StringHash {
+  using is_transparent = void;
+
+  size_t operator()(absl::string_view v) const {
+    return tensorflow::hash<absl::string_view>{}(v);
+  }
+
+  // TODO(b/173569624): Use tensorflow::hash<absl::Cord> when available.
+  size_t operator()(const absl::Cord& v) const {
+    tensorflow::hash<absl::string_view> hasher;
+    size_t h = hasher("");
+    for (auto sv : v.Chunks()) {
+      h = tensorflow::Hash64Combine(h, hasher(sv));
+    }
+    return h;
+  }
+};
+
+// Supports heterogeneous lookup for string-like elements.
+struct StringHashEq {
+  using Hash = StringHash;
+  struct Eq {
+    using is_transparent = void;
+    bool operator()(absl::string_view lhs, absl::string_view rhs) const {
+      return lhs == rhs;
+    }
+    bool operator()(const absl::Cord& lhs, const absl::Cord& rhs) const {
+      return lhs == rhs;
+    }
+    bool operator()(const absl::Cord& lhs, absl::string_view rhs) const {
+      return lhs == rhs;
+    }
+    bool operator()(absl::string_view lhs, const absl::Cord& rhs) const {
+      return lhs == rhs;
+    }
+  };
+};
+
+template <>
+struct HashEq<std::string> : StringHashEq {};
+template <>
+struct HashEq<absl::string_view> : StringHashEq {};
+template <>
+struct HashEq<absl::Cord> : StringHashEq {};
+
+// Supports heterogeneous lookup for pointers and smart pointers.
+template <class T>
+struct HashEq<T*> {
+  struct Hash {
+    using is_transparent = void;
+    template <class U>
+    size_t operator()(const U& ptr) const {
+      return tensorflow::hash<const T*>{}(HashEq::ToPtr(ptr));
+    }
+  };
+  struct Eq {
+    using is_transparent = void;
+    template <class A, class B>
+    bool operator()(const A& a, const B& b) const {
+      return HashEq::ToPtr(a) == HashEq::ToPtr(b);
+    }
+  };
+
+ private:
+  static const T* ToPtr(const T* ptr) { return ptr; }
+  template <class U, class D>
+  static const T* ToPtr(const std::unique_ptr<U, D>& ptr) {
+    return ptr.get();
+  }
+  template <class U>
+  static const T* ToPtr(const std::shared_ptr<U>& ptr) {
+    return ptr.get();
+  }
+};
+
+template <class T, class D>
+struct HashEq<std::unique_ptr<T, D>> : HashEq<T*> {};
+
+template <class T>
+struct HashEq<std::shared_ptr<T>> : HashEq<T*> {};
+
+template <class K, class V, class Hash = typename HashEq<K>::Hash,
+          class Eq = typename HashEq<K>::Eq,
           class Allocator = typename absl::flat_hash_map<K, V>::allocator_type>
 using flat_hash_map = absl::flat_hash_map<K, V, Hash, Eq, Allocator>;
 
