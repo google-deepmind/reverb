@@ -19,9 +19,9 @@
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
-#include "absl/container/flat_hash_map.h"
 #include "absl/random/distributions.h"
 #include "absl/random/random.h"
+#include "reverb/cc/platform/hash_map.h"
 #include "reverb/cc/schema.pb.h"
 #include "reverb/cc/testing/proto_test_util.h"
 #include "tensorflow/core/lib/core/status_test_util.h"
@@ -113,7 +113,7 @@ TEST(PrioritizedSelectorTest, SampledDistributionMatchesProbabilities) {
   }
   // Update the priorities.
   std::vector<int64_t> counts(kEnd);
-  absl::flat_hash_map<ItemSelectorInterface::Key, int64_t> probabilities;
+  internal::flat_hash_map<ItemSelectorInterface::Key, int64_t> probabilities;
   for (int i = 0; i < kSamples; i++) {
     ItemSelectorInterface::KeyWithProbability sample = prioritized.Sample();
     probabilities[sample.key] = sample.probability;

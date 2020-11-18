@@ -69,6 +69,12 @@ reverb_cc_library(
 )
 
 reverb_cc_library(
+    name = "hash_map",
+    hdrs = ["hash_map.h"],
+    deps = ["@com_google_absl//absl/container:flat_hash_map"],
+)
+
+reverb_cc_library(
     name = "grpc_utils",
     srcs = ["grpc_utils.cc"],
     deps = [

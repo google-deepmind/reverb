@@ -24,7 +24,6 @@
 
 #include "google/protobuf/timestamp.pb.h"
 #include <cstdint>
-#include "absl/container/flat_hash_map.h"
 #include "absl/container/flat_hash_set.h"
 #include "absl/memory/memory.h"
 #include "absl/synchronization/mutex.h"
@@ -33,6 +32,7 @@
 #include "absl/types/span.h"
 #include "reverb/cc/checkpointing/checkpoint.pb.h"
 #include "reverb/cc/chunk_store.h"
+#include "reverb/cc/platform/hash_map.h"
 #include "reverb/cc/platform/logging.h"
 #include "reverb/cc/rate_limiter.h"
 #include "reverb/cc/schema.pb.h"
@@ -417,7 +417,7 @@ bool Table::Get(Table::Key key, Table::Item* item) {
   return false;
 }
 
-const absl::flat_hash_map<Table::Key, Table::Item>* Table::RawLookup() {
+const internal::flat_hash_map<Table::Key, Table::Item>* Table::RawLookup() {
   mu_.AssertHeld();
   return &data_;
 }

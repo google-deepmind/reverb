@@ -26,6 +26,7 @@ reverb_cc_library(
         ":interface",
         "//reverb/cc:schema_cc_proto",
         "//reverb/cc/checkpointing:checkpoint_cc_proto",
+        "//reverb/cc/platform:hash_map",
         "//reverb/cc/platform:logging",
     ] + reverb_tf_deps() + reverb_absl_deps(),
 )
@@ -38,6 +39,7 @@ reverb_cc_library(
         ":interface",
         "//reverb/cc:schema_cc_proto",
         "//reverb/cc/checkpointing:checkpoint_cc_proto",
+        "//reverb/cc/platform:hash_map",
         "//reverb/cc/platform:logging",
     ] + reverb_tf_deps() + reverb_absl_deps(),
 )
@@ -50,6 +52,7 @@ reverb_cc_library(
         ":interface",
         "//reverb/cc:schema_cc_proto",
         "//reverb/cc/checkpointing:checkpoint_cc_proto",
+        "//reverb/cc/platform:hash_map",
         "//reverb/cc/platform:logging",
     ] + reverb_tf_deps() + reverb_absl_deps(),
 )
@@ -62,6 +65,7 @@ reverb_cc_library(
         ":interface",
         "//reverb/cc:schema_cc_proto",
         "//reverb/cc/checkpointing:checkpoint_cc_proto",
+        "//reverb/cc/platform:hash_map",
         "//reverb/cc/platform:logging",
     ] + reverb_tf_deps() + reverb_absl_deps(),
 )
@@ -74,6 +78,7 @@ reverb_cc_library(
         ":interface",
         "//reverb/cc:schema_cc_proto",
         "//reverb/cc/checkpointing:checkpoint_cc_proto",
+        "//reverb/cc/platform:hash_map",
         "//reverb/cc/support:intrusive_heap",
     ] + reverb_tf_deps() + reverb_absl_deps(),
 )
@@ -114,6 +119,7 @@ reverb_cc_test(
     deps = [
         ":prioritized",
         "//reverb/cc:schema_cc_proto",
+        "//reverb/cc/platform:hash_map",
         "//reverb/cc/testing:proto_test_util",
     ] + reverb_absl_deps(),
 )

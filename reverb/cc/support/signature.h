@@ -18,10 +18,10 @@
 #include <string>
 #include <vector>
 
-#include "absl/container/flat_hash_map.h"
 #include "absl/container/flat_hash_set.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/optional.h"
+#include "reverb/cc/platform/hash_map.h"
 #include "reverb/cc/schema.pb.h"
 #include "tensorflow/core/framework/tensor.h"
 #include "tensorflow/core/framework/tensor_shape.h"
@@ -56,7 +56,7 @@ tensorflow::Status FlatPathFromStructuredValue(
     std::vector<std::string>* paths);
 
 // Map from table name to optional vector of flattened (dtype, shape) pairs.
-typedef absl::flat_hash_map<std::string, internal::DtypesAndShapes>
+typedef internal::flat_hash_map<std::string, internal::DtypesAndShapes>
     FlatSignatureMap;
 
 std::string DtypesShapesString(

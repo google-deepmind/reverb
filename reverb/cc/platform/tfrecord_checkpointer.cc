@@ -22,7 +22,6 @@
 #include <vector>
 
 #include <cstdint>
-#include "absl/container/flat_hash_map.h"
 #include "absl/container/flat_hash_set.h"
 #include "absl/memory/memory.h"
 #include "absl/strings/str_cat.h"
@@ -32,6 +31,7 @@
 #include "absl/time/time.h"
 #include "reverb/cc/checkpointing/checkpoint.pb.h"
 #include "reverb/cc/chunk_store.h"
+#include "reverb/cc/platform/hash_map.h"
 #include "reverb/cc/rate_limiter.h"
 #include "reverb/cc/schema.pb.h"
 #include "reverb/cc/selectors/fifo.h"
@@ -223,7 +223,7 @@ tensorflow::Status TFRecordCheckpointer::Load(
   // Insert data first to ensure that all data referenced by the tables
   // exists. Keep the map of chunks around so that none of the chunks are
   // cleaned up before all the tables have been loaded.
-  absl::flat_hash_map<ChunkStore::Key, std::shared_ptr<ChunkStore::Chunk>>
+  internal::flat_hash_map<ChunkStore::Key, std::shared_ptr<ChunkStore::Chunk>>
       chunk_by_key;
   {
     RecordReaderUniquePtr chunk_reader;

@@ -19,11 +19,11 @@
 #include <vector>
 
 #include <cstdint>
-#include "absl/container/flat_hash_map.h"
 #include "absl/strings/str_cat.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/time/time.h"
 #include "absl/types/span.h"
+#include "reverb/cc/platform/hash_map.h"
 #include "reverb/cc/platform/thread.h"
 #include "reverb/cc/schema.pb.h"
 #include "reverb/cc/support/queue.h"

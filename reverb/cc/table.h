@@ -24,13 +24,13 @@
 
 #include <cstdint>
 #include "absl/base/thread_annotations.h"
-#include "absl/container/flat_hash_map.h"
 #include "absl/container/flat_hash_set.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/types/optional.h"
 #include "absl/types/span.h"
 #include "reverb/cc/checkpointing/checkpoint.pb.h"
 #include "reverb/cc/chunk_store.h"
+#include "reverb/cc/platform/hash_map.h"
 #include "reverb/cc/rate_limiter.h"
 #include "reverb/cc/schema.pb.h"
 #include "reverb/cc/selectors/interface.h"
@@ -222,7 +222,7 @@ class Table {
   bool Get(Key key, Item* item) ABSL_LOCKS_EXCLUDED(mu_);
 
   // Get pointer to `data_`. Must only be called by extensions while lock held.
-  const absl::flat_hash_map<Key, Item>* RawLookup()
+  const internal::flat_hash_map<Key, Item>* RawLookup()
       ABSL_ASSERT_EXCLUSIVE_LOCK(mu_);
 
   // Removes all items and resets the RateLimiter to its initial state.
@@ -298,10 +298,10 @@ class Table {
 
   // Bijection of key to item. Used for storing the chunks and timestep range of
   // each item.
-  absl::flat_hash_map<Key, Item> data_ ABSL_GUARDED_BY(mu_);
+  internal::flat_hash_map<Key, Item> data_ ABSL_GUARDED_BY(mu_);
 
   // Count of references from chunks referenced by items.
-  absl::flat_hash_map<uint64_t, int64_t> episode_refs_ ABSL_GUARDED_BY(mu_);
+  internal::flat_hash_map<uint64_t, int64_t> episode_refs_ ABSL_GUARDED_BY(mu_);
 
   // The total number of episodes that were at some point referenced by items
   // in the table but have since been removed. Is set to 0 when `Reset()`

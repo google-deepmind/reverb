@@ -18,12 +18,12 @@
 #include <memory>
 
 #include "grpcpp/grpcpp.h"
-#include "absl/container/flat_hash_map.h"
 #include "absl/numeric/int128.h"
 #include "absl/random/random.h"
 #include "absl/strings/string_view.h"
 #include "reverb/cc/checkpointing/interface.h"
 #include "reverb/cc/chunk_store.h"
+#include "reverb/cc/platform/hash_map.h"
 #include "reverb/cc/reverb_service.grpc.pb.h"
 #include "reverb/cc/reverb_service.pb.h"
 #include "reverb/cc/schema.pb.h"
@@ -79,7 +79,7 @@ class ReverbServiceImpl : public /* grpc_gen:: */ReverbService::Service {
                           ServerInfoResponse* response) override;
 
   // Gets a copy of the table lookup.
-  absl::flat_hash_map<std::string, std::shared_ptr<Table>> tables() const;
+  internal::flat_hash_map<std::string, std::shared_ptr<Table>> tables() const;
 
   // Closes all tables and the chunk store.
   void Close();
@@ -102,7 +102,7 @@ class ReverbServiceImpl : public /* grpc_gen:: */ReverbService::Service {
   ChunkStore chunk_store_;
 
   // Priority tables. Must be destroyed after `chunk_store_`.
-  absl::flat_hash_map<std::string, std::shared_ptr<Table>> tables_;
+  internal::flat_hash_map<std::string, std::shared_ptr<Table>> tables_;
 
   absl::BitGen rnd_;
 

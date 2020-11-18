@@ -19,12 +19,12 @@
 #include <memory>
 #include <vector>
 
-#include "absl/container/flat_hash_map.h"
 #include "absl/container/flat_hash_set.h"
 #include "absl/strings/str_cat.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "reverb/cc/checkpointing/interface.h"
+#include "reverb/cc/platform/hash_map.h"
 #include "reverb/cc/platform/logging.h"
 #include "reverb/cc/platform/thread.h"
 #include "reverb/cc/reverb_service.grpc.pb.h"
@@ -137,7 +137,7 @@ grpc::Status ReverbServiceImpl::InsertStreamInternal(
   });
   auto cleanup = internal::MakeCleanup([&queue] { queue.Close(); });
 
-  absl::flat_hash_map<ChunkStore::Key, std::shared_ptr<ChunkStore::Chunk>>
+  internal::flat_hash_map<ChunkStore::Key, std::shared_ptr<ChunkStore::Chunk>>
       chunks;
 
   InsertStreamRequest request;
@@ -349,7 +349,7 @@ grpc::Status ReverbServiceImpl::ServerInfo(grpc::ServerContext* context,
   return grpc::Status::OK;
 }
 
-absl::flat_hash_map<std::string, std::shared_ptr<Table>>
+internal::flat_hash_map<std::string, std::shared_ptr<Table>>
 ReverbServiceImpl::tables() const {
   return tables_;
 }
