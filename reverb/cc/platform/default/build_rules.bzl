@@ -536,6 +536,8 @@ def reverb_grpc_deps():
 
 def reverb_absl_deps():
     return [
+        # We purposefully don't include absl::flat_hash_{map,set} so that users
+        # are forced to use platform:hash_{map,set}, which uses a safer hasher.
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/functional:bind_front",

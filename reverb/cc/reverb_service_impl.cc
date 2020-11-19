@@ -19,13 +19,13 @@
 #include <memory>
 #include <vector>
 
-#include "absl/container/flat_hash_set.h"
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "reverb/cc/checkpointing/interface.h"
 #include "reverb/cc/platform/hash_map.h"
+#include "reverb/cc/platform/hash_set.h"
 #include "reverb/cc/platform/logging.h"
 #include "reverb/cc/platform/thread.h"
 #include "reverb/cc/reverb_service.grpc.pb.h"

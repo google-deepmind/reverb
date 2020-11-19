@@ -98,5 +98,6 @@ reverb_cc_library(
     deps = [
         "//reverb/cc:schema_cc_proto",
         "//reverb/cc/platform:hash_map",
+        "//reverb/cc/platform:hash_set",
     ] + reverb_tf_deps() + reverb_absl_deps(),
 )

@@ -12,23 +12,23 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef REVERB_CC_PLATFORM_DEFAULT_HASH_MAP_H_
-#define REVERB_CC_PLATFORM_DEFAULT_HASH_MAP_H_
+#ifndef REVERB_CC_PLATFORM_DEFAULT_HASH_SET_H_
+#define REVERB_CC_PLATFORM_DEFAULT_HASH_SET_H_
 
-#include "absl/container/flat_hash_map.h"
+#include "absl/container/flat_hash_set.h"
 #include "reverb/cc/platform/default/hash.h"
 
 namespace deepmind {
 namespace reverb {
 namespace internal {
 
-template <class K, class V, class Hash = typename HashEq<K>::Hash,
-          class Eq = typename HashEq<K>::Eq,
-          class Allocator = typename absl::flat_hash_map<K, V>::allocator_type>
-using flat_hash_map = absl::flat_hash_map<K, V, Hash, Eq, Allocator>;
+template <class T, class Hash = typename HashEq<T>::Hash,
+          class Eq = typename HashEq<T>::Eq,
+          class Allocator = typename absl::flat_hash_set<T>::allocator_type>
+using flat_hash_set = absl::flat_hash_set<T, Hash, Eq, Allocator>;
 
 }  // namespace internal
 }  // namespace reverb
 }  // namespace deepmind
 
-#endif  // REVERB_CC_PLATFORM_DEFAULT_HASH_MAP_H_
+#endif  // REVERB_CC_PLATFORM_DEFAULT_HASH_SET_H_

@@ -69,11 +69,27 @@ reverb_cc_library(
 )
 
 reverb_cc_library(
+    name = "hash",
+    hdrs = ["hash.h"],
+    deps = reverb_tf_deps(),
+)
+
+reverb_cc_library(
     name = "hash_map",
     hdrs = ["hash_map.h"],
     deps = [
+        ":hash",
         "@com_google_absl//absl/container:flat_hash_map",
-    ] + reverb_tf_deps(),
+    ],
+)
+
+reverb_cc_library(
+    name = "hash_set",
+    hdrs = ["hash_set.h"],
+    deps = [
+        ":hash",
+        "@com_google_absl//absl/container:flat_hash_set",
+    ],
 )
 
 reverb_cc_library(

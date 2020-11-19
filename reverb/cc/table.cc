@@ -24,7 +24,6 @@
 
 #include "google/protobuf/timestamp.pb.h"
 #include <cstdint>
-#include "absl/container/flat_hash_set.h"
 #include "absl/memory/memory.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/time/clock.h"
@@ -33,6 +32,7 @@
 #include "reverb/cc/checkpointing/checkpoint.pb.h"
 #include "reverb/cc/chunk_store.h"
 #include "reverb/cc/platform/hash_map.h"
+#include "reverb/cc/platform/hash_set.h"
 #include "reverb/cc/platform/logging.h"
 #include "reverb/cc/rate_limiter.h"
 #include "reverb/cc/schema.pb.h"

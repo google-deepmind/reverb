@@ -18,10 +18,10 @@
 #include <string>
 #include <vector>
 
-#include "absl/container/flat_hash_set.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/optional.h"
 #include "reverb/cc/platform/hash_map.h"
+#include "reverb/cc/platform/hash_set.h"
 #include "reverb/cc/schema.pb.h"
 #include "tensorflow/core/framework/tensor.h"
 #include "tensorflow/core/framework/tensor_shape.h"
