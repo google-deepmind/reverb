@@ -75,7 +75,7 @@ def main():
   reset_configure_bazelrc()
   setup_python(environ_cp, args.force_defaults)
 
-  write_to_bazelrc('\n')
+  write_to_bazelrc('')
   if platform.system() == 'Darwin':
     write_to_bazelrc('# https://github.com/googleapis/google-cloud-cpp-spanner/issues/1003')
     write_to_bazelrc('build --copt=-DGRPC_BAZEL_BUILD')

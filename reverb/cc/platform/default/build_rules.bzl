@@ -313,9 +313,16 @@ def reverb_gen_op_wrapper_py(name, out, kernel_lib, linkopts = [], **kwargs):
             "-fvisibility=hidden",  # avoid symbol clashes between DSOs.
         ],
         linkshared = 1,
-        linkopts = linkopts + _rpath_linkopts(module_name) + [
-            "$(location %s)" % version_script_file,
-        ],
+        linkopts = linkopts + _rpath_linkopts(module_name) + select({
+            "//reverb:macos": [
+                "-Wl",
+                "$(location %s)" % version_script_file,
+            ],
+            "//conditions:default": [
+                "-Wl,--version-script",
+                "$(location %s)" % version_script_file,
+            ],
+        }),
         **kwargs
     )
     native.genrule(
@@ -370,14 +377,7 @@ def _rpath_linkopts(name):
     # ops) are picked up as long as they are in either the same or a parent
     # directory in the tensorflow/ tree.
     levels_to_root = native.package_name().count("/") + name.count("/")
-    return select({
-        "//reverb:macos": [
-            "-Wl,%s" % (_make_search_paths("$$ORIGIN", levels_to_root),),
-        ],
-        "//conditions:default": [
-            "-Wl,--version-script,%s" % (_make_search_paths("$$ORIGIN", levels_to_root),),
-        ],
-    })
+    return ["-Wl,%s" % (_make_search_paths("$$ORIGIN", levels_to_root),)]
 
 def reverb_pybind_extension(
         name,
@@ -461,9 +461,15 @@ def reverb_pybind_extension(
             "-fexceptions",  # pybind relies on exceptions, required to compile.
             "-fvisibility=hidden",  # avoid pybind symbol clashes between DSOs.
         ],
-        linkopts = linkopts + _rpath_linkopts(module_name) + [
-            "$(location %s)" % version_script_file,
-        ],
+        linkopts = linkopts + _rpath_linkopts(module_name) +
+            select({"//reverb:macos": [
+                        "-Wl,-exported_symbols_list,$(location %s)" % exported_symbols_file,
+                    ],
+                    "//conditions:default": [
+                        "-Wl,--version-script",
+                        "$(location %s)" % version_script_file,
+                    ],
+        }),
         deps = depset(deps + [
             exported_symbols_file,
             version_script_file,
