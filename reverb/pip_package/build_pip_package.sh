@@ -32,7 +32,7 @@ function build_wheel() {
   pushd ${TMPDIR} > /dev/null
 
   echo $(date) : "=== Building wheel"
-  "${PYTHON_BIN_PATH}" setup.py bdist_wheel ${PKG_NAME_FLAG} ${RELEASE_FLAG} ${TF_VERSION_FLAG} --plat manylinux2010_x86_64 > /dev/null
+  "${PYTHON_BIN_PATH}" setup.py bdist_wheel ${PKG_NAME_FLAG} ${RELEASE_FLAG} ${TF_VERSION_FLAG} --plat $PLATFORM > /dev/null
   DEST=${TMPDIR}/dist/
   if [[ ! "$TMPDIR" -ef "$DESTDIR" ]]; then
     mkdir -p ${DESTDIR}
@@ -80,6 +80,7 @@ function usage() {
   echo "    --release         build a release version"
   echo "    --dst             path to copy the .whl into."
   echo "    --tf-version      tensorflow version dependency passed to setup.py."
+  echo "    --plat            platform."
   echo ""
   exit 1
 }
@@ -90,6 +91,8 @@ function main() {
   TF_VERSION_FLAG=""
   # This is where the source code is copied and where the whl will be built.
   DST_DIR=""
+
+  PLATFORM="manylinux2010_x86_64"
 
   while true; do
     if [[ "$1" == "--help" ]]; then
@@ -103,6 +106,9 @@ function main() {
     elif [[ "$1" == "--tf-version" ]]; then
       shift
       TF_VERSION_FLAG="--tf-version $1"
+    elif [[ "$1" == "--plat" ]]; then
+      shift
+      PLATFORM=$1
     fi
 
     if [[ -z "$1" ]]; then

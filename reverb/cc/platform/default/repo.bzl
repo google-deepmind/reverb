@@ -90,9 +90,6 @@ def _find_python_solib_path(repo_ctx):
             .format(exec_result.stderr))
     version = exec_result.stdout.splitlines()[-1]
     basename = "lib{}.so".format(version)
-    if repo_ctx.os.name.lower().find("mac") != -1:
-        basename = "lib{}m.a".format(version)
-
     exec_result = repo_ctx.execute(
         ["{}-config".format(version), "--configdir"],
         quiet = True,
@@ -101,6 +98,10 @@ def _find_python_solib_path(repo_ctx):
         fail("Could not locate python shared library path:\n{}"
             .format(exec_result.stderr))
     solib_dir = exec_result.stdout.splitlines()[-1]
+    if repo_ctx.os.name.lower().find("mac") != -1:
+        basename = "lib{}m.dylib".format(version)
+        solib_dir = "/".join(solib_dir.split("/")[:-2])
+
     full_path = repo_ctx.path("{}/{}".format(solib_dir, basename))
     if not full_path.exists:
         fail("Unable to find python shared library file:\n{}/{}"
@@ -222,7 +223,7 @@ filegroup(
 def _tensorflow_solib_repo_impl(repo_ctx):
     tf_lib_path = _find_tf_lib_path(repo_ctx)
     repo_ctx.symlink(tf_lib_path, "tensorflow_solib")
-    suffix = "2.so"
+    suffix = "so.2"
     if repo_ctx.os.name.lower().find("mac") != -1:
         suffix = "2.dylib"
 

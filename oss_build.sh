@@ -87,17 +87,39 @@ for python_version in $PYTHON_VERSIONS; do
     bazel clean
   fi
 
-  if [ "$python_version" = "3.6" ]; then
-    export PYTHON_BIN_PATH=/usr/bin/python3.6 && export PYTHON_LIB_PATH=/usr/local/lib/python3.6/dist-packages
-  elif [ "$python_version" = "3.7" ]; then
-    export PYTHON_BIN_PATH=/usr/local/bin/python3.7 && export PYTHON_LIB_PATH=/usr/local/lib/python3.7/dist-packages
-    ABI=cp37
-  elif [ "$python_version" = "3.8" ]; then
-    export PYTHON_BIN_PATH=/usr/bin/python3.8 && export PYTHON_LIB_PATH=/usr/local/lib/python3.8/dist-packages
-    ABI=cp38
+  if [ "$(uname)" = "Darwin" ]; then
+    if [ "$python_version" = "3.6" ]; then
+      export PYTHON_BIN_PATH=python3.6
+    elif [ "$python_version" = "3.7" ]; then
+      export PYTHON_BIN_PATH=python3.7
+      ABI=cp37
+    elif [ "$python_version" = "3.8" ]; then
+      export PYTHON_BIN_PATH=python3.8
+      ABI=cp38
+    else
+      echo "Error unknown --python. Only [3.6|3.7|3.8]"
+      exit
+    fi
+
+    bazel_config=""
+    version=`sw_vers | grep ProductVersion | awk '{print $2}' | sed 's/\./_/g' | cut -d"_" -f1,2`
+    PLATFORM="macosx_${version}_x86_64"
   else
-    echo "Error unknown --python. Only [3.6|3.7|3.8]"
-    exit
+    if [ "$python_version" = "3.6" ]; then
+      export PYTHON_BIN_PATH=/usr/bin/python3.6 && export PYTHON_LIB_PATH=/usr/local/lib/python3.6/dist-packages
+    elif [ "$python_version" = "3.7" ]; then
+      export PYTHON_BIN_PATH=/usr/local/bin/python3.7 && export PYTHON_LIB_PATH=/usr/local/lib/python3.7/dist-packages
+      ABI=cp37
+    elif [ "$python_version" = "3.8" ]; then
+      export PYTHON_BIN_PATH=/usr/bin/python3.8 && export PYTHON_LIB_PATH=/usr/local/lib/python3.8/dist-packages
+      ABI=cp38
+    else
+      echo "Error unknown --python. Only [3.6|3.7|3.8]"
+      exit
+    fi
+
+    bazel_config="--config=manylinux2010"
+    PLATFORM="manylinux2010_x86_64"
   fi
 
   # Configures Bazel environment for selected Python version.
@@ -110,11 +132,11 @@ for python_version in $PYTHON_VERSIONS; do
   # someone's system unexpectedly. We are executing the python tests after
   # installing the final package making this approach satisfactory.
   # TODO(b/157223742): Execute Python tests as well.
-  bazel test -c opt --copt=-mavx --config=manylinux2010 --test_output=errors //reverb/cc/...
+  bazel test -c opt --copt=-mavx $bazel_config --test_output=errors //reverb/cc/...
 
-  # Builds Reverb and creates the wheel package.
-  bazel build -c opt --copt=-mavx --config=manylinux2010 reverb/pip_package:build_pip_package
-  ./bazel-bin/reverb/pip_package/build_pip_package --dst $OUTPUT_DIR $PIP_PKG_EXTRA_ARGS
+  # # Builds Reverb and creates the wheel package.
+  bazel build -c opt --copt=-mavx $bazel_config reverb/pip_package:build_pip_package
+  ./bazel-bin/reverb/pip_package/build_pip_package --dst $OUTPUT_DIR $PIP_PKG_EXTRA_ARGS --plat "$PLATFORM"
 
   # Installs pip package.
   $PYTHON_BIN_PATH -mpip install ${OUTPUT_DIR}*${ABI}*.whl
@@ -123,7 +145,7 @@ for python_version in $PYTHON_VERSIONS; do
     echo "Run Python tests..."
     set +e
 
-    bash run_python_tests.sh |& tee ./unittest_log.txt
+    bash run_python_tests.sh 2>&1| tee ./unittest_log.txt
     UNIT_TEST_ERROR_CODE=$?
     set -e
     if [[ $UNIT_TEST_ERROR_CODE != 0 ]]; then
