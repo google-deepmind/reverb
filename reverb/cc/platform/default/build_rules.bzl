@@ -314,7 +314,6 @@ def reverb_gen_op_wrapper_py(name, out, kernel_lib, linkopts = [], **kwargs):
         ],
         linkshared = 1,
         linkopts = linkopts + _rpath_linkopts(module_name) + [
-            "-Wl,--version-script",
             "$(location %s)" % version_script_file,
         ],
         **kwargs
@@ -371,7 +370,14 @@ def _rpath_linkopts(name):
     # ops) are picked up as long as they are in either the same or a parent
     # directory in the tensorflow/ tree.
     levels_to_root = native.package_name().count("/") + name.count("/")
-    return ["-Wl,%s" % (_make_search_paths("$$ORIGIN", levels_to_root),)]
+    return select({
+        "//reverb:macos": [
+            "-Wl,%s" % (_make_search_paths("$$ORIGIN", levels_to_root),),
+        ],
+        "//conditions:default": [
+            "-Wl,--version-script,%s" % (_make_search_paths("$$ORIGIN", levels_to_root),),
+        ],
+    })
 
 def reverb_pybind_extension(
         name,
@@ -456,7 +462,6 @@ def reverb_pybind_extension(
             "-fvisibility=hidden",  # avoid pybind symbol clashes between DSOs.
         ],
         linkopts = linkopts + _rpath_linkopts(module_name) + [
-            "-Wl,--version-script",
             "$(location %s)" % version_script_file,
         ],
         deps = depset(deps + [

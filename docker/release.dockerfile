@@ -70,6 +70,7 @@ ARG pip_dependencies=' \
       numpy \
       oauth2client \
       pandas \
+      platform \
       portpicker'
 
 RUN for python in ${python_version}; do \

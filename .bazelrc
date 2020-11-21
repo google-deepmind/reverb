@@ -17,7 +17,7 @@ build --cxxopt="-std=c++17"
 build --cxxopt="-D_GLIBCXX_USE_CXX11_ABI=1"
 build --auto_output_filter=subpackages
 build --copt="-Wall" --copt="-Wno-sign-compare"
-build --linkopt="-lrt -lm"
+
 # We build with AVX and eigen byte alignment to match tensorflow's (and Eigen)
 # pip package byte alignment.  See b/186669968 for more details.
 build --copt=-mavx --copt=-DEIGEN_MAX_ALIGN_BYTES=64
