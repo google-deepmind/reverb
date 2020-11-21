@@ -90,6 +90,9 @@ def _find_python_solib_path(repo_ctx):
             .format(exec_result.stderr))
     version = exec_result.stdout.splitlines()[-1]
     basename = "lib{}.so".format(version)
+    if repo_ctx.os.name.lower().find("mac") != -1:
+        basename = "lib{}m.a".format(version)
+
     exec_result = repo_ctx.execute(
         ["{}-config".format(version), "--configdir"],
         quiet = True,
@@ -219,17 +222,20 @@ filegroup(
 def _tensorflow_solib_repo_impl(repo_ctx):
     tf_lib_path = _find_tf_lib_path(repo_ctx)
     repo_ctx.symlink(tf_lib_path, "tensorflow_solib")
+    suffix = "2.so"
+    if repo_ctx.os.name.lower().find("mac") != -1:
+        suffix = "2.dylib"
+
     repo_ctx.file(
         "BUILD",
         content = """
 cc_library(
     name = "framework_lib",
-    srcs = ["tensorflow_solib/libtensorflow_framework.so.2"],
+    srcs = ["tensorflow_solib/libtensorflow_framework.{}"],
     deps = ["@python_includes", "@python_includes//:numpy_includes"],
     visibility = ["//visibility:public"],
 )
-""",
-    )
+""".format(suffix))
 
 def _python_includes_repo_impl(repo_ctx):
     python_include_path = _find_python_include_path(repo_ctx)
@@ -332,6 +338,12 @@ def _reverb_protoc_archive(ctx):
     urls = [
         "https://github.com/protocolbuffers/protobuf/releases/download/v%s/protoc-%s-linux-x86_64.zip" % (version, version),
     ]
+    if ctx.os.name.lower().find("mac") != -1:
+        urls = [
+            "https://github.com/protocolbuffers/protobuf/releases/download/v%s/protoc-%s-osx-x86_64.zip" % (version, version),
+        ]
+        sha256 = ""  # TODO(Feiteng) set this in WORKSPACE
+
     ctx.download_and_extract(
         url = urls,
         sha256 = sha256,
