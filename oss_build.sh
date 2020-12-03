@@ -102,7 +102,7 @@ for python_version in $PYTHON_VERSIONS; do
     fi
 
     bazel_config=""
-    version=`sw_vers | grep ProductVersion | awk '{print $2}' | sed 's/\./_/g' | cut -d"_" -f1,2`
+    version=`sw_vers -productVersion | sed 's/\./_/g' | cut -d"_" -f1,2`
     PLATFORM="macosx_${version}_x86_64"
   else
     if [ "$python_version" = "3.6" ]; then
@@ -132,11 +132,11 @@ for python_version in $PYTHON_VERSIONS; do
   # someone's system unexpectedly. We are executing the python tests after
   # installing the final package making this approach satisfactory.
   # TODO(b/157223742): Execute Python tests as well.
-  bazel test -c opt --copt=-mavx $bazel_config --test_output=errors //reverb/cc/...
+  bazel test -c opt --copt=-mavx ${bazel_config} --test_output=errors //reverb/cc/...
 
-  # # Builds Reverb and creates the wheel package.
-  bazel build -c opt --copt=-mavx $bazel_config reverb/pip_package:build_pip_package
-  ./bazel-bin/reverb/pip_package/build_pip_package --dst $OUTPUT_DIR $PIP_PKG_EXTRA_ARGS --plat "$PLATFORM"
+  # Builds Reverb and creates the wheel package.
+  bazel build -c opt --copt=-mavx ${bazel_config} reverb/pip_package:build_pip_package
+  ./bazel-bin/reverb/pip_package/build_pip_package --dst $OUTPUT_DIR $PIP_PKG_EXTRA_ARGS --platform "${PLATFORM}"
 
   # Installs pip package.
   $PYTHON_BIN_PATH -mpip install ${OUTPUT_DIR}*${ABI}*.whl
@@ -145,7 +145,7 @@ for python_version in $PYTHON_VERSIONS; do
     echo "Run Python tests..."
     set +e
 
-    bash run_python_tests.sh 2>&1| tee ./unittest_log.txt
+    bash run_python_tests.sh 2>&1 | tee ./unittest_log.txt
     UNIT_TEST_ERROR_CODE=$?
     set -e
     if [[ $UNIT_TEST_ERROR_CODE != 0 ]]; then
