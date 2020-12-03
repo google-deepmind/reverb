@@ -297,6 +297,14 @@ def reverb_gen_op_wrapper_py(name, out, kernel_lib, linkopts = [], **kwargs):
         fail("Argument out must end with '.py', but saw: {}".format(out))
 
     module_name = "lib{}_gen_op".format(name)
+    exported_symbols_file = "%s-exported-symbols.lds" % module_name
+    native.genrule(
+        name = module_name + "_exported_symbols",
+        outs = [exported_symbols_file],
+        cmd = "echo '*ReverbDataset*\n*ReverbClient*' >$@",
+        output_licenses = ["unencumbered"],
+        visibility = ["//visibility:private"],
+    )
     version_script_file = "%s-version-script.lds" % module_name
     native.genrule(
         name = module_name + "_version_script",
@@ -307,20 +315,25 @@ def reverb_gen_op_wrapper_py(name, out, kernel_lib, linkopts = [], **kwargs):
     )
     native.cc_binary(
         name = "{}.so".format(module_name),
-        deps = [kernel_lib] + reverb_tf_deps() + [version_script_file],
+        deps = [kernel_lib] + reverb_tf_deps() + [
+            exported_symbols_file,
+            version_script_file
+        ],
         copts = tf_copts() + [
             "-fno-strict-aliasing",  # allow a wider range of code [aliasing] to compile.
-            "-fvisibility=hidden",  # avoid symbol clashes between DSOs.
-        ],
+        ]+ select({
+            "//reverb:macos": [],
+            "//conditions:default": [
+                "-fvisibility=hidden",  # avoid symbol clashes between DSOs.
+            ],
+        }),
         linkshared = 1,
         linkopts = linkopts + _rpath_linkopts(module_name) + select({
             "//reverb:macos": [
-                "-Wl",
-                "$(location %s)" % version_script_file,
+                "-Wl,-exported_symbols_list,$(location %s)" % exported_symbols_file,
             ],
             "//conditions:default": [
-                "-Wl,--version-script",
-                "$(location %s)" % version_script_file,
+                "-Wl,--version-script,$(location %s)" % version_script_file,
             ],
         }),
         **kwargs
