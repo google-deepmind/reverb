@@ -298,10 +298,12 @@ def reverb_gen_op_wrapper_py(name, out, kernel_lib, linkopts = [], **kwargs):
 
     module_name = "lib{}_gen_op".format(name)
     exported_symbols_file = "%s-exported-symbols.lds" % module_name
+    # gen_client_ops -> ReverbClient
+    symbol = "Reverb{}".format(name.split('_')[1].capitalize())
     native.genrule(
         name = module_name + "_exported_symbols",
         outs = [exported_symbols_file],
-        cmd = "echo '*ReverbDataset*\n*ReverbClient*' >$@",
+        cmd = "echo '*%s*' >$@" % symbol,
         output_licenses = ["unencumbered"],
         visibility = ["//visibility:private"],
     )
@@ -321,12 +323,8 @@ def reverb_gen_op_wrapper_py(name, out, kernel_lib, linkopts = [], **kwargs):
         ],
         copts = tf_copts() + [
             "-fno-strict-aliasing",  # allow a wider range of code [aliasing] to compile.
-        ]+ select({
-            "//reverb:macos": [],
-            "//conditions:default": [
-                "-fvisibility=hidden",  # avoid symbol clashes between DSOs.
-            ],
-        }),
+            "-fvisibility=hidden",  # avoid symbol clashes between DSOs.
+        ],
         linkshared = 1,
         linkopts = linkopts + _rpath_linkopts(module_name) + select({
             "//reverb:macos": [

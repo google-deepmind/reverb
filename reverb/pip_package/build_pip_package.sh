@@ -32,7 +32,7 @@ function build_wheel() {
   pushd ${TMPDIR} > /dev/null
 
   echo $(date) : "=== Building wheel"
-  "${PYTHON_BIN_PATH}" setup.py bdist_wheel ${PKG_NAME_FLAG} ${RELEASE_FLAG} ${TF_VERSION_FLAG} --plat $PLATFORM > /dev/null
+  "${PYTHON_BIN_PATH}" setup.py bdist_wheel ${PKG_NAME_FLAG} ${RELEASE_FLAG} ${TF_VERSION_FLAG} --plat ${PLATFORM} > /dev/null
   DEST=${TMPDIR}/dist/
   if [[ ! "$TMPDIR" -ef "$DESTDIR" ]]; then
     mkdir -p ${DESTDIR}
@@ -106,7 +106,7 @@ function main() {
     elif [[ "$1" == "--tf-version" ]]; then
       shift
       TF_VERSION_FLAG="--tf-version $1"
-    elif [[ "$1" == "--plat" ]]; then
+    elif [[ "$1" == "--platform" ]]; then
       shift
       PLATFORM=$1
     fi

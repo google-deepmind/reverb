@@ -2,6 +2,11 @@
 
 load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
 
+def is_darwin(ctx):
+    if ctx.os.name.lower().find("mac") != -1:
+        return True
+    return False
+
 # Sanitize a dependency so that it works correctly from code that includes
 # codebase as a submodule.
 def clean_dep(dep):
@@ -98,7 +103,7 @@ def _find_python_solib_path(repo_ctx):
         fail("Could not locate python shared library path:\n{}"
             .format(exec_result.stderr))
     solib_dir = exec_result.stdout.splitlines()[-1]
-    if repo_ctx.os.name.lower().find("mac") != -1:
+    if is_darwin(repo_ctx):
         basename = "lib{}m.dylib".format(version)
         solib_dir = "/".join(solib_dir.split("/")[:-2])
 
@@ -225,7 +230,7 @@ def _tensorflow_solib_repo_impl(repo_ctx):
     tf_lib_path = _find_tf_lib_path(repo_ctx)
     repo_ctx.symlink(tf_lib_path, "tensorflow_solib")
     suffix = "so.2"
-    if repo_ctx.os.name.lower().find("mac") != -1:
+    if is_darwin(repo_ctx):
         suffix = "2.dylib"
 
     repo_ctx.file(
@@ -369,7 +374,7 @@ def _protoc_archive(ctx):
     urls = [
         "https://github.com/protocolbuffers/protobuf/releases/download/v%s/protoc-%s-linux-x86_64.zip" % (version, version),
     ]
-    if ctx.os.name.lower().find("mac") != -1:
+    if is_darwin(ctx):
         urls = [
             "https://github.com/protocolbuffers/protobuf/releases/download/v%s/protoc-%s-osx-x86_64.zip" % (version, version),
         ]
