@@ -43,7 +43,8 @@ inline bool SampleIsDone(const std::vector<SampleStreamResponse>& sample) {
   if (sample.empty()) return false;
   int64_t chunk_length = 0;
   for (const auto& response : sample) {
-    chunk_length += response.data().data(0).tensor_shape().dim(0).size();
+    chunk_length +=
+        response.data().data().tensors(0).tensor_shape().dim(0).size();
   }
   const auto& range = sample.front().info().item().sequence_range();
   return chunk_length >= range.length() + range.offset();
@@ -75,20 +76,22 @@ tensorflow::Status AsSample(std::vector<SampleStreamResponse> responses,
     REVERB_CHECK_GT(remaining, 0);
 
     std::vector<tensorflow::Tensor> batches;
-    batches.resize(response.data().data_size());
+    batches.resize(response.data().data().tensors_size());
 
     int64_t batch_size = -1;
 
     // Convert each chunk tensor and release the chunk memory afterwards.
-    int64_t insert_index = response.data().data_size() - 1;
-    while (!response.data().data().empty()) {
+    int64_t insert_index = response.data().data().tensors_size() - 1;
+    while (!response.data().data().tensors().empty()) {
       tensorflow::Tensor batch;
 
       {
         // This ensures we release the response proto after converting the
         // result to a tensor.
-        auto chunk = absl::WrapUnique(
-            response.mutable_data()->mutable_data()->ReleaseLast());
+        auto chunk = absl::WrapUnique(response.mutable_data()
+                                          ->mutable_data()
+                                          ->mutable_tensors()
+                                          ->ReleaseLast());
         batch = DecompressTensorFromProto(*chunk);
       }
 
@@ -145,10 +148,10 @@ tensorflow::Status AsSample(const Table::SampledItem& sampled_item,
     REVERB_CHECK_GT(remaining, 0);
 
     std::vector<tensorflow::Tensor> batches;
-    batches.reserve(chunk->data().data_size());
+    batches.reserve(chunk->data().data().tensors_size());
 
     int64_t batch_size = -1;
-    for (const auto& chunk_data : chunk->data().data()) {
+    for (const auto& chunk_data : chunk->data().data().tensors()) {
       tensorflow::Tensor batch = DecompressTensorFromProto(chunk_data);
       if (chunk->data().delta_encoded()) {
         batch = DeltaEncode(batch, /*encode=*/false);

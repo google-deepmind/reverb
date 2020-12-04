@@ -18,10 +18,17 @@ message ChunkData {
   SequenceRange sequence_range = 2;
 
   // Actual tensor data.
-  repeated tensorflow.TensorProto data = 3;
+  message Data {
+    repeated tensorflow.TensorProto tensors = 1;
+  }
+  Data data = 5 [lazy = true];
 
   // True if delta encoding has been applied before compressing data.
   bool delta_encoded = 4;
+
+  // Deprecated December 2020 and retained to provide backward
+  // compatibility with checkpoints created before this point.
+  repeated tensorflow.TensorProto deprecated_data = 3 [deprecated = true];
 }
 
 // A range that specifies which items to slice out from a sequence of chunks.

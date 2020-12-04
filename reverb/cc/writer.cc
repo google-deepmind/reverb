@@ -371,7 +371,7 @@ tensorflow::Status Writer::Finish() {
   }
 
   for (const auto& tensor : batched_tensors) {
-    CompressTensorAsProto(tensor, chunk.add_data());
+    CompressTensorAsProto(tensor, chunk.mutable_data()->add_tensors());
   }
 
   chunks_.push_back(std::move(chunk));

@@ -59,7 +59,7 @@ TEST(ChunkStoreTest, GetFailsAfterChunkIsDestroyed) {
 TEST(ChunkStoreTest, InsertingTwiceReturnsExistingChunk) {
   ChunkStore store;
   ChunkData data = testing::MakeChunkData(2);
-  data.add_data();
+  data.mutable_data()->add_tensors();
   std::shared_ptr<ChunkStore::Chunk> first =
       store.Insert(testing::MakeChunkData(2));
   EXPECT_NE(first, nullptr);
