@@ -261,7 +261,6 @@ def reverb_cc_test(name, srcs, deps = [], **kwargs):
       **kwargs: Additional args to cc_test.
     """
     new_deps = [
-        "@com_google_benchmark//:benchmark",
         "@com_google_googletest//:gtest",
         "@tensorflow_includes//:includes",
         "@tensorflow_solib//:framework_lib",
