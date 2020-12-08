@@ -17,8 +17,8 @@
 
 #include <list>
 
-#include "absl/container/flat_hash_map.h"
 #include "reverb/cc/checkpointing/checkpoint.pb.h"
+#include "reverb/cc/platform/hash_map.h"
 #include "reverb/cc/selectors/interface.h"
 #include "tensorflow/core/lib/core/status.h"
 
@@ -47,7 +47,7 @@ class FifoSelector : public ItemSelectorInterface {
 
  private:
   std::list<Key> keys_;
-  absl::flat_hash_map<Key, std::list<Key>::iterator> key_to_iterator_;
+  internal::flat_hash_map<Key, std::list<Key>::iterator> key_to_iterator_;
 };
 
 }  // namespace reverb

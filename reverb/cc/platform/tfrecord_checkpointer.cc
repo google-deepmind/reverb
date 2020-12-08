@@ -22,8 +22,6 @@
 #include <vector>
 
 #include <cstdint>
-#include "absl/container/flat_hash_map.h"
-#include "absl/container/flat_hash_set.h"
 #include "absl/memory/memory.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
@@ -32,6 +30,8 @@
 #include "absl/time/time.h"
 #include "reverb/cc/checkpointing/checkpoint.pb.h"
 #include "reverb/cc/chunk_store.h"
+#include "reverb/cc/platform/hash_map.h"
+#include "reverb/cc/platform/hash_set.h"
 #include "reverb/cc/rate_limiter.h"
 #include "reverb/cc/schema.pb.h"
 #include "reverb/cc/selectors/fifo.h"
@@ -48,6 +48,7 @@
 #include "tensorflow/core/lib/io/record_reader.h"
 #include "tensorflow/core/lib/io/record_writer.h"
 #include "tensorflow/core/platform/env.h"
+#include "tensorflow/core/platform/errors.h"
 #include "tensorflow/core/platform/file_system.h"
 
 namespace deepmind {
@@ -223,7 +224,7 @@ tensorflow::Status TFRecordCheckpointer::Load(
   // Insert data first to ensure that all data referenced by the tables
   // exists. Keep the map of chunks around so that none of the chunks are
   // cleaned up before all the tables have been loaded.
-  absl::flat_hash_map<ChunkStore::Key, std::shared_ptr<ChunkStore::Chunk>>
+  internal::flat_hash_map<ChunkStore::Key, std::shared_ptr<ChunkStore::Chunk>>
       chunk_by_key;
   {
     RecordReaderUniquePtr chunk_reader;
@@ -241,6 +242,15 @@ tensorflow::Status TFRecordCheckpointer::Load(
                                      chunk_record.size())) {
         return tensorflow::errors::DataLoss(
             "Could not parse TFRecord as ChunkData: '", chunk_record, "'");
+      }
+      if (chunk_data.deprecated_data_size()) {
+        if (!chunk_data.data().tensors().empty()) {
+          return tensorflow::errors::Internal(
+              "Checkpoint ChunkData at offset: ", chunk_offset,
+              " has both data and deprecated_data.");
+        }
+        chunk_data.mutable_data()->mutable_tensors()->Swap(
+            chunk_data.mutable_deprecated_data());
       }
       chunk_by_key[chunk_data.chunk_key()] = chunk_store->Insert(chunk_data);
     } while (chunk_status.ok());

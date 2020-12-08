@@ -21,10 +21,10 @@
 #include <vector>
 
 #include "absl/base/thread_annotations.h"
-#include "absl/container/flat_hash_set.h"
 #include "absl/functional/bind_front.h"
 #include "absl/strings/str_cat.h"
 #include "absl/synchronization/mutex.h"
+#include "reverb/cc/platform/hash_set.h"
 #include "reverb/cc/platform/logging.h"
 #include "reverb/cc/platform/thread.h"
 #include "reverb/cc/reverb_service.pb.h"
@@ -371,7 +371,7 @@ tensorflow::Status Writer::Finish() {
   }
 
   for (const auto& tensor : batched_tensors) {
-    CompressTensorAsProto(tensor, chunk.add_data());
+    CompressTensorAsProto(tensor, chunk.mutable_data()->add_tensors());
   }
 
   chunks_.push_back(std::move(chunk));

@@ -132,8 +132,7 @@ tensorflow::Status Client::NewWriter(int chunk_length, int max_timesteps,
 
 tensorflow::Status Client::MutatePriorities(
     absl::string_view table, const std::vector<KeyWithPriority>& updates,
-    const std::vector<uint64_t>& deletes,
-    absl::Duration timeout) {
+    const std::vector<uint64_t>& deletes, absl::Duration timeout) {
   grpc::ClientContext context;
   context.set_wait_for_ready(true);
   context.set_deadline(absl::ToChronoTime(absl::Now() + timeout));
@@ -154,8 +153,19 @@ tensorflow::Status Client::NewSampler(
     internal::DtypesAndShapes dtypes_and_shapes,
     std::unique_ptr<Sampler>* sampler) {
   TF_RETURN_IF_ERROR(options.Validate());
-  *sampler = absl::make_unique<Sampler>(stub_, table, options,
-                                        std::move(dtypes_and_shapes));
+
+  std::shared_ptr<Table> table_ptr;
+  if (GetLocalTablePtr(table, &table_ptr).ok()) {
+    REVERB_LOG(REVERB_INFO)
+        << "Sampler and server are owned by the same process (" << getpid()
+        << ") so Table " << table << " is accessed directly without gRPC.";
+    *sampler = absl::make_unique<Sampler>(std::move(table_ptr), options,
+                                          std::move(dtypes_and_shapes));
+  } else {
+    *sampler = absl::make_unique<Sampler>(stub_, table, options,
+                                          std::move(dtypes_and_shapes));
+  }
+
   return tensorflow::Status::OK();
 }
 
@@ -356,6 +366,40 @@ tensorflow::Status Client::Checkpoint(std::string* path) {
       FromGrpcStatus(stub_->Checkpoint(&context, request, &response)));
   *path = response.checkpoint_path();
   return tensorflow::Status::OK();
+}
+
+tensorflow::Status Client::GetLocalTablePtr(absl::string_view table_name,
+                                            std::shared_ptr<Table>* out) {
+  grpc::ClientContext context;
+  context.set_wait_for_ready(false);
+  auto stream = stub_->InitializeConnection(&context);
+
+  InitializeConnectionRequest request;
+  request.set_pid(getpid());
+  request.set_table_name(table_name.data(), table_name.size());
+  if (!stream->Write(request)) {
+    TF_RETURN_IF_ERROR(FromGrpcStatus(stream->Finish()));
+    return tensorflow::errors::Internal(
+        "InitializeConnection: Failed to write to stream.");
+  }
+
+  InitializeConnectionResponse response;
+  if (!stream->Read(&response)) {
+    TF_RETURN_IF_ERROR(FromGrpcStatus(stream->Finish()));
+    return tensorflow::errors::Internal(
+        "InitializeConnection: Failed to read from stream.");
+  }
+
+  if (response.address() == 0) {
+    return tensorflow::errors::FailedPrecondition(
+        "Client and server are not running in the same process.");
+  }
+
+  *out = *reinterpret_cast<std::shared_ptr<Table>*>(response.address());
+  request.set_ownership_transferred(true);
+  stream->Write(request);
+
+  return FromGrpcStatus(stream->Finish());
 }
 
 }  // namespace reverb

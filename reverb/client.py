@@ -110,6 +110,7 @@ class Writer:
     if not self._closed:
       logging.warning(
           'Writer-object deleted without calling .close explicitly.')
+      self.close()
 
   def append(self, data: Any):
     """Appends data to the internal buffer.

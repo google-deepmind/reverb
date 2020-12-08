@@ -23,7 +23,7 @@ namespace reverb {
 
 tensorflow::Status TableExtensionBase::RegisterTable(absl::Mutex* mu,
                                                      Table* table) {
-  absl::WriterMutexLock lock(&table_mu_);
+  absl::MutexLock lock(&table_mu_);
   if (table_) {
     return tensorflow::errors::FailedPrecondition(
         "Attempting to registering a table ", table, " (name: ", table->name(),
@@ -35,7 +35,7 @@ tensorflow::Status TableExtensionBase::RegisterTable(absl::Mutex* mu,
 }
 
 void TableExtensionBase::UnregisterTable(absl::Mutex* mu, Table* table) {
-  absl::WriterMutexLock lock(&table_mu_);
+  absl::MutexLock lock(&table_mu_);
   REVERB_CHECK_EQ(table, table_)
       << "The wrong Table attempted to unregister this extension.";
   table_ = nullptr;

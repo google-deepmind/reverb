@@ -19,12 +19,13 @@
 #include <memory>
 #include <vector>
 
-#include "absl/container/flat_hash_map.h"
-#include "absl/container/flat_hash_set.h"
+#include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "reverb/cc/checkpointing/interface.h"
+#include "reverb/cc/platform/hash_map.h"
+#include "reverb/cc/platform/hash_set.h"
 #include "reverb/cc/platform/logging.h"
 #include "reverb/cc/platform/thread.h"
 #include "reverb/cc/reverb_service.grpc.pb.h"
@@ -137,7 +138,7 @@ grpc::Status ReverbServiceImpl::InsertStreamInternal(
   });
   auto cleanup = internal::MakeCleanup([&queue] { queue.Close(); });
 
-  absl::flat_hash_map<ChunkStore::Key, std::shared_ptr<ChunkStore::Chunk>>
+  internal::flat_hash_map<ChunkStore::Key, std::shared_ptr<ChunkStore::Chunk>>
       chunks;
 
   InsertStreamRequest request;
@@ -349,9 +350,63 @@ grpc::Status ReverbServiceImpl::ServerInfo(grpc::ServerContext* context,
   return grpc::Status::OK;
 }
 
-absl::flat_hash_map<std::string, std::shared_ptr<Table>>
+internal::flat_hash_map<std::string, std::shared_ptr<Table>>
 ReverbServiceImpl::tables() const {
   return tables_;
+}
+
+grpc::Status ReverbServiceImpl::InitializeConnection(
+    grpc::ServerContext* context,
+    grpc::ServerReaderWriter<InitializeConnectionResponse,
+                             InitializeConnectionRequest>* stream) {
+  if (!absl::StrContains(context->peer(), ":127.0.0.1:") &&
+      !absl::StrContains(context->peer(), "[::1]")) {
+    return grpc::Status::OK;
+  }
+
+  InitializeConnectionRequest request;
+  if (!stream->Read(&request)) {
+    return Internal("Failed to read from stream");
+  }
+
+  if (request.pid() != getpid()) {
+    // Respond without populating the address field.
+    InitializeConnectionResponse response;
+    response.set_address(0);
+    stream->Write(response);
+    return grpc::Status::OK;
+  }
+
+  auto it = tables_.find(request.table_name());
+  if (it == tables_.end()) {
+    return TableNotFound(request.table_name());
+  }
+
+  // Allocate a new shared pointer on the heap and transmit its memory address.
+  // The client will dereference and assume ownership of the object before
+  // sending its response. For simplicity, the client will copy the shared_ptr
+  // so the server is always responsible for cleaning up the heap allocated
+  // object.
+  auto* ptr = new std::shared_ptr<Table>(it->second);
+  auto cleanup = internal::MakeCleanup([&] { delete ptr; });
+
+  // Send address to client.
+  InitializeConnectionResponse response;
+  response.set_address(reinterpret_cast<int64_t>(ptr));
+  if (!stream->Write(response)) {
+    return Internal("Failed to write to stream.");
+  }
+
+  // Wait for the client to confirm ownership transfer.
+  if (!stream->Read(&request)) {
+    return Internal("Failed to read from stream.");
+  }
+
+  if (!request.ownership_transferred()) {
+    return Internal("Received unexpected request");
+  }
+
+  return grpc::Status::OK;
 }
 
 }  // namespace reverb

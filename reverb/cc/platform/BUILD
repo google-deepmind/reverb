@@ -19,6 +19,8 @@ reverb_cc_library(
     hdrs = ["tfrecord_checkpointer.h"],
     visibility = ["//reverb:__subpackages__"],
     deps = [
+        ":hash_map",
+        ":hash_set",
         "//reverb/cc:chunk_store",
         "//reverb/cc:table",
         "//reverb/cc:schema_cc_proto",
@@ -149,6 +151,20 @@ reverb_cc_test(
     deps = [
         ":thread",
     ] + reverb_absl_deps(),
+)
+
+reverb_cc_library(
+    name = "hash_map",
+    hdrs = ["hash_map.h"],
+    visibility = ["//reverb:__subpackages__"],
+    deps = ["//reverb/cc/platform/default:hash_map"],
+)
+
+reverb_cc_library(
+    name = "hash_set",
+    hdrs = ["hash_set.h"],
+    visibility = ["//reverb:__subpackages__"],
+    deps = ["//reverb/cc/platform/default:hash_set"],
 )
 
 reverb_cc_library(

@@ -15,15 +15,21 @@
 #include "reverb/cc/sampler.h"
 
 #include <algorithm>
+#include <memory>
 #include <string>
 
 #include "grpcpp/impl/codegen/client_context.h"
 #include "grpcpp/impl/codegen/sync_stream.h"
+#include "absl/memory/memory.h"
+#include "absl/synchronization/mutex.h"
+#include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "reverb/cc/platform/logging.h"
 #include "reverb/cc/platform/thread.h"
+#include "reverb/cc/rate_limiter.h"
 #include "reverb/cc/reverb_service.pb.h"
 #include "reverb/cc/support/grpc_util.h"
+#include "reverb/cc/table.h"
 #include "reverb/cc/tensor_compression.h"
 #include "tensorflow/core/framework/tensor_util.h"
 #include "tensorflow/core/lib/core/status.h"
@@ -37,7 +43,8 @@ inline bool SampleIsDone(const std::vector<SampleStreamResponse>& sample) {
   if (sample.empty()) return false;
   int64_t chunk_length = 0;
   for (const auto& response : sample) {
-    chunk_length += response.data().data(0).tensor_shape().dim(0).size();
+    chunk_length +=
+        response.data().data().tensors(0).tensor_shape().dim(0).size();
   }
   const auto& range = sample.front().info().item().sequence_range();
   return chunk_length >= range.length() + range.offset();
@@ -69,20 +76,22 @@ tensorflow::Status AsSample(std::vector<SampleStreamResponse> responses,
     REVERB_CHECK_GT(remaining, 0);
 
     std::vector<tensorflow::Tensor> batches;
-    batches.resize(response.data().data_size());
+    batches.resize(response.data().data().tensors_size());
 
     int64_t batch_size = -1;
 
     // Convert each chunk tensor and release the chunk memory afterwards.
-    int64_t insert_index = response.data().data_size() - 1;
-    while (!response.data().data().empty()) {
+    int64_t insert_index = response.data().data().tensors_size() - 1;
+    while (!response.data().data().tensors().empty()) {
       tensorflow::Tensor batch;
 
       {
         // This ensures we release the response proto after converting the
         // result to a tensor.
-        auto chunk = absl::WrapUnique(
-            response.mutable_data()->mutable_data()->ReleaseLast());
+        auto chunk = absl::WrapUnique(response.mutable_data()
+                                          ->mutable_data()
+                                          ->mutable_tensors()
+                                          ->ReleaseLast());
         batch = DecompressTensorFromProto(*chunk);
       }
 
@@ -125,13 +134,321 @@ tensorflow::Status AsSample(std::vector<SampleStreamResponse> responses,
   return tensorflow::Status::OK();
 }
 
+tensorflow::Status AsSample(const Table::SampledItem& sampled_item,
+                            std::unique_ptr<Sample>* sample) {
+  // The chunks are not required to be aligned perfectly with the data so a
+  // part of the first chunk is potentially stripped. The same applies to the
+  // last part of the final chunk.
+  int64_t offset = sampled_item.item.sequence_range().offset();
+  int64_t remaining = sampled_item.item.sequence_range().length();
+
+  // Decompress and trim the chunks.
+  std::list<std::vector<tensorflow::Tensor>> chunks;
+  for (auto& chunk : sampled_item.chunks) {
+    REVERB_CHECK_GT(remaining, 0);
+
+    std::vector<tensorflow::Tensor> batches;
+    batches.reserve(chunk->data().data().tensors_size());
+
+    int64_t batch_size = -1;
+    for (const auto& chunk_data : chunk->data().data().tensors()) {
+      tensorflow::Tensor batch = DecompressTensorFromProto(chunk_data);
+      if (chunk->data().delta_encoded()) {
+        batch = DeltaEncode(batch, /*encode=*/false);
+      }
+      if (batch_size < 0) {
+        batch_size = batch.dim_size(0);
+      } else {
+        if (batch_size != batch.dim_size(0)) {
+          return tensorflow::errors::Internal(
+              "Chunks of the same response must have identical batch size, but "
+              "first chunk has batch size ",
+              batch_size, " while the current chunk has batch size ",
+              batch.dim_size(0));
+        }
+      }
+      batch = batch.Slice(offset,
+                          std::min<int64_t>(offset + remaining, batch_size));
+      if (!batch.IsAligned()) {
+        batch = tensorflow::tensor::DeepCopy(batch);
+      }
+      batches.push_back(std::move(batch));
+    }
+
+    chunks.push_back(std::move(batches));
+    remaining -= std::min<int64_t>(remaining, batch_size - offset);
+    offset = 0;
+  }
+
+  REVERB_CHECK_EQ(remaining, 0);
+  *sample = absl::make_unique<deepmind::reverb::Sample>(
+      sampled_item.item.key(), sampled_item.probability,
+      sampled_item.table_size, sampled_item.item.priority(), std::move(chunks));
+
+  return tensorflow::Status::OK();
+}
+
+class GrpcSamplerWorker : public SamplerWorker {
+ public:
+  // Constructs a new worker without creating a stream to a server.
+  GrpcSamplerWorker(
+      std::shared_ptr</* grpc_gen:: */ReverbService::StubInterface> stub,
+      std::string table_name, int64_t samples_per_request,
+      int flexible_batch_size)
+      : stub_(std::move(stub)),
+        table_name_(std::move(table_name)),
+        samples_per_request_(samples_per_request),
+        flexible_batch_size_(flexible_batch_size) {}
+
+  // Cancels the stream and marks the worker as closed. Active and future
+  // calls to `OpenStreamAndFetch` will return status `CANCELLED`.
+  void Cancel() override {
+    absl::MutexLock lock(&mu_);
+    closed_ = true;
+    if (context_ != nullptr) context_->TryCancel();
+  }
+
+  // Opens a new `SampleStream` to a server and requests `num_samples` samples
+  // in batches with maximum size `samples_per_request`, with a timeout to
+  // pass to the `Table::Sample` call. Once complete (either
+  // done, from a non transient error, or from timing out), the stream is
+  // closed and the number of samples pushed to `queue` is returned together
+  // with the status of the stream.  A timeout will cause the Status type
+  // DeadlineExceeded to be returned.
+  std::pair<int64_t, tensorflow::Status> FetchSamples(
+      internal::Queue<std::unique_ptr<Sample>>* queue, int64_t num_samples,
+      absl::Duration rate_limiter_timeout) override {
+    std::unique_ptr<grpc::ClientReaderWriterInterface<SampleStreamRequest,
+                                                      SampleStreamResponse>>
+        stream;
+    {
+      absl::MutexLock lock(&mu_);
+      if (closed_) {
+        return {0, tensorflow::errors::Cancelled("`Close` called on Sampler.")};
+      }
+      context_ = absl::make_unique<grpc::ClientContext>();
+      context_->set_wait_for_ready(false);
+      stream = stub_->SampleStream(context_.get());
+    }
+
+    int64_t num_samples_returned = 0;
+    while (num_samples_returned < num_samples) {
+      SampleStreamRequest request;
+      request.set_table(table_name_);
+      request.set_num_samples(
+          std::min(samples_per_request_, num_samples - num_samples_returned));
+      request.mutable_rate_limiter_timeout()->set_milliseconds(
+          NonnegativeDurationToInt64Millis(rate_limiter_timeout));
+      request.set_flexible_batch_size(flexible_batch_size_);
+
+      if (!stream->Write(request)) {
+        return {num_samples_returned, FromGrpcStatus(stream->Finish())};
+      }
+
+      for (int64_t i = 0; i < request.num_samples(); i++) {
+        std::vector<SampleStreamResponse> responses;
+        while (!SampleIsDone(responses)) {
+          SampleStreamResponse response;
+          if (!stream->Read(&response)) {
+            return {num_samples_returned, FromGrpcStatus(stream->Finish())};
+          }
+          responses.push_back(std::move(response));
+        }
+
+        std::unique_ptr<Sample> sample;
+        auto status = AsSample(std::move(responses), &sample);
+        if (!status.ok()) {
+          return {num_samples_returned, status};
+        }
+        if (!queue->Push(std::move(sample))) {
+          return {num_samples_returned,
+                  tensorflow::errors::Cancelled("`Close` called on Sampler")};
+        }
+        ++num_samples_returned;
+      }
+    }
+
+    if (num_samples_returned != num_samples) {
+      return {num_samples_returned,
+              tensorflow::errors::Internal(
+                  "num_samples_returned != num_samples (", num_samples_returned,
+                  " vs. ", num_samples)};
+    }
+    return {num_samples_returned, tensorflow::Status::OK()};
+  }
+
+ private:
+  // Stub used to open `SampleStream`-streams to a server.
+  std::shared_ptr</* grpc_gen:: */ReverbService::StubInterface> stub_;
+
+  // Name of the `Table` to sample from.
+  const std::string table_name_;
+
+  // The maximum number of samples to request in a "batch".
+  const int64_t samples_per_request_;
+
+  // Upper limit of the number of items that may be sampled in a single call
+  // to
+  // `Table::SampleFlexibleBatch` (lock not released between samples).
+  const int flexible_batch_size_;
+
+  // Context of the active stream.
+  std::unique_ptr<grpc::ClientContext> context_ ABSL_GUARDED_BY(mu_);
+
+  // True if `Cancel` has been called.
+  bool closed_ ABSL_GUARDED_BY(mu_) = false;
+
+  absl::Mutex mu_;
+};
+
+class LocalSamplerWorker : public SamplerWorker {
+ public:
+  // Constructs a new worker without creating a stream to a server.
+  LocalSamplerWorker(std::shared_ptr<Table> table, int flexible_batch_size)
+      : table_(table), flexible_batch_size_(flexible_batch_size) {
+    REVERB_CHECK_GE(flexible_batch_size_, 1);
+  }
+
+  void Cancel() override {
+    absl::MutexLock lock(&mu_);
+    closed_ = true;
+  }
+
+  std::pair<int64_t, tensorflow::Status> FetchSamples(
+      internal::Queue<std::unique_ptr<Sample>>* queue, int64_t num_samples,
+      absl::Duration rate_limiter_timeout) override {
+    static const auto kWakeupTimeout = absl::Seconds(3);
+    auto final_deadline = absl::Now() + rate_limiter_timeout;
+
+    int64_t num_samples_returned = 0;
+    while (num_samples_returned < num_samples) {
+      {
+        absl::MutexLock lock(&mu_);
+        if (closed_) {
+          return {0,
+                  tensorflow::errors::Cancelled("`Close` called on Sampler.")};
+        }
+      }
+
+      // If the rate limiter deadline is long into the future then we set the
+      // deadline `kWakeupTimeout` from now instead. Periodically waking up
+      // allows us to check that the Sampler haven't been cancelled while we
+      // were waiting.
+      auto timeout =
+          std::min(final_deadline, absl::Now() + kWakeupTimeout) - absl::Now();
+
+      // Select the biggest batch size constrained by`flexible_batch_size_` and
+      // the number of samples remaining.
+      auto batch_size = std::min<int>(flexible_batch_size_,
+                                      num_samples - num_samples_returned);
+
+      std::vector<Table::SampledItem> items;
+      auto status = table_->SampleFlexibleBatch(&items, batch_size, timeout);
+
+      // If the deadline is exceeded but the "real deadline" is still in the
+      // future then we are only waking up to check for cancellation.
+      if (tensorflow::errors::IsDeadlineExceeded(status) &&
+          absl::Now() < final_deadline) {
+        continue;
+      }
+
+      // All other errors are "real" and thus should be returned to the caller.
+      if (!status.ok()) {
+        return {num_samples_returned, status};
+      }
+
+      // Push sampled items to queue.
+      for (const auto& item : items) {
+        std::unique_ptr<Sample> sample;
+        if (status = AsSample(item, &sample); !status.ok()) {
+          return {num_samples_returned, status};
+        }
+        if (!queue->Push(std::move(sample))) {
+          return {num_samples_returned,
+                  tensorflow::errors::Cancelled("`Close` called on Sampler")};
+        }
+        ++num_samples_returned;
+      }
+    }
+
+    if (num_samples_returned != num_samples) {
+      return {num_samples_returned,
+              tensorflow::errors::Internal(
+                  "num_samples_returned != num_samples (", num_samples_returned,
+                  " vs. ", num_samples)};
+    }
+    return {num_samples_returned, tensorflow::Status::OK()};
+  }
+
+ private:
+  std::shared_ptr<Table> table_;
+  const int flexible_batch_size_;
+  bool closed_ ABSL_GUARDED_BY(mu_) = false;
+  absl::Mutex mu_;
+};
+
+int64_t GetNumWorkers(const Sampler::Options& options) {
+  int64_t max_samples = options.max_samples == Sampler::kUnlimitedMaxSamples
+                          ? INT64_MAX
+                          : options.max_samples;
+  int64_t num_workers = options.num_workers == Sampler::kAutoSelectValue
+                          ? Sampler::kDefaultNumWorkers
+                          : options.num_workers;
+
+  // If a subset of the workers are able to fetch all of `max_samples` in the
+  // first batch then there is no point in creating all of them.
+  return std::min<int64_t>(
+      num_workers,
+      std::max<int64_t>(1,
+                      max_samples / options.max_in_flight_samples_per_worker));
+}
+
+std::vector<std::unique_ptr<SamplerWorker>> MakeGrpcWorkers(
+    std::shared_ptr</* grpc_gen:: */ReverbService::StubInterface> stub,
+    const std::string& table_name, const Sampler::Options& options) {
+  int64_t num_workers = GetNumWorkers(options);
+  REVERB_CHECK_GE(num_workers, 1);
+  std::vector<std::unique_ptr<SamplerWorker>> workers;
+  workers.reserve(num_workers);
+  for (int i = 0; i < num_workers; i++) {
+    workers.push_back(absl::make_unique<GrpcSamplerWorker>(
+        stub, table_name, options.max_in_flight_samples_per_worker,
+        options.flexible_batch_size));
+  }
+
+  return workers;
+}
+
+std::vector<std::unique_ptr<SamplerWorker>> MakeLocalWorkers(
+    std::shared_ptr<Table> table, const Sampler::Options& options) {
+  int64_t num_workers = GetNumWorkers(options);
+  REVERB_CHECK_GE(num_workers, 1);
+  int flexible_batch_size =
+      options.flexible_batch_size == Sampler::kAutoSelectValue
+          ? table->DefaultFlexibleBatchSize()
+          : options.flexible_batch_size;
+
+  std::vector<std::unique_ptr<SamplerWorker>> workers;
+  workers.reserve(num_workers);
+  for (int i = 0; i < num_workers; ++i) {
+    workers.push_back(
+        absl::make_unique<LocalSamplerWorker>(table, flexible_batch_size));
+  }
+  return workers;
+}
+
 }  // namespace
 
 Sampler::Sampler(std::shared_ptr</* grpc_gen:: */ReverbService::StubInterface> stub,
+                 const std::string& table_name, const Options& options,
+                 internal::DtypesAndShapes dtypes_and_shapes)
+    : Sampler(MakeGrpcWorkers(std::move(stub), table_name, options), table_name,
+              options, std::move(dtypes_and_shapes)) {}
+
+Sampler::Sampler(std::vector<std::unique_ptr<SamplerWorker>> workers,
                  const std::string& table, const Options& options,
                  internal::DtypesAndShapes dtypes_and_shapes)
-    : stub_(std::move(stub)),
-      table_(table),
+    : table_(table),
       max_samples_(options.max_samples == kUnlimitedMaxSamples
                        ? INT64_MAX
                        : options.max_samples),
@@ -139,6 +456,7 @@ Sampler::Sampler(std::shared_ptr</* grpc_gen:: */ReverbService::StubInterface> s
                                   ? kDefaultMaxSamplesPerStream
                                   : options.max_samples_per_stream),
       rate_limiter_timeout_(options.rate_limiter_timeout),
+      workers_(std::move(workers)),
       active_sample_(nullptr),
       samples_(std::max<int>(options.num_workers, 1)),
       dtypes_and_shapes_(std::move(dtypes_and_shapes)) {
@@ -149,26 +467,17 @@ Sampler::Sampler(std::shared_ptr</* grpc_gen:: */ReverbService::StubInterface> s
   REVERB_CHECK(options.flexible_batch_size == kAutoSelectValue ||
                options.flexible_batch_size > 0);
 
-  int64_t num_workers = options.num_workers == kAutoSelectValue
-                          ? kDefaultNumWorkers
-                          : options.num_workers;
-
-  // If a subset of the workers are able to fetch all of `max_samples_` in the
-  // first batch then there is no point in creating all of them.
-  num_workers = std::min<int64_t>(
-      num_workers,
-      std::max<int64_t>(1,
-                      max_samples_ / options.max_in_flight_samples_per_worker));
-
-  for (int i = 0; i < num_workers; i++) {
-    workers_.push_back(absl::make_unique<Worker>(
-        stub_, table, options.max_in_flight_samples_per_worker,
-        options.flexible_batch_size));
+  for (int i = 0; i < workers_.size(); i++) {
     worker_threads_.push_back(internal::StartThread(
-        absl::StrCat("SampleWorker", i),
+        absl::StrCat("SamplerWorker_", i),
         [this, worker = workers_[i].get()] { RunWorker(worker); }));
   }
 }
+
+Sampler::Sampler(std::shared_ptr<Table> table, const Options& options,
+                 internal::DtypesAndShapes dtypes_and_shapes)
+    : Sampler(MakeLocalWorkers(table, options), table->name(), options,
+              std::move(dtypes_and_shapes)) {}
 
 Sampler::~Sampler() { Close(); }
 
@@ -256,7 +565,7 @@ tensorflow::Status Sampler::ValidateAgainstOutputSpec(
 }
 
 bool Sampler::should_stop_workers() const {
-  return closed_ || returned_ == max_samples_ || !stream_status_.ok();
+  return closed_ || returned_ == max_samples_ || !worker_status_.ok();
 }
 
 void Sampler::Close() {
@@ -292,10 +601,10 @@ tensorflow::Status Sampler::PopNextSample(std::unique_ptr<Sample>* sample) {
   if (closed_) {
     return tensorflow::errors::Cancelled("Sampler has been cancelled.");
   }
-  return FromGrpcStatus(stream_status_);
+  return worker_status_;
 }
 
-void Sampler::RunWorker(Worker* worker) {
+void Sampler::RunWorker(SamplerWorker* worker) {
   auto trigger = [this]() ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_) {
     return should_stop_workers() || requested_ < max_samples_;
   };
@@ -312,9 +621,8 @@ void Sampler::RunWorker(Worker* worker) {
     requested_ += samples_to_stream;
     mu_.Unlock();
 
-    auto result = worker->OpenStreamAndFetch(&samples_, samples_to_stream,
-                                             rate_limiter_timeout_);
-
+    auto result = worker->FetchSamples(&samples_, samples_to_stream,
+                                       rate_limiter_timeout_);
     {
       absl::WriterMutexLock lock(&mu_);
 
@@ -324,93 +632,14 @@ void Sampler::RunWorker(Worker* worker) {
       requested_ -= samples_to_stream - result.first;
 
       // Overwrite the final status only if it wasn't already an error.
-      if (stream_status_.ok() && !result.second.ok() &&
-          result.second.error_code() != grpc::StatusCode::UNAVAILABLE) {
-        stream_status_ = result.second;
+      if (worker_status_.ok() && !result.second.ok() &&
+          !tensorflow::errors::IsUnavailable(result.second)) {
+        worker_status_ = result.second;
         samples_.Close();  // Unblock any pending calls.
         return;
       }
     }
   }
-}
-
-Sampler::Worker::Worker(
-    std::shared_ptr</* grpc_gen:: */ReverbService::StubInterface> stub,
-    std::string table, int64_t samples_per_request, int32_t flexible_batch_size)
-    : stub_(std::move(stub)),
-      table_(std::move(table)),
-      samples_per_request_(samples_per_request),
-      flexible_batch_size_(flexible_batch_size) {}
-
-std::pair<int64_t, grpc::Status> Sampler::Worker::OpenStreamAndFetch(
-    deepmind::reverb::internal::Queue<std::unique_ptr<Sample>>* queue,
-    int64_t num_samples, absl::Duration rate_limiter_timeout) {
-  std::unique_ptr<grpc::ClientReaderWriterInterface<SampleStreamRequest,
-                                                    SampleStreamResponse>>
-      stream;
-  {
-    absl::MutexLock lock(&mu_);
-    if (closed_) {
-      return {0, grpc::Status(grpc::StatusCode::CANCELLED,
-                              "`Close` called on Sampler.")};
-    }
-    context_ = absl::make_unique<grpc::ClientContext>();
-    context_->set_wait_for_ready(false);
-    stream = stub_->SampleStream(context_.get());
-  }
-
-  int64_t num_samples_returned = 0;
-  while (num_samples_returned < num_samples) {
-    SampleStreamRequest request;
-    request.set_table(table_);
-    request.set_num_samples(
-        std::min(samples_per_request_, num_samples - num_samples_returned));
-    request.mutable_rate_limiter_timeout()->set_milliseconds(
-        NonnegativeDurationToInt64Millis(rate_limiter_timeout));
-    request.set_flexible_batch_size(flexible_batch_size_);
-
-    if (!stream->Write(request)) {
-      return {num_samples_returned, stream->Finish()};
-    }
-
-    for (int64_t i = 0; i < request.num_samples(); i++) {
-      std::vector<SampleStreamResponse> responses;
-      while (!SampleIsDone(responses)) {
-        SampleStreamResponse response;
-        if (!stream->Read(&response)) {
-          return {num_samples_returned, stream->Finish()};
-        }
-        responses.push_back(std::move(response));
-      }
-
-      std::unique_ptr<Sample> sample;
-      auto status = AsSample(std::move(responses), &sample);
-      if (!status.ok()) {
-        return {num_samples_returned, ToGrpcStatus(status)};
-      }
-      if (!queue->Push(std::move(sample))) {
-        return {num_samples_returned,
-                grpc::Status(grpc::StatusCode::CANCELLED,
-                             "`Close` called on Sampler.")};
-      }
-      ++num_samples_returned;
-    }
-  }
-
-  if (num_samples_returned != num_samples) {
-    return {
-        num_samples_returned,
-        grpc::Status(grpc::StatusCode::INTERNAL,
-                     absl::StrCat("num_samples_returned != num_samples (",
-                                  num_samples_returned, " vs. ", num_samples))};
-  }
-  return {num_samples_returned, grpc::Status::OK};
-}
-
-void Sampler::Worker::Cancel() {
-  absl::MutexLock lock(&mu_);
-  closed_ = true;
-  if (context_ != nullptr) context_->TryCancel();
 }
 
 Sample::Sample(tensorflow::uint64 key, double probability,

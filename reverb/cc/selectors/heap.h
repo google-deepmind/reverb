@@ -16,7 +16,7 @@
 #define REVERB_CC_SELECTORS_HEAP_H_
 
 #include <cstdint>
-#include "absl/container/flat_hash_map.h"
+#include "reverb/cc/platform/hash_map.h"
 #include "reverb/cc/selectors/interface.h"
 #include "reverb/cc/support/intrusive_heap.h"
 #include "tensorflow/core/lib/core/status.h"
@@ -78,7 +78,7 @@ class HeapSelector : public ItemSelectorInterface {
 
   // `IntrusiveHeap` does not manage the memory of its nodes so they are stored
   // in `nodes_`. The content of nodes_ and heap_ are always kept in sync.
-  absl::flat_hash_map<Key, std::unique_ptr<HeapNode>> nodes_;
+  internal::flat_hash_map<Key, std::unique_ptr<HeapNode>> nodes_;
 
   // Keep track of the number of inserts/updates for most-recent tie-breaking.
   uint64_t update_count_;

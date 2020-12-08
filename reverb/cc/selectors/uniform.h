@@ -17,9 +17,9 @@
 
 #include <vector>
 
-#include "absl/container/flat_hash_map.h"
 #include "absl/random/random.h"
 #include "reverb/cc/checkpointing/checkpoint.pb.h"
+#include "reverb/cc/platform/hash_map.h"
 #include "reverb/cc/selectors/interface.h"
 #include "tensorflow/core/lib/core/status.h"
 
@@ -48,7 +48,7 @@ class UniformSelector : public ItemSelectorInterface {
   std::vector<Key> keys_;
 
   // Maps a key to the index where this key can be found in `keys_.
-  absl::flat_hash_map<Key, size_t> key_to_index_;
+  internal::flat_hash_map<Key, size_t> key_to_index_;
 
   // Used for sampling, not thread-safe.
   absl::BitGen bit_gen_;

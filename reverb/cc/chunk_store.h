@@ -19,11 +19,12 @@
 #include <utility>
 #include <vector>
 
+#include "absl/base/call_once.h"
 #include <cstdint>
 #include "absl/base/thread_annotations.h"
-#include "absl/container/flat_hash_map.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/types/span.h"
+#include "reverb/cc/platform/hash_map.h"
 #include "reverb/cc/platform/thread.h"
 #include "reverb/cc/schema.pb.h"
 #include "reverb/cc/support/queue.h"
@@ -58,15 +59,15 @@ class ChunkStore {
 
     // (Potentially cached) size of `data`.
     size_t DataByteSizeLong() const {
-      if (data_byte_size_ == 0) {
-        data_byte_size_ = data_.ByteSizeLong();
-      }
+      absl::call_once(data_byte_size_once_,
+                      [this]() { data_byte_size_ = data_.ByteSizeLong(); });
       return data_byte_size_;
     }
 
    private:
     ChunkData data_;
-    mutable size_t data_byte_size_ = 0;
+    mutable size_t data_byte_size_;
+    mutable absl::once_flag data_byte_size_once_;
   };
 
   // Starts `cleaner_`. `cleanup_batch_size` is the number of keys the cleaner
@@ -103,7 +104,7 @@ class ChunkStore {
   // Holds the actual mapping of key to Chunk. We only hold a weak pointer to
   // the Chunk, which means that destruction and reference counting of the
   // chunks happens independently of this map.
-  absl::flat_hash_map<Key, std::weak_ptr<Chunk>> data_ ABSL_GUARDED_BY(mu_);
+  internal::flat_hash_map<Key, std::weak_ptr<Chunk>> data_ ABSL_GUARDED_BY(mu_);
 
   // Mutex protecting access to `data_`.
   mutable absl::Mutex mu_;

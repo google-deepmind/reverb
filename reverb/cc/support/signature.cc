@@ -122,8 +122,8 @@ std::string DtypesShapesString(const std::vector<tensorflow::Tensor>& tensors) {
 tensorflow::StructuredValue StructuredValueFromChunkData(
     const ChunkData& chunk_data) {
   tensorflow::StructuredValue value;
-  for (int i = 0; i < chunk_data.data_size(); i++) {
-    const auto& chunk = chunk_data.data(i);
+  for (int i = 0; i < chunk_data.data().tensors_size(); i++) {
+    const auto& chunk = chunk_data.data().tensors(i);
     tensorflow::PartialTensorShape shape(chunk.tensor_shape());
     shape.RemoveDim(0);
 
