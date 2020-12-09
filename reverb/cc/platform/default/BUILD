@@ -64,6 +64,7 @@ reverb_cc_library(
 
 reverb_cc_library(
     name = "logging",
+    srcs = ["logging.cc"],
     hdrs = ["logging.h"],
     deps = reverb_tf_deps(),
 )

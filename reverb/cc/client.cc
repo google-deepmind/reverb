@@ -156,7 +156,7 @@ tensorflow::Status Client::NewSampler(
 
   std::shared_ptr<Table> table_ptr;
   if (GetLocalTablePtr(table, &table_ptr).ok()) {
-    REVERB_LOG(REVERB_INFO)
+    REVERB_LOG_EVERY_POW_2(REVERB_INFO)
         << "Sampler and server are owned by the same process (" << getpid()
         << ") so Table " << table << " is accessed directly without gRPC.";
     *sampler = absl::make_unique<Sampler>(std::move(table_ptr), options,

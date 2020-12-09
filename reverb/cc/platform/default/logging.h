@@ -33,6 +33,7 @@
 #ifndef REVERB_CC_PLATFORM_DEFAULT_LOGGING_H_
 #define REVERB_CC_PLATFORM_DEFAULT_LOGGING_H_
 
+#include <atomic>
 #include <cstdlib>
 #include <iostream>
 #include <sstream>
@@ -143,6 +144,33 @@ struct Voidify {
   void operator&(std::ostream&) {}
 };
 
+class LogEveryNState {
+ public:
+  bool ShouldLog(int n);
+  uint32_t counter() { return counter_.load(std::memory_order_relaxed); }
+
+ private:
+  std::atomic<uint32_t> counter_{0};
+};
+
+class LogFirstNState {
+ public:
+  bool ShouldLog(int n);
+  uint32_t counter() { return counter_.load(std::memory_order_relaxed); }
+
+ private:
+  std::atomic<uint32_t> counter_{0};
+};
+
+class LogEveryPow2State {
+ public:
+  bool ShouldLog(int ignored);
+  uint32_t counter() { return counter_.load(std::memory_order_relaxed); }
+
+ private:
+  std::atomic<uint32_t> counter_{0};
+};
+
 }  // namespace internal
 }  // namespace reverb
 }  // namespace deepmind
@@ -202,5 +230,31 @@ struct Voidify {
                     ::deepmind::reverb::internal::LogSeverity, level>()))( \
                 __FILE__, __LINE__)                                        \
                 .stream()
+
+#define REVERB_LOGGING_INTERNAL_STATEFUL_CONDITION(kind, condition, arg)   \
+  for (bool logging_internal_stateful_condition_do_log(condition);  \
+       logging_internal_stateful_condition_do_log;                  \
+       logging_internal_stateful_condition_do_log = false)          \
+    for (static ::deepmind::reverb::internal::Log##kind##State      \
+             logging_internal_stateful_condition_state;             \
+         logging_internal_stateful_condition_do_log &&              \
+         logging_internal_stateful_condition_state.ShouldLog(arg);  \
+         logging_internal_stateful_condition_do_log = false)        \
+      for (const uint32_t COUNTER ABSL_ATTRIBUTE_UNUSED =           \
+               logging_internal_stateful_condition_state.counter(); \
+           logging_internal_stateful_condition_do_log;              \
+           logging_internal_stateful_condition_do_log = false)
+
+#define REVERB_LOG_EVERY_N(level, n)                          \
+  REVERB_LOGGING_INTERNAL_STATEFUL_CONDITION(EveryN, true, n) \
+  REVERB_LOG(level)
+
+#define REVERB_LOG_FIRST_N(level, n)                          \
+  REVERB_LOGGING_INTERNAL_STATEFUL_CONDITION(FirstN, true, n) \
+  REVERB_LOG(level)
+
+#define REVERB_LOG_EVERY_POW_2(level)                            \
+  REVERB_LOGGING_INTERNAL_STATEFUL_CONDITION(EveryPow2, true, 0) \
+  REVERB_LOG(level)
 
 #endif  // REVERB_CC_PLATFORM_DEFAULT_LOGGING_H_
