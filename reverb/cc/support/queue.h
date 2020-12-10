@@ -19,6 +19,9 @@
 
 #include "absl/base/thread_annotations.h"
 #include "absl/synchronization/mutex.h"
+#include "absl/time/time.h"
+#include "tensorflow/core/platform/errors.h"
+#include "tensorflow/core/platform/status.h"
 
 namespace deepmind {
 namespace reverb {
@@ -71,6 +74,64 @@ class Queue {
     buffer_[(index_ + size_) % buffer_.size()] = std::move(x);
     ++size_;
     return true;
+  }
+
+  // Blocks until queue contains at least `batch_size` items then pops and
+  // pushes `batch_size` from the queue to `out`.
+  //
+  // Returns:
+  //   OK: If `batch_size` items could be popped before `timeout`.
+  //   InvalidArgumentError: if `batch_size` > queue size.
+  //   DeadlineExceededError: if timeout exceeded.
+  //   ResourceExhaustedError: if SetLastItemPushed called before `batch_size`
+  //     items in the queue.
+  //   CancelledError: if queue has been closed or SetLastItemPushed called on
+  //     an already empty queue.
+  //
+  tensorflow::Status PopBatch(int batch_size, absl::Duration timeout,
+                              std::vector<T>* out) {
+    if (batch_size > buffer_.size()) {
+      return tensorflow::errors::InvalidArgument("Batch size (", batch_size,
+                                                 ") must be <= of queue size (",
+                                                 buffer_.size(), ").");
+    }
+
+    auto trigger = [&]() ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_) {
+      return closed_ || size_ >= batch_size || last_item_pushed_;
+    };
+
+    absl::MutexLock lock(&mu_);
+    if (!mu_.AwaitWithTimeout(absl::Condition(&trigger), timeout) &&
+        !last_item_pushed_ && !closed_) {
+      return tensorflow::errors::DeadlineExceeded(
+          "Timeout exceeeded before ", batch_size, " items observed in queue.");
+    }
+
+    if (closed_) {
+      return tensorflow::errors::Cancelled("Queue is closed.");
+    }
+
+    if (last_item_pushed_) {
+      return tensorflow::errors::ResourceExhausted(
+          "The last item have been pushed to the queue and the current size (",
+          size_, ") is less than the batch size (", batch_size, ").");
+    }
+
+    for (int i = 0; i < batch_size; i++) {
+      out->push_back(std::move(buffer_[index_]));
+      index_ = (index_ + 1) % buffer_.size();
+      --size_;
+    }
+
+    if (size_ == 0 && last_item_pushed_) {
+      closed_ = true;
+    }
+
+    return tensorflow::Status::OK();
+  }
+
+  tensorflow::Status PopBatch(int batch_size, std::vector<T>* out) {
+    return PopBatch(batch_size, absl::InfiniteDuration(), out);
   }
 
   // Marks that no more items will be pushed to the queue.

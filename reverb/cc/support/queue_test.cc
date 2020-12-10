@@ -20,8 +20,11 @@
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "absl/synchronization/notification.h"
+#include "absl/time/time.h"
 #include "reverb/cc/platform/logging.h"
 #include "reverb/cc/platform/thread.h"
+#include "tensorflow/core/lib/core/status_test_util.h"
+#include "tensorflow/core/protobuf/error_codes.pb.h"
 
 namespace deepmind {
 namespace reverb {
@@ -156,6 +159,80 @@ TEST(QueueTest, BlockingPopReturnsIfSetLastItemPushedCalled) {
   q.SetLastItemPushed();
   n.WaitForNotification();
   EXPECT_FALSE(ok);
+}
+
+TEST(QueueTest, PopBatchBlocksUntilBatchFull) {
+  Queue<int> q(10);
+
+  std::vector<int> v;
+  for (int i = 0; i < 5; i++) {
+    EXPECT_EQ(q.PopBatch(5, absl::ZeroDuration(), &v).code(),
+              tensorflow::error::DEADLINE_EXCEEDED);
+    EXPECT_TRUE(q.Push(i));
+  }
+
+  TF_EXPECT_OK(q.PopBatch(5, &v));
+}
+
+TEST(QueueTest, PopBatchEmitsItemsInOrder) {
+  Queue<int> q(10);
+
+  for (int i = 0; i < 5; i++) {
+    EXPECT_TRUE(q.Push(i));
+  }
+
+  std::vector<int> v;
+  TF_EXPECT_OK(q.PopBatch(5, &v));
+  EXPECT_THAT(v, testing::ElementsAre(0, 1, 2, 3, 4));
+}
+
+TEST(QueueTest, PopBatchReturnsIfSetLastItemPushed) {
+  Queue<int> q(3);
+  absl::Notification n;
+  tensorflow::Status status;
+
+  auto thread = internal::StartThread("", [&] {
+    std::vector<int> out;
+    status = q.PopBatch(2, &out);
+    n.Notify();
+  });
+
+  // Inserting one item should not unblock it.
+  q.Push(1);
+  EXPECT_FALSE(n.WaitForNotificationWithTimeout(absl::Milliseconds(100)));
+
+  // Calling `SetLastItemPushed` should unblock the call as the batch can never
+  // be filled now.
+  q.SetLastItemPushed();
+  n.WaitForNotification();
+  EXPECT_EQ(status.code(), tensorflow::error::RESOURCE_EXHAUSTED);
+}
+
+TEST(QueueTest, PopBatchReturnsInvalidArgumentIfBatchSizeTooBig) {
+  Queue<int> q(3);
+  std::vector<int> v;
+  EXPECT_EQ(q.PopBatch(4, &v).code(), tensorflow::error::INVALID_ARGUMENT);
+}
+
+TEST(QueueTest, PopBatchReturnsCancelledIfClosedCalled) {
+  Queue<int> q(3);
+  absl::Notification n;
+  tensorflow::Status status;
+
+  auto thread = internal::StartThread("", [&] {
+    std::vector<int> out;
+    status = q.PopBatch(2, &out);
+    n.Notify();
+  });
+
+  // Inserting one item should not unblock it.
+  q.Push(1);
+  EXPECT_FALSE(n.WaitForNotificationWithTimeout(absl::Milliseconds(100)));
+
+  // Calling `Close` should unblock the call.
+  q.Close();
+  n.WaitForNotification();
+  EXPECT_EQ(status.code(), tensorflow::error::CANCELLED);
 }
 
 }  // namespace
