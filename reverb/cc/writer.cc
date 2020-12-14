@@ -21,6 +21,7 @@
 #include <vector>
 
 #include "absl/base/thread_annotations.h"
+#include "absl/flags/flag.h"
 #include "absl/functional/bind_front.h"
 #include "absl/strings/str_cat.h"
 #include "absl/synchronization/mutex.h"
@@ -36,6 +37,13 @@
 #include "tensorflow/core/framework/tensor_util.h"
 #include "tensorflow/core/lib/core/status.h"
 #include "tensorflow/core/platform/errors.h"
+
+// TODO(b/175364476): Remove once we find a better solution (like a
+// timeout).
+ABSL_FLAG(bool, reverb_disable_writer_retries, false,
+          "If the writer should stop when the server is not available. This is "
+          "only recommended for single-machine scenarios where the writer "
+          "cannot be flushed or closed explicitly.");
 
 namespace deepmind {
 namespace reverb {
@@ -398,7 +406,11 @@ tensorflow::Status Writer::WriteWithRetries() {
     TF_RETURN_IF_ERROR(StopItemConfirmationWorker());
     auto status = FromGrpcStatus(stream_->Finish());
     stream_ = nullptr;
-    if (!tensorflow::errors::IsUnavailable(status)) return status;
+    // TODO(b/175364476): Remove once we find a better solution (like a
+    // timeout).
+    if (!tensorflow::errors::IsUnavailable(status) ||
+        absl::GetFlag(FLAGS_reverb_disable_writer_retries))
+      return status;
   }
 }
 

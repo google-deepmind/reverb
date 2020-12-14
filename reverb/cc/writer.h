@@ -23,6 +23,7 @@
 #include "grpcpp/impl/codegen/sync_stream.h"
 #include <cstdint>
 #include "absl/base/thread_annotations.h"
+#include "absl/flags/flag.h"
 #include "absl/random/random.h"
 #include "absl/strings/string_view.h"
 #include "absl/synchronization/mutex.h"
@@ -38,6 +39,10 @@
 #include "tensorflow/core/framework/tensor_shape.h"
 #include "tensorflow/core/lib/core/status.h"
 #include "tensorflow/core/lib/hash/hash.h"
+
+// TODO(b/175364476): Remove once we find a better solution (like a
+// timeout).
+ABSL_DECLARE_FLAG(bool, reverb_disable_writer_retries);
 
 namespace deepmind {
 namespace reverb {

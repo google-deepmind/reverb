@@ -365,6 +365,22 @@ TEST(WriterTest, DoesNotRetryOnNonTransientError) {
   EXPECT_THAT(requests, SizeIs(1));  // Tries only once and then gives up.
 }
 
+TEST(WriterTest, DoesNotRetryOnTransientErrorIfRetriesAreDisabled) {
+  absl::SetFlag(&FLAGS_reverb_disable_writer_retries, true);
+  std::vector<InsertStreamRequest> requests;
+  auto stub = MakeFlakyStub(&requests, 0, 1, ToGrpcStatus(Unavailable("")));
+  Writer writer(stub, 2, 10);
+
+  TF_ASSERT_OK(writer.Append(MakeTimestep()));
+  TF_ASSERT_OK(writer.Append(MakeTimestep()));
+  EXPECT_FALSE(writer.CreateItem("dist", 1, 1.0).ok());
+
+  EXPECT_THAT(requests, SizeIs(1));  // Tries only once and then gives up.
+
+  // restore to the default value
+  absl::SetFlag(&FLAGS_reverb_disable_writer_retries, false);
+}
+
 TEST(WriterTest, CallsCloseWhenObjectDestroyed) {
   std::vector<InsertStreamRequest> requests;
   {
