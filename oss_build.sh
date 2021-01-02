@@ -106,6 +106,9 @@ for python_version in $PYTHON_VERSIONS; do
     echo "Error unknown --python. Only [3.7|3.8|3.9|3.10]"
     exit 1
 
+  export PYTHON_BIN_PATH=`which python${python_version}`
+  export PYTHON_LIB_PATH=`$PYTHON_BIN_PATH -c 'import site; print("\\n".join(site.getsitepackages()))'`
+
   if [ "$(uname)" = "Darwin" ]; then
     bazel_config=""
     version=`sw_vers -productVersion | sed 's/\./_/g' | cut -d"_" -f1,2`
@@ -137,7 +140,7 @@ for python_version in $PYTHON_VERSIONS; do
   ./bazel-bin/reverb/pip_package/build_pip_package --dst $OUTPUT_DIR $PIP_PKG_EXTRA_ARGS --platform "$PLATFORM"
 
   # Installs pip package.
-  $PYTHON_BIN_PATH -mpip install ${OUTPUT_DIR}*${ABI}*.whl
+  $PYTHON_BIN_PATH -mpip install --force-reinstall ${OUTPUT_DIR}*${ABI}*.whl
 
   if [ "$PYTHON_TESTS" = "true" ]; then
     echo "Run Python tests..."
