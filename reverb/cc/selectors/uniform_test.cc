@@ -57,7 +57,7 @@ TEST(UniformSelectorTest, MatchesUniformSelector) {
   }
   std::vector<int64_t> counts(kItems);
   for (int i = 0; i < kSamples; i++) {
-    ItemSelectorInterface::KeyWithProbability sample = uniform.Sample();
+    ItemSelector::KeyWithProbability sample = uniform.Sample();
     EXPECT_EQ(sample.probability, expected_probability);
     counts[sample.key]++;
   }

@@ -26,7 +26,7 @@ class CheckpointerBase(metaclass=abc.ABCMeta):
   """Base class for Python wrappers of the Checkpointer."""
 
   @abc.abstractmethod
-  def internal_checkpointer(self) -> pybind.CheckpointerInterface:
+  def internal_checkpointer(self) -> pybind.Checkpointer:
     """Creates the actual Checkpointer-object used by the C++ layer."""
 
 
@@ -44,7 +44,7 @@ class DefaultCheckpointer(CheckpointerBase):
     self.path = path
     self.group = group
 
-  def internal_checkpointer(self) -> pybind.CheckpointerInterface:
+  def internal_checkpointer(self) -> pybind.Checkpointer:
     """Creates the actual Checkpointer-object used by the C++ layer."""
     return pybind.create_default_checkpointer(self.path, self.group)
 

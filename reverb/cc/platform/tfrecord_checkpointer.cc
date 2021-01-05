@@ -106,7 +106,7 @@ inline bool HasDone(const std::string& path) {
       .ok();
 }
 
-std::unique_ptr<ItemSelectorInterface> MakeDistribution(
+std::unique_ptr<ItemSelector> MakeDistribution(
     const KeyDistributionOptions& options) {
   switch (options.distribution_case()) {
     case KeyDistributionOptions::kFifo:

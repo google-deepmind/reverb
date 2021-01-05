@@ -59,7 +59,7 @@ namespace reverb {
 //
 // If `group` is nonempty then the directory containing the checkpoint will be
 // created with `group` as group.
-class TFRecordCheckpointer : public CheckpointerInterface {
+class TFRecordCheckpointer : public Checkpointer {
  public:
   explicit TFRecordCheckpointer(std::string root_dir, std::string group = "");
 

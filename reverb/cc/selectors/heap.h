@@ -27,7 +27,7 @@ namespace reverb {
 // HeapSelector always samples the item with the lowest or highest priority
 // (controlled by `min_heap`). If multiple items share the same priority then
 // the least recently inserted or updated key is sampled.
-class HeapSelector : public ItemSelectorInterface {
+class HeapSelector : public ItemSelector {
  public:
   explicit HeapSelector(bool min_heap = true);
 

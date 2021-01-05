@@ -45,7 +45,7 @@ namespace deepmind {
 namespace reverb {
 namespace {
 
-using Extensions = std::vector<std::shared_ptr<TableExtensionInterface>>;
+using Extensions = std::vector<std::shared_ptr<TableExtension>>;
 
 inline bool IsInsertedBefore(const PrioritizedItem& a,
                              const PrioritizedItem& b) {
@@ -63,8 +63,8 @@ inline void EncodeAsTimestampProto(absl::Time t,
 
 }  // namespace
 
-Table::Table(std::string name, std::shared_ptr<ItemSelectorInterface> sampler,
-             std::shared_ptr<ItemSelectorInterface> remover, int64_t max_size,
+Table::Table(std::string name, std::shared_ptr<ItemSelector> sampler,
+             std::shared_ptr<ItemSelector> remover, int64_t max_size,
              int32_t max_times_sampled, std::shared_ptr<RateLimiter> rate_limiter,
              Extensions extensions,
              absl::optional<tensorflow::StructuredValue> signature)
@@ -307,8 +307,7 @@ tensorflow::Status Table::DeleteItem(Table::Key key, Item* deleted_item) {
 }
 
 tensorflow::Status Table::UpdateItem(
-    Key key, double priority,
-    std::initializer_list<TableExtensionInterface*> exclude) {
+    Key key, double priority, std::initializer_list<TableExtension*> exclude) {
   auto it = data_.find(key);
   if (it == data_.end()) {
     return tensorflow::Status::OK();
@@ -422,16 +421,14 @@ const internal::flat_hash_map<Table::Key, Table::Item>* Table::RawLookup() {
   return &data_;
 }
 
-void Table::UnsafeAddExtension(
-    std::shared_ptr<TableExtensionInterface> extension) {
+void Table::UnsafeAddExtension(std::shared_ptr<TableExtension> extension) {
   TF_CHECK_OK(extension->RegisterTable(&mu_, this));
   absl::MutexLock lock(&mu_);
   REVERB_CHECK(data_.empty());
   extensions_.push_back(std::move(extension));
 }
 
-const std::vector<std::shared_ptr<TableExtensionInterface>>& Table::extensions()
-    const {
+const std::vector<std::shared_ptr<TableExtension>>& Table::extensions() const {
   return extensions_;
 }
 
@@ -462,15 +459,13 @@ int64_t Table::num_episodes() const {
 }
 
 tensorflow::Status Table::UnsafeUpdateItem(
-    Key key, double priority,
-    std::initializer_list<TableExtensionInterface*> exclude) {
+    Key key, double priority, std::initializer_list<TableExtension*> exclude) {
   mu_.AssertHeld();
   return UpdateItem(key, priority, std::move(exclude));
 }
 
-std::vector<std::shared_ptr<TableExtensionInterface>>
-Table::UnsafeClearExtensions() {
-  std::vector<std::shared_ptr<TableExtensionInterface>> extensions;
+std::vector<std::shared_ptr<TableExtension>> Table::UnsafeClearExtensions() {
+  std::vector<std::shared_ptr<TableExtension>> extensions;
   {
     absl::MutexLock lock(&mu_);
     REVERB_CHECK(data_.empty());

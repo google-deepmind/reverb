@@ -26,7 +26,7 @@ namespace reverb {
 HeapSelector::HeapSelector(bool min_heap)
     : sign_(min_heap ? 1 : -1), update_count_(0) {}
 
-tensorflow::Status HeapSelector::Delete(ItemSelectorInterface::Key key) {
+tensorflow::Status HeapSelector::Delete(ItemSelector::Key key) {
   auto it = nodes_.find(key);
   if (it == nodes_.end()) {
     return tensorflow::errors::InvalidArgument("Key ", key, " not found.");
@@ -36,7 +36,7 @@ tensorflow::Status HeapSelector::Delete(ItemSelectorInterface::Key key) {
   return tensorflow::Status::OK();
 }
 
-tensorflow::Status HeapSelector::Insert(ItemSelectorInterface::Key key,
+tensorflow::Status HeapSelector::Insert(ItemSelector::Key key,
                                         double priority) {
   if (nodes_.contains(key)) {
     return tensorflow::errors::InvalidArgument("Key ", key,
@@ -48,7 +48,7 @@ tensorflow::Status HeapSelector::Insert(ItemSelectorInterface::Key key,
   return tensorflow::Status::OK();
 }
 
-tensorflow::Status HeapSelector::Update(ItemSelectorInterface::Key key,
+tensorflow::Status HeapSelector::Update(ItemSelector::Key key,
                                         double priority) {
   if (!nodes_.contains(key)) {
     return tensorflow::errors::InvalidArgument("Key ", key, " not found.");
@@ -59,7 +59,7 @@ tensorflow::Status HeapSelector::Update(ItemSelectorInterface::Key key,
   return tensorflow::Status::OK();
 }
 
-ItemSelectorInterface::KeyWithProbability HeapSelector::Sample() {
+ItemSelector::KeyWithProbability HeapSelector::Sample() {
   REVERB_CHECK(!nodes_.empty());
   return {heap_.top()->key, 1.};
 }

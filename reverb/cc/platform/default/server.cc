@@ -33,9 +33,8 @@ class ServerImpl : public Server {
  public:
   ServerImpl(int port) : port_(port) {}
 
-  tensorflow::Status Initialize(
-      std::vector<std::shared_ptr<Table>> tables,
-      std::shared_ptr<CheckpointerInterface> checkpointer) {
+  tensorflow::Status Initialize(std::vector<std::shared_ptr<Table>> tables,
+                                std::shared_ptr<Checkpointer> checkpointer) {
     absl::WriterMutexLock lock(&mu_);
     REVERB_CHECK(!running_) << "Initialize() called twice?";
     TF_RETURN_IF_ERROR(ReverbServiceImpl::Create(
@@ -97,10 +96,10 @@ class ServerImpl : public Server {
 
 }  // namespace
 
-tensorflow::Status StartServer(
-    std::vector<std::shared_ptr<Table>> tables, int port,
-    std::shared_ptr<CheckpointerInterface> checkpointer,
-    std::unique_ptr<Server> *server) {
+tensorflow::Status StartServer(std::vector<std::shared_ptr<Table>> tables,
+                               int port,
+                               std::shared_ptr<Checkpointer> checkpointer,
+                               std::unique_ptr<Server> *server) {
   auto s = absl::make_unique<ServerImpl>(port);
   TF_RETURN_IF_ERROR(s->Initialize(std::move(tables), std::move(checkpointer)));
   *server = std::move(s);

@@ -18,8 +18,8 @@
 namespace deepmind {
 namespace reverb {
 
-std::unique_ptr<CheckpointerInterface> CreateDefaultCheckpointer(
-    std::string root_dir, std::string group) {
+std::unique_ptr<Checkpointer> CreateDefaultCheckpointer(std::string root_dir,
+                                                        std::string group) {
   return absl::make_unique<TFRecordCheckpointer>(std::move(root_dir),
                                                  std::move(group));
 }

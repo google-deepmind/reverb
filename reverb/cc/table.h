@@ -49,7 +49,7 @@ struct TableItem {
 };
 
 // A `Table` is a structure for storing `TableItem` objects. The table uses two
-// instances of `ItemSelectorInterface`, one for sampling (`sampler`) and
+// instances of `ItemSelector`, one for sampling (`sampler`) and
 // another for removing (`remover`). All item operations (insert/update/delete)
 // on the table are propagated to the sampler and remover with the original
 // operation on the table. The `Table` uses the sampler to determine which items
@@ -78,7 +78,7 @@ struct TableItem {
 //
 class Table {
  public:
-  using Key = ItemSelectorInterface::Key;
+  using Key = ItemSelector::Key;
   using Item = TableItem;
 
   // Used as the return of Sample(). Note that this returns the probability of
@@ -111,10 +111,10 @@ class Table {
   // `signature` allows an optional declaration of the data that can be stored
   //   in this table.  writers and readers are responsible for checking against
   //   this signature, as it is available via RPC request.
-  Table(std::string name, std::shared_ptr<ItemSelectorInterface> sampler,
-        std::shared_ptr<ItemSelectorInterface> remover, int64_t max_size,
+  Table(std::string name, std::shared_ptr<ItemSelector> sampler,
+        std::shared_ptr<ItemSelector> remover, int64_t max_size,
         int32_t max_times_sampled, std::shared_ptr<RateLimiter> rate_limiter,
-        std::vector<std::shared_ptr<TableExtensionInterface>> extensions = {},
+        std::vector<std::shared_ptr<TableExtension>> extensions = {},
         absl::optional<tensorflow::StructuredValue> signature = absl::nullopt);
 
   ~Table();
@@ -204,7 +204,7 @@ class Table {
   //
   // Note! This method is not thread safe and caller is responsible for making
   // sure that this method, nor any other method, is called concurrently.
-  void UnsafeAddExtension(std::shared_ptr<TableExtensionInterface> extension);
+  void UnsafeAddExtension(std::shared_ptr<TableExtension> extension);
 
   // Unregisters and returns all extension from the internal list. Note that
   // this must be called before items are inserted. If called when the number of
@@ -212,11 +212,10 @@ class Table {
   //
   // Note! This method is not thread safe and caller is responsible for making
   // sure that this method, nor any other method, is called concurrently.
-  std::vector<std::shared_ptr<TableExtensionInterface>> UnsafeClearExtensions();
+  std::vector<std::shared_ptr<TableExtension>> UnsafeClearExtensions();
 
   // Registered table extensions.
-  const std::vector<std::shared_ptr<TableExtensionInterface>>& extensions()
-      const;
+  const std::vector<std::shared_ptr<TableExtension>>& extensions() const;
 
   // Lookup a single item. Returns true if found, else false.
   bool Get(Key key, Item* item) ABSL_LOCKS_EXCLUDED(mu_);
@@ -267,8 +266,7 @@ class Table {
 
   // Asserts that `mu_` is held at runtime and calls UpdateItem.
   tensorflow::Status UnsafeUpdateItem(
-      Key key, double priority,
-      std::initializer_list<TableExtensionInterface*> exclude)
+      Key key, double priority, std::initializer_list<TableExtension*> exclude)
       ABSL_ASSERT_EXCLUSIVE_LOCK(mu_);
 
   // Suggestion of default batch size to use in `SampleFlexibleBatch`.
@@ -279,7 +277,7 @@ class Table {
   // `OnUpdate` on all extensions not part of `exclude`.
   tensorflow::Status UpdateItem(
       Key key, double priority,
-      std::initializer_list<TableExtensionInterface*> exclude = {})
+      std::initializer_list<TableExtension*> exclude = {})
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_);
 
   // Deletes the item associated with the key from `data_`, `sampler_` and
@@ -291,10 +289,10 @@ class Table {
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_);
 
   // Distribution used for sampling.
-  std::shared_ptr<ItemSelectorInterface> sampler_ ABSL_GUARDED_BY(mu_);
+  std::shared_ptr<ItemSelector> sampler_ ABSL_GUARDED_BY(mu_);
 
   // Distribution used for removing.
-  std::shared_ptr<ItemSelectorInterface> remover_ ABSL_GUARDED_BY(mu_);
+  std::shared_ptr<ItemSelector> remover_ ABSL_GUARDED_BY(mu_);
 
   // Bijection of key to item. Used for storing the chunks and timestep range of
   // each item.
@@ -326,8 +324,7 @@ class Table {
 
   // Extensions implement hooks that are executed while holding `mu_` as part
   // of insert, delete, update or reset operations.
-  std::vector<std::shared_ptr<TableExtensionInterface>> extensions_
-      ABSL_GUARDED_BY(mu_);
+  std::vector<std::shared_ptr<TableExtension>> extensions_ ABSL_GUARDED_BY(mu_);
 
   // Synchronizes access to `sampler_`, `remover_`, 'rate_limiter_`,
   // 'extensions_` and `data_`,

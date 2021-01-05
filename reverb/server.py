@@ -45,8 +45,8 @@ class TableExtensionBase(metaclass=abc.ABCMeta):
   """Abstract base class for Table extensions."""
 
   @abc.abstractmethod
-  def build_internal_extensions(
-      self, table_name: str) -> List[pybind.TableExtensionInterface]:
+  def build_internal_extensions(self,
+                                table_name: str) -> List[pybind.TableExtension]:
     """Constructs the c++ PriorityTableExtensions."""
 
 

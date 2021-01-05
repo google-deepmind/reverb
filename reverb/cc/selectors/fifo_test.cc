@@ -61,7 +61,7 @@ TEST(FifoSelectorTest, MatchesFifoOrdering) {
 
   for (int i = 0; i < kItems; i++) {
     if (i % 10 == 0) continue;
-    ItemSelectorInterface::KeyWithProbability sample = fifo.Sample();
+    ItemSelector::KeyWithProbability sample = fifo.Sample();
     EXPECT_EQ(sample.key, i);
     EXPECT_EQ(sample.probability, 1);
     TF_EXPECT_OK(fifo.Delete(sample.key));

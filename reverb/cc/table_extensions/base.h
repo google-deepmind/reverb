@@ -23,14 +23,14 @@
 namespace deepmind {
 namespace reverb {
 
-// Base implementation for TableExtensionInterface.
+// Base implementation for TableExtension.
 //
 // This class implements table registration and all mutex protected On*-methods
 // by delegating it to a "simpler" ApplyOn method. Children are thus able to
 // implement any subset of the ApplyOn (and avoid the overly verbose API)
 // without losing the safety provided by the static analysis of the mutexes.
 //
-class TableExtensionBase : public TableExtensionInterface {
+class TableExtensionBase : public TableExtension {
  public:
   virtual ~TableExtensionBase() = default;
 

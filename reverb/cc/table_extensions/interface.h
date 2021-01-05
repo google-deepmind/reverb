@@ -33,9 +33,9 @@ class TableItem;
 // as part of the atomic operations of the parent table. All "hooks" are
 // executed while parent is holding its mutex and thus latency is very
 // important.
-class TableExtensionInterface {
+class TableExtension {
  public:
-  virtual ~TableExtensionInterface() = default;
+  virtual ~TableExtension() = default;
 
  protected:
   friend class Table;

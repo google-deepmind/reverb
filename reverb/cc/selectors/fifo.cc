@@ -24,7 +24,7 @@
 namespace deepmind {
 namespace reverb {
 
-tensorflow::Status FifoSelector::Delete(ItemSelectorInterface::Key key) {
+tensorflow::Status FifoSelector::Delete(ItemSelector::Key key) {
   auto it = key_to_iterator_.find(key);
   if (it == key_to_iterator_.end())
     return tensorflow::errors::InvalidArgument("Key ", key, " not found.");
@@ -33,7 +33,7 @@ tensorflow::Status FifoSelector::Delete(ItemSelectorInterface::Key key) {
   return tensorflow::Status::OK();
 }
 
-tensorflow::Status FifoSelector::Insert(ItemSelectorInterface::Key key,
+tensorflow::Status FifoSelector::Insert(ItemSelector::Key key,
                                         double priority) {
   if (key_to_iterator_.find(key) != key_to_iterator_.end()) {
     return tensorflow::errors::InvalidArgument("Key ", key,
@@ -43,7 +43,7 @@ tensorflow::Status FifoSelector::Insert(ItemSelectorInterface::Key key,
   return tensorflow::Status::OK();
 }
 
-tensorflow::Status FifoSelector::Update(ItemSelectorInterface::Key key,
+tensorflow::Status FifoSelector::Update(ItemSelector::Key key,
                                         double priority) {
   if (key_to_iterator_.find(key) == key_to_iterator_.end()) {
     return tensorflow::errors::InvalidArgument("Key ", key, " not found.");
@@ -51,7 +51,7 @@ tensorflow::Status FifoSelector::Update(ItemSelectorInterface::Key key,
   return tensorflow::Status::OK();
 }
 
-ItemSelectorInterface::KeyWithProbability FifoSelector::Sample() {
+ItemSelector::KeyWithProbability FifoSelector::Sample() {
   REVERB_CHECK(!keys_.empty());
   return {keys_.front(), 1.};
 }

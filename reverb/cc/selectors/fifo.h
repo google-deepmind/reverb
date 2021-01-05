@@ -27,9 +27,9 @@ namespace reverb {
 
 // Fifo sampling. We ignore all priority values in the calls. Sample() always
 // returns the key that was inserted first until this key is deleted. All
-// operations take O(1) time. See ItemSelectorInterface for documentation
+// operations take O(1) time. See ItemSelector for documentation
 // about the methods.
-class FifoSelector : public ItemSelectorInterface {
+class FifoSelector : public ItemSelector {
  public:
   tensorflow::Status Delete(Key key) override;
 
