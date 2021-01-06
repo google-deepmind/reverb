@@ -17,9 +17,10 @@
 
 #include "grpcpp/grpcpp.h"
 #include "grpcpp/impl/codegen/proto_utils.h"
+#include "absl/strings/string_view.h"
+#include "absl/strings/substitute.h"
 #include "tensorflow/core/lib/core/error_codes.pb.h"
 #include "tensorflow/core/lib/core/status.h"
-#include "absl/strings/substitute.h"
 
 namespace deepmind {
 namespace reverb {
@@ -61,6 +62,11 @@ inline tensorflow::Status FromGrpcStatus(const grpc::Status& s) {
 
 inline std::string FormatGrpcStatus(const grpc::Status& s) {
   return absl::Substitute("[$0] $1", s.error_code(), s.error_message());
+}
+
+inline bool IsLocalhostOrInProcess(absl::string_view hostname) {
+  return absl::StrContains(hostname, ":127.0.0.1:") ||
+         absl::StrContains(hostname, "[::1]") || hostname == "unknown";
 }
 
 }  // namespace reverb

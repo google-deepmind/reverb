@@ -358,8 +358,7 @@ grpc::Status ReverbServiceImpl::InitializeConnection(
     grpc::ServerContext* context,
     grpc::ServerReaderWriter<InitializeConnectionResponse,
                              InitializeConnectionRequest>* stream) {
-  if (!absl::StrContains(context->peer(), ":127.0.0.1:") &&
-      !absl::StrContains(context->peer(), "[::1]")) {
+  if (!IsLocalhostOrInProcess(context->peer())) {
     return grpc::Status::OK;
   }
 
