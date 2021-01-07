@@ -236,12 +236,16 @@ class Writer:
     """
     self._writer.Flush()
 
-  def close(self):
+  def close(self, retry_on_unavailable=True):
     """Closes the stream to the ReverbService.
 
     The method is automatically called when existing the contextmanager scope.
 
     Note: Writer-object must be abandoned after this method called.
+
+    Args:
+      retry_on_unavailable: if true, it will keep trying to connect to the
+        server if it's unavailable..
 
     Raises:
       ValueError: If `close` has already been called once.
@@ -251,7 +255,7 @@ class Writer:
     if self._closed:
       raise ValueError('close() has already been called on Writer.')
     self._closed = True
-    self._writer.Close()
+    self._writer.Close(retry_on_unavailable)
 
 
 class Client:
