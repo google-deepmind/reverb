@@ -329,7 +329,16 @@ tensorflow::Status Writer::Close(bool retry_on_unavailable) {
         "Calling method Close after Close has been called");
   }
   if (!pending_items_.empty()) {
-    TF_RETURN_IF_ERROR(Finish(retry_on_unavailable));
+    auto status = Finish(retry_on_unavailable);
+    if (!status.ok()) {
+      if (!tensorflow::errors::IsUnavailable(status) || retry_on_unavailable) {
+        return status;
+      }
+      // if retries are disabled and the server is Unavailable, we continue and
+      // set the Writer as closed.
+      REVERB_LOG(REVERB_INFO)
+          << "The Writer will be closed although the server was Unavailable";
+    }
   }
   if (stream_) {
     stream_->WritesDone();

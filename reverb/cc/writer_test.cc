@@ -388,8 +388,7 @@ TEST(WriterTest, CloseDoesntRetryIfRetriesDisabled) {
 
   TF_ASSERT_OK(writer.Append(MakeTimestep()));
   TF_ASSERT_OK(writer.CreateItem("dist", 1, 1.0));
-  tensorflow::Status status = writer.Close(false);
-  EXPECT_EQ(status.code(), tensorflow::error::UNAVAILABLE);
+  TF_ASSERT_OK(writer.Close(false));
   EXPECT_THAT(requests, SizeIs(1));  // Tries only once and then gives up.
 }
 
