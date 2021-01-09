@@ -254,6 +254,11 @@ def _python_includes_repo_impl(repo_ctx):
         python_solib.basename,
     )
 
+    python_includes_srcs = 'srcs = ["%s"],' % python_solib.basename
+    if is_darwin(repo_ctx):
+        # Fix Fatal Python error: PyThreadState_Get: no current thread
+        python_includes_srcs = ""
+
     # Note, "@python_includes" is a misnomer since we include the
     # libpythonX.Y.so in the srcs, so we can get access to python's various
     # symbols at link time.
@@ -263,7 +268,7 @@ def _python_includes_repo_impl(repo_ctx):
 cc_library(
     name = "python_includes",
     hdrs = glob(["python_includes/**/*.h"]),
-    srcs = ["{}"],
+    {}
     includes = ["python_includes"],
     visibility = ["//visibility:public"],
 )
@@ -273,7 +278,7 @@ cc_library(
     includes = ["numpy_includes"],
     visibility = ["//visibility:public"],
 )
-""".format(python_solib.basename),
+""".format(python_includes_srcs),
         executable = False,
     )
 
