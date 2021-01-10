@@ -110,7 +110,7 @@ def reverb_cc_proto_library(name, srcs = [], deps = [], **kwargs):
         name = "{}_static".format(name),
         srcs = gen_srcs,
         hdrs = gen_hdrs,
-        deps = depset(deps + reverb_tf_deps()),
+        deps = depset([dep.replace(":", ":lib") + ".so" for dep in deps] + reverb_tf_deps()),
         alwayslink = 1,
         **kwargs
     )
@@ -298,8 +298,8 @@ def reverb_gen_op_wrapper_py(name, out, kernel_lib, linkopts = [], **kwargs):
 
     module_name = "lib{}_gen_op".format(name)
     exported_symbols_file = "%s-exported-symbols.lds" % module_name
-    # gen_client_ops -> ReverbClient
-    symbol = "Reverb{}".format(name.split('_')[1].capitalize())
+    # gen_client_ops -> reverb_client
+    symbol = "reverb_{}".format(name.split('_')[1])
     native.genrule(
         name = module_name + "_exported_symbols",
         outs = [exported_symbols_file],
