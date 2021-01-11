@@ -40,10 +40,6 @@
 #include "tensorflow/core/lib/core/status.h"
 #include "tensorflow/core/lib/hash/hash.h"
 
-// TODO(b/175364476): Remove once we switch users to the
-// retry_on_unavailable parameter.
-ABSL_DECLARE_FLAG(bool, reverb_disable_writer_retries);
-
 namespace deepmind {
 namespace reverb {
 

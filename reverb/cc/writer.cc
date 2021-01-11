@@ -38,13 +38,6 @@
 #include "tensorflow/core/lib/core/status.h"
 #include "tensorflow/core/platform/errors.h"
 
-// TODO(b/175364476): Remove once we switch users to the
-// retry_on_unavailable parameter.
-ABSL_FLAG(bool, reverb_disable_writer_retries, false,
-          "If the writer should stop when the server is not available. This is "
-          "only recommended for single-machine scenarios where the writer "
-          "cannot be flushed or closed explicitly.");
-
 namespace deepmind {
 namespace reverb {
 namespace {
@@ -415,10 +408,7 @@ tensorflow::Status Writer::WriteWithRetries(bool retry_on_unavailable) {
     TF_RETURN_IF_ERROR(StopItemConfirmationWorker());
     auto status = FromGrpcStatus(stream_->Finish());
     stream_ = nullptr;
-    // TODO(b/175364476): Remove once we switch users to the
-    // retry_on_unavailable parameter.
     if (!tensorflow::errors::IsUnavailable(status) ||
-        absl::GetFlag(FLAGS_reverb_disable_writer_retries) ||
         !retry_on_unavailable)
       return status;
   }
