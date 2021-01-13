@@ -21,7 +21,7 @@ service.
 
 import abc
 import collections
-from typing import List, Optional, Sequence, Union
+from typing import Optional, Sequence, Union
 
 from absl import logging
 import portpicker
@@ -45,8 +45,10 @@ class TableExtensionBase(metaclass=abc.ABCMeta):
   """Abstract base class for Table extensions."""
 
   @abc.abstractmethod
-  def build_internal_extensions(self,
-                                table_name: str) -> List[pybind.TableExtension]:
+  def build_internal_extensions(
+      self,
+      table_name: str,
+  ) -> Sequence[pybind.TableExtension]:
     """Constructs the c++ PriorityTableExtensions."""
 
 
@@ -136,7 +138,7 @@ class Table:
     # Merge the c++ extensions into a single list.
     internal_extensions = []
     for extension in extensions:
-      internal_extensions += extension.build_internal_extensions(name)
+      internal_extensions += list(extension.build_internal_extensions(name))
 
     if signature:
       flat_signature = tree.flatten(signature)
@@ -241,13 +243,13 @@ class Server:
   """
 
   def __init__(self,
-               tables: List[Table] = None,
+               tables: Sequence[Table] = None,
                port: Union[int, None] = None,
                checkpointer: checkpointers.CheckpointerBase = None):
     """Constructor of Server serving the ReverbService.
 
     Args:
-      tables: A list of tables to host on the server.
+      tables: A sequence of tables to host on the server.
       port: The port number to serve the gRPC-service on. If `None` (default)
         then a port is automatically picked and assigned.
       checkpointer: Checkpointer used for storing/loading checkpoints. If None
