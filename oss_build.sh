@@ -75,6 +75,7 @@ while [[ $# -gt -0 ]]; do
       ;;
     *)
       echo "Unknown flag: $key"
+      exit 1
       ;;
   esac
   shift # past argument or value
@@ -97,7 +98,7 @@ for python_version in $PYTHON_VERSIONS; do
     ABI=cp38
   else
     echo "Error unknown --python. Only [3.6|3.7|3.8]"
-    exit
+    exit 1
   fi
 
   # Configures Bazel environment for selected Python version.
