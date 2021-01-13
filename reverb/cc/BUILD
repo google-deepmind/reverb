@@ -127,6 +127,16 @@ reverb_cc_test(
 )
 
 reverb_cc_library(
+    name = "errors",
+    srcs = ["errors.cc"],
+    hdrs = ["errors.h"],
+    visibility = [
+        "//reverb:__subpackages__",
+    ],
+    deps = reverb_tf_deps() + reverb_absl_deps(),
+)
+
+reverb_cc_library(
     name = "chunk_store",
     srcs = ["chunk_store.cc"],
     hdrs = ["chunk_store.h"],
@@ -151,6 +161,7 @@ reverb_cc_library(
     visibility = ["//reverb:__subpackages__"],
     deps = [
         ":chunk_store",
+        ":errors",
         ":schema_cc_proto",
         "//reverb/cc/checkpointing:checkpoint_cc_proto",
         "//reverb/cc/platform:hash_map",
