@@ -269,6 +269,21 @@ tensorflow::Status Writer::Flush() {
   return tensorflow::Status::OK();
 }
 
+std::string Writer::DebugString() const {
+  std::string str = absl::StrCat(
+      "Writer(chunk_length=", chunk_length_, ", max_timesteps=", max_timesteps_,
+      ", delta_encoded=", delta_encoded_, ", max_in_flight_items=");
+  if (max_in_flight_items_.has_value()) {
+    absl::StrAppend(&str, max_in_flight_items_.value());
+  } else {
+    absl::StrAppend(&str, "nullopt");
+  }
+  absl::StrAppend(&str, ", episode_id=", episode_id_,
+                  ", index_within_episode=", index_within_episode_,
+                  ", closed=", closed_, ")");
+  return str;
+}
+
 tensorflow::Status Writer::StopItemConfirmationWorker() {
   // There is nothing to stop if there are no limitations on the number of
   // in flight items.

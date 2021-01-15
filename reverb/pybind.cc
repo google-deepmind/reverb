@@ -540,7 +540,9 @@ PYBIND11_MODULE(libpybind, m) {
           "Flush",
           [](Writer *writer) { MaybeRaiseFromStatus(writer->Flush()); },
           py::call_guard<py::gil_scoped_release>())
-      .def("Close", &Writer::Close, py::call_guard<py::gil_scoped_release>());
+      .def("Close", &Writer::Close, py::call_guard<py::gil_scoped_release>())
+      .def("__repr__", &Writer::DebugString,
+           py::call_guard<py::gil_scoped_release>());
 
   py::class_<Sampler>(m, "Sampler")
       .def(

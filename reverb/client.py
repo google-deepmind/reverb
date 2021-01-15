@@ -112,6 +112,9 @@ class Writer:
           'Writer-object deleted without calling .close explicitly.')
       self.close()
 
+  def __repr__(self):
+    return repr(self._writer) + ', closed: ' + str(self._closed)
+
   def append(self, data: Any):
     """Appends data to the internal buffer.
 

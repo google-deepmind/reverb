@@ -97,6 +97,9 @@ class Writer {
   // python API.
   tensorflow::Status Flush();
 
+  // Returns a summary string description.
+  std::string DebugString() const;
+
  private:
   // Creates a new batch from the content of `buffer_` and inserts it into
   // `chunks_`. If `pending_items_` is not empty then the items are streamed to
