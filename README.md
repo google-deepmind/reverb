@@ -79,7 +79,7 @@ server = reverb.Server(tables=[
 Create a client to communicate with the server:
 
 ```python
-client = reverb.Client(‘localhost:8000’)
+client = reverb.Client('localhost:8000')
 print(client.server_info())
 ```
 
@@ -160,9 +160,9 @@ met:
     its maximum capacity.
 
 1.  An item has been sampled more than the maximum number of times permitted by
-    the Table’s rate limiter. Note that not all rate limiters will enforce this.
+    the Table's rate limiter. Note that not all rate limiters will enforce this.
 
-In both cases, which item to remove is determined by the table’s removal
+In both cases, which item to remove is determined by the table's removal
 strategy. As mentioned earlier, a data element is automatically removed from the
 `Server` when the number of items that references it reaches zero.
 
@@ -236,7 +236,7 @@ reverb.Table(
 )
 
 # Or use the helper classmethod `.queue`.
-reverb.Table.queue(name=’my_queue', max_size=1000)
+reverb.Table.queue(name='my_queue', max_size=1000)
 ```
 
 Examples of algorithms that make use of Queues are
