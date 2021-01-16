@@ -23,9 +23,9 @@ namespace reverb {
 // A checkpointer is able to encode the configuration, data and state as a
 // proto . This proto is stored in a permanent storage system where it can
 // retrieved at a later point and restore a copy of the checkpointed tables.
-class CheckpointerInterface {
+class Checkpointer {
  public:
-  virtual ~CheckpointerInterface() = default;
+  virtual ~Checkpointer() = default;
 
   // Save a new checkpoint for every table in `tables` to permanent storage. If
   // successful, `path` will contain an ABSOLUTE path that could be used to

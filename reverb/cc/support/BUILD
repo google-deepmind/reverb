@@ -28,7 +28,9 @@ reverb_cc_library(
 reverb_cc_library(
     name = "queue",
     hdrs = ["queue.h"],
-    deps = reverb_absl_deps(),
+    deps = [
+        "//reverb/cc/platform:logging",
+    ] + reverb_absl_deps() + reverb_tf_deps(),
 )
 
 reverb_cc_library(
@@ -79,7 +81,7 @@ reverb_cc_test(
         ":queue",
         "//reverb/cc/platform:logging",
         "//reverb/cc/platform:thread",
-    ] + reverb_absl_deps(),
+    ] + reverb_absl_deps() + reverb_tf_deps(),
 )
 
 reverb_cc_test(

@@ -26,6 +26,7 @@
 #include "absl/synchronization/mutex.h"
 #include "absl/time/time.h"
 #include "reverb/cc/checkpointing/checkpoint.pb.h"
+#include "reverb/cc/errors.h"
 #include "reverb/cc/platform/logging.h"
 #include "reverb/cc/schema.pb.h"
 #include "reverb/cc/table.h"
@@ -44,9 +45,6 @@ inline void EncodeAsDurationProto(const absl::Duration& d,
   proto->set_nanos(
       absl::ToInt64Nanoseconds(d - absl::Seconds(proto->seconds())));
 }
-
-constexpr auto kTimeoutExceededErrorMessage =
-    "Rate Limiter: Timeout exceeded before the right to insert was acquired.";
 
 }  // namespace
 
@@ -104,8 +102,7 @@ tensorflow::Status RateLimiter::AwaitCanInsert(absl::Mutex* mu,
     while (!cancelled_ && !CanInsert(mu, 1)) {
       event.set_was_blocked();
       if (can_insert_cv_.WaitWithDeadline(mu, deadline)) {
-        return tensorflow::errors::DeadlineExceeded(
-            kTimeoutExceededErrorMessage);
+        return errors::RateLimiterTimeout();
       }
     }
   }
@@ -139,8 +136,7 @@ tensorflow::Status RateLimiter::AwaitAndFinalizeSample(absl::Mutex* mu,
     while (!cancelled_ && !CanSample(mu, 1)) {
       event.set_was_blocked();
       if (can_sample_cv_.WaitWithDeadline(mu, deadline)) {
-        return tensorflow::errors::DeadlineExceeded(
-            kTimeoutExceededErrorMessage);
+        return errors::RateLimiterTimeout();
       }
     }
   }

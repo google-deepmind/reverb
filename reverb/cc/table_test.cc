@@ -453,8 +453,7 @@ TEST(TableTest, CheckpointSanityCheck) {
   Table table("dist", absl::make_unique<UniformSelector>(),
               absl::make_unique<FifoSelector>(), 10, 1,
               absl::make_unique<RateLimiter>(1.0, 3, -10, 7),
-              std::vector<std::shared_ptr<TableExtensionInterface>>(),
-              signature);
+              std::vector<std::shared_ptr<TableExtension>>(), signature);
 
   TF_EXPECT_OK(table.InsertOrAssign(MakeItem(1, 123)));
 

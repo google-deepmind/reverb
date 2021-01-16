@@ -61,7 +61,7 @@ TEST(LifoSelectorTest, MatchesLifoOrdering) {
 
   for (int i = kItems - 1; i >= 0; i--) {
     if (i % 10 == 0) continue;
-    ItemSelectorInterface::KeyWithProbability sample = lifo.Sample();
+    ItemSelector::KeyWithProbability sample = lifo.Sample();
     EXPECT_EQ(sample.key, i);
     EXPECT_EQ(sample.probability, 1);
     TF_EXPECT_OK(lifo.Delete(sample.key));

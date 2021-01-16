@@ -57,7 +57,7 @@ tensorflow::Status UniformSelector::Update(Key key, double priority) {
   return tensorflow::Status::OK();
 }
 
-ItemSelectorInterface::KeyWithProbability UniformSelector::Sample() {
+ItemSelector::KeyWithProbability UniformSelector::Sample() {
   REVERB_CHECK(!keys_.empty());
 
   // This code is not thread-safe, because bit_gen_ is not protected by a mutex

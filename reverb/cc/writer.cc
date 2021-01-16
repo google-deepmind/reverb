@@ -21,6 +21,7 @@
 #include <vector>
 
 #include "absl/base/thread_annotations.h"
+#include "absl/flags/flag.h"
 #include "absl/functional/bind_front.h"
 #include "absl/strings/str_cat.h"
 #include "absl/synchronization/mutex.h"
@@ -102,7 +103,7 @@ tensorflow::Status Writer::Append(std::vector<tensorflow::Tensor> data) {
   buffer_.push_back(std::move(data));
   if (buffer_.size() < chunk_length_) return tensorflow::Status::OK();
 
-  auto status = Finish();
+  auto status = Finish(/*retry_on_unavailable=*/true);
   if (!status.ok()) {
     // Undo adding stuff to the buffer and undo the dtypes_and_shapes_ changes.
     buffer_.pop_back();
@@ -244,7 +245,7 @@ tensorflow::Status Writer::CreateItem(const std::string& table,
   pending_items_.push_back(item);
 
   if (buffer_.empty()) {
-    auto status = WriteWithRetries();
+    auto status = WriteWithRetries(/*retry_on_unavailable=*/true);
     if (!status.ok()) pending_items_.pop_back();
     return status;
   }
@@ -259,13 +260,28 @@ tensorflow::Status Writer::Flush() {
   }
 
   if (!pending_items_.empty()) {
-    return Finish();
+    return Finish(/*retry_on_unavailable=*/true);
   }
   if (!ConfirmItems(0)) {
     return tensorflow::errors::Internal(
         "Error when confirming that all items written to table.");
   }
   return tensorflow::Status::OK();
+}
+
+std::string Writer::DebugString() const {
+  std::string str = absl::StrCat(
+      "Writer(chunk_length=", chunk_length_, ", max_timesteps=", max_timesteps_,
+      ", delta_encoded=", delta_encoded_, ", max_in_flight_items=");
+  if (max_in_flight_items_.has_value()) {
+    absl::StrAppend(&str, max_in_flight_items_.value());
+  } else {
+    absl::StrAppend(&str, "nullopt");
+  }
+  absl::StrAppend(&str, ", episode_id=", episode_id_,
+                  ", index_within_episode=", index_within_episode_,
+                  ", closed=", closed_, ")");
+  return str;
 }
 
 tensorflow::Status Writer::StopItemConfirmationWorker() {
@@ -315,13 +331,22 @@ void Writer::StartItemConfirmationWorker() {
       &item_confirmation_worker_running_));
 }
 
-tensorflow::Status Writer::Close() {
+tensorflow::Status Writer::Close(bool retry_on_unavailable) {
   if (closed_) {
     return tensorflow::errors::FailedPrecondition(
         "Calling method Close after Close has been called");
   }
   if (!pending_items_.empty()) {
-    TF_RETURN_IF_ERROR(Finish());
+    auto status = Finish(retry_on_unavailable);
+    if (!status.ok()) {
+      if (!tensorflow::errors::IsUnavailable(status) || retry_on_unavailable) {
+        return status;
+      }
+      // if retries are disabled and the server is Unavailable, we continue and
+      // set the Writer as closed.
+      REVERB_LOG(REVERB_INFO)
+          << "The Writer will be closed although the server was Unavailable";
+    }
   }
   if (stream_) {
     stream_->WritesDone();
@@ -340,7 +365,7 @@ tensorflow::Status Writer::Close() {
   return tensorflow::Status::OK();
 }
 
-tensorflow::Status Writer::Finish() {
+tensorflow::Status Writer::Finish(bool retry_on_unavailable) {
   std::vector<tensorflow::Tensor> batched_tensors;
   for (int i = 0; i < buffer_[0].size(); ++i) {
     std::vector<tensorflow::Tensor> tensors(buffer_.size());
@@ -371,12 +396,12 @@ tensorflow::Status Writer::Finish() {
   }
 
   for (const auto& tensor : batched_tensors) {
-    CompressTensorAsProto(tensor, chunk.add_data());
+    CompressTensorAsProto(tensor, chunk.mutable_data()->add_tensors());
   }
 
   chunks_.push_back(std::move(chunk));
 
-  auto status = WriteWithRetries();
+  auto status = WriteWithRetries(retry_on_unavailable);
   if (status.ok()) {
     index_within_episode_ += buffer_.size();
     buffer_.clear();
@@ -391,14 +416,16 @@ tensorflow::Status Writer::Finish() {
   return status;
 }
 
-tensorflow::Status Writer::WriteWithRetries() {
+tensorflow::Status Writer::WriteWithRetries(bool retry_on_unavailable) {
   while (true) {
     if (WritePendingData()) return tensorflow::Status::OK();
     stream_->WritesDone();
     TF_RETURN_IF_ERROR(StopItemConfirmationWorker());
     auto status = FromGrpcStatus(stream_->Finish());
     stream_ = nullptr;
-    if (!tensorflow::errors::IsUnavailable(status)) return status;
+    if (!tensorflow::errors::IsUnavailable(status) ||
+        !retry_on_unavailable)
+      return status;
   }
 }
 

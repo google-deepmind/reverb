@@ -27,9 +27,9 @@ namespace deepmind {
 namespace reverb {
 
 // Samples items uniformly and thus priority values have no effect. All
-// operations take O(1) time. See ItemSelectorInterface for documentation of
+// operations take O(1) time. See ItemSelector for documentation of
 // public methods.
-class UniformSelector : public ItemSelectorInterface {
+class UniformSelector : public ItemSelector {
  public:
   tensorflow::Status Delete(Key key) override;
 

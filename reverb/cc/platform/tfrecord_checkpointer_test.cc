@@ -76,8 +76,7 @@ std::unique_ptr<Table> MakeSignatureTable(const std::string& name) {
       name, absl::make_unique<UniformSelector>(),
       absl::make_unique<FifoSelector>(), 1000, 0,
       absl::make_unique<RateLimiter>(1.0, 1, -DBL_MAX, +DBL_MAX),
-      std::vector<std::shared_ptr<TableExtensionInterface>>(),
-      std::move(signature));
+      std::vector<std::shared_ptr<TableExtension>>(), std::move(signature));
 }
 
 TEST(TFRecordCheckpointerTest, CreatesDirectoryInRoot) {

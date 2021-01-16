@@ -12,17 +12,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "reverb/cc/platform/checkpointing.h"
-#include "reverb/cc/platform/tfrecord_checkpointer.h"
+#ifndef REVERB_CC_ERRORS_H_
+#define REVERB_CC_ERRORS_H_
+
+#include "tensorflow/core/lib/core/status.h"
 
 namespace deepmind {
 namespace reverb {
+namespace errors {
 
-std::unique_ptr<Checkpointer> CreateDefaultCheckpointer(std::string root_dir,
-                                                        std::string group) {
-  return absl::make_unique<TFRecordCheckpointer>(std::move(root_dir),
-                                                 std::move(group));
-}
+tensorflow::Status RateLimiterTimeout();
 
+bool IsRateLimiterTimeout(tensorflow::Status);
+
+}  // namespace errors
 }  // namespace reverb
 }  // namespace deepmind
+
+#endif  // REVERB_CC_ERRORS_H_

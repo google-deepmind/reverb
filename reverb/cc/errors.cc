@@ -12,17 +12,32 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "reverb/cc/platform/checkpointing.h"
-#include "reverb/cc/platform/tfrecord_checkpointer.h"
+#include "reverb/cc/errors.h"
+
+#include "absl/strings/match.h"
+#include "tensorflow/core/platform/errors.h"
 
 namespace deepmind {
 namespace reverb {
+namespace errors {
 
-std::unique_ptr<Checkpointer> CreateDefaultCheckpointer(std::string root_dir,
-                                                        std::string group) {
-  return absl::make_unique<TFRecordCheckpointer>(std::move(root_dir),
-                                                 std::move(group));
+namespace {
+
+constexpr auto kTimeoutExceededErrorMessage =
+    "Rate Limiter: Timeout exceeded before the right to insert was acquired.";
+
+}  // namespace
+
+tensorflow::Status RateLimiterTimeout() {
+  return tensorflow::errors::DeadlineExceeded(kTimeoutExceededErrorMessage);
 }
 
+bool IsRateLimiterTimeout(tensorflow::Status status) {
+  return tensorflow::errors::IsDeadlineExceeded(status) &&
+         absl::StrContains(status.error_message(),
+                           kTimeoutExceededErrorMessage);
+}
+
+}  // namespace errors
 }  // namespace reverb
 }  // namespace deepmind

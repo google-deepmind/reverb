@@ -110,6 +110,10 @@ class Writer:
     if not self._closed:
       logging.warning(
           'Writer-object deleted without calling .close explicitly.')
+      self.close()
+
+  def __repr__(self):
+    return repr(self._writer) + ', closed: ' + str(self._closed)
 
   def append(self, data: Any):
     """Appends data to the internal buffer.
@@ -235,12 +239,16 @@ class Writer:
     """
     self._writer.Flush()
 
-  def close(self):
+  def close(self, retry_on_unavailable=True):
     """Closes the stream to the ReverbService.
 
     The method is automatically called when existing the contextmanager scope.
 
     Note: Writer-object must be abandoned after this method called.
+
+    Args:
+      retry_on_unavailable: if true, it will keep trying to connect to the
+        server if it's unavailable..
 
     Raises:
       ValueError: If `close` has already been called once.
@@ -250,7 +258,7 @@ class Writer:
     if self._closed:
       raise ValueError('close() has already been called on Writer.')
     self._closed = True
-    self._writer.Close()
+    self._writer.Close(retry_on_unavailable)
 
 
 class Client:

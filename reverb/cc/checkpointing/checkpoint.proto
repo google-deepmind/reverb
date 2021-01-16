@@ -65,6 +65,6 @@ message RateLimiterCheckpoint {
   // The total number of inserts that occurred before the checkpoint.
   int64 insert_count = 7;
 
-  // The total number of deletes that occured before the checkpoint.
+  // The total number of deletes that occurred before the checkpoint.
   int64 delete_count = 8;
 }

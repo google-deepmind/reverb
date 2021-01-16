@@ -463,31 +463,31 @@ PYBIND11_MODULE(libpybind, m) {
   // Initialization code to use numpy types in the type casters.
   ImportNumpy();
 
-  py::class_<ItemSelectorInterface, std::shared_ptr<ItemSelectorInterface>>
-      unused_key_distribution_interface(m, "ItemSelectorInterface");
+  py::class_<ItemSelector, std::shared_ptr<ItemSelector>> unused_item_selector(
+      m, "ItemSelector");
 
-  py::class_<PrioritizedSelector, ItemSelectorInterface,
+  py::class_<PrioritizedSelector, ItemSelector,
              std::shared_ptr<PrioritizedSelector>>(m, "PrioritizedSelector")
       .def(py::init<double>(), py::arg("priority_exponent"));
 
-  py::class_<FifoSelector, ItemSelectorInterface,
-             std::shared_ptr<FifoSelector>>(m, "FifoSelector")
+  py::class_<FifoSelector, ItemSelector, std::shared_ptr<FifoSelector>>(
+      m, "FifoSelector")
       .def(py::init());
 
-  py::class_<LifoSelector, ItemSelectorInterface,
-             std::shared_ptr<LifoSelector>>(m, "LifoSelector")
+  py::class_<LifoSelector, ItemSelector, std::shared_ptr<LifoSelector>>(
+      m, "LifoSelector")
       .def(py::init());
 
-  py::class_<UniformSelector, ItemSelectorInterface,
-             std::shared_ptr<UniformSelector>>(m, "UniformSelector")
+  py::class_<UniformSelector, ItemSelector, std::shared_ptr<UniformSelector>>(
+      m, "UniformSelector")
       .def(py::init());
 
-  py::class_<HeapSelector, ItemSelectorInterface,
-             std::shared_ptr<HeapSelector>>(m, "HeapSelector")
+  py::class_<HeapSelector, ItemSelector, std::shared_ptr<HeapSelector>>(
+      m, "HeapSelector")
       .def(py::init<bool>(), py::arg("min_heap"));
 
-  py::class_<TableExtensionInterface, std::shared_ptr<TableExtensionInterface>>
-      unused_priority_table_extension_interface(m, "TableExtensionInterface");
+  py::class_<TableExtension, std::shared_ptr<TableExtension>>
+      unused_table_extension(m, "TableExtension");
 
   py::class_<RateLimiter, std::shared_ptr<RateLimiter>>(m, "RateLimiter")
       .def(py::init<double, int, double, double>(),
@@ -497,11 +497,11 @@ PYBIND11_MODULE(libpybind, m) {
   py::class_<Table, std::shared_ptr<Table>>(m, "Table")
       .def(py::init(
                [](const std::string &name,
-                  const std::shared_ptr<ItemSelectorInterface> &sampler,
-                  const std::shared_ptr<ItemSelectorInterface> &remover,
-                  int max_size, int max_times_sampled,
+                  const std::shared_ptr<ItemSelector> &sampler,
+                  const std::shared_ptr<ItemSelector> &remover, int max_size,
+                  int max_times_sampled,
                   const std::shared_ptr<RateLimiter> &rate_limiter,
-                  const std::vector<std::shared_ptr<TableExtensionInterface>>
+                  const std::vector<std::shared_ptr<TableExtension>>
                       &extensions,
                   const absl::optional<std::string> &serialized_signature =
                       absl::nullopt) -> Table * {
@@ -540,7 +540,9 @@ PYBIND11_MODULE(libpybind, m) {
           "Flush",
           [](Writer *writer) { MaybeRaiseFromStatus(writer->Flush()); },
           py::call_guard<py::gil_scoped_release>())
-      .def("Close", &Writer::Close, py::call_guard<py::gil_scoped_release>());
+      .def("Close", &Writer::Close, py::call_guard<py::gil_scoped_release>())
+      .def("__repr__", &Writer::DebugString,
+           py::call_guard<py::gil_scoped_release>());
 
   py::class_<Sampler>(m, "Sampler")
       .def(
@@ -642,14 +644,14 @@ PYBIND11_MODULE(libpybind, m) {
         return path;
       });
 
-  py::class_<CheckpointerInterface, std::shared_ptr<CheckpointerInterface>>
-      unused_checkpointer_interface(m, "CheckpointerInterface");
+  py::class_<Checkpointer, std::shared_ptr<Checkpointer>> unused_checkpointer(
+      m, "Checkpointer");
 
   m.def(
       "create_default_checkpointer",
       [](const std::string &name, const std::string &group = "") {
         auto checkpointer = CreateDefaultCheckpointer(name, group);
-        return std::shared_ptr<CheckpointerInterface>(checkpointer.release());
+        return std::shared_ptr<Checkpointer>(checkpointer.release());
       },
       py::call_guard<py::gil_scoped_release>());
 
@@ -657,8 +659,7 @@ PYBIND11_MODULE(libpybind, m) {
       .def(
           py::init([](std::vector<std::shared_ptr<Table>> priority_tables,
                       int port,
-                      std::shared_ptr<CheckpointerInterface> checkpointer =
-                          nullptr) {
+                      std::shared_ptr<Checkpointer> checkpointer = nullptr) {
             std::unique_ptr<Server> server;
             MaybeRaiseFromStatus(StartServer(std::move(priority_tables), port,
                                              std::move(checkpointer), &server));

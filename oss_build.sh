@@ -75,6 +75,7 @@ while [[ $# -gt -0 ]]; do
       ;;
     *)
       echo "Unknown flag: $key"
+      exit 1
       ;;
   esac
   shift # past argument or value

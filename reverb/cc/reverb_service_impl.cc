@@ -53,13 +53,12 @@ inline grpc::Status Internal(const std::string& message) {
 
 }  // namespace
 
-ReverbServiceImpl::ReverbServiceImpl(
-    std::shared_ptr<CheckpointerInterface> checkpointer)
+ReverbServiceImpl::ReverbServiceImpl(std::shared_ptr<Checkpointer> checkpointer)
     : checkpointer_(std::move(checkpointer)) {}
 
 tensorflow::Status ReverbServiceImpl::Create(
     std::vector<std::shared_ptr<Table>> tables,
-    std::shared_ptr<CheckpointerInterface> checkpointer,
+    std::shared_ptr<Checkpointer> checkpointer,
     std::unique_ptr<ReverbServiceImpl>* service) {
   // Can't use make_unique because it can't see the Impl's private constructor.
   auto new_service = std::unique_ptr<ReverbServiceImpl>(
@@ -359,7 +358,7 @@ grpc::Status ReverbServiceImpl::InitializeConnection(
     grpc::ServerContext* context,
     grpc::ServerReaderWriter<InitializeConnectionResponse,
                              InitializeConnectionRequest>* stream) {
-  if (!absl::StrContains(context->peer(), ":127.0.0.1:")) {
+  if (!IsLocalhostOrInProcess(context->peer())) {
     return grpc::Status::OK;
   }
 

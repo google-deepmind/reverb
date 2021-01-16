@@ -188,7 +188,8 @@ SampleStreamResponse MakeResponse(int item_length, bool delta_encode = false,
     response.mutable_data()->set_delta_encoded(true);
   }
 
-  CompressTensorAsProto(tensor, response.mutable_data()->add_data());
+  CompressTensorAsProto(tensor,
+                        response.mutable_data()->mutable_data()->add_tensors());
   return response;
 }
 
@@ -206,7 +207,7 @@ ChunkData MakeChunkData(uint64_t key, SequenceRange range) {
   ChunkData chunk;
   chunk.set_chunk_key(key);
   auto t = MakeTensor(range.end() - range.start() + 1);
-  CompressTensorAsProto(t, chunk.add_data());
+  CompressTensorAsProto(t, chunk.mutable_data()->add_tensors());
   *chunk.mutable_sequence_range() = std::move(range);
 
   return chunk;

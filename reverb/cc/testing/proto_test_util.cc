@@ -35,7 +35,7 @@ ChunkData MakeChunkData(uint64_t key, SequenceRange range) {
   tensorflow::Tensor t(tensorflow::DT_INT32,
                        {range.end() - range.start() + 1, 10});
   t.flat<int32_t>().setConstant(1);
-  CompressTensorAsProto(t, chunk.add_data());
+  CompressTensorAsProto(t, chunk.mutable_data()->add_tensors());
   *chunk.mutable_sequence_range() = std::move(range);
 
   return chunk;

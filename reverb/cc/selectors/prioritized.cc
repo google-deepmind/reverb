@@ -103,7 +103,7 @@ tensorflow::Status PrioritizedSelector::Update(Key key, double priority) {
   return tensorflow::Status::OK();
 }
 
-ItemSelectorInterface::KeyWithProbability PrioritizedSelector::Sample() {
+ItemSelector::KeyWithProbability PrioritizedSelector::Sample() {
   const size_t size = key_to_index_.size();
   REVERB_CHECK_NE(size, 0);
 

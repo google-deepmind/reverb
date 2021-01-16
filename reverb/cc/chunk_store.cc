@@ -84,9 +84,10 @@ std::shared_ptr<ChunkStore::Chunk> ChunkStore::GetItem(Key key) {
 }
 
 bool ChunkStore::CleanupInternal(int num_chunks) {
-  std::vector<Key> popped_keys(num_chunks);
-  for (int i = 0; i < num_chunks; i++) {
-    if (!delete_keys_->Pop(&popped_keys[i])) return false;
+  std::vector<Key> popped_keys;
+  popped_keys.reserve(num_chunks);
+  if (!delete_keys_->PopBatch(num_chunks, &popped_keys).ok()) {
+    return false;
   }
 
   absl::WriterMutexLock data_lock(&mu_);

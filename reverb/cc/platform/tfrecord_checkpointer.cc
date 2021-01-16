@@ -48,6 +48,7 @@
 #include "tensorflow/core/lib/io/record_reader.h"
 #include "tensorflow/core/lib/io/record_writer.h"
 #include "tensorflow/core/platform/env.h"
+#include "tensorflow/core/platform/errors.h"
 #include "tensorflow/core/platform/file_system.h"
 
 namespace deepmind {
@@ -105,7 +106,7 @@ inline bool HasDone(const std::string& path) {
       .ok();
 }
 
-std::unique_ptr<ItemSelectorInterface> MakeDistribution(
+std::unique_ptr<ItemSelector> MakeDistribution(
     const KeyDistributionOptions& options) {
   switch (options.distribution_case()) {
     case KeyDistributionOptions::kFifo:
@@ -241,6 +242,15 @@ tensorflow::Status TFRecordCheckpointer::Load(
                                      chunk_record.size())) {
         return tensorflow::errors::DataLoss(
             "Could not parse TFRecord as ChunkData: '", chunk_record, "'");
+      }
+      if (chunk_data.deprecated_data_size()) {
+        if (!chunk_data.data().tensors().empty()) {
+          return tensorflow::errors::Internal(
+              "Checkpoint ChunkData at offset: ", chunk_offset,
+              " has both data and deprecated_data.");
+        }
+        chunk_data.mutable_data()->mutable_tensors()->Swap(
+            chunk_data.mutable_deprecated_data());
       }
       chunk_by_key[chunk_data.chunk_key()] = chunk_store->Insert(chunk_data);
     } while (chunk_status.ok());

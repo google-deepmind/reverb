@@ -25,7 +25,7 @@ class TempDirCheckpointer(absltest.TestCase):
   def test_constructs_internal_checkpointer(self):
     checkpointer = checkpointers_lib.TempDirCheckpointer()
     self.assertIsInstance(checkpointer.internal_checkpointer(),
-                          pybind.CheckpointerInterface)
+                          pybind.Checkpointer)
 
 
 if __name__ == '__main__':

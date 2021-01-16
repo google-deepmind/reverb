@@ -40,7 +40,7 @@ namespace reverb {
 // This was forked from:
 // ## proportional_picker.h
 //
-class PrioritizedSelector : public ItemSelectorInterface {
+class PrioritizedSelector : public ItemSelector {
  public:
   explicit PrioritizedSelector(double priority_exponent);
 

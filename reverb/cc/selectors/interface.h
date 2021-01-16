@@ -28,7 +28,7 @@ namespace reverb {
 // need to be thread-safe.  More to the point, a number of subclasses use bit
 // generators that are not thread-safe, so methods like `Sample` are not
 // thread-safe.
-class ItemSelectorInterface {
+class ItemSelector {
  public:
   using Key = uint64_t;
 
@@ -37,7 +37,7 @@ class ItemSelectorInterface {
     double probability;
   };
 
-  virtual ~ItemSelectorInterface() = default;
+  virtual ~ItemSelector() = default;
 
   // Deletes a key and the associated priority. Returns an error if the key does
   // not exist.

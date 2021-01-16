@@ -145,6 +145,13 @@ class ClientTest(absltest.TestCase):
     with self.assertRaises(ValueError):
       self.client.writer(1, max_in_flight_items=-1)
 
+  def test_writer_works_with_no_retries(self):
+    # If the server responds correctly, the writer ignores the no retries arg.
+    writer = self.client.writer(2)
+    writer.append([0])
+    writer.create_item(TABLE_NAME, 1, 1.0)
+    writer.close(retry_on_unavailable=False)
+
   def test_writer(self):
     with self.client.writer(2) as writer:
       writer.append([0])

@@ -35,10 +35,9 @@ namespace reverb {
 // Implements ReverbService. See reverb_service.proto for documentation.
 class ReverbServiceImpl : public /* grpc_gen:: */ReverbService::Service {
  public:
-  static tensorflow::Status Create(
-      std::vector<std::shared_ptr<Table>> tables,
-      std::shared_ptr<CheckpointerInterface> checkpointer,
-      std::unique_ptr<ReverbServiceImpl>* service);
+  static tensorflow::Status Create(std::vector<std::shared_ptr<Table>> tables,
+                                   std::shared_ptr<Checkpointer> checkpointer,
+                                   std::unique_ptr<ReverbServiceImpl>* service);
 
   static tensorflow::Status Create(std::vector<std::shared_ptr<Table>> tables,
                                    std::unique_ptr<ReverbServiceImpl>* service);
@@ -91,7 +90,7 @@ class ReverbServiceImpl : public /* grpc_gen:: */ReverbService::Service {
 
  private:
   explicit ReverbServiceImpl(
-      std::shared_ptr<CheckpointerInterface> checkpointer = nullptr);
+      std::shared_ptr<Checkpointer> checkpointer = nullptr);
 
   tensorflow::Status Initialize(std::vector<std::shared_ptr<Table>> tables);
 
@@ -101,7 +100,7 @@ class ReverbServiceImpl : public /* grpc_gen:: */ReverbService::Service {
   // Checkpointer used to restore state in the constructor and to save data
   // when `Checkpoint` is called. Note that if `checkpointer_` is nullptr then
   // `Checkpoint` will return an `InvalidArgumentError`.
-  std::shared_ptr<CheckpointerInterface> checkpointer_;
+  std::shared_ptr<Checkpointer> checkpointer_;
 
   // Stores chunks and keeps references to them.
   ChunkStore chunk_store_;

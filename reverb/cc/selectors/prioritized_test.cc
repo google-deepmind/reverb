@@ -79,7 +79,7 @@ TEST(PrioritizedSelectorTest, AllZeroPrioritiesResultsInUniformSampling) {
   }
   std::vector<int64_t> counts(kItems);
   for (int i = 0; i < kSamples; i++) {
-    ItemSelectorInterface::KeyWithProbability sample = prioritized.Sample();
+    ItemSelector::KeyWithProbability sample = prioritized.Sample();
     EXPECT_EQ(sample.probability, expected_probability);
     counts[sample.key]++;
   }
@@ -113,9 +113,9 @@ TEST(PrioritizedSelectorTest, SampledDistributionMatchesProbabilities) {
   }
   // Update the priorities.
   std::vector<int64_t> counts(kEnd);
-  internal::flat_hash_map<ItemSelectorInterface::Key, int64_t> probabilities;
+  internal::flat_hash_map<ItemSelector::Key, int64_t> probabilities;
   for (int i = 0; i < kSamples; i++) {
-    ItemSelectorInterface::KeyWithProbability sample = prioritized.Sample();
+    ItemSelector::KeyWithProbability sample = prioritized.Sample();
     probabilities[sample.key] = sample.probability;
     counts[sample.key]++;
     EXPECT_NEAR(sample.probability, sample.key / sum, 0.001);

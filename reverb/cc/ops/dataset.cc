@@ -16,6 +16,7 @@
 
 #include "absl/strings/match.h"
 #include "reverb/cc/client.h"
+#include "reverb/cc/errors.h"
 #include "reverb/cc/platform/logging.h"
 #include "reverb/cc/sampler.h"
 #include "tensorflow/core/framework/common_shape_fns.h"
@@ -372,11 +373,9 @@ class ReverbDatasetOp : public tensorflow::data::DatasetOpKernel {
         if (status.ok()) {
           *end_of_sequence = false;
           return status;
-        } else if (tensorflow::errors::IsDeadlineExceeded(status) &&
-                   sampler_options_.rate_limiter_timeout <
+        } else if (sampler_options_.rate_limiter_timeout <
                        absl::InfiniteDuration() &&
-                   absl::StrContains(status.error_message(), "Rate Limiter")) {
-          // TODO(157580783): Move the error string above to a common library.
+                   errors::IsRateLimiterTimeout(status)) {
           *end_of_sequence = true;
           return tensorflow::Status::OK();
         } else {

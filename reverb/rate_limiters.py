@@ -67,12 +67,16 @@ class SampleToInsertRatio(RateLimiter):
   `samples_per_inserts` between the samples and inserts. This is done by
   measuring the "error" in this ratio, calculated as:
 
-    (number_of_inserts - min_size_to_sample) * samples_per_insert
-    - number_of_samples
+    number_of_inserts * samples_per_insert - number_of_samples
 
-  If this quantity is within the range (-error_buffer, error_buffer) then no
-  limiting occurs. If the error is larger than `error_buffer` then insert calls
-  will be blocked; sampling will be blocked for error less than -error_buffer.
+  If `error_buffer` is a number and this quantity is larger than
+  `min_size_to_sample * samples_per_insert + error_buffer` then insert calls
+  will be blocked; sampling will be blocked for error less than
+  `min_size_to_sample * samples_per_insert - error_buffer`.
+
+  If `error_buffer` is a tuple of two numbers then insert calls will block if
+  the error is larger than error_buffer[1], and sampling will block if the error
+  is less than error_buffer[0].
 
   `error_buffer` exists to avoid unnecessary blocking for a system that is
   more or less in equilibrium.

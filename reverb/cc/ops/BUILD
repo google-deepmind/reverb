@@ -23,6 +23,7 @@ reverb_kernel_library(
     srcs = ["dataset.cc"],
     deps = [
         "//reverb/cc:client",
+        "//reverb/cc:errors",
         "//reverb/cc:sampler",
         "//reverb/cc/platform:logging",
     ] + reverb_absl_deps(),

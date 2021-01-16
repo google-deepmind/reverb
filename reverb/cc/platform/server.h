@@ -45,10 +45,10 @@ class Server {
   virtual std::unique_ptr<Client> InProcessClient() = 0;
 };
 
-tensorflow::Status StartServer(
-    std::vector<std::shared_ptr<Table>> tables, int port,
-    std::shared_ptr<CheckpointerInterface> checkpointer,
-    std::unique_ptr<Server> *server);
+tensorflow::Status StartServer(std::vector<std::shared_ptr<Table>> tables,
+                               int port,
+                               std::shared_ptr<Checkpointer> checkpointer,
+                               std::unique_ptr<Server> *server);
 
 }  // namespace reverb
 }  // namespace deepmind

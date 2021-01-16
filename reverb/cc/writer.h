@@ -23,6 +23,7 @@
 #include "grpcpp/impl/codegen/sync_stream.h"
 #include <cstdint>
 #include "absl/base/thread_annotations.h"
+#include "absl/flags/flag.h"
 #include "absl/random/random.h"
 #include "absl/strings/string_view.h"
 #include "absl/synchronization/mutex.h"
@@ -83,7 +84,9 @@ class Writer {
   // `pending_items_` and closes the stream_. The object must be abandoned after
   // calling this method. Iff `max_items_in_flight_` is set then call blocks
   // until server has confirmed that all items have been written.
-  tensorflow::Status Close();
+  // If retry_on_unavailable is true, it will keep trying to send to the server
+  // when the server returns Unavailable errors.
+  tensorflow::Status Close(bool retry_on_unavailable = true);
 
   // Creates a new batch from the content of `buffer_` and writes all
   // `pending_items_`.  This is useful to force any pending items to be sent to
@@ -93,6 +96,9 @@ class Writer {
   // TODO(b/159623854): Add a configurable timeout and pipe it through to the
   // python API.
   tensorflow::Status Flush();
+
+  // Returns a summary string description.
+  std::string DebugString() const;
 
  private:
   // Creates a new batch from the content of `buffer_` and inserts it into
@@ -104,11 +110,11 @@ class Writer {
   // number of items in `buffer_` and old items are removed from `chunks_` until
   // its size is <= `max_chunks_`. If the operation was unsuccessful then chunk
   // is popped from `chunks_`.
-  tensorflow::Status Finish();
+  tensorflow::Status Finish(bool retry_on_unavailable);
 
-  // Retries `WritePendingData` until sucessful or until non transient errors
-  // encountered.
-  tensorflow::Status WriteWithRetries();
+  // Retries `WritePendingData` until sucessful or, if retry_on_unavailable is
+  // true, until non transient errors encountered
+  tensorflow::Status WriteWithRetries(bool retry_on_unavailable);
 
   // Streams the chunks in `chunks_` referenced by `pending_items_` followed by
   // items in `pending_items_`
