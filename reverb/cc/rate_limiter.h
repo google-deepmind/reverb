@@ -127,6 +127,9 @@ class RateLimiter {
                                           size_t min_sample_event_id) const
       ABSL_SHARED_LOCKS_REQUIRED(mu);
 
+  // Returns a summary string description.
+  std::string DebugString() const;
+
  private:
   friend class Table;
   // `Table` calls these methods on construction and destruction.

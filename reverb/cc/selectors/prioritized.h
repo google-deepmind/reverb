@@ -61,6 +61,8 @@ class PrioritizedSelector : public ItemSelector {
 
   KeyDistributionOptions options() const override;
 
+  std::string DebugString() const override;
+
   // Returns the sum stored at a node for testing purposes only.
   double NodeSumTestingOnly(size_t index) const;
 

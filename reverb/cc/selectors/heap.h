@@ -48,6 +48,8 @@ class HeapSelector : public ItemSelector {
 
   KeyDistributionOptions options() const override;
 
+  std::string DebugString() const override;
+
  private:
   struct HeapNode {
     Key key;

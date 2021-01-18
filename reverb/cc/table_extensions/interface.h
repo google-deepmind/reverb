@@ -37,6 +37,9 @@ class TableExtension {
  public:
   virtual ~TableExtension() = default;
 
+  // Returns a summary string description.
+  virtual std::string DebugString() const = 0;
+
  protected:
   friend class Table;
 

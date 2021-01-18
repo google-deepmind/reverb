@@ -45,6 +45,8 @@ class FifoSelector : public ItemSelector {
 
   KeyDistributionOptions options() const override;
 
+  std::string DebugString() const override;
+
  private:
   std::list<Key> keys_;
   internal::flat_hash_map<Key, std::list<Key>::iterator> key_to_iterator_;

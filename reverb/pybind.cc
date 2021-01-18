@@ -463,8 +463,9 @@ PYBIND11_MODULE(libpybind, m) {
   // Initialization code to use numpy types in the type casters.
   ImportNumpy();
 
-  py::class_<ItemSelector, std::shared_ptr<ItemSelector>> unused_item_selector(
-      m, "ItemSelector");
+  py::class_<ItemSelector, std::shared_ptr<ItemSelector>>(m, "ItemSelector")
+      .def("__repr__", &ItemSelector::DebugString,
+           py::call_guard<py::gil_scoped_release>());
 
   py::class_<PrioritizedSelector, ItemSelector,
              std::shared_ptr<PrioritizedSelector>>(m, "PrioritizedSelector")
@@ -486,13 +487,17 @@ PYBIND11_MODULE(libpybind, m) {
       m, "HeapSelector")
       .def(py::init<bool>(), py::arg("min_heap"));
 
-  py::class_<TableExtension, std::shared_ptr<TableExtension>>
-      unused_table_extension(m, "TableExtension");
+  py::class_<TableExtension, std::shared_ptr<TableExtension>>(m,
+                                                              "TableExtension")
+      .def("__repr__", &TableExtension::DebugString,
+           py::call_guard<py::gil_scoped_release>());
 
   py::class_<RateLimiter, std::shared_ptr<RateLimiter>>(m, "RateLimiter")
       .def(py::init<double, int, double, double>(),
            py::arg("samples_per_insert"), py::arg("min_size_to_sample"),
-           py::arg("min_diff"), py::arg("max_diff"));
+           py::arg("min_diff"), py::arg("max_diff"))
+      .def("__repr__", &RateLimiter::DebugString,
+           py::call_guard<py::gil_scoped_release>());
 
   py::class_<Table, std::shared_ptr<Table>>(m, "Table")
       .def(py::init(
@@ -528,6 +533,8 @@ PYBIND11_MODULE(libpybind, m) {
       .def("can_sample", &Table::CanSample,
            py::call_guard<py::gil_scoped_release>())
       .def("can_insert", &Table::CanInsert,
+           py::call_guard<py::gil_scoped_release>())
+      .def("__repr__", &Table::DebugString,
            py::call_guard<py::gil_scoped_release>());
 
   py::class_<Writer>(m, "Writer")

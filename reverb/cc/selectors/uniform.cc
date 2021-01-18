@@ -78,5 +78,7 @@ KeyDistributionOptions UniformSelector::options() const {
   return options;
 }
 
+std::string UniformSelector::DebugString() const { return "UniformSelector"; }
+
 }  // namespace reverb
 }  // namespace deepmind

@@ -68,5 +68,7 @@ KeyDistributionOptions LifoSelector::options() const {
   return options;
 }
 
+std::string LifoSelector::DebugString() const { return "LifoSelector"; }
+
 }  // namespace reverb
 }  // namespace deepmind

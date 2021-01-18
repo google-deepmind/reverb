@@ -43,6 +43,8 @@ class UniformSelector : public ItemSelector {
 
   KeyDistributionOptions options() const override;
 
+  std::string DebugString() const override;
+
  private:
   // All keys.
   std::vector<Key> keys_;

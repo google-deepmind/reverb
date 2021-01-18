@@ -272,6 +272,9 @@ class Table {
   // Suggestion of default batch size to use in `SampleFlexibleBatch`.
   int32_t DefaultFlexibleBatchSize() const;
 
+  // Returns a summary string description.
+  std::string DebugString() const;
+
  private:
   // Updates item priority in `data_`, `samper_`, `remover_` and calls
   // `OnUpdate` on all extensions not part of `exclude`.

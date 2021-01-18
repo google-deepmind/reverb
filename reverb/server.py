@@ -227,6 +227,9 @@ class Table:
     """Returns True if an insert operation is permitted at the current state."""
     return self.internal_table.can_insert(num_inserts)
 
+  def __repr__(self):
+    return repr(self.internal_table)
+
 
 class Server:
   """Reverb replay server.

@@ -25,6 +25,7 @@
 #include "google/protobuf/timestamp.pb.h"
 #include <cstdint>
 #include "absl/memory/memory.h"
+#include "absl/strings/str_cat.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
@@ -513,6 +514,32 @@ int32_t Table::DefaultFlexibleBatchSize() const {
 
   // If all else fails, default to one sample per call.
   return 1;
+}
+
+std::string Table::DebugString() const {
+  absl::MutexLock lock(&mu_);
+  std::string str = absl::StrCat(
+      "Table(sampler=", sampler_->DebugString(),
+      ", remover=", remover_->DebugString(),
+      ", max_size=", max_size_,
+      ", max_times_sampled=", max_times_sampled_,
+      ", name=", name_,
+      ", rate_limiter=", rate_limiter_->DebugString(),
+      ", signature=",
+      (signature_.has_value() ? signature_.value().DebugString() : "nullptr"));
+
+  if (!extensions_.empty()) {
+    absl::StrAppend(&str, ", extensions=[");
+    for (size_t i = 0; i < extensions_.size(); ++i) {
+      absl::StrAppend(&str, extensions_[i]->DebugString());
+      if (i != extensions_.size() - 1) {
+        absl::StrAppend(&str, ", ");
+      }
+    }
+    absl::StrAppend(&str, "]");
+  }
+  absl::StrAppend(&str, ")");
+  return str;
 }
 
 }  // namespace reverb

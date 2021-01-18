@@ -22,6 +22,7 @@
 #include <cstdint>
 #include "absl/base/thread_annotations.h"
 #include "absl/container/fixed_array.h"
+#include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/time/time.h"
@@ -218,6 +219,12 @@ RateLimiterEventHistory RateLimiter::GetEventHistory(
     size_t min_sample_event_id) const {
   return {insert_stats_.GetEventHistory(mu, min_insert_event_id),
           sample_stats_.GetEventHistory(mu, min_sample_event_id)};
+}
+
+std::string RateLimiter::DebugString() const {
+  return absl::StrCat("RateLimiter(samples_per_insert=", samples_per_insert_,
+                      ", min_diff_=", min_diff_, ", max_diff=", max_diff_,
+                      ", min_size_to_sample=", min_size_to_sample_, ")");
 }
 
 RateLimiter::StatsManager::StatsManager()

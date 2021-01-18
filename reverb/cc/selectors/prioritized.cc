@@ -18,6 +18,7 @@
 #include <cstddef>
 
 #include "absl/random/distributions.h"
+#include "absl/strings/str_cat.h"
 #include "reverb/cc/platform/logging.h"
 #include "reverb/cc/schema.pb.h"
 #include "tensorflow/core/lib/core/errors.h"
@@ -162,6 +163,11 @@ KeyDistributionOptions PrioritizedSelector::options() const {
   options.mutable_prioritized()->set_priority_exponent(priority_exponent_);
   options.set_is_deterministic(false);
   return options;
+}
+
+std::string PrioritizedSelector::DebugString() const {
+  return absl::StrCat(
+      "PrioritizedSelector(priority_exponent=", priority_exponent_, ")");
 }
 
 double PrioritizedSelector::NodeValue(size_t index) const {

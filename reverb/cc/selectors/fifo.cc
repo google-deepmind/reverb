@@ -68,5 +68,7 @@ KeyDistributionOptions FifoSelector::options() const {
   return options;
 }
 
+std::string FifoSelector::DebugString() const { return "FifoSelector"; }
+
 }  // namespace reverb
 }  // namespace deepmind

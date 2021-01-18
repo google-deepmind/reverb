@@ -14,6 +14,7 @@
 
 #include "reverb/cc/selectors/heap.h"
 
+#include "absl/strings/str_cat.h"
 #include "reverb/cc/checkpointing/checkpoint.pb.h"
 #include "reverb/cc/schema.pb.h"
 #include "reverb/cc/selectors/interface.h"
@@ -75,6 +76,10 @@ KeyDistributionOptions HeapSelector::options() const {
   options.mutable_heap()->set_min_heap(sign_ == 1);
   options.set_is_deterministic(true);
   return options;
+}
+
+std::string HeapSelector::DebugString() const {
+  return absl::StrCat("HeapSelector(sign=", sign_, ")");
 }
 
 }  // namespace reverb

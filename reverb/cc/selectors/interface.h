@@ -60,6 +60,9 @@ class ItemSelector {
   // Options for dynamically constructing the distribution. Required when
   // reconstructing class from checkpoint.  Also used to query table metadata.
   virtual KeyDistributionOptions options() const = 0;
+
+  // Returns a summary string description.
+  virtual std::string DebugString() const = 0;
 };
 
 }  // namespace reverb
