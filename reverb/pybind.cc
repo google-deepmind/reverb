@@ -545,16 +545,24 @@ PYBIND11_MODULE(libpybind, m) {
            py::call_guard<py::gil_scoped_release>());
 
   py::class_<Sampler>(m, "Sampler")
-      .def(
-          "GetNextTimestep",
-          [](Sampler *sampler) {
-            std::vector<tensorflow::Tensor> sample;
-            bool end_of_sequence;
-            MaybeRaiseFromStatus(
-                sampler->GetNextTimestep(&sample, &end_of_sequence));
-            return std::make_pair(std::move(sample), end_of_sequence);
-          },
-          py::call_guard<py::gil_scoped_release>())
+      .def("GetNextTimestep",
+           [](Sampler *sampler) {
+             std::vector<tensorflow::Tensor> sample;
+             bool end_of_sequence;
+             tensorflow::Status status;
+
+             // Release the GIL only when waiting for the call to complete. If
+             // the GIL is not held when `MaybeRaiseFromStatus` is called it can
+             // result in segfaults as the Python exception is populated with
+             // details from the status.
+             {
+               py::gil_scoped_release g;
+               status = sampler->GetNextTimestep(&sample, &end_of_sequence);
+             }
+
+             MaybeRaiseFromStatus(status);
+             return std::make_pair(std::move(sample), end_of_sequence);
+           })
       .def("Close", &Sampler::Close, py::call_guard<py::gil_scoped_release>());
 
   py::class_<Client>(m, "Client")
