@@ -282,6 +282,9 @@ class Client:
   def __reduce__(self):
     return self.__class__, (self._server_address,)
 
+  def __repr__(self):
+    return f'Client, server_address={self._server_address}'
+
   @property
   def server_address(self) -> str:
     return self._server_address
