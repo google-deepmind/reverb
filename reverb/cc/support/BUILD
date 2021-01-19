@@ -103,3 +103,19 @@ reverb_cc_library(
         "//reverb/cc/platform:hash_set",
     ] + reverb_tf_deps() + reverb_absl_deps(),
 )
+
+reverb_cc_library(
+    name = "unbounded_queue",
+    hdrs = ["unbounded_queue.h"],
+    deps = reverb_absl_deps(),
+)
+
+reverb_cc_test(
+    name = "unbounded_queue_test",
+    srcs = ["unbounded_queue_test.cc"],
+    deps = [
+        ":unbounded_queue",
+        "//reverb/cc/platform:logging",
+        "//reverb/cc/platform:thread",
+    ] + reverb_absl_deps() + reverb_tf_deps(),
+)
