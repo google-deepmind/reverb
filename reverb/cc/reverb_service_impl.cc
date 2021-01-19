@@ -339,6 +339,20 @@ void ReverbServiceImpl::Close() {
   }
 }
 
+std::string ReverbServiceImpl::DebugString() const {
+  std::string str = "ReverbService(tables=[";
+  for (auto iter = tables_.cbegin(); iter != tables_.cend(); ++iter) {
+    if (iter != tables_.cbegin()) {
+      absl::StrAppend(&str, ", ");
+    }
+    absl::StrAppend(&str, iter->second->DebugString());
+  }
+  absl::StrAppend(&str, "], checkpointer=",
+                  (checkpointer_ ? checkpointer_->DebugString() : "nullptr"),
+                  ")");
+  return str;
+}
+
 grpc::Status ReverbServiceImpl::ServerInfo(grpc::ServerContext* context,
                                            const ServerInfoRequest* request,
                                            ServerInfoResponse* response) {

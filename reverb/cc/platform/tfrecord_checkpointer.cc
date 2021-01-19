@@ -349,5 +349,10 @@ tensorflow::Status TFRecordCheckpointer::LoadLatest(
       absl::StrCat("No checkpoint found in ", root_dir_));
 }
 
+std::string TFRecordCheckpointer::DebugString() const {
+  return absl::StrCat("TFRecordCheckpointer(root_dir=", root_dir_,
+                      ", group=", group_, ")");
+}
+
 }  // namespace reverb
 }  // namespace deepmind

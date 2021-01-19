@@ -85,6 +85,9 @@ class TFRecordCheckpointer : public Checkpointer {
       ChunkStore* chunk_store,
       std::vector<std::shared_ptr<Table>>* tables) override;
 
+  // Returns a summary string description.
+  std::string DebugString() const override;
+
   // TFRecordCheckpointer is neither copyable nor movable.
   TFRecordCheckpointer(const TFRecordCheckpointer&) = delete;
   TFRecordCheckpointer& operator=(const TFRecordCheckpointer&) = delete;

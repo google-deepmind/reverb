@@ -85,6 +85,12 @@ class ServerImpl : public Server {
         /* grpc_gen:: */ReverbService::NewStub(server_->InProcessChannel(arguments)));
   }
 
+  std::string DebugString() const override {
+    return absl::StrCat("Server(port=", port_,
+                        ", reverb_service=", reverb_service_->DebugString(),
+                        ")");
+  }
+
  private:
   int port_;
   std::unique_ptr<ReverbServiceImpl> reverb_service_;

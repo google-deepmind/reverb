@@ -659,8 +659,9 @@ PYBIND11_MODULE(libpybind, m) {
         return path;
       });
 
-  py::class_<Checkpointer, std::shared_ptr<Checkpointer>> unused_checkpointer(
-      m, "Checkpointer");
+  py::class_<Checkpointer, std::shared_ptr<Checkpointer>>(m, "Checkpointer")
+      .def("__repr__", &Checkpointer::DebugString,
+           py::call_guard<py::gil_scoped_release>());
 
   m.def(
       "create_default_checkpointer",
@@ -685,6 +686,8 @@ PYBIND11_MODULE(libpybind, m) {
       .def("Stop", &Server::Stop, py::call_guard<py::gil_scoped_release>())
       .def("Wait", &Server::Wait, py::call_guard<py::gil_scoped_release>())
       .def("InProcessClient", &Server::InProcessClient,
+           py::call_guard<py::gil_scoped_release>())
+      .def("__repr__", &Server::DebugString,
            py::call_guard<py::gil_scoped_release>());
 }
 

@@ -88,6 +88,9 @@ class ReverbServiceImpl : public /* grpc_gen:: */ReverbService::Service {
   // Closes all tables and the chunk store.
   void Close();
 
+  // Returns a summary string description.
+  std::string DebugString() const;
+
  private:
   explicit ReverbServiceImpl(
       std::shared_ptr<Checkpointer> checkpointer = nullptr);

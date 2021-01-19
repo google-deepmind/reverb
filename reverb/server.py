@@ -289,6 +289,9 @@ class Server:
     if hasattr(self, '_port'):
       portpicker.return_port(self._port)
 
+  def __repr__(self):
+    return repr(self._server)
+
   @property
   def port(self):
     """Port the gRPC service is running at."""

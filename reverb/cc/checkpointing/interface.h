@@ -46,6 +46,9 @@ class Checkpointer {
   // for more details.
   virtual tensorflow::Status LoadLatest(
       ChunkStore* chunk_store, std::vector<std::shared_ptr<Table>>* tables) = 0;
+
+  // Returns a summary string description.
+  virtual std::string DebugString() const = 0;
 };
 
 }  // namespace reverb
