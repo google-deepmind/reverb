@@ -51,10 +51,6 @@ tensorflow::Status FlatSignatureFromStructuredValue(
 tensorflow::StructuredValue StructuredValueFromChunkData(
     const ChunkData& chunk_data);
 
-tensorflow::Status FlatPathFromStructuredValue(
-    const tensorflow::StructuredValue& value, absl::string_view prefix,
-    std::vector<std::string>* paths);
-
 // Map from table name to optional vector of flattened (dtype, shape) pairs.
 typedef internal::flat_hash_map<std::string, internal::DtypesAndShapes>
     FlatSignatureMap;

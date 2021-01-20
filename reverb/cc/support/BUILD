@@ -104,6 +104,14 @@ reverb_cc_library(
     ] + reverb_tf_deps() + reverb_absl_deps(),
 )
 
+reverb_cc_test(
+    name = "signature_test",
+    srcs = ["signature_test.cc"],
+    deps = [
+        ":signature",
+    ] + reverb_tf_deps() + reverb_absl_deps(),
+)
+
 reverb_cc_library(
     name = "unbounded_queue",
     hdrs = ["unbounded_queue.h"],

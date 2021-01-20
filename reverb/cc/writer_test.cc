@@ -722,9 +722,9 @@ TEST(WriterTest, WriteTimeStepsInconsistentDtypeError) {
   EXPECT_EQ(status.code(), tensorflow::error::INVALID_ARGUMENT);
   EXPECT_THAT(status.error_message(),
               ::testing::HasSubstr(
-                  "timestep offset 0 in (flattened) tensor location 0 with "
-                  "dtype float and shape [] but expected a tensor of dtype "
-                  "int32 and shape compatible with <unknown>"));
+                  "timestep offset 0, flattened index 0, saw a tensor of "
+                  "dtype float, shape [], but expected tensor 'tensor0' of "
+                  "dtype int32"));
 }
 
 TEST(WriterTest, WriteTimeStepsInconsistentDtypeErrorAgainstBoundedSpec) {
@@ -742,9 +742,9 @@ TEST(WriterTest, WriteTimeStepsInconsistentDtypeErrorAgainstBoundedSpec) {
   EXPECT_EQ(status.code(), tensorflow::error::INVALID_ARGUMENT);
   EXPECT_THAT(status.error_message(),
               ::testing::HasSubstr(
-                  "timestep offset 0 in (flattened) tensor location 0 with "
-                  "dtype float and shape [] but expected a tensor of dtype "
-                  "int32 and shape compatible with <unknown>"));
+                  "timestep offset 0, flattened index 0, saw a tensor of "
+                  "dtype float, shape [], but expected tensor 'tensor0' of "
+                  "dtype int32"));
 }
 
 TEST(WriterTest, WriteTimeStepsInconsistentShapeError) {
@@ -762,9 +762,9 @@ TEST(WriterTest, WriteTimeStepsInconsistentShapeError) {
   EXPECT_EQ(status.code(), tensorflow::error::INVALID_ARGUMENT);
   EXPECT_THAT(status.error_message(),
               ::testing::HasSubstr(
-                  "timestep offset 0 in (flattened) tensor location 0 with "
-                  "dtype float and shape [] but expected a tensor of dtype "
-                  "float and shape compatible with [?]"));
+                  "timestep offset 0, flattened index 0, saw a tensor of "
+                  "dtype float, shape [], but expected tensor 'tensor0' of "
+                  "dtype float and shape compatible with [?]"));
 }
 
 TEST(WriterTest, WriteTimeStepsInconsistentShapeErrorAgainstBoundedSpec) {
@@ -782,9 +782,9 @@ TEST(WriterTest, WriteTimeStepsInconsistentShapeErrorAgainstBoundedSpec) {
   EXPECT_EQ(status.code(), tensorflow::error::INVALID_ARGUMENT);
   EXPECT_THAT(status.error_message(),
               ::testing::HasSubstr(
-                  "timestep offset 0 in (flattened) tensor location 0 with "
-                  "dtype float and shape [] but expected a tensor of dtype "
-                  "float and shape compatible with [?]"));
+                  "timestep offset 0, flattened index 0, saw a tensor of "
+                  "dtype float, shape [], but expected tensor 'tensor0' of "
+                  "dtype float and shape compatible with [?]"));
 }
 
 std::pair<std::shared_ptr<FakeStub>, std::unique_ptr<internal::Queue<uint64_t>>>

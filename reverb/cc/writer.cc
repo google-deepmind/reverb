@@ -181,14 +181,16 @@ tensorflow::Status Writer::CreateItem(const std::string& table,
 
       if (dtypes_and_shapes_t->size() != (*dtypes_and_shapes)->size()) {
         return tensorflow::errors::InvalidArgument(
-            "Unable to CreateItem to table ", table,
-            " because Append was called with a tensor signature "
+            "Unable to CreateItem in table '", table,
+            "' because Append was called with a tensor signature "
             "inconsistent with table signature.  Append for timestep "
             "offset ",
             t, " was called with ", dtypes_and_shapes_t->size(),
             " tensors, but table requires ", (*dtypes_and_shapes)->size(),
             " tensors per entry.  Table signature: ",
-            internal::DtypesShapesString(**dtypes_and_shapes));
+            internal::DtypesShapesString(**dtypes_and_shapes),
+            ", data signature: ",
+            internal::DtypesShapesString(*dtypes_and_shapes_t), ".");
       }
 
       for (int c = 0; c < dtypes_and_shapes_t->size(); ++c) {
@@ -198,19 +200,20 @@ tensorflow::Status Writer::CreateItem(const std::string& table,
             !signature_dtype_and_shape.shape.IsCompatibleWith(
                 seen_dtype_and_shape.shape)) {
           return tensorflow::errors::InvalidArgument(
-              "Unable to CreateItem to table ", table,
-              " because Append was called with a tensor signature "
-              "inconsistent with table signature.  Saw a tensor at "
-              "timestep offset ",
-              t, " in (flattened) tensor location ", c, " with dtype ",
-              DataTypeString(seen_dtype_and_shape.dtype), " and shape ",
+              "Unable to CreateItem in table '", table,
+              "' because Append was called with a tensor signature "
+              "inconsistent with the table signature. At timestep offset ",
+              t, ", flattened index ", c, ", saw a tensor of dtype ",
+              DataTypeString(seen_dtype_and_shape.dtype), ", shape ",
               seen_dtype_and_shape.shape.DebugString(),
-              " but expected a tensor of dtype ",
-              DataTypeString(signature_dtype_and_shape.dtype),
+              ", but expected tensor '", signature_dtype_and_shape.name,
+              "' of dtype ", DataTypeString(signature_dtype_and_shape.dtype),
               " and shape compatible with ",
               signature_dtype_and_shape.shape.DebugString(),
               ".  (Flattened) table signature: ",
-              internal::DtypesShapesString(**dtypes_and_shapes));
+              internal::DtypesShapesString(**dtypes_and_shapes),
+              ", data signature: ",
+              internal::DtypesShapesString(*dtypes_and_shapes_t), ".");
         }
       }
     }

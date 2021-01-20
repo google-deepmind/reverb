@@ -44,14 +44,25 @@ tensorflow::Status FlatSignatureFromTableInfo(
   return tensorflow::Status::OK();
 }
 
+namespace {
+
+template <typename T>
+std::string ExtendContext(absl::string_view context, T val) {
+  const std::string val_string = absl::StrCat(val);
+  return absl::StrCat(context,
+                      ((!context.empty() && !val_string.empty()) ? "/" : ""),
+                      val_string);
+}
+
 tensorflow::Status FlatSignatureFromStructuredValue(
-    const tensorflow::StructuredValue& value,
+    const tensorflow::StructuredValue& value, absl::string_view context,
     DtypesAndShapes* dtypes_and_shapes) {
   switch (value.kind_case()) {
     case tensorflow::StructuredValue::kTensorSpecValue: {
       const auto& tensor_spec = value.tensor_spec_value();
       (*dtypes_and_shapes)
-          ->push_back({tensor_spec.name(), tensor_spec.dtype(),
+          ->push_back({ExtendContext(context, tensor_spec.name()),
+                       tensor_spec.dtype(),
                        tensorflow::PartialTensorShape(tensor_spec.shape())});
     } break;
     case tensorflow::StructuredValue::kBoundedTensorSpecValue: {
@@ -61,19 +72,22 @@ tensorflow::Status FlatSignatureFromStructuredValue(
       // TODO(b/158033101): Make the signature check fully support boundaries.
       (*dtypes_and_shapes)
           ->push_back(
-              {bounded_tensor_spec.name(), bounded_tensor_spec.dtype(),
+              {ExtendContext(context, bounded_tensor_spec.name()),
+               bounded_tensor_spec.dtype(),
                tensorflow::PartialTensorShape(bounded_tensor_spec.shape())});
     } break;
     case tensorflow::StructuredValue::kListValue: {
-      for (const auto& v : value.list_value().values()) {
-        TF_RETURN_IF_ERROR(
-            FlatSignatureFromStructuredValue(v, dtypes_and_shapes));
+      const auto& values = value.list_value().values();
+      for (size_t i = 0; i < values.size(); ++i) {
+        TF_RETURN_IF_ERROR(FlatSignatureFromStructuredValue(
+            values[i], ExtendContext(context, i), dtypes_and_shapes));
       }
     } break;
     case tensorflow::StructuredValue::kTupleValue: {
-      for (const auto& v : value.tuple_value().values()) {
-        TF_RETURN_IF_ERROR(
-            FlatSignatureFromStructuredValue(v, dtypes_and_shapes));
+      const auto& values = value.tuple_value().values();
+      for (size_t i = 0; i < values.size(); ++i) {
+        TF_RETURN_IF_ERROR(FlatSignatureFromStructuredValue(
+            values[i], ExtendContext(context, i), dtypes_and_shapes));
       }
     } break;
     case tensorflow::StructuredValue::kDictValue: {
@@ -85,13 +99,14 @@ tensorflow::Status FlatSignatureFromStructuredValue(
       std::sort(keys.begin(), keys.end());
       for (const auto& k : keys) {
         TF_RETURN_IF_ERROR(FlatSignatureFromStructuredValue(
-            value.dict_value().fields().at(k), dtypes_and_shapes));
+            value.dict_value().fields().at(k), ExtendContext(context, k),
+            dtypes_and_shapes));
       }
     } break;
     case tensorflow::StructuredValue::kNamedTupleValue: {
-      for (const auto &p : value.named_tuple_value().values()) {
+      for (const auto& p : value.named_tuple_value().values()) {
         TF_RETURN_IF_ERROR(FlatSignatureFromStructuredValue(
-            p.value(), dtypes_and_shapes));
+            p.value(), ExtendContext(context, p.key()), dtypes_and_shapes));
       }
     } break;
     default:
@@ -100,6 +115,14 @@ tensorflow::Status FlatSignatureFromStructuredValue(
           value.DebugString(), "'");
   }
   return tensorflow::Status::OK();
+}
+
+}  // namespace
+
+tensorflow::Status FlatSignatureFromStructuredValue(
+    const tensorflow::StructuredValue& value,
+    DtypesAndShapes* dtypes_and_shapes) {
+  return FlatSignatureFromStructuredValue(value, "", dtypes_and_shapes);
 }
 
 std::string DtypesShapesString(
@@ -134,60 +157,6 @@ tensorflow::StructuredValue StructuredValueFromChunkData(
   }
 
   return value;
-}
-
-tensorflow::Status FlatPathFromStructuredValue(
-    const tensorflow::StructuredValue& value, absl::string_view prefix,
-    std::vector<std::string>* paths) {
-  switch (value.kind_case()) {
-    case tensorflow::StructuredValue::kTensorSpecValue:
-      paths->push_back(std::string(prefix));
-      break;
-    case tensorflow::StructuredValue::kBoundedTensorSpecValue:
-      // The path does not store the bounds from the bounded spec as currently
-      // those bounds are not checked as part of the signature check.
-      // TODO(b/158033101): Make the signature check fully support boundaries.
-      paths->push_back(std::string(prefix));
-      break;
-    case tensorflow::StructuredValue::kListValue: {
-      for (int i = 0; i < value.list_value().values_size(); i++) {
-        TF_RETURN_IF_ERROR(FlatPathFromStructuredValue(
-            value.list_value().values(i), absl::StrCat(prefix, "[", i, "]"),
-            paths));
-      }
-    } break;
-    case tensorflow::StructuredValue::kTupleValue: {
-      for (int i = 0; i < value.tuple_value().values_size(); i++) {
-        TF_RETURN_IF_ERROR(FlatPathFromStructuredValue(
-            value.tuple_value().values(i), absl::StrCat(prefix, "[", i, "]"),
-            paths));
-      }
-    } break;
-    case tensorflow::StructuredValue::kDictValue: {
-      std::vector<std::string> keys;
-      keys.reserve(value.dict_value().fields_size());
-      for (const auto& f : value.dict_value().fields()) {
-        keys.push_back(f.first);
-      }
-      std::sort(keys.begin(), keys.end());
-      for (const auto& k : keys) {
-        TF_RETURN_IF_ERROR(
-            FlatPathFromStructuredValue(value.dict_value().fields().at(k),
-                                        absl::StrCat(prefix, ".", k), paths));
-      }
-    } break;
-    case tensorflow::StructuredValue::kNamedTupleValue: {
-      for (const auto& p : value.named_tuple_value().values()) {
-        TF_RETURN_IF_ERROR(FlatPathFromStructuredValue(
-            p.value(), absl::StrCat(prefix, ".", p.key()), paths));
-      }
-    } break;
-    default:
-      return tensorflow::errors::InvalidArgument(
-          "Saw unsupported encoded subtree in signature: '",
-          value.DebugString(), "'");
-  }
-  return tensorflow::Status::OK();
 }
 
 std::vector<internal::TensorSpec> SpecsFromTensors(
