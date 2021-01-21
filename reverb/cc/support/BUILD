@@ -127,3 +127,29 @@ reverb_cc_test(
         "//reverb/cc/platform:thread",
     ] + reverb_absl_deps() + reverb_tf_deps(),
 )
+
+reverb_cc_library(
+    name = "trajectory_util",
+    srcs = ["trajectory_util.cc"],
+    hdrs = ["trajectory_util.h"],
+    deps = [
+        "//reverb/cc:chunk_store",
+        "//reverb/cc:schema_cc_proto",
+        "//reverb/cc:tensor_compression",
+        "//reverb/cc/platform:hash_set",
+        "//reverb/cc/platform:logging",
+    ] + reverb_tf_deps() + reverb_absl_deps(),
+)
+
+reverb_cc_test(
+    name = "trajectory_util_test",
+    srcs = ["trajectory_util_test.cc"],
+    deps = [
+        ":trajectory_util",
+        "//reverb/cc:chunk_store",
+        "//reverb/cc:schema_cc_proto",
+        "//reverb/cc:tensor_compression",
+        "//reverb/cc/testing:proto_test_util",
+        "//reverb/cc/testing:tensor_testutil",
+    ] + reverb_tf_deps(),
+)

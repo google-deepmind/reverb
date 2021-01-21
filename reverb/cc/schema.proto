@@ -53,23 +53,42 @@ message SequenceRange {
   int32 end = 3;
 }
 
+message FlatTrajectory {
+  message ChunkSlice {
+    // Unique identifier of the ChunkData which owns the compressed data.
+    uint64 chunk_key = 1;
+
+    // Index of the first element in the chunk to include.
+    int32 offset = 2;
+
+    // Number of elements from the chunk to include.
+    int32 length = 3;
+
+    // Tensor index of the tensor within the chunk.
+    int32 index = 4;
+  }
+
+  message Column {
+    // Chunk slices to concat.
+    repeated ChunkSlice chunk_slices = 1;
+
+    // TODO(b/177643643): Add support for squeezing the column.
+  }
+
+  // Flattened columns of the trajectory.
+  repeated Column columns = 1;
+}
+
 // A prioritized item is part of a table and references a chunk of
 // data. Sampling happens based on the priority of items.
+//
+// Next ID: 9.
 message PrioritizedItem {
   // Unique identifier of this item.
   uint64 key = 1;
 
   // Priority table that the item belongs to.
   string table = 2;
-
-  // Sequence of chunks that is referenced by this item. Chunks in this list
-  // will be batched together and are expected to have compatible shape and
-  // dtype. Optional.
-  repeated uint64 chunk_keys = 3;
-
-  // Range that should be sliced out of the chunks in `chunk_keys`. This range
-  // can span multiple chunks.
-  SliceRange sequence_range = 4;
 
   // Priority used for sampling.
   double priority = 5;
@@ -79,6 +98,14 @@ message PrioritizedItem {
 
   // The time when the item was first inserted.
   google.protobuf.Timestamp inserted_at = 7;
+
+  // Flattened representation of item's trajectory.
+  FlatTrajectory flat_trajectory = 8;
+
+  // Deprecated January 2021 and retained to provide backward compatibility
+  // with checkpoints created before this point.
+  repeated uint64 deprecated_chunk_keys = 3 [deprecated = true];
+  SliceRange deprecated_sequence_range = 4 [deprecated = true];
 }
 
 // Used for updating an existing PrioritizedItem.

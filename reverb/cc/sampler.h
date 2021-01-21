@@ -17,11 +17,12 @@
 
 #include <stddef.h>
 
-#include <list>
+#include <deque>
 #include <memory>
 #include <string>
 #include <vector>
 
+#include "absl/base/attributes.h"
 #include <cstdint>
 #include "absl/time/time.h"
 #include "reverb/cc/platform/thread.h"
@@ -54,7 +55,7 @@ class Sample {
  public:
   Sample(tensorflow::uint64 key, double probability,
          tensorflow::int64 table_size, double priority,
-         std::list<std::vector<tensorflow::Tensor>> chunks);
+         std::deque<std::vector<tensorflow::Tensor>> chunks);
 
   // Returns the next time step from this sample as a flat sequence of tensors.
   // CHECK-fails if the entire sample has already been returned.
@@ -73,6 +74,9 @@ class Sample {
   // Returns true if the end of the sample has been reached.
   ABSL_MUST_USE_RESULT bool is_end_of_sample() const;
 
+  // Returns true if the sample can be decomposed into timesteps.
+  ABSL_MUST_USE_RESULT bool is_composed_of_timesteps() const;
+
  private:
   // The key of the replay item this time step was sampled from.
   tensorflow::uint64 key_;
@@ -90,8 +94,8 @@ class Sample {
   // Number of data tensors per time step.
   int64_t num_data_tensors_;
 
-  // A list of tensor chunks.
-  std::list<std::vector<tensorflow::Tensor>> chunks_;
+  // A deque of tensor chunks.
+  std::deque<std::vector<tensorflow::Tensor>> chunks_;
 
   // The next time step to return when GetNextTimestep() is called.
   int64_t next_timestep_index_;

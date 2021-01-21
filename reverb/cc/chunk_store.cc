@@ -24,14 +24,41 @@
 #include "absl/time/time.h"
 #include "absl/types/span.h"
 #include "reverb/cc/platform/hash_map.h"
+#include "reverb/cc/platform/logging.h"
 #include "reverb/cc/platform/thread.h"
 #include "reverb/cc/schema.pb.h"
 #include "reverb/cc/support/queue.h"
+#include "reverb/cc/tensor_compression.h"
+#include "tensorflow/core/framework/tensor.h"
 #include "tensorflow/core/lib/core/errors.h"
 #include "tensorflow/core/lib/core/status.h"
 
 namespace deepmind {
 namespace reverb {
+
+ChunkStore::Chunk::Chunk(ChunkData data) : data_(std::move(data)) {}
+
+uint64_t ChunkStore::Chunk::key() const { return data_.chunk_key(); }
+
+const ChunkData& ChunkStore::Chunk::data() const { return data_; }
+
+size_t ChunkStore::Chunk::DataByteSizeLong() const {
+  absl::call_once(data_byte_size_once_,
+                  [this]() { data_byte_size_ = data_.ByteSizeLong(); });
+  return data_byte_size_;
+}
+
+uint64_t ChunkStore::Chunk::episode_id() const {
+  return data_.sequence_range().episode_id();
+}
+
+int32_t ChunkStore::Chunk::num_rows() const {
+  return data_.sequence_range().end() - data_.sequence_range().start() + 1;
+}
+
+int ChunkStore::Chunk::num_columns() const {
+  return data_.data().tensors_size();
+}
 
 ChunkStore::ChunkStore(int cleanup_batch_size)
     : delete_keys_(std::make_shared<internal::Queue<Key>>(10000000)),
@@ -55,7 +82,7 @@ std::shared_ptr<ChunkStore::Chunk> ChunkStore::Insert(ChunkData item) {
   if (sp == nullptr) {
     wp = (sp = std::shared_ptr<Chunk>(new Chunk(std::move(item)),
                                       [q = delete_keys_](Chunk* chunk) {
-                                        q->Push(chunk->data().chunk_key());
+                                        q->Push(chunk->key());
                                         delete chunk;
                                       }));
   }
@@ -64,7 +91,7 @@ std::shared_ptr<ChunkStore::Chunk> ChunkStore::Insert(ChunkData item) {
 
 tensorflow::Status ChunkStore::Get(
     absl::Span<const ChunkStore::Key> keys,
-    std::vector<std::shared_ptr<ChunkStore::Chunk>>* chunks) {
+    std::vector<std::shared_ptr<Chunk>>* chunks) {
   absl::ReaderMutexLock lock(&mu_);
   chunks->clear();
   chunks->reserve(keys.size());

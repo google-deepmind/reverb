@@ -34,6 +34,7 @@
 #include "reverb/cc/support/cleanup.h"
 #include "reverb/cc/support/grpc_util.h"
 #include "reverb/cc/support/queue.h"
+#include "reverb/cc/support/trajectory_util.h"
 #include "reverb/cc/support/uint128.h"
 #include "tensorflow/core/lib/core/errors.h"
 #include "tensorflow/core/lib/core/status.h"
@@ -164,7 +165,8 @@ grpc::Status ReverbServiceImpl::InsertStreamInternal(
         return grpc::Status::OK;
       };
 
-      for (ChunkStore::Key key : request.item().item().chunk_keys()) {
+      for (ChunkStore::Key key :
+           internal::GetChunkKeys(request.item().item().flat_trajectory())) {
         auto status = push_or(key);
         if (!status.ok()) return status;
       }

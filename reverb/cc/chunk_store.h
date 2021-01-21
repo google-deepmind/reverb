@@ -28,6 +28,8 @@
 #include "reverb/cc/platform/thread.h"
 #include "reverb/cc/schema.pb.h"
 #include "reverb/cc/support/queue.h"
+#include "tensorflow/core/framework/tensor.h"
+#include "tensorflow/core/framework/tensor_shape.h"
 #include "tensorflow/core/lib/core/status.h"
 
 namespace deepmind {
@@ -52,17 +54,26 @@ class ChunkStore {
 
   class Chunk {
    public:
-    explicit Chunk(ChunkData data) : data_(std::move(data)) {}
+    explicit Chunk(ChunkData data);
+
+    // Unique identifier of the chunk.
+    uint64_t key() const;
 
     // Returns the proto data of the chunk.
-    const ChunkData& data() const { return data_; }
+    const ChunkData& data() const;
 
     // (Potentially cached) size of `data`.
-    size_t DataByteSizeLong() const {
-      absl::call_once(data_byte_size_once_,
-                      [this]() { data_byte_size_ = data_.ByteSizeLong(); });
-      return data_byte_size_;
-    }
+    size_t DataByteSizeLong() const;
+
+    // Alias for `data().sequence_range().episode_id()`.
+    uint64_t episode_id() const;
+
+    // The number of tensors batched together in each column. Note that all
+    // columns always share the same number of rows (i.e batch dimension).
+    int32_t num_rows() const;
+
+    // Number of tensors in each step.
+    int num_columns() const;
 
    private:
     ChunkData data_;

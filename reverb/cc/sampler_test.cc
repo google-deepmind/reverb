@@ -178,10 +178,14 @@ SampleStreamResponse MakeResponse(int item_length, bool delta_encode = false,
   REVERB_CHECK_LE(item_length + offset, data_length);
 
   SampleStreamResponse response;
-  response.mutable_info()->mutable_item()->mutable_sequence_range()->set_length(
-      item_length);
-  response.mutable_info()->mutable_item()->mutable_sequence_range()->set_offset(
-      offset);
+  auto* slice = response.mutable_info()
+                    ->mutable_item()
+                    ->mutable_flat_trajectory()
+                    ->add_columns()
+                    ->add_chunk_slices();
+  slice->set_length(item_length);
+  slice->set_offset(offset);
+
   auto tensor = MakeTensor(data_length);
   if (delta_encode) {
     tensor = DeltaEncode(tensor, true);
@@ -190,6 +194,10 @@ SampleStreamResponse MakeResponse(int item_length, bool delta_encode = false,
 
   CompressTensorAsProto(tensor,
                         response.mutable_data()->mutable_data()->add_tensors());
+
+  response.mutable_data()->mutable_sequence_range()->set_start(0);
+  response.mutable_data()->mutable_sequence_range()->set_end(data_length);
+
   return response;
 }
 
@@ -225,8 +233,26 @@ TableItem MakeItem(uint64_t key, double priority,
   }
 
   item.item = testing::MakePrioritizedItem(key, priority, data);
-  item.item.mutable_sequence_range()->set_offset(offset);
-  item.item.mutable_sequence_range()->set_length(length);
+
+  int32_t remaining = length;
+  for (int slice_index = 0; slice_index < sequences.size(); slice_index++) {
+    for (int col_index = 0;
+         col_index < item.item.flat_trajectory().columns_size(); col_index++) {
+      auto* col =
+          item.item.mutable_flat_trajectory()->mutable_columns(col_index);
+      auto* slice = col->mutable_chunk_slices(slice_index);
+      slice->set_offset(offset);
+      slice->set_length(
+          std::min<int32_t>(slice->length() - slice->offset(), remaining));
+      slice->set_index(col_index);
+    }
+
+    remaining -= item.item.flat_trajectory()
+                     .columns(0)
+                     .chunk_slices(slice_index)
+                     .length();
+    offset = 0;
+  }
 
   return item;
 }
@@ -250,6 +276,24 @@ void InsertItem(Table* table, uint64_t key, double priority,
 
   TF_EXPECT_OK(
       table->InsertOrAssign(MakeItem(key, priority, ranges, offset, length)));
+}
+
+TEST(SampleTest, IsComposedOfTimesteps) {
+  Sample timestep_sample(
+      /*key=*/100,
+      /*probability=*/0.5,
+      /*table_size=*/2,
+      /*priority=*/1,
+      /*chunks=*/{{MakeTensor(5), MakeTensor(5)}});
+  EXPECT_TRUE(timestep_sample.is_composed_of_timesteps());
+
+  Sample non_timestep_sample(
+      /*key=*/100,
+      /*probability=*/0.5,
+      /*table_size=*/2,
+      /*priority=*/1,
+      /*chunks=*/{{MakeTensor(5), MakeTensor(10)}});
+  EXPECT_FALSE(non_timestep_sample.is_composed_of_timesteps());
 }
 
 TEST(GrpcSamplerTest, SendsFirstRequest) {
@@ -697,6 +741,29 @@ TEST(LocalSamplerTest, GetNextTimestepReturnsErrorIfMaximumSamplesExceeded) {
   TF_EXPECT_OK(sampler.GetNextTimestep(&sample, &end_of_sequence));
   EXPECT_EQ(sampler.GetNextTimestep(&sample, &end_of_sequence).code(),
             tensorflow::error::OUT_OF_RANGE);
+}
+
+TEST(GrpcSamplerTest, GetNextTimestepReturnsErrorIfNotDecomposible) {
+  auto response = MakeResponse(5);
+
+  // Add a column of length 10 to the existing one of length 5.
+  CompressTensorAsProto(MakeTensor(10),
+                        response.mutable_data()->mutable_data()->add_tensors());
+  auto* slice = response.mutable_info()
+                    ->mutable_item()
+                    ->mutable_flat_trajectory()
+                    ->add_columns()
+                    ->add_chunk_slices();
+  *slice = response.info().item().flat_trajectory().columns(0).chunk_slices(0);
+  slice->set_index(1);
+  slice->set_length(10);
+
+  auto stub = MakeGoodStub({std::move(response)});
+  Sampler sampler(stub, "table", {2, 1, 1});
+  std::vector<tensorflow::Tensor> sample;
+  bool end_of_sequence;
+  auto status = sampler.GetNextTimestep(&sample, &end_of_sequence);
+  EXPECT_EQ(status.code(), tensorflow::error::INVALID_ARGUMENT) << status;
 }
 
 TEST(GrpcSamplerTest, GetNextSampleReturnsErrorIfMaximumSamplesExceeded) {

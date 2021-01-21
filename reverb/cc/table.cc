@@ -38,6 +38,7 @@
 #include "reverb/cc/rate_limiter.h"
 #include "reverb/cc/schema.pb.h"
 #include "reverb/cc/selectors/interface.h"
+#include "reverb/cc/support/trajectory_util.h"
 #include "reverb/cc/table_extensions/interface.h"
 #include "tensorflow/core/platform/errors.h"
 #include "tensorflow/core/platform/status.h"
@@ -47,6 +48,7 @@ namespace reverb {
 namespace {
 
 using Extensions = std::vector<std::shared_ptr<TableExtension>>;
+using ::tensorflow::errors::InvalidArgument;
 
 inline bool IsInsertedBefore(const PrioritizedItem& a,
                              const PrioritizedItem& b) {
@@ -60,6 +62,30 @@ inline void EncodeAsTimestampProto(absl::Time t,
   const int64_t s = absl::ToUnixSeconds(t);
   proto->set_seconds(s);
   proto->set_nanos((t - absl::FromUnixSeconds(s)) / absl::Nanoseconds(1));
+}
+
+inline tensorflow::Status CheckItemValidity(const Table::Item& item) {
+  if (item.item.flat_trajectory().columns().empty() ||
+      item.item.flat_trajectory().columns(0).chunk_slices().empty()) {
+    return InvalidArgument("Item trajectory must not be empty.");
+  }
+
+  auto trajectory_keys = internal::GetChunkKeys(item.item.flat_trajectory());
+  if (trajectory_keys.size() != item.chunks.size()) {
+    return InvalidArgument("The number of chunks (", item.chunks.size(),
+                           ") does not equal the number of chunks referenced "
+                           "in item's trajectory (",
+                           trajectory_keys.size(), ").");
+  }
+
+  for (int i = 0; i < trajectory_keys.size(); ++i) {
+    if (item.chunks[i]->key() != trajectory_keys[i]) {
+      return InvalidArgument(
+          "Item chunks does not match chunks referenced in trajectory.");
+    }
+  }
+
+  return tensorflow::Status::OK();
 }
 
 }  // namespace
@@ -103,6 +129,8 @@ std::vector<Table::Item> Table::Copy(size_t count) const {
 }
 
 tensorflow::Status Table::InsertOrAssign(Item item) {
+  TF_RETURN_IF_ERROR(CheckItemValidity(item));
+
   auto key = item.item.key();
   auto priority = item.item.priority();
 
@@ -146,7 +174,7 @@ tensorflow::Status Table::InsertOrAssign(Item item) {
     // We increment before a possible call to DeleteItem since the sampler can
     // return this key.
     for (const auto& chunk : it->second.chunks) {
-      ++episode_refs_[chunk->data().sequence_range().episode_id()];
+      ++episode_refs_[chunk->episode_id()];
     }
 
     // Remove an item if we exceeded `max_size_`.
@@ -290,8 +318,7 @@ tensorflow::Status Table::DeleteItem(Table::Key key, Item* deleted_item) {
 
   // Decrement counts to the episodes the item is referencing.
   for (const auto& chunk : it->second.chunks) {
-    auto ep_it =
-        episode_refs_.find(chunk->data().sequence_range().episode_id());
+    auto ep_it = episode_refs_.find(chunk->episode_id());
     REVERB_CHECK(ep_it != episode_refs_.end());
     if (--(ep_it->second) == 0) {
       episode_refs_.erase(ep_it);
@@ -401,7 +428,7 @@ tensorflow::Status Table::InsertCheckpointItem(Table::Item item) {
   }
 
   for (const auto& chunk : it->second.chunks) {
-    ++episode_refs_[chunk->data().sequence_range().episode_id()];
+    ++episode_refs_[chunk->episode_id()];
   }
 
   return tensorflow::Status::OK();

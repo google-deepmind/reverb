@@ -40,6 +40,7 @@
 #include "reverb/cc/selectors/lifo.h"
 #include "reverb/cc/selectors/prioritized.h"
 #include "reverb/cc/selectors/uniform.h"
+#include "reverb/cc/support/trajectory_util.h"
 #include "reverb/cc/table.h"
 #include "reverb/cc/table_extensions/interface.h"
 #include "tensorflow/core/lib/core/errors.h"
@@ -314,7 +315,31 @@ tensorflow::Status TFRecordCheckpointer::Load(
       Table::Item insert_item;
       insert_item.item = checkpoint_item;
 
-      for (const auto& key : checkpoint_item.chunk_keys()) {
+      if (insert_item.item.has_deprecated_sequence_range() &&
+          insert_item.item.has_flat_trajectory()) {
+        return tensorflow::errors::Internal(
+            "Item ", insert_item.item.key(),
+            " has both deprecated and new trajectory format: ",
+            insert_item.item.DebugString(), ".");
+      }
+
+      if (insert_item.item.has_deprecated_sequence_range()) {
+        std::vector<std::shared_ptr<ChunkStore::Chunk>> trajectory_chunks;
+        TF_CHECK_OK(chunk_store->Get(insert_item.item.deprecated_chunk_keys(),
+                                     &trajectory_chunks));
+
+        *insert_item.item.mutable_flat_trajectory() =
+            internal::FlatTimestepTrajectory(
+                trajectory_chunks,
+                insert_item.item.deprecated_sequence_range().offset(),
+                insert_item.item.deprecated_sequence_range().length());
+
+        insert_item.item.clear_deprecated_sequence_range();
+        insert_item.item.clear_deprecated_chunk_keys();
+      }
+
+      for (const auto& key :
+           internal::GetChunkKeys(insert_item.item.flat_trajectory())) {
         REVERB_CHECK(chunk_by_key.contains(key));
         insert_item.chunks.push_back(chunk_by_key[key]);
       }

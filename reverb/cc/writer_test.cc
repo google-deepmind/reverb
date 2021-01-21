@@ -33,6 +33,7 @@
 #include "reverb/cc/reverb_service_mock.grpc.pb.h"
 #include "reverb/cc/support/grpc_util.h"
 #include "reverb/cc/support/queue.h"
+#include "reverb/cc/support/trajectory_util.h"
 #include "reverb/cc/support/uint128.h"
 #include "reverb/cc/testing/proto_test_util.h"
 #include "tensorflow/core/framework/tensor.h"
@@ -97,11 +98,33 @@ MATCHER(IsChunk, "") { return arg.has_chunk(); }
 
 MATCHER_P4(IsItemWithRangeAndPriorityAndTable, offset, length, priority, table,
            "") {
-  return arg.has_item() &&
-         arg.item().item().sequence_range().offset() == offset &&
-         arg.item().item().sequence_range().length() == length &&
-         arg.item().item().priority() == priority &&
-         arg.item().item().table() == table;
+  if (!arg.has_item()) {
+    return false;
+  }
+
+  if (arg.item().item().flat_trajectory().columns(0).chunk_slices(0).offset() !=
+      offset) {
+    return false;
+  }
+
+  int total_length = 0;
+  for (const auto& slice :
+       arg.item().item().flat_trajectory().columns(0).chunk_slices()) {
+    total_length += slice.length();
+  }
+  if (length != total_length) {
+    return false;
+  }
+
+  if (arg.item().item().priority() != priority) {
+    return false;
+  }
+
+  if (arg.item().item().table() != table) {
+    return false;
+  }
+
+  return true;
 }
 
 class FakeInsertStream
@@ -262,9 +285,10 @@ TEST(WriterTest, OnlySendsChunksWhichAreUsedByItems) {
   EXPECT_THAT(requests[1], IsChunk());
   EXPECT_THAT(requests[2],
               IsItemWithRangeAndPriorityAndTable(1, 3, 1.0, "dist"));
-  EXPECT_THAT(requests[2].item().item().chunk_keys(),
-              ElementsAre(requests[0].chunk().chunk_key(),
-                          requests[1].chunk().chunk_key()));
+  EXPECT_THAT(
+      internal::GetChunkKeys(requests[2].item().item().flat_trajectory()),
+      ElementsAre(requests[0].chunk().chunk_key(),
+                  requests[1].chunk().chunk_key()));
 }
 
 TEST(WriterTest, DoesNotSendAlreadySentChunks) {
@@ -283,8 +307,9 @@ TEST(WriterTest, DoesNotSendAlreadySentChunks) {
 
   EXPECT_THAT(requests[1],
               IsItemWithRangeAndPriorityAndTable(1, 1, 1.5, "dist"));
-  EXPECT_THAT(requests[1].item().item().chunk_keys(),
-              ElementsAre(first_chunk_key));
+  EXPECT_THAT(
+      internal::GetChunkKeys(requests[1].item().item().flat_trajectory()),
+      ElementsAre(first_chunk_key));
 
   requests.clear();
   TF_ASSERT_OK(writer.Append(MakeTimestep()));
@@ -297,8 +322,9 @@ TEST(WriterTest, DoesNotSendAlreadySentChunks) {
 
   EXPECT_THAT(requests[1],
               IsItemWithRangeAndPriorityAndTable(1, 3, 1.3, "dist"));
-  EXPECT_THAT(requests[1].item().item().chunk_keys(),
-              ElementsAre(first_chunk_key, second_chunk_key));
+  EXPECT_THAT(
+      internal::GetChunkKeys(requests[1].item().item().flat_trajectory()),
+      ElementsAre(first_chunk_key, second_chunk_key));
 }
 
 TEST(WriterTest, SendsPendingDataOnClose) {
@@ -317,8 +343,9 @@ TEST(WriterTest, SendsPendingDataOnClose) {
   EXPECT_THAT(requests[0], IsChunk());
   EXPECT_THAT(requests[1],
               IsItemWithRangeAndPriorityAndTable(0, 1, 1.0, "dist"));
-  EXPECT_THAT(requests[1].item().item().chunk_keys(),
-              ElementsAre(requests[0].chunk().chunk_key()));
+  EXPECT_THAT(
+      internal::GetChunkKeys(requests[1].item().item().flat_trajectory()),
+      ElementsAre(requests[0].chunk().chunk_key()));
 }
 
 TEST(WriterTest, FailsIfMethodsCalledAfterClose) {
@@ -349,8 +376,9 @@ TEST(WriterTest, RetriesOnTransientError) {
   EXPECT_THAT(requests[0], testing::EqualsProto(requests[1]));
   EXPECT_THAT(requests[2],
               IsItemWithRangeAndPriorityAndTable(1, 1, 1.0, "dist"));
-  EXPECT_THAT(requests[2].item().item().chunk_keys(),
-              ElementsAre(requests[0].chunk().chunk_key()));
+  EXPECT_THAT(
+      internal::GetChunkKeys(requests[2].item().item().flat_trajectory()),
+      ElementsAre(requests[0].chunk().chunk_key()));
 }
 
 TEST(WriterTest, DoesNotRetryOnNonTransientError) {
@@ -410,20 +438,23 @@ TEST(WriterTest, ResendsOnlyTheChunksTheRemainingItemsNeedWithNewStream) {
 
   EXPECT_THAT(requests[2],
               IsItemWithRangeAndPriorityAndTable(0, 3, 1.0, "dist"));
-  EXPECT_THAT(requests[2].item().item().chunk_keys(),
-              ElementsAre(first_chunk_key, second_chunk_key));
+  EXPECT_THAT(
+      internal::GetChunkKeys(requests[2].item().item().flat_trajectory()),
+      ElementsAre(first_chunk_key, second_chunk_key));
 
   EXPECT_THAT(requests[3], IsItemWithRangeAndPriorityAndTable(
                                0, 1, 1.0, "dist2"));  // Failed
-  EXPECT_THAT(requests[3].item().item().chunk_keys(),
-              ElementsAre(second_chunk_key));
+  EXPECT_THAT(
+      internal::GetChunkKeys(requests[3].item().item().flat_trajectory()),
+      ElementsAre(second_chunk_key));
 
   // Stream is opened and only the second chunk is sent again.
   EXPECT_THAT(requests[4], IsChunk());
   EXPECT_THAT(requests[5],
               IsItemWithRangeAndPriorityAndTable(0, 1, 1.0, "dist2"));
-  EXPECT_THAT(requests[5].item().item().chunk_keys(),
-              ElementsAre(second_chunk_key));
+  EXPECT_THAT(
+      internal::GetChunkKeys(requests[5].item().item().flat_trajectory()),
+      ElementsAre(second_chunk_key));
 }
 
 TEST(WriterTest, TellsServerToKeepStreamedItemsStillInClient) {
@@ -636,9 +667,15 @@ TEST(WriterTest, MultiChunkItemsAreCorrect) {
           IsItemWithRangeAndPriorityAndTable(2, 2, 1.0, "dist"),
           IsItemWithRangeAndPriorityAndTable(1, 1, 1.0, "dist")));
 
-  EXPECT_EQ(requests[1].item().item().chunk_keys_size(), 1);
-  EXPECT_EQ(requests[3].item().item().chunk_keys_size(), 2);
-  EXPECT_EQ(requests[4].item().item().chunk_keys_size(), 1);
+  EXPECT_THAT(
+      internal::GetChunkKeys(requests[1].item().item().flat_trajectory()),
+      SizeIs(1));
+  EXPECT_THAT(
+      internal::GetChunkKeys(requests[3].item().item().flat_trajectory()),
+      SizeIs(2));
+  EXPECT_THAT(
+      internal::GetChunkKeys(requests[4].item().item().flat_trajectory()),
+      SizeIs(1));
 }
 
 TEST(WriterTest, WriteTimeStepsMatchingSignature) {

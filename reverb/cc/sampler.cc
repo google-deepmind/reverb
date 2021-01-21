@@ -15,6 +15,7 @@
 #include "reverb/cc/sampler.h"
 
 #include <algorithm>
+#include <deque>
 #include <memory>
 #include <string>
 
@@ -24,13 +25,19 @@
 #include "absl/synchronization/mutex.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
+#include "reverb/cc/chunk_store.h"
+#include "reverb/cc/platform/hash_map.h"
+#include "reverb/cc/platform/hash_set.h"
 #include "reverb/cc/platform/logging.h"
 #include "reverb/cc/platform/thread.h"
 #include "reverb/cc/rate_limiter.h"
 #include "reverb/cc/reverb_service.pb.h"
+#include "reverb/cc/schema.pb.h"
 #include "reverb/cc/support/grpc_util.h"
+#include "reverb/cc/support/trajectory_util.h"
 #include "reverb/cc/table.h"
 #include "reverb/cc/tensor_compression.h"
+#include "tensorflow/core/framework/tensor.h"
 #include "tensorflow/core/framework/tensor_util.h"
 #include "tensorflow/core/lib/core/status.h"
 #include "tensorflow/core/platform/errors.h"
@@ -41,13 +48,21 @@ namespace {
 
 inline bool SampleIsDone(const std::vector<SampleStreamResponse>& sample) {
   if (sample.empty()) return false;
-  int64_t chunk_length = 0;
+
+  internal::flat_hash_set<uint64_t> received_chunks;
   for (const auto& response : sample) {
-    chunk_length +=
-        response.data().data().tensors(0).tensor_shape().dim(0).size();
+    if (response.has_data()) {
+      received_chunks.insert(response.data().chunk_key());
+    }
   }
-  const auto& range = sample.front().info().item().sequence_range();
-  return chunk_length >= range.length() + range.offset();
+
+  for (uint64_t key :
+       internal::GetChunkKeys(sample.front().info().item().flat_trajectory())) {
+    if (!received_chunks.contains(key)) {
+      return false;
+    }
+  }
+  return true;
 }
 
 template <typename T>
@@ -59,18 +74,25 @@ tensorflow::Tensor InitializeTensor(T value, int64_t length) {
   return tensor;
 }
 
-tensorflow::Status AsSample(std::vector<SampleStreamResponse> responses,
-                            std::unique_ptr<Sample>* sample) {
+// Special of trajectory unpacking which slightly lower memory overhead as
+// chunks can be dropped incrementally instead of after all has been unpacked.
+//
+// TODO(b/177655981): Remove once the general case have been improved.
+tensorflow::Status TimestepTrajectoryAsSample(
+    std::vector<SampleStreamResponse> responses,
+    std::unique_ptr<Sample>* sample) {
   const auto& info = responses.front().info();
 
   // Extract all chunks belonging to this sample.
-  std::list<std::vector<tensorflow::Tensor>> chunks;
+  std::deque<std::vector<tensorflow::Tensor>> chunks;
 
   // The chunks are not required to be aligned perfectly with the data so a
   // part of the first chunk is potentially stripped. The same applies to the
   // last part of the final chunk.
-  int64_t offset = info.item().sequence_range().offset();
-  int64_t remaining = info.item().sequence_range().length();
+  int64_t offset =
+      internal::TimestepTrajectoryOffset(info.item().flat_trajectory());
+  int64_t remaining =
+      internal::TimestepTrajectoryLength(info.item().flat_trajectory());
 
   for (auto& response : responses) {
     REVERB_CHECK_GT(remaining, 0);
@@ -134,56 +156,84 @@ tensorflow::Status AsSample(std::vector<SampleStreamResponse> responses,
   return tensorflow::Status::OK();
 }
 
-tensorflow::Status AsSample(const Table::SampledItem& sampled_item,
+tensorflow::Status AsSample(std::vector<SampleStreamResponse> responses,
                             std::unique_ptr<Sample>* sample) {
-  // The chunks are not required to be aligned perfectly with the data so a
-  // part of the first chunk is potentially stripped. The same applies to the
-  // last part of the final chunk.
-  int64_t offset = sampled_item.item.sequence_range().offset();
-  int64_t remaining = sampled_item.item.sequence_range().length();
+  const auto& info = responses.front().info();
 
-  // Decompress and trim the chunks.
-  std::list<std::vector<tensorflow::Tensor>> chunks;
-  for (auto& chunk : sampled_item.chunks) {
-    REVERB_CHECK_GT(remaining, 0);
-
-    std::vector<tensorflow::Tensor> batches;
-    batches.reserve(chunk->data().data().tensors_size());
-
-    int64_t batch_size = -1;
-    for (const auto& chunk_data : chunk->data().data().tensors()) {
-      tensorflow::Tensor batch = DecompressTensorFromProto(chunk_data);
-      if (chunk->data().delta_encoded()) {
-        batch = DeltaEncode(batch, /*encode=*/false);
-      }
-      if (batch_size < 0) {
-        batch_size = batch.dim_size(0);
-      } else {
-        if (batch_size != batch.dim_size(0)) {
-          return tensorflow::errors::Internal(
-              "Chunks of the same response must have identical batch size, but "
-              "first chunk has batch size ",
-              batch_size, " while the current chunk has batch size ",
-              batch.dim_size(0));
-        }
-      }
-      batch = batch.Slice(offset,
-                          std::min<int64_t>(offset + remaining, batch_size));
-      if (!batch.IsAligned()) {
-        batch = tensorflow::tensor::DeepCopy(batch);
-      }
-      batches.push_back(std::move(batch));
-    }
-
-    chunks.push_back(std::move(batches));
-    remaining -= std::min<int64_t>(remaining, batch_size - offset);
-    offset = 0;
+  // TODO(b/177655981): Remove this branch once the general case has been
+  // improved.
+  if (internal::IsTimestepTrajectory(info.item().flat_trajectory())) {
+    return TimestepTrajectoryAsSample(std::move(responses), sample);
   }
 
-  REVERB_CHECK_EQ(remaining, 0);
+  internal::flat_hash_map<uint64_t, std::unique_ptr<ChunkData>> chunks;
+  for (auto& response : responses) {
+    auto key = response.data().chunk_key();
+    chunks[key] = absl::WrapUnique<ChunkData>(response.release_data());
+  }
+
+  // Extract all chunks belonging to this sample.
+  std::vector<tensorflow::Tensor> unpacked_columns;
+  for (const auto& column : info.item().flat_trajectory().columns()) {
+    std::vector<tensorflow::Tensor> unpacked_chunks;
+    for (const auto& slice : column.chunk_slices()) {
+      auto it = chunks.find(slice.chunk_key());
+      if (it == chunks.end()) {
+        return tensorflow::errors::Internal(
+            "Chunk ", slice.chunk_key(),
+            " could not be found when unpacking item ", info.item().key(), ".");
+      }
+      unpacked_chunks.emplace_back();
+      TF_RETURN_IF_ERROR(internal::UnpackChunkColumnAndSlice(
+          *it->second, slice, &unpacked_chunks.back()));
+    }
+
+    // TODO(b/177655596): Avoid this concat when timesteps are emitted.
+    unpacked_columns.emplace_back();
+    TF_RETURN_IF_ERROR(
+        tensorflow::tensor::Concat(unpacked_chunks, &unpacked_columns.back()));
+  }
+
+  *sample =
+      absl::make_unique<Sample>(info.item().key(), info.probability(),
+                                info.table_size(), info.item().priority(),
+                                std::deque<std::vector<tensorflow::Tensor>>(
+                                    {std::move(unpacked_columns)}));
+
+  return tensorflow::Status::OK();
+}
+
+tensorflow::Status AsSample(const Table::SampledItem& sampled_item,
+                            std::unique_ptr<Sample>* sample) {
+  internal::flat_hash_map<uint64_t, std::shared_ptr<ChunkStore::Chunk>> chunks(
+      sampled_item.chunks.size());
+  for (auto& chunk : sampled_item.chunks) {
+    chunks[chunk->key()] = chunk;
+  }
+
+  std::vector<tensorflow::Tensor> flat_trajectory;
+  flat_trajectory.reserve(sampled_item.item.flat_trajectory().columns_size());
+
+  for (const auto& column : sampled_item.item.flat_trajectory().columns()) {
+    std::vector<tensorflow::Tensor> unpacked_chunks;
+    unpacked_chunks.reserve(column.chunk_slices_size());
+
+    for (const auto& slice : column.chunk_slices()) {
+      unpacked_chunks.emplace_back();
+      TF_RETURN_IF_ERROR(internal::UnpackChunkColumnAndSlice(
+          chunks[slice.chunk_key()]->data(), slice, &unpacked_chunks.back()));
+    }
+
+    flat_trajectory.emplace_back();
+    TF_RETURN_IF_ERROR(
+        tensorflow::tensor::Concat(unpacked_chunks, &flat_trajectory.back()));
+  }
+
   *sample = absl::make_unique<deepmind::reverb::Sample>(
       sampled_item.item.key(), sampled_item.probability,
-      sampled_item.table_size, sampled_item.item.priority(), std::move(chunks));
+      sampled_item.table_size, sampled_item.item.priority(),
+      std::deque<std::vector<tensorflow::Tensor>>(
+          {std::move(flat_trajectory)}));
 
   return tensorflow::Status::OK();
 }
@@ -484,6 +534,10 @@ Sampler::~Sampler() { Close(); }
 tensorflow::Status Sampler::GetNextTimestep(
     std::vector<tensorflow::Tensor>* data, bool* end_of_sequence) {
   TF_RETURN_IF_ERROR(MaybeSampleNext());
+  if (!active_sample_->is_composed_of_timesteps()) {
+    return tensorflow::errors::InvalidArgument(
+        "Sampled trajectory cannot be decomposed into timesteps.");
+  }
 
   *data = active_sample_->GetNextTimestep();
   TF_RETURN_IF_ERROR(ValidateAgainstOutputSpec(*data, /*time_step=*/true));
@@ -644,7 +698,7 @@ void Sampler::RunWorker(SamplerWorker* worker) {
 
 Sample::Sample(tensorflow::uint64 key, double probability,
                tensorflow::int64 table_size, double priority,
-               std::list<std::vector<tensorflow::Tensor>> chunks)
+               std::deque<std::vector<tensorflow::Tensor>> chunks)
     : key_(key),
       probability_(probability),
       table_size_(table_size),
@@ -666,6 +720,7 @@ Sample::Sample(tensorflow::uint64 key, double probability,
 
 std::vector<tensorflow::Tensor> Sample::GetNextTimestep() {
   REVERB_CHECK(!is_end_of_sample());
+  REVERB_CHECK(is_composed_of_timesteps());
 
   // Construct the output tensors.
   std::vector<tensorflow::Tensor> result;
@@ -697,6 +752,23 @@ std::vector<tensorflow::Tensor> Sample::GetNextTimestep() {
 }
 
 bool Sample::is_end_of_sample() const { return chunks_.empty(); }
+
+bool Sample::is_composed_of_timesteps() const {
+  std::vector<int> column_lengths;
+  for (int i = 0; i < chunks_.front().size(); i++) {
+    int length = 0;
+    for (const auto& unpacked_chunk : chunks_) {
+      // Note that we can safely assume that the tensor is not a scalar since a
+      // batch dimension is always added when building a chunk. A scalar would
+      // thus be represented as a tensor of shape [1].
+      length += unpacked_chunk[i].dim_size(0);
+    }
+    column_lengths.push_back(length);
+  }
+
+  return std::all_of(column_lengths.begin(), column_lengths.end(),
+                     [&](int a) { return a == column_lengths[0]; });
+}
 
 tensorflow::Status Sample::AsBatchedTimesteps(
     std::vector<tensorflow::Tensor>* data) {

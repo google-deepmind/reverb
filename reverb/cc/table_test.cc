@@ -803,6 +803,46 @@ TEST(TableTest, DefaultFlexibleBatchSize) {
   EXPECT_EQ(max_times_sampled_table.DefaultFlexibleBatchSize(), 11);
 }
 
+TEST(TableTest, InsertOrAssignOfItemWithoutTrajectory) {
+  auto table = MakeUniformTable("dist");
+
+  auto item = MakeItem(1, 1);
+  item.item.clear_flat_trajectory();
+  auto status = table->InsertOrAssign(item);
+  EXPECT_EQ(status.code(), tensorflow::error::INVALID_ARGUMENT);
+  EXPECT_THAT(status.error_message(),
+              ::testing::HasSubstr("Item trajectory must not be empty."));
+}
+
+TEST(TableTest, InsertOrAssignOfItemWithChunkMissmatch) {
+  auto table = MakeUniformTable("dist");
+
+  auto item = MakeItem(1, 1);
+  item.item.mutable_flat_trajectory()
+      ->mutable_columns(0)
+      ->mutable_chunk_slices(0)
+      ->set_chunk_key(1337);
+  auto status = table->InsertOrAssign(item);
+  EXPECT_EQ(status.code(), tensorflow::error::INVALID_ARGUMENT);
+  EXPECT_THAT(
+      status.error_message(),
+      ::testing::HasSubstr(
+          "Item chunks does not match chunks referenced in trajectory"));
+}
+
+TEST(TableTest, InsertOrAssignOfItemWithChunkLengthMissmatch) {
+  auto table = MakeUniformTable("dist");
+
+  auto item = MakeItem(1, 1);
+  item.chunks.push_back(item.chunks.front());
+  auto status = table->InsertOrAssign(item);
+  EXPECT_EQ(status.code(), tensorflow::error::INVALID_ARGUMENT);
+  EXPECT_THAT(
+      status.error_message(),
+      ::testing::HasSubstr("The number of chunks (2) does not equal the number "
+                           "of chunks referenced in item's trajectory (1)."));
+}
+
 }  // namespace
 }  // namespace reverb
 }  // namespace deepmind

@@ -63,11 +63,16 @@ class FakeInsertStream
     PrioritizedItem item;
     item.set_key(nextId++);
     item.set_table(table.data(), table.size());
-    *item.mutable_chunk_keys() = {sequence_chunks.begin(),
-                                  sequence_chunks.end()};
+
     if (!sequence_chunks.empty()) {
-      item.mutable_sequence_range()->set_offset(0);
-      item.mutable_sequence_range()->set_length(100);
+      auto* col = item.mutable_flat_trajectory()->add_columns();
+      for (auto chunk_key : sequence_chunks) {
+        auto* slice = col->add_chunk_slices();
+        slice->set_chunk_key(chunk_key);
+        slice->set_index(0);
+        slice->set_offset(0);
+        slice->set_length(100 / sequence_chunks.size());
+      }
     }
 
     InsertStreamRequest request;
@@ -204,8 +209,10 @@ TEST(ReverbServiceImplTest, SampleAfterInsertWorks) {
     EXPECT_EQ(info.probability(), 1);
     EXPECT_EQ(info.table_size(), 1);
 
-    EXPECT_EQ(stream.responses()[0].data().chunk_key(), item.chunk_keys(0));
-    EXPECT_EQ(stream.responses()[1].data().chunk_key(), item.chunk_keys(1));
+    EXPECT_EQ(stream.responses()[0].data().chunk_key(),
+              item.flat_trajectory().columns(0).chunk_slices(0).chunk_key());
+    EXPECT_EQ(stream.responses()[1].data().chunk_key(),
+              item.flat_trajectory().columns(0).chunk_slices(1).chunk_key());
     EXPECT_TRUE(stream.last_options().get_no_compression());
   }
 }

@@ -23,6 +23,7 @@ reverb_cc_library(
         ":hash_set",
         "//reverb/cc:chunk_store",
         "//reverb/cc:table",
+        "//reverb/cc/support:trajectory_util",
         "//reverb/cc:schema_cc_proto",
         "//reverb/cc/checkpointing:checkpoint_cc_proto",
         "//reverb/cc/checkpointing:interface",

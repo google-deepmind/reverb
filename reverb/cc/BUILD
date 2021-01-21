@@ -91,6 +91,7 @@ reverb_cc_test(
         ":reverb_service_cc_proto",
         ":writer",
         "//reverb/cc/support:grpc_util",
+        "//reverb/cc/support:trajectory_util",
         "//reverb/cc/support:uint128",
         "//reverb/cc/support:queue",
         "//reverb/cc/platform:logging",
@@ -142,7 +143,9 @@ reverb_cc_library(
     hdrs = ["chunk_store.h"],
     deps = [
         ":schema_cc_proto",
+        ":tensor_compression",
         "//reverb/cc/platform:hash_map",
+        "//reverb/cc/platform:logging",
         "//reverb/cc/platform:thread",
         "//reverb/cc/support:queue",
     ] + reverb_tf_deps() + reverb_absl_deps(),
@@ -166,8 +169,9 @@ reverb_cc_library(
         "//reverb/cc/checkpointing:checkpoint_cc_proto",
         "//reverb/cc/platform:hash_map",
         "//reverb/cc/platform:hash_set",
-        "//reverb/cc/selectors:interface",
         "//reverb/cc/platform:logging",
+        "//reverb/cc/selectors:interface",
+        "//reverb/cc/support:trajectory_util",
         "//reverb/cc/table_extensions:interface",
     ] + reverb_tf_deps() + reverb_absl_deps(),
 )
@@ -188,14 +192,19 @@ reverb_cc_library(
     srcs = ["sampler.cc"],
     hdrs = ["sampler.h"],
     deps = [
+        ":chunk_store",
         ":reverb_service_cc_grpc_proto",
         ":reverb_service_cc_proto",
+        ":schema_cc_proto",
         ":table",
         ":tensor_compression",
+        "//reverb/cc/platform:hash_map",
+        "//reverb/cc/platform:hash_set",
         "//reverb/cc/platform:logging",
         "//reverb/cc/platform:thread",
         "//reverb/cc/support:grpc_util",
         "//reverb/cc/support:signature",
+        "//reverb/cc/support:trajectory_util",
         "//reverb/cc/support:queue",
     ] + reverb_tf_deps() + reverb_grpc_deps() + reverb_absl_deps(),
 )
@@ -216,6 +225,7 @@ reverb_cc_library(
         "//reverb/cc/platform:thread",
         "//reverb/cc/support:grpc_util",
         "//reverb/cc/support:signature",
+        "//reverb/cc/support:trajectory_util",
     ] + reverb_tf_deps() + reverb_grpc_deps() + reverb_absl_deps(),
 )
 
@@ -254,10 +264,11 @@ reverb_cc_library(
         "//reverb/cc/platform:hash_set",
         "//reverb/cc/platform:thread",
         "//reverb/cc/platform:logging",
+        "//reverb/cc/support:cleanup",
         "//reverb/cc/support:grpc_util",
+        "//reverb/cc/support:trajectory_util",
         "//reverb/cc/support:uint128",
         "//reverb/cc/support:queue",
-        "//reverb/cc/support:cleanup",
     ] + reverb_tf_deps() + reverb_grpc_deps() + reverb_absl_deps(),
 )
 

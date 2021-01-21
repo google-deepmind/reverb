@@ -21,7 +21,6 @@
 #include <vector>
 
 #include "absl/base/thread_annotations.h"
-#include "absl/flags/flag.h"
 #include "absl/functional/bind_front.h"
 #include "absl/strings/str_cat.h"
 #include "absl/synchronization/mutex.h"
@@ -32,6 +31,7 @@
 #include "reverb/cc/schema.pb.h"
 #include "reverb/cc/support/grpc_util.h"
 #include "reverb/cc/support/signature.h"
+#include "reverb/cc/support/trajectory_util.h"
 #include "reverb/cc/tensor_compression.h"
 #include "tensorflow/core/framework/tensor.h"
 #include "tensorflow/core/framework/tensor_util.h"
@@ -219,31 +219,42 @@ tensorflow::Status Writer::CreateItem(const std::string& table,
     }
   }
 
-  int remaining = num_timesteps - buffer_.size();
-  int num_chunks =
-      remaining / chunk_length_ + (remaining % chunk_length_ ? 1 : 0);
-
-  // Don't use additional chunks if the entire episode is contained in the
-  // current buffer.
-  if (remaining < 0) {
-    num_chunks = 0;
-  }
-
   PrioritizedItem item;
   item.set_key(NewID());
   item.set_table(table.data(), table.size());
   item.set_priority(priority);
-  item.mutable_sequence_range()->set_length(num_timesteps);
-  item.mutable_sequence_range()->set_offset(
-      (chunk_length_ - (remaining % chunk_length_)) % chunk_length_);
 
-  for (auto it = std::next(chunks_.begin(), chunks_.size() - num_chunks);
-       it != chunks_.end(); it++) {
-    item.add_chunk_keys(it->chunk_key());
-  }
+  // Build the trajectory.
+  int remaining = num_timesteps;
+  std::vector<int> chunk_lengths;
+  std::vector<uint64_t> chunk_keys;
+
+  // Include the current chunk unless empty.
   if (!buffer_.empty()) {
-    item.add_chunk_keys(next_chunk_key_);
+    chunk_lengths.push_back(buffer_.size());
+    chunk_keys.push_back(next_chunk_key_);
+    remaining -= buffer_.size();
   }
+
+  // Traverse historic chunks backwards until trajectory complete.
+  for (auto rit = chunks_.rbegin(); remaining > 0 && rit != chunks_.rend();
+       ++rit) {
+    const auto& range = rit->sequence_range();
+    chunk_lengths.push_back(range.end() - range.start() + 1);
+    chunk_keys.push_back(rit->chunk_key());
+    remaining -= chunk_lengths.back();
+  }
+
+  // Reverse the chunk order.
+  std::reverse(chunk_lengths.begin(), chunk_lengths.end());
+  std::reverse(chunk_keys.begin(), chunk_keys.end());
+
+  *item.mutable_flat_trajectory() = internal::FlatTimestepTrajectory(
+      chunk_keys, chunk_lengths,
+      /*num_columns=*/buffer_.empty() ? chunks_.front().data().tensors_size()
+                                      : buffer_[0].size(),
+      /*offset=*/-remaining,
+      /*length=*/num_timesteps);
 
   pending_items_.push_back(item);
 
@@ -386,23 +397,23 @@ tensorflow::Status Writer::Finish(bool retry_on_unavailable) {
         tensorflow::tensor::Concat(tensors, &batched_tensors.back()));
   }
 
-  ChunkData chunk;
-  chunk.set_chunk_key(next_chunk_key_);
-  chunk.mutable_sequence_range()->set_episode_id(episode_id_);
-  chunk.mutable_sequence_range()->set_start(index_within_episode_);
-  chunk.mutable_sequence_range()->set_end(index_within_episode_ +
-                                          buffer_.size() - 1);
+  ChunkData chunk_data;
+  chunk_data.set_chunk_key(next_chunk_key_);
+  chunk_data.mutable_sequence_range()->set_episode_id(episode_id_);
+  chunk_data.mutable_sequence_range()->set_start(index_within_episode_);
+  chunk_data.mutable_sequence_range()->set_end(index_within_episode_ +
+                                               buffer_.size() - 1);
 
   if (delta_encoded_) {
     batched_tensors = DeltaEncodeList(batched_tensors, true);
-    chunk.set_delta_encoded(true);
+    chunk_data.set_delta_encoded(true);
   }
 
   for (const auto& tensor : batched_tensors) {
-    CompressTensorAsProto(tensor, chunk.mutable_data()->add_tensors());
+    CompressTensorAsProto(tensor, chunk_data.mutable_data()->add_tensors());
   }
 
-  chunks_.push_back(std::move(chunk));
+  chunks_.emplace_back(std::move(chunk_data));
 
   auto status = WriteWithRetries(retry_on_unavailable);
   if (status.ok()) {
@@ -446,12 +457,13 @@ bool Writer::WritePendingData() {
   // around.
   absl::flat_hash_set<uint64_t> item_chunk_keys;
   for (const auto& item : pending_items_) {
-    for (uint64_t key : item.chunk_keys()) {
+    for (auto key : internal::GetChunkKeys(item.flat_trajectory())) {
       item_chunk_keys.insert(key);
     }
   }
+
   std::vector<uint64_t> keep_chunk_keys;
-  for (const ChunkData& chunk : chunks_) {
+  for (const auto& chunk : chunks_) {
     if (item_chunk_keys.contains(chunk.chunk_key()) &&
         !streamed_chunk_keys_.contains(chunk.chunk_key())) {
       InsertStreamRequest request;
