@@ -478,6 +478,16 @@ std::vector<std::unique_ptr<SamplerWorker>> MakeLocalWorkers(
           ? table->DefaultFlexibleBatchSize()
           : options.flexible_batch_size;
 
+  // Local workers do not send `SampleStreamRequest` and thus will not make
+  // explicit use of `max_in_flight_samples_per_worker`. It would however be
+  // incorrect to allow more than `max_in_flight_samples_per_worker` to be
+  // sampled in a simple call so we limit `flexible_batch_size` by it. This will
+  // have the desired effect as workers fetch new samples once the previous
+  // batch has been depleted effectively limiting the number of in flight items
+  // to `flexible_batch_size` (and thus `max_in_flight_samples_per_worker`).
+  flexible_batch_size =
+      std::min(flexible_batch_size, options.max_in_flight_samples_per_worker);
+
   std::vector<std::unique_ptr<SamplerWorker>> workers;
   workers.reserve(num_workers);
   for (int i = 0; i < num_workers; ++i) {

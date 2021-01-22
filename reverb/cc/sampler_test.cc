@@ -509,6 +509,31 @@ TEST(LocalSamplerTest, GetNextSampleTrimsSequence) {
                                         start_and_end_trimmer_want);
 }
 
+TEST(LocalSamplerTest, RespectsMaxInFlightItems) {
+  auto table = MakeTable(100);
+  for (int i = 0; i < 100; i++) {
+    InsertItem(table.get(), i + 1, 1.0, {1});
+  }
+
+  Sampler::Options options;
+  options.max_samples = 100;
+  options.max_in_flight_samples_per_worker = 3;
+  options.flexible_batch_size = 5;
+  Sampler sampler(table, options);
+
+  for (int i = 0; i < options.max_samples; i++) {
+    int num_samples =
+        table->info().rate_limiter_info().sample_stats().completed();
+    int in_flight_items = num_samples - i;
+
+    EXPECT_LE(in_flight_items, options.max_in_flight_samples_per_worker + 1);
+    EXPECT_GE(in_flight_items, 0);
+
+    std::vector<tensorflow::Tensor> sample;
+    TF_ASSERT_OK(sampler.GetNextSample(&sample));
+  }
+}
+
 TEST(LocalSamplerTest, Close) {
   auto table = MakeTable();
   InsertItem(table.get(), 1, 1.0, {5});
