@@ -77,6 +77,13 @@ class ReplayDatasetTest(tf.test.TestCase, parameterized.TestCase):
     cls._server = make_server()
     cls._client = client.Client(f'localhost:{cls._server.port}')
 
+  def setUp(self):
+    super().setUp()
+    self._num_prev_samples = {
+        table: self._get_total_num_samples(table)
+        for table in ('dist', 'signatured', 'bounded_spec_signatured')
+    }
+
   def tearDown(self):
     super().tearDown()
     self._client.reset('dist')
@@ -108,6 +115,14 @@ class ReplayDatasetTest(tf.test.TestCase, parameterized.TestCase):
     dataset_item = iterator.get_next()
     self.evaluate(iterator.initializer)
     return [self.evaluate(dataset_item) for _ in range(num_samples)]
+
+  def _get_total_num_samples(self, table: str) -> int:
+    table_info = self._client.server_info()[table]
+    return table_info.rate_limiter_info.sample_stats.completed
+
+  def _get_num_samples(self, table: str) -> int:
+    """Gets the number of samples since the start of the test."""
+    return self._get_total_num_samples(table) - self._num_prev_samples[table]
 
   @parameterized.named_parameters(
       {
@@ -689,6 +704,29 @@ class ReplayDatasetTest(tf.test.TestCase, parameterized.TestCase):
       self.assertIsInstance(sample.info.probability, np.float64)
       np.testing.assert_array_equal(sample.data[0],
                                     np.ones((3, 3), dtype=np.int32))
+
+  @parameterized.parameters(1, 3, 7)
+  def test_respects_flexible_batch_size(self, flexible_batch_size):
+    for _ in range(10):
+      self._client.insert((np.ones([3, 3], dtype=np.int32)), {'dist': 1})
+
+    dataset = reverb_dataset.ReplayDataset(
+        self._client.server_address,
+        table='dist',
+        dtypes=(tf.int32,),
+        shapes=(tf.TensorShape([3, 3]),),
+        max_in_flight_samples_per_worker=100,
+        flexible_batch_size=flexible_batch_size)
+
+    iterator = dataset.make_initializable_iterator()
+    dataset_item = iterator.get_next()
+    self.evaluate(iterator.initializer)
+
+    for _ in range(100):
+      self.evaluate(dataset_item)
+
+      # Check that the buffer is incremented by steps of flexible_batch_size.
+      self.assertEqual(self._get_num_samples('dist') % flexible_batch_size, 0)
 
   def test_iterate_over_batched_blobs(self):
     for _ in range(10):
