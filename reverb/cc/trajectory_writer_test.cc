@@ -654,6 +654,55 @@ TEST(TrajectoryWriter, KeepKeysOnlyIncludesLiveChunks) {
                           third[0].value().lock()->chunk_key()));
 }
 
+TEST(TrajectoryWriter, InsertItemValidatesTrajectoryDtype) {
+  auto* stream = new FakeStream();
+  auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
+  EXPECT_CALL(*stub, InsertStreamRaw(_)).WillOnce(Return(stream));
+
+  TrajectoryWriter writer(stub, {/*max_chunk_length=*/1, /*max_age=*/2});
+
+  // Take a step with two columns with different dtypes.
+  StepRef step;
+  TF_ASSERT_OK(writer.Append(
+      Step({MakeTensor(kIntSpec), MakeTensor(kFloatSpec)}), &step));
+
+  // Create a trajectory where the two dtypes are used in the same column.
+  auto status =
+      writer.InsertItem("table", 1.0, {{step[0].value(), step[1].value()}});
+  EXPECT_EQ(status.code(), tensorflow::error::INVALID_ARGUMENT);
+  EXPECT_THAT(status.error_message(),
+              testing::HasSubstr(absl::StrCat(
+                  "Column 0 references tensors with different dtypes: ",
+                  Int32Str(), " (index 0) != float (index 1).")));
+}
+
+TEST(TrajectoryWriter, InsertItemValidatesTrajectoryShapes) {
+  auto* stream = new FakeStream();
+  auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
+  EXPECT_CALL(*stub, InsertStreamRaw(_)).WillOnce(Return(stream));
+
+  TrajectoryWriter writer(stub, {/*max_chunk_length=*/1, /*max_age=*/2});
+
+  // Take a step with two columns with different shapes.
+  StepRef step;
+
+  TF_ASSERT_OK(writer.Append(
+      Step({
+          MakeTensor(kIntSpec),
+          MakeTensor(internal::TensorSpec{"1", kIntSpec.dtype, {2}}),
+      }),
+      &step));
+
+  // Create a trajectory where the two shapes are used in the same column.
+  auto status =
+      writer.InsertItem("table", 1.0, {{step[0].value(), step[1].value()}});
+  EXPECT_EQ(status.code(), tensorflow::error::INVALID_ARGUMENT);
+  EXPECT_THAT(status.error_message(),
+              testing::HasSubstr(
+                  "Column 0 references tensors with incompatible shapes: [1] "
+                  "(index 0) not compatible with [2] (index 1)."));
+}
+
 }  // namespace
 }  // namespace reverb
 }  // namespace deepmind

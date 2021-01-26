@@ -225,6 +225,8 @@ tensorflow::Status Chunker::FlushLocked() {
   return tensorflow::Status::OK();
 }
 
+const internal::TensorSpec& Chunker::spec() const { return spec_; }
+
 TrajectoryWriter::TrajectoryWriter(
     std::shared_ptr</* grpc_gen:: */ReverbService::StubInterface> stub,
     const Options& options)
@@ -321,7 +323,10 @@ tensorflow::Status TrajectoryWriter::InsertItem(
   // Lock all the references to ensure that the underlying data is not
   // deallocated before the worker has successfully written the item (and data)
   // to the gRPC stream.
-  for (const auto& col : trajectory) {
+  for (int col_idx = 0; col_idx < trajectory.size(); ++col_idx) {
+    const auto& col = trajectory[col_idx];
+    if (col.empty()) continue;
+
     for (auto& ref : col) {
       auto sp = ref.lock();
       if (!sp) {
@@ -329,6 +334,26 @@ tensorflow::Status TrajectoryWriter::InsertItem(
             "Trajectory contains expired CellRef.");
       }
       item_and_refs.refs.push_back(std::move(sp));
+    }
+
+    // Check that the column only contains compatible data references.
+    const auto& col_spec = col[0].lock()->chunker()->spec();
+    for (int ref_idx = 1; ref_idx < col.size(); ++ref_idx) {
+      const auto& spec = col[ref_idx].lock()->chunker()->spec();
+      if (spec.dtype != col_spec.dtype) {
+        return tensorflow::errors::InvalidArgument(
+            "Column ", col_idx, " references tensors with different dtypes: ",
+            tensorflow::DataTypeString(col_spec.dtype),
+            " (index 0) != ", tensorflow::DataTypeString(spec.dtype),
+            " (index ", ref_idx, ").");
+      }
+      if (!spec.shape.IsCompatibleWith(col_spec.shape)) {
+        return tensorflow::errors::InvalidArgument(
+            "Column ", col_idx,
+            " references tensors with incompatible shapes: ",
+            col_spec.shape.DebugString(), " (index 0) not compatible with ",
+            spec.shape.DebugString(), " (index ", ref_idx, ").");
+      }
     }
   }
 

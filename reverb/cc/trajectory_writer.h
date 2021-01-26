@@ -99,7 +99,9 @@ class TrajectoryWriter {
   // Before creating the item, `trajectory` is validated. A valid trajectory
   // must only use references to "live" data (i.e not yet expired due to
   // `num_keep_alive_refs`) created through `Append` calls on the same
-  // `TrajectoryWriter` object. If the trajectory is invalid then
+  // `TrajectoryWriter` object. Furthermore, all `CellRef`s within each column
+  // need to be compatible with each other. That is, they must have the same
+  // dtype and have compatible shapes. If the trajectory is invalid then
   // `InvalidArgumentError` is returned.
   //
   // Note that this method will not block and wait for the IO to complete. This
@@ -278,6 +280,9 @@ class Chunker {
 
   // Keys of the FINALIZED chunks referenced by `CellRef`s in `active_refs_`.
   std::vector<uint64_t> GetKeepKeys() const ABSL_LOCKS_EXCLUDED(mu_);
+
+  // Spec which appended tensors need to be compatible with.
+  const internal::TensorSpec& spec() const;
 
  private:
   tensorflow::Status FlushLocked() ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_);
