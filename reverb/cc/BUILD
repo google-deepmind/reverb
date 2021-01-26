@@ -230,6 +230,40 @@ reverb_cc_library(
 )
 
 reverb_cc_library(
+    name = "trajectory_writer",
+    srcs = ["trajectory_writer.cc"],
+    hdrs = ["trajectory_writer.h"],
+    deps = [
+        ":reverb_service_cc_grpc_proto",
+        ":reverb_service_cc_proto",
+        ":schema_cc_proto",
+        ":tensor_compression",
+        "//reverb/cc/platform:hash_map",
+        "//reverb/cc/platform:hash_set",
+        "//reverb/cc/platform:logging",
+        "//reverb/cc/platform:thread",
+        "//reverb/cc/support:cleanup",
+        "//reverb/cc/support:grpc_util",
+        "//reverb/cc/support:signature",
+        "//reverb/cc/support:trajectory_util",
+    ] + reverb_tf_deps() + reverb_absl_deps() + reverb_grpc_deps(),
+)
+
+reverb_cc_test(
+    name = "trajectory_writer_test",
+    srcs = ["trajectory_writer_test.cc"],
+    deps = [
+        ":reverb_service_cc_grpc_proto",
+        ":reverb_service_cc_proto",
+        ":trajectory_writer",
+        "//reverb/cc/support:signature",
+        "//reverb/cc/support:queue",
+        "//reverb/cc/platform:logging",
+        "//reverb/cc/testing:proto_test_util",
+    ] + reverb_tf_deps() + reverb_grpc_deps() + reverb_absl_deps(),
+)
+
+reverb_cc_library(
     name = "client",
     srcs = ["client.cc"],
     hdrs = ["client.h"],
