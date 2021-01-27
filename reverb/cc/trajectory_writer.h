@@ -125,7 +125,12 @@ class TrajectoryWriter {
   tensorflow::Status Flush(absl::Duration timeout = absl::InfiniteDuration())
       ABSL_LOCKS_EXCLUDED(mu_);
 
-  // TODO(b/178085792): Consider adding an EndEpisode method.
+  // Finalizes all chunks (including ones not referenced by any items), writes
+  // and confirms all pending items, and resets the episode state (i.e generates
+  // a new episode ID and sets step index to 0). If `clear_buffers` is true then
+  // all `CellRef`s are invalidated (and their data deleted).
+  tensorflow::Status EndEpisode(
+      bool clear_buffers, absl::Duration timeout = absl::InfiniteDuration());
 
   // Closes the stream, joins the worker thread and unblocks any concurrent
   // `Flush` call. All future (and concurrent) calls returns CancelledError once
@@ -143,6 +148,14 @@ class TrajectoryWriter {
     // age of the parent `Chunker`.
     std::vector<std::shared_ptr<CellRef>> refs;
   };
+
+  // Sends all pending items and awaits confirmation. Incomplete chunks
+  // referenced by pending items are finalized and transmitted.
+  //
+  // TODO(b/178087048): Support flushing and blocking until at most N items are
+  //   unconfirmed.
+  tensorflow::Status FlushLocked(absl::Duration timeout)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_);
 
   // Creates a gRPC stream to the server with `context_` and continues to run
   // until `closed_` set or until an error is encountered. In both cases
@@ -182,6 +195,12 @@ class TrajectoryWriter {
 
   mutable absl::Mutex mu_;
 
+  // ID of the active episode.
+  uint64_t episode_id_ ABSL_GUARDED_BY(mu_);
+
+  // Step within the episode.
+  int episode_step_ ABSL_GUARDED_BY(mu_);
+
   // True if `Close` has been called.
   bool closed_ ABSL_GUARDED_BY(mu_);
 
@@ -215,13 +234,25 @@ class TrajectoryWriter {
 
 class CellRef {
  public:
-  CellRef(Chunker* chunker, uint64_t chunk_key, int offset);
+  struct EpisodeInfo {
+    uint64_t episode_id;
+    int32_t step;
+  };
+
+  CellRef(Chunker* chunker, uint64_t chunk_key, int offset,
+          EpisodeInfo episode_info);
 
   // Key of the parent chunk.
   uint64_t chunk_key() const;
 
   // Offset within the parent chunk.
   int offset() const;
+
+  // ID of the episode which the referenced data originated from.
+  uint64_t episode_id() const;
+
+  // Step (zero-indexed) within the episode that the data was generated at.
+  int episode_step() const;
 
   // True if SetChunk has been called.
   bool IsReady() const ABSL_LOCKS_EXCLUDED(mu_);
@@ -255,6 +286,9 @@ class CellRef {
   // Offset of element within the parent chunk.
   int offset_;
 
+  // The episode step that the referenced data was generated at.
+  EpisodeInfo episode_info_;
+
   mutable absl::Mutex mu_;
 
   // Parent chunk which eventually be set by parent `Chunker`.
@@ -266,17 +300,21 @@ class Chunker {
   Chunker(internal::TensorSpec spec, int max_chunk_length,
           int num_keep_alive_refs);
 
-  // Validates `tensor` against `spec_`, appends it to the active chunk and
-  // returns a reference to the new row. If the active chunk now has
-  // `max_chunk_length`th rows then it is finalized and its `CellRef`s
-  // notified (including the one returned by this call).
+  // Validates `tensor` against `spec_` and `episode_info` against previous
+  // calls, appends it to the active chunk and returns a reference to the new
+  // row. If the active chunk now has `max_chunk_length` rows then it is
+  // finalized and its `CellRef`s notified (including `ref`).
   tensorflow::Status Append(tensorflow::Tensor tensor,
+                            CellRef::EpisodeInfo episode_info,
                             std::weak_ptr<CellRef>* ref)
       ABSL_LOCKS_EXCLUDED(mu_);
 
   // Creates a chunk from the data in the buffer and calls `SetChunk` on its
   // `CellRef`s.
   tensorflow::Status Flush() ABSL_LOCKS_EXCLUDED(mu_);
+
+  // Clears buffers of both references and data not yet committed to a Chunk.
+  void Reset();
 
   // Keys of the FINALIZED chunks referenced by `CellRef`s in `active_refs_`.
   std::vector<uint64_t> GetKeepKeys() const ABSL_LOCKS_EXCLUDED(mu_);

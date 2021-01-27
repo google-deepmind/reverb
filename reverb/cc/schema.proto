@@ -51,6 +51,12 @@ message SequenceRange {
   // Index within the episode of the last timestep covered by the range.
   // Must be >= start_index.
   int32 end = 3;
+
+  // If set then at least one step is missing from the data. The number of steps
+  // (i.e batch size) present in the data is unknown and thus must be manually
+  // checked. However, the `start` and `end` step is guaranteed to be at first
+  // and last position in the data.
+  bool sparse = 4;
 }
 
 message FlatTrajectory {

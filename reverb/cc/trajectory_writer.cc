@@ -111,10 +111,12 @@ bool ContainsAll(const internal::flat_hash_set<uint64_t>& set,
 
 }  // namespace
 
-CellRef::CellRef(Chunker* chunker, uint64_t chunk_key, int offset)
+CellRef::CellRef(Chunker* chunker, uint64_t chunk_key, int offset,
+                 CellRef::EpisodeInfo episode_info)
     : chunker_(chunker),
       chunk_key_(chunk_key),
       offset_(offset),
+      episode_info_(std::move(episode_info)),
       chunk_(absl::nullopt) {}
 
 uint64_t CellRef::chunk_key() const { return chunk_key_; }
@@ -138,19 +140,21 @@ std::shared_ptr<ChunkData> CellRef::GetChunk() const {
   return chunk_.value_or(nullptr);
 }
 
+uint64_t CellRef::episode_id() const { return episode_info_.episode_id; }
+
+int CellRef::episode_step() const { return episode_info_.step; }
+
 Chunker::Chunker(internal::TensorSpec spec, int max_chunk_length,
                  int num_keep_alive_refs)
     : spec_(std::move(spec)),
       max_chunk_length_(max_chunk_length),
-      num_keep_alive_refs_(num_keep_alive_refs),
-      offset_(0),
-      next_chunk_key_(NewKey()),
-      active_refs_() {
+      num_keep_alive_refs_(num_keep_alive_refs) {
   REVERB_CHECK_GE(num_keep_alive_refs, max_chunk_length);
-  buffer_.reserve(max_chunk_length);
+  Reset();
 }
 
 tensorflow::Status Chunker::Append(tensorflow::Tensor tensor,
+                                   CellRef::EpisodeInfo episode_info,
                                    std::weak_ptr<CellRef>* ref) {
   if (tensor.dtype() != spec_.dtype) {
     return tensorflow::errors::InvalidArgument(
@@ -167,8 +171,20 @@ tensorflow::Status Chunker::Append(tensorflow::Tensor tensor,
 
   absl::MutexLock lock(&mu_);
 
-  active_refs_.push_back(
-      std::make_shared<CellRef>(this, next_chunk_key_, offset_++));
+  if (!buffer_.empty() &&
+      active_refs_.back()->episode_id() != episode_info.episode_id) {
+    return tensorflow::errors::FailedPrecondition(
+        "Chunker::Append called with new episode when buffer non empty.");
+  }
+  if (!buffer_.empty() &&
+      active_refs_.back()->episode_step() >= episode_info.step) {
+    return tensorflow::errors::FailedPrecondition(
+        "Chunker::Append called with an episode step which was not greater "
+        "than already observed.");
+  }
+
+  active_refs_.push_back(std::make_shared<CellRef>(
+      this, next_chunk_key_, offset_++, std::move(episode_info)));
   buffer_.push_back(std::move(tensor));
 
   // Create the chunk if max buffer size reached.
@@ -215,6 +231,23 @@ tensorflow::Status Chunker::FlushLocked() {
   for (auto& ref : active_refs_) {
     if (ref->chunk_key() == chunk->chunk_key()) {
       ref->SetChunk(chunk);
+
+      if (!chunk->has_sequence_range()) {
+        auto* range = chunk->mutable_sequence_range();
+        range->set_episode_id(ref->episode_id());
+        range->set_start(ref->episode_step());
+        range->set_end(ref->episode_step());
+      } else {
+        auto* range = chunk->mutable_sequence_range();
+        REVERB_CHECK(range->episode_id() == ref->episode_id() &&
+                     range->end() < ref->episode_step());
+
+        // The chunk is sparse if not all steps are represented in the data.
+        if (ref->episode_step() != range->end() + 1) {
+          range->set_sparse(true);
+        }
+        range->set_end(ref->episode_step());
+      }
     }
   }
 
@@ -225,6 +258,15 @@ tensorflow::Status Chunker::FlushLocked() {
   return tensorflow::Status::OK();
 }
 
+void Chunker::Reset() {
+  absl::MutexLock lock(&mu_);
+  buffer_.clear();
+  buffer_.reserve(max_chunk_length_);
+  offset_ = 0;
+  next_chunk_key_ = NewKey();
+  active_refs_.clear();
+}
+
 const internal::TensorSpec& Chunker::spec() const { return spec_; }
 
 TrajectoryWriter::TrajectoryWriter(
@@ -232,6 +274,8 @@ TrajectoryWriter::TrajectoryWriter(
     const Options& options)
     : stub_(std::move(stub)),
       options_(options),
+      episode_id_(NewKey()),
+      episode_step_(0),
       closed_(false),
       stream_worker_(
           internal::StartThread("TrajectoryWriter_StreamWorker", [this] {
@@ -257,23 +301,24 @@ TrajectoryWriter::~TrajectoryWriter() {
   {
     absl::MutexLock lock(&mu_);
     if (closed_) return;
+
+    auto status = FlushLocked(/*timeout=*/absl::InfiniteDuration());
+    REVERB_LOG_IF(REVERB_WARNING, !status.ok())
+        << "TrajectoryWriter destroyed before content finalized. Encountered "
+           "error when trying to finalize content: "
+        << status;
   }
-
-  auto status = Flush();
-  REVERB_LOG_IF(REVERB_WARNING, !status.ok())
-      << "TrajectoryWriter destroyed before content finalized. Encountered "
-         "error when trying to finalize content: "
-      << status;
-
   Close();
 }
 
 tensorflow::Status TrajectoryWriter::Append(
     std::vector<absl::optional<tensorflow::Tensor>> data,
     std::vector<absl::optional<std::weak_ptr<CellRef>>>* refs) {
+  CellRef::EpisodeInfo episode_info;
   {
     absl::MutexLock lock(&mu_);
     TF_RETURN_IF_ERROR(unrecoverable_status_);
+    episode_info = {episode_id_, episode_step_};
   }
 
   // If this is the first time the column has been present in the data then
@@ -296,16 +341,22 @@ tensorflow::Status TrajectoryWriter::Append(
     }
 
     std::weak_ptr<CellRef> ref;
-    TF_RETURN_IF_ERROR(chunkers_[i]->Append(std::move(data[i].value()), &ref));
+    TF_RETURN_IF_ERROR(
+        chunkers_[i]->Append(std::move(data[i].value()), episode_info, &ref));
     refs->push_back(std::move(ref));
   }
 
+  absl::MutexLock lock(&mu_);
+
+  // Sanity check that `Append` or `EndEpisode` wasn't called concurrently.
+  REVERB_CHECK_EQ(episode_info.episode_id, episode_id_);
+  REVERB_CHECK_EQ(episode_info.step, episode_step_);
+
+  episode_step_++;
+
   // Wake up stream worker in case it was blocked on items referencing
-  // incomplete chunks.
-  {
-    absl::MutexLock lock(&mu_);
-    data_cv_.Signal();
-  }
+  // incomplete chunks
+  data_cv_.Signal();
 
   return tensorflow::Status::OK();
 }
@@ -525,7 +576,10 @@ tensorflow::Status TrajectoryWriter::RunStreamWorker() {
 
 tensorflow::Status TrajectoryWriter::Flush(absl::Duration timeout) {
   absl::MutexLock lock(&mu_);
+  return FlushLocked(timeout);
+}
 
+tensorflow::Status TrajectoryWriter::FlushLocked(absl::Duration timeout) {
   // If items are referencing any data which has not yet been finalized into a
   // `ChunkData` then force the chunk to be created prematurely. This will allow
   // the worker to write all items to the stream.
@@ -559,6 +613,29 @@ tensorflow::Status TrajectoryWriter::Flush(absl::Duration timeout) {
   }
 
   TF_RETURN_IF_ERROR(unrecoverable_status_);
+  return tensorflow::Status::OK();
+}
+
+tensorflow::Status TrajectoryWriter::EndEpisode(bool clear_buffers,
+                                                absl::Duration timeout) {
+  absl::MutexLock lock(&mu_);
+  TF_RETURN_IF_ERROR(unrecoverable_status_);
+
+  TF_RETURN_IF_ERROR(FlushLocked(timeout));
+
+  for (auto& it : chunkers_) {
+    if (clear_buffers) {
+      it.second->Reset();
+    } else {
+      // This call should NEVER fail but if it does then we will not be able to
+      // recover from it.
+      unrecoverable_status_ = it.second->Flush();
+      TF_RETURN_IF_ERROR(unrecoverable_status_);
+    }
+  }
+
+  episode_id_ = NewKey();
+  episode_step_ = 0;
   return tensorflow::Status::OK();
 }
 

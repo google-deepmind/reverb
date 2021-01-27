@@ -35,6 +35,7 @@
 #include "reverb/cc/reverb_service_mock.grpc.pb.h"
 #include "reverb/cc/support/queue.h"
 #include "reverb/cc/support/signature.h"
+#include "reverb/cc/testing/proto_test_util.h"
 #include "tensorflow/core/framework/tensor.h"
 #include "tensorflow/core/framework/tensor_shape.h"
 #include "tensorflow/core/framework/types.h"
@@ -129,7 +130,7 @@ TEST(CellRef, IsReady) {
   Chunker chunker(kIntSpec, 2, 5);
 
   std::weak_ptr<CellRef> ref;
-  TF_ASSERT_OK(chunker.Append(MakeTensor(kIntSpec), &ref));
+  TF_ASSERT_OK(chunker.Append(MakeTensor(kIntSpec), {1, 0}, &ref));
 
   // Chunk is not finalized yet.
   EXPECT_FALSE(ref.lock()->IsReady());
@@ -143,11 +144,11 @@ TEST(Chunker, AppendValidatesSpecDtype) {
   Chunker chunker(kIntSpec, /*max_chunk_length=*/2, /*num_keep_alive_refs=*/5);
 
   std::weak_ptr<CellRef> ref;
-  auto status = chunker.Append(MakeTensor(kFloatSpec), &ref);
+  auto status = chunker.Append(MakeTensor(kFloatSpec), {1, 0}, &ref);
 
   EXPECT_EQ(status.code(), tensorflow::error::INVALID_ARGUMENT);
   EXPECT_THAT(status.error_message(),
-              testing::HasSubstr(
+              ::testing::HasSubstr(
                   absl::StrCat("Tensor of wrong dtype provided for column 0. "
                                "Got float but expected ",
                                Int32Str(), ".")));
@@ -159,13 +160,13 @@ TEST(Chunker, AppendValidatesSpecShape) {
   std::weak_ptr<CellRef> ref;
   auto status = chunker.Append(
       MakeTensor(internal::TensorSpec{kIntSpec.name, kIntSpec.dtype, {2}}),
-      &ref);
+      {/*episode_id=*/1, /*step=*/0}, &ref);
 
   EXPECT_EQ(status.code(), tensorflow::error::INVALID_ARGUMENT);
-  EXPECT_THAT(
-      status.error_message(),
-      testing::HasSubstr("Tensor of incompatible shape provided for column 0. "
-                         "Got [2] which is incompatible with [1]."));
+  EXPECT_THAT(status.error_message(),
+              ::testing::HasSubstr(
+                  "Tensor of incompatible shape provided for column 0. "
+                  "Got [2] which is incompatible with [1]."));
 }
 
 TEST(Chunker, AppendFlushesOnMaxChunkLength) {
@@ -173,12 +174,14 @@ TEST(Chunker, AppendFlushesOnMaxChunkLength) {
 
   // Buffer is not full after first step.
   std::weak_ptr<CellRef> first;
-  TF_ASSERT_OK(chunker.Append(MakeTensor(kIntSpec), &first));
+  TF_ASSERT_OK(chunker.Append(MakeTensor(kIntSpec),
+                              {/*episode_id=*/1, /*step=*/0}, &first));
   EXPECT_FALSE(first.lock()->IsReady());
 
   // Second step should trigger flushing of buffer.
   std::weak_ptr<CellRef> second;
-  TF_ASSERT_OK(chunker.Append(MakeTensor(kIntSpec), &second));
+  TF_ASSERT_OK(chunker.Append(MakeTensor(kIntSpec),
+                              {/*episode_id=*/1, /*step=*/1}, &second));
   EXPECT_TRUE(first.lock()->IsReady());
   EXPECT_TRUE(second.lock()->IsReady());
 }
@@ -186,7 +189,8 @@ TEST(Chunker, AppendFlushesOnMaxChunkLength) {
 TEST(Chunker, Flush) {
   Chunker chunker(kIntSpec, /*max_chunk_length=*/2, /*num_keep_alive_refs=*/5);
   std::weak_ptr<CellRef> ref;
-  TF_ASSERT_OK(chunker.Append(MakeTensor(kIntSpec), &ref));
+  TF_ASSERT_OK(chunker.Append(MakeTensor(kIntSpec),
+                              {/*episode_id=*/1, /*step=*/0}, &ref));
   EXPECT_FALSE(ref.lock()->IsReady());
   TF_ASSERT_OK(chunker.Flush());
   EXPECT_TRUE(ref.lock()->IsReady());
@@ -196,22 +200,26 @@ TEST(Chunker, DeletesRefsWhenMageAgeExceeded) {
   Chunker chunker(kIntSpec, /*max_chunk_length=*/2, /*num_keep_alive_refs=*/3);
 
   std::weak_ptr<CellRef> first;
-  TF_ASSERT_OK(chunker.Append(MakeTensor(kIntSpec), &first));
+  TF_ASSERT_OK(chunker.Append(MakeTensor(kIntSpec),
+                              {/*episode_id=*/1, /*step=*/0}, &first));
   EXPECT_FALSE(first.expired());
 
   std::weak_ptr<CellRef> second;
-  TF_ASSERT_OK(chunker.Append(MakeTensor(kIntSpec), &second));
+  TF_ASSERT_OK(chunker.Append(MakeTensor(kIntSpec),
+                              {/*episode_id=*/1, /*step=*/1}, &second));
   EXPECT_FALSE(first.expired());
   EXPECT_FALSE(second.expired());
 
   std::weak_ptr<CellRef> third;
-  TF_ASSERT_OK(chunker.Append(MakeTensor(kIntSpec), &third));
+  TF_ASSERT_OK(chunker.Append(MakeTensor(kIntSpec),
+                              {/*episode_id=*/1, /*step=*/2}, &third));
   EXPECT_FALSE(first.expired());
   EXPECT_FALSE(second.expired());
   EXPECT_FALSE(third.expired());
 
   std::weak_ptr<CellRef> fourth;
-  TF_ASSERT_OK(chunker.Append(MakeTensor(kIntSpec), &fourth));
+  TF_ASSERT_OK(chunker.Append(MakeTensor(kIntSpec),
+                              {/*episode_id=*/1, /*step=*/3}, &fourth));
   EXPECT_TRUE(first.expired());
   EXPECT_FALSE(second.expired());
   EXPECT_FALSE(third.expired());
@@ -222,27 +230,177 @@ TEST(Chunker, GetKeepKeys) {
   Chunker chunker(kIntSpec, /*max_chunk_length=*/2, /*num_keep_alive_refs=*/2);
 
   std::weak_ptr<CellRef> first;
-  TF_ASSERT_OK(chunker.Append(MakeTensor(kIntSpec), &first));
+  TF_ASSERT_OK(chunker.Append(MakeTensor(kIntSpec),
+                              {/*episode_id=*/1, /*step=*/0}, &first));
   EXPECT_THAT(chunker.GetKeepKeys(), ElementsAre(first.lock()->chunk_key()));
 
   // The second ref will belong to the same chunk.
   std::weak_ptr<CellRef> second;
-  TF_ASSERT_OK(chunker.Append(MakeTensor(kIntSpec), &second));
+  TF_ASSERT_OK(chunker.Append(MakeTensor(kIntSpec),
+                              {/*episode_id=*/1, /*step=*/1}, &second));
   EXPECT_THAT(chunker.GetKeepKeys(), ElementsAre(first.lock()->chunk_key()));
 
   // The third ref will belong to a new chunk. The first ref is now expired but
   // since the second ref belong to the same chunk we expect the chunker to tell
   // us to keep both chunks around.
   std::weak_ptr<CellRef> third;
-  TF_ASSERT_OK(chunker.Append(MakeTensor(kIntSpec), &third));
+  TF_ASSERT_OK(chunker.Append(MakeTensor(kIntSpec),
+                              {/*episode_id=*/1, /*step=*/2}, &third));
   EXPECT_THAT(chunker.GetKeepKeys(), ElementsAre(second.lock()->chunk_key(),
                                                  third.lock()->chunk_key()));
 
   // Adding a fourth value results in the second one expiring. The only chunk
   // which should be kept thus is the one referenced by the third and fourth.
   std::weak_ptr<CellRef> fourth;
-  TF_ASSERT_OK(chunker.Append(MakeTensor(kIntSpec), &fourth));
+  TF_ASSERT_OK(chunker.Append(MakeTensor(kIntSpec),
+                              {/*episode_id=*/1, /*step=*/3}, &fourth));
   EXPECT_THAT(chunker.GetKeepKeys(), ElementsAre(third.lock()->chunk_key()));
+}
+
+TEST(Chunker, ResetClearsRefs) {
+  Chunker chunker(kIntSpec, /*max_chunk_length=*/2, /*num_keep_alive_refs=*/2);
+
+  std::weak_ptr<CellRef> first;
+  TF_ASSERT_OK(chunker.Append(MakeTensor(kIntSpec),
+                              {/*episode_id=*/1, /*step=*/0}, &first));
+  std::weak_ptr<CellRef> second;
+  TF_ASSERT_OK(chunker.Append(MakeTensor(kIntSpec),
+                              {/*episode_id=*/1, /*step=*/1}, &second));
+
+  // Before resetting both references are alive.
+  EXPECT_FALSE(first.expired());
+  EXPECT_FALSE(second.expired());
+
+  // After resetting both references are dead.
+  chunker.Reset();
+  EXPECT_TRUE(first.expired());
+  EXPECT_TRUE(second.expired());
+}
+
+TEST(Chunker, ResetRefreshesChunkKey) {
+  Chunker chunker(kIntSpec, /*max_chunk_length=*/2, /*num_keep_alive_refs=*/2);
+
+  std::weak_ptr<CellRef> first;
+  TF_ASSERT_OK(chunker.Append(MakeTensor(kIntSpec),
+                              {/*episode_id=*/1, /*step=*/0}, &first));
+
+  // Extract key since the `CellRef` will expire when we reset the
+  // `Chunker`.
+  uint64_t first_chunk_key = first.lock()->chunk_key();
+
+  chunker.Reset();
+
+  // Take a second step now that the Chunker have been reseted. Note that since
+  // `max_chunk_length` hasn't been reached we would expect the second step to
+  // be part of the same chunk if `Reset` wasn't called in between.
+  std::weak_ptr<CellRef> second;
+  TF_ASSERT_OK(chunker.Append(MakeTensor(kIntSpec),
+                              {/*episode_id=*/1, /*step=*/1}, &second));
+
+  EXPECT_NE(second.lock()->chunk_key(), first_chunk_key);
+}
+
+TEST(Chunker, ResetRefreshesOffset) {
+  Chunker chunker(kIntSpec, /*max_chunk_length=*/2, /*num_keep_alive_refs=*/2);
+
+  std::weak_ptr<CellRef> first;
+  TF_ASSERT_OK(chunker.Append(MakeTensor(kIntSpec),
+                              {/*episode_id=*/1, /*step=*/0}, &first));
+
+  chunker.Reset();
+
+  // Take a second step now that the Chunker have been reseted. Note that since
+  // `max_chunk_length` hasn't been reached we would expect the second step to
+  // be part of the same chunk if `Reset` wasn't called in between.
+  std::weak_ptr<CellRef> second;
+  TF_ASSERT_OK(chunker.Append(MakeTensor(kIntSpec),
+                              {/*episode_id=*/1, /*step=*/1}, &second));
+
+  EXPECT_EQ(second.lock()->offset(), 0);
+}
+
+TEST(Chunker, AppendRequiresSameEpisode) {
+  Chunker chunker(kIntSpec, /*max_chunk_length=*/3, /*num_keep_alive_refs=*/3);
+
+  // Add two steps referencing two different episodes.
+  std::weak_ptr<CellRef> first;
+  TF_ASSERT_OK(chunker.Append(MakeTensor(kIntSpec),
+                              {/*episode_id=*/1, /*step=*/0}, &first));
+  std::weak_ptr<CellRef> second;
+  auto status = chunker.Append(MakeTensor(kIntSpec),
+                               {/*episode_id=*/2, /*step=*/0}, &second);
+
+  EXPECT_EQ(status.code(), tensorflow::error::FAILED_PRECONDITION);
+  EXPECT_THAT(
+      status.error_message(),
+      ::testing::HasSubstr(
+          "Chunker::Append called with new episode when buffer non empty."));
+}
+
+TEST(Chunker, AppendRequiresEpisodeStepIncreases) {
+  Chunker chunker(kIntSpec, /*max_chunk_length=*/3, /*num_keep_alive_refs=*/3);
+
+  // Add two steps referencing two different episodes.
+  std::weak_ptr<CellRef> first;
+  TF_ASSERT_OK(chunker.Append(MakeTensor(kIntSpec),
+                              {/*episode_id=*/1, /*step=*/5}, &first));
+
+  // Same step index.
+  std::weak_ptr<CellRef> eq;
+  auto eq_status =
+      chunker.Append(MakeTensor(kIntSpec), {/*episode_id=*/1, /*step=*/5}, &eq);
+
+  EXPECT_EQ(eq_status.code(), tensorflow::error::FAILED_PRECONDITION);
+  EXPECT_THAT(
+      eq_status.error_message(),
+      ::testing::HasSubstr("Chunker::Append called with an episode step "
+                           "which was not greater than already observed."));
+
+  // Smaller step index.
+  std::weak_ptr<CellRef> lt;
+  auto lt_status =
+      chunker.Append(MakeTensor(kIntSpec), {/*episode_id=*/1, /*step=*/3}, &lt);
+
+  EXPECT_EQ(lt_status.code(), tensorflow::error::FAILED_PRECONDITION);
+  EXPECT_THAT(
+      lt_status.error_message(),
+      ::testing::HasSubstr("Chunker::Append called with an episode step "
+                           "which was not greater than already observed."));
+}
+
+TEST(Chunker, NonSparseEpisodeRange) {
+  Chunker chunker(kIntSpec, /*max_chunk_length=*/5, /*num_keep_alive_refs=*/5);
+
+  // Append five consecutive steps.
+  std::weak_ptr<CellRef> step;
+  for (int i = 0; i < 5; i++) {
+    TF_ASSERT_OK(chunker.Append(MakeTensor(kIntSpec),
+                                {/*episode_id=*/1, /*step=*/i}, &step));
+  }
+
+  // Check that the range is non sparse.
+  ASSERT_FALSE(step.expired());
+  ASSERT_TRUE(step.lock()->IsReady());
+  EXPECT_THAT(step.lock()->GetChunk()->sequence_range(),
+              testing::EqualsProto("episode_id: 1 start: 0 end: 4"));
+}
+
+TEST(Chunker, SparseEpisodeRange) {
+  Chunker chunker(kIntSpec, /*max_chunk_length=*/5, /*num_keep_alive_refs=*/5);
+
+  // Append five steps with a stride of 2.
+  std::weak_ptr<CellRef> step;
+  for (int i = 0; i < 5; i++) {
+    TF_ASSERT_OK(chunker.Append(MakeTensor(kIntSpec),
+                                {/*episode_id=*/33, /*step=*/i * 2}, &step));
+  }
+
+  // Check that the range is non sparse.
+  ASSERT_FALSE(step.expired());
+  ASSERT_TRUE(step.lock()->IsReady());
+  EXPECT_THAT(
+      step.lock()->GetChunk()->sequence_range(),
+      testing::EqualsProto("episode_id: 33 start: 0 end: 8 sparse: true"));
 }
 
 TEST(TrajectoryWriter, AppendValidatesDtype) {
@@ -264,7 +422,7 @@ TEST(TrajectoryWriter, AppendValidatesDtype) {
       writer.Append(Step({MakeTensor(kIntSpec), MakeTensor(kIntSpec)}), &refs);
   EXPECT_EQ(status.code(), tensorflow::error::INVALID_ARGUMENT);
   EXPECT_THAT(status.error_message(),
-              testing::HasSubstr(
+              ::testing::HasSubstr(
                   absl::StrCat("Tensor of wrong dtype provided for column 1. "
                                "Got ",
                                Int32Str(), " but expected float.")));
@@ -286,10 +444,10 @@ TEST(TrajectoryWriter, AppendValidatesShapes) {
                                   kIntSpec.name, kIntSpec.dtype, {3}})}),
                               &refs);
   EXPECT_EQ(status.code(), tensorflow::error::INVALID_ARGUMENT);
-  EXPECT_THAT(
-      status.error_message(),
-      testing::HasSubstr("Tensor of incompatible shape provided for column 0. "
-                         "Got [3] which is incompatible with [1]."));
+  EXPECT_THAT(status.error_message(),
+              ::testing::HasSubstr(
+                  "Tensor of incompatible shape provided for column 0. "
+                  "Got [3] which is incompatible with [1]."));
 }
 
 TEST(TrajectoryWriter, AppendAcceptsPartialSteps) {
@@ -338,7 +496,7 @@ TEST(TrajectoryWriter, ItemSentStraightAwayIfChunksReady) {
   TF_ASSERT_OK(writer.Append(Step({MakeTensor(kIntSpec)}), &refs));
 
   // Nothing sent before the item created.
-  EXPECT_THAT(stream->requests(), testing::IsEmpty());
+  EXPECT_THAT(stream->requests(), ::testing::IsEmpty());
 
   // The chunk is completed so inserting an item should result in both chunk
   // and item being sent.
@@ -378,7 +536,7 @@ TEST(TrajectoryWriter, ItemIsSentWhenAllChunksDone) {
                                  {{first[0].value()}, {first[1].value()}}));
 
   // No data is sent yet since the chunks are not completed.
-  EXPECT_THAT(stream->requests(), testing::IsEmpty());
+  EXPECT_THAT(stream->requests(), ::testing::IsEmpty());
 
   // In the second step we only write to the first column. This should trigger
   // the transmission of the first chunk but not the item as it needs to wait
@@ -397,7 +555,7 @@ TEST(TrajectoryWriter, ItemIsSentWhenAllChunksDone) {
     TF_ASSERT_OK(
         writer.Append(Step({MakeTensor(kIntSpec), absl::nullopt}), &refs));
   }
-  EXPECT_THAT(stream->requests(), testing::SizeIs(1));
+  EXPECT_THAT(stream->requests(), ::testing::SizeIs(1));
 
   // Writing to the second column will trigger the completion of the chunk in
   // the second column. This in turn should trigger the transmission of the new
@@ -427,7 +585,7 @@ TEST(TrajectoryWriter, FlushSendsPendingItems) {
   TF_ASSERT_OK(writer.InsertItem("table", 1.0, {{first[1].value()}}));
 
   // No data is sent yet since the chunks are not completed.
-  EXPECT_THAT(stream->requests(), testing::IsEmpty());
+  EXPECT_THAT(stream->requests(), ::testing::IsEmpty());
 
   // Calling flush should trigger the chunk creation of the second column only.
   // Since the first column isn't referenced by the pending item there is no
@@ -459,7 +617,7 @@ TEST(TrajectoryWriter, DestructorFlushesPendingItems) {
     TF_ASSERT_OK(writer.InsertItem("table", 1.0, {{first[0].value()}}));
 
     // No data is sent yet since the chunks are not completed.
-    EXPECT_THAT(stream->requests(), testing::IsEmpty());
+    EXPECT_THAT(stream->requests(), ::testing::IsEmpty());
   }
 
   EXPECT_THAT(*requests, ElementsAre(IsChunk(), IsItem()));
@@ -521,16 +679,16 @@ TEST(TrajectoryWriter, StopsOnNonTransientError) {
   // Flushing should return the error encountered by the stream worker.
   auto flush_status = writer.Flush();
   EXPECT_EQ(flush_status.code(), tensorflow::error::INTERNAL);
-  EXPECT_THAT(flush_status.error_message(), testing::HasSubstr("A reason"));
+  EXPECT_THAT(flush_status.error_message(), ::testing::HasSubstr("A reason"));
 
   // The same error should be encountered in all methods.
   auto insert_status = writer.InsertItem("table", 1.0, {{first[0].value()}});
   EXPECT_EQ(insert_status.code(), tensorflow::error::INTERNAL);
-  EXPECT_THAT(insert_status.error_message(), testing::HasSubstr("A reason"));
+  EXPECT_THAT(insert_status.error_message(), ::testing::HasSubstr("A reason"));
 
   auto append_status = writer.Append(Step({MakeTensor(kIntSpec)}), &first);
   EXPECT_EQ(append_status.code(), tensorflow::error::INTERNAL);
-  EXPECT_THAT(append_status.error_message(), testing::HasSubstr("A reason"));
+  EXPECT_THAT(append_status.error_message(), ::testing::HasSubstr("A reason"));
 }
 
 TEST(TrajectoryWriter, FlushReturnsIfTimeoutExpired) {
@@ -538,7 +696,7 @@ TEST(TrajectoryWriter, FlushReturnsIfTimeoutExpired) {
   auto* stream =
       new MockClientReaderWriter<InsertStreamRequest, InsertStreamResponse>();
   EXPECT_CALL(*stream, Write(_, _))
-      .WillOnce(testing::Invoke([&](auto, auto) {
+      .WillOnce(::testing::Invoke([&](auto, auto) {
         write_block.WaitForNotification();
         return true;
       }))
@@ -557,9 +715,10 @@ TEST(TrajectoryWriter, FlushReturnsIfTimeoutExpired) {
   // Flushing should return the error encountered by the stream worker.
   auto status = writer.Flush(absl::Milliseconds(100));
   EXPECT_EQ(status.code(), tensorflow::error::DEADLINE_EXCEEDED);
-  EXPECT_THAT(status.error_message(),
-              testing::HasSubstr("Timeout exceeded with 1 items waiting to be "
-                                 "written and 0 items awaiting confirmation."));
+  EXPECT_THAT(
+      status.error_message(),
+      ::testing::HasSubstr("Timeout exceeded with 1 items waiting to be "
+                           "written and 0 items awaiting confirmation."));
 
   // Unblock the writer.
   write_block.Notify();
@@ -585,7 +744,7 @@ TEST(TrajectoryWriter, InsertItemRejectsExpiredCellRefs) {
   auto status = writer.InsertItem("table", 1.0, {{first[0].value()}});
   EXPECT_EQ(status.code(), tensorflow::error::INVALID_ARGUMENT);
   EXPECT_THAT(status.error_message(),
-              testing::HasSubstr("Trajectory contains expired CellRef."));
+              ::testing::HasSubstr("Trajectory contains expired CellRef."));
 }
 
 TEST(TrajectoryWriter, KeepKeysOnlyIncludesStreamedKeys) {
@@ -659,7 +818,8 @@ TEST(TrajectoryWriter, InsertItemValidatesTrajectoryDtype) {
   auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
   EXPECT_CALL(*stub, InsertStreamRaw(_)).WillOnce(Return(stream));
 
-  TrajectoryWriter writer(stub, {/*max_chunk_length=*/1, /*max_age=*/2});
+  TrajectoryWriter writer(stub,
+                          {/*max_chunk_length=*/1, /*num_keep_alive_refs=*/2});
 
   // Take a step with two columns with different dtypes.
   StepRef step;
@@ -671,7 +831,7 @@ TEST(TrajectoryWriter, InsertItemValidatesTrajectoryDtype) {
       writer.InsertItem("table", 1.0, {{step[0].value(), step[1].value()}});
   EXPECT_EQ(status.code(), tensorflow::error::INVALID_ARGUMENT);
   EXPECT_THAT(status.error_message(),
-              testing::HasSubstr(absl::StrCat(
+              ::testing::HasSubstr(absl::StrCat(
                   "Column 0 references tensors with different dtypes: ",
                   Int32Str(), " (index 0) != float (index 1).")));
 }
@@ -681,7 +841,8 @@ TEST(TrajectoryWriter, InsertItemValidatesTrajectoryShapes) {
   auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
   EXPECT_CALL(*stub, InsertStreamRaw(_)).WillOnce(Return(stream));
 
-  TrajectoryWriter writer(stub, {/*max_chunk_length=*/1, /*max_age=*/2});
+  TrajectoryWriter writer(stub,
+                          {/*max_chunk_length=*/1, /*num_keep_alive_refs=*/2});
 
   // Take a step with two columns with different shapes.
   StepRef step;
@@ -698,9 +859,113 @@ TEST(TrajectoryWriter, InsertItemValidatesTrajectoryShapes) {
       writer.InsertItem("table", 1.0, {{step[0].value(), step[1].value()}});
   EXPECT_EQ(status.code(), tensorflow::error::INVALID_ARGUMENT);
   EXPECT_THAT(status.error_message(),
-              testing::HasSubstr(
+              ::testing::HasSubstr(
                   "Column 0 references tensors with incompatible shapes: [1] "
                   "(index 0) not compatible with [2] (index 1)."));
+}
+
+TEST(TrajectoryWriter, EndEpisodeCanClearBuffers) {
+  auto* stream = new FakeStream();
+  auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
+  EXPECT_CALL(*stub, InsertStreamRaw(_)).WillOnce(Return(stream));
+
+  TrajectoryWriter writer(stub,
+                          {/*max_chunk_length=*/2, /*num_keep_alive_refs=*/2});
+
+  // Take a step.
+  StepRef step;
+  TF_ASSERT_OK(writer.Append(Step({MakeTensor(kIntSpec)}), &step));
+
+  // If we don't clear the buffer then the reference should be alive after.
+  TF_ASSERT_OK(writer.EndEpisode(/*clear_buffers=*/false));
+  EXPECT_FALSE(step[0]->expired());
+
+  // If we clear the buffer then the reference should expire.
+  TF_ASSERT_OK(writer.EndEpisode(/*clear_buffers=*/true));
+  EXPECT_TRUE(step[0]->expired());
+}
+
+TEST(TrajectoryWriter, EndEpisodeFinalizesChunksEvenIfNoItemReferenceIt) {
+  auto* stream = new FakeStream();
+  auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
+  EXPECT_CALL(*stub, InsertStreamRaw(_)).WillOnce(Return(stream));
+
+  TrajectoryWriter writer(stub,
+                          {/*max_chunk_length=*/2, /*num_keep_alive_refs=*/2});
+
+  // Take a step.
+  StepRef step;
+  TF_ASSERT_OK(writer.Append(Step({MakeTensor(kIntSpec)}), &step));
+
+  // The chunk is not yet finalized as `max_chunk_length` is 2.
+  EXPECT_FALSE(step[0]->lock()->IsReady());
+
+  // Calling `EndEpisode` should trigger the finalization of the chunk even if
+  // it is not used by any item. Note that this is different from Flush which
+  // only finalizes chunks which owns `CellRef`s that are referenced by pending
+  // items.
+  TF_ASSERT_OK(writer.EndEpisode(/*clear_buffers=*/false));
+  EXPECT_TRUE(step[0]->lock()->IsReady());
+}
+
+TEST(TrajectoryWriter, EndEpisodeResetsEpisodeKeyAndStep) {
+  auto* stream = new FakeStream();
+  auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
+  EXPECT_CALL(*stub, InsertStreamRaw(_)).WillOnce(Return(stream));
+
+  TrajectoryWriter writer(stub,
+                          {/*max_chunk_length=*/1, /*num_keep_alive_refs=*/2});
+
+  // Take two steps in two different episodes.
+  StepRef first;
+  TF_ASSERT_OK(writer.Append(Step({MakeTensor(kIntSpec)}), &first));
+
+  TF_ASSERT_OK(writer.EndEpisode(/*clear_buffers=*/false));
+
+  StepRef second;
+  TF_ASSERT_OK(writer.Append(Step({MakeTensor(kIntSpec)}), &second));
+
+  // Verify that the `episode_key` was changed between episodes and that the
+  // episode step was reset to 0.
+  EXPECT_NE(first[0]->lock()->episode_id(), second[0]->lock()->episode_id());
+  EXPECT_EQ(first[0]->lock()->episode_step(), 0);
+  EXPECT_EQ(second[0]->lock()->episode_step(), 0);
+}
+
+TEST(TrajectoryWriter, EndEpisodeReturnsIfTimeoutExpired) {
+  absl::Notification write_block;
+  auto* stream =
+      new MockClientReaderWriter<InsertStreamRequest, InsertStreamResponse>();
+  EXPECT_CALL(*stream, Write(_, _))
+      .WillOnce(::testing::Invoke([&](auto, auto) {
+        write_block.WaitForNotification();
+        return true;
+      }))
+      .WillRepeatedly(Return(true));
+  auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
+  EXPECT_CALL(*stub, InsertStreamRaw(_)).WillOnce(Return(stream));
+
+  TrajectoryWriter writer(stub,
+                          {/*max_chunk_length=*/2, /*num_keep_alive_refs=*/2});
+
+  // Create an item.
+  StepRef first;
+  TF_ASSERT_OK(writer.Append(Step({MakeTensor(kIntSpec)}), &first));
+  TF_ASSERT_OK(writer.InsertItem("table", 1.0, {{first[0].value()}}));
+
+  // EndEpisode will not be able to complete and thus should timeout.
+  auto status = writer.EndEpisode(true, absl::Milliseconds(100));
+  EXPECT_EQ(status.code(), tensorflow::error::DEADLINE_EXCEEDED);
+  EXPECT_THAT(
+      status.error_message(),
+      ::testing::HasSubstr("Timeout exceeded with 1 items waiting to be "
+                           "written and 0 items awaiting confirmation."));
+
+  // Unblock the writer.
+  write_block.Notify();
+
+  // Close the writer to avoid having to mock the item confirmation response.
+  writer.Close();
 }
 
 }  // namespace
