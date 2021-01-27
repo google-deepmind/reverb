@@ -480,7 +480,7 @@ bool TrajectoryWriter::GetNextPendingItem(
 
 bool TrajectoryWriter::SendItem(
     TrajectoryWriter::InsertStream* stream,
-    const internal::flat_hash_set<uint64_t>& streamed_chunk_keys,
+    const internal::flat_hash_set<uint64_t>& keep_keys,
     const PrioritizedItem& item) const {
   InsertStreamRequest request;
   request.mutable_item()->set_allocated_item(
@@ -488,14 +488,37 @@ bool TrajectoryWriter::SendItem(
   auto realease_item = internal::MakeCleanup(
       [&request] { request.mutable_item()->release_item(); });
   request.mutable_item()->set_send_confirmation(true);
+  for (auto keep_key : keep_keys) {
+    request.mutable_item()->add_keep_chunk_keys(keep_key);
+  }
+  return stream->Write(request);
+}
+
+internal::flat_hash_set<uint64_t> TrajectoryWriter::GetKeepKeys(
+    const internal::flat_hash_set<uint64_t>& streamed_chunk_keys) const {
+  internal::flat_hash_set<uint64_t> keys;
   for (const auto& it : chunkers_) {
-    for (auto key : it.second->GetKeepKeys()) {
+    for (uint64_t key : it.second->GetKeepKeys()) {
       if (streamed_chunk_keys.contains(key)) {
-        request.mutable_item()->add_keep_chunk_keys(key);
+        keys.insert(key);
       }
     }
   }
-  return stream->Write(request);
+
+  for (auto it = write_queue_.begin(); it != write_queue_.end(); it++) {
+    // Ignore chunks only referenced by the front item since keep keys is sent
+    // together with this item and thus there is no need for the server to keep
+    // these chunks around after the item has been written.
+    if (it == write_queue_.begin()) continue;
+
+    for (const auto& ref : it->refs) {
+      if (streamed_chunk_keys.contains(ref->chunk_key())) {
+        keys.insert(ref->chunk_key());
+      }
+    }
+  }
+
+  return keys;
 }
 
 tensorflow::Status TrajectoryWriter::RunStreamWorker() {
@@ -509,9 +532,6 @@ tensorflow::Status TrajectoryWriter::RunStreamWorker() {
     }
   });
 
-  // TODO(b/178090180): This will continue to grow indef. It is a very small
-  // memory leak but if the writer is kept alive for a long time then it could
-  // become a problem.
   internal::flat_hash_set<uint64_t> streamed_chunk_keys;
   while (true) {
     ItemAndRefs item_and_refs;
@@ -548,6 +568,10 @@ tensorflow::Status TrajectoryWriter::RunStreamWorker() {
       }
 
       in_flight_items_.insert(item_and_refs.item.key());
+
+      // Remove keys of expired chunks from streamed_chunk_keys to avoid OOM
+      // issues caused by the otherwise indefinitely growing hash set.
+      streamed_chunk_keys = GetKeepKeys(streamed_chunk_keys);
     }
 
     // All chunks have been written to the stream so the item can now be

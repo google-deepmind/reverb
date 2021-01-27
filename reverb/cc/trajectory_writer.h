@@ -181,8 +181,17 @@ class TrajectoryWriter {
   // referenced by item must have been written to the stream before calling this
   // method.
   bool SendItem(InsertStream* stream,
-                const internal::flat_hash_set<uint64_t>& streamed_chunk_keys,
+                const internal::flat_hash_set<uint64_t>& keep_keys,
                 const PrioritizedItem& item) const;
+
+  // Union of `GetChunkKeys` from all column chunkers and all the chunks
+  // referenced by pending items (except for chunks only referenced by the first
+  // item) filtered by presense in `streamed_chunk_keys. The chunks referenced
+  // only by the first item can safely be ignored as the server "keep keys" is
+  // updated with the insert item message.
+  internal::flat_hash_set<uint64_t> GetKeepKeys(
+      const internal::flat_hash_set<uint64_t>& streamed_chunk_keys) const
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_);
 
   // Stub used to create InsertStream gRPC streams.
   std::shared_ptr</* grpc_gen:: */ReverbService::StubInterface> stub_;

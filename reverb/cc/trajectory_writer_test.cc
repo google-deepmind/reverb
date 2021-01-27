@@ -51,6 +51,7 @@ using ::grpc::testing::MockClientReaderWriter;
 using ::testing::_;
 using ::testing::ElementsAre;
 using ::testing::Return;
+using ::testing::UnorderedElementsAre;
 
 using Step = ::std::vector<::absl::optional<::tensorflow::Tensor>>;
 using StepRef = ::std::vector<::absl::optional<::std::weak_ptr<CellRef>>>;
@@ -766,9 +767,9 @@ TEST(TrajectoryWriter, KeepKeysOnlyIncludesStreamedKeys) {
 
   // Only the chunk of the first column has been used (and thus streamed). The
   // server should thus only be instructed to keep the one chunk around.
-  EXPECT_THAT(stream->requests(), ElementsAre(IsChunk(), IsItem()));
+  EXPECT_THAT(stream->requests(), UnorderedElementsAre(IsChunk(), IsItem()));
   EXPECT_THAT(stream->requests()[1].item().keep_chunk_keys(),
-              ElementsAre(first[0].value().lock()->chunk_key()));
+              UnorderedElementsAre(first[0].value().lock()->chunk_key()));
 }
 
 TEST(TrajectoryWriter, KeepKeysOnlyIncludesLiveChunks) {
@@ -787,7 +788,7 @@ TEST(TrajectoryWriter, KeepKeysOnlyIncludesLiveChunks) {
 
   // The one chunk that has been sent should be kept alive.
   EXPECT_THAT(stream->requests().back().item().keep_chunk_keys(),
-              ElementsAre(first[0].value().lock()->chunk_key()));
+              UnorderedElementsAre(first[0].value().lock()->chunk_key()));
 
   // Take a second step and insert a trajectory.
   StepRef second;
@@ -797,8 +798,8 @@ TEST(TrajectoryWriter, KeepKeysOnlyIncludesLiveChunks) {
 
   // Both chunks should be kept alive since num_keep_alive_refs is 2.
   EXPECT_THAT(stream->requests().back().item().keep_chunk_keys(),
-              ElementsAre(first[0].value().lock()->chunk_key(),
-                          second[0].value().lock()->chunk_key()));
+              UnorderedElementsAre(first[0].value().lock()->chunk_key(),
+                                   second[0].value().lock()->chunk_key()));
 
   // Take a third step and insert a trajectory.
   StepRef third;
@@ -809,8 +810,8 @@ TEST(TrajectoryWriter, KeepKeysOnlyIncludesLiveChunks) {
   // The chunk of the first step has now expired and thus the server no longer
   // need to keep it alive.
   EXPECT_THAT(stream->requests().back().item().keep_chunk_keys(),
-              ElementsAre(second[0].value().lock()->chunk_key(),
-                          third[0].value().lock()->chunk_key()));
+              UnorderedElementsAre(second[0].value().lock()->chunk_key(),
+                                   third[0].value().lock()->chunk_key()));
 }
 
 TEST(TrajectoryWriter, InsertItemValidatesTrajectoryDtype) {
