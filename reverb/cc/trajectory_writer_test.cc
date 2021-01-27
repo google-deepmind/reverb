@@ -717,7 +717,8 @@ TEST(TrajectoryWriter, FlushReturnsIfTimeoutExpired) {
   REVERB_ASSERT_OK(writer.InsertItem("table", 1.0, {{first[0].value()}}));
 
   // Flushing should return the error encountered by the stream worker.
-  auto status = writer.Flush(absl::Milliseconds(100));
+  auto status =
+      writer.Flush(/*ignore_last_num_items=*/0, absl::Milliseconds(100));
   EXPECT_EQ(status.code(), absl::StatusCode::kDeadlineExceeded);
   EXPECT_THAT(
       std::string(status.message()),
@@ -729,6 +730,35 @@ TEST(TrajectoryWriter, FlushReturnsIfTimeoutExpired) {
 
   // Close the writer to avoid having to mock the item confirmation response.
   writer.Close();
+}
+
+TEST(TrajectoryWriter, FlushCanIgnorePendingItems) {
+  auto* stream = new FakeStream();
+  auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
+  EXPECT_CALL(*stub, InsertStreamRaw(_)).WillOnce(Return(stream));
+
+  TrajectoryWriter writer(stub,
+                          {/*max_chunk_length=*/2, /*num_keep_alive_refs=*/2});
+
+  // Take a step with two columns.
+  StepRef first;
+  REVERB_ASSERT_OK(writer.Append(
+      Step({MakeTensor(kIntSpec), MakeTensor(kIntSpec)}), &first));
+
+  // Create two items, each referencing a separate column
+  REVERB_ASSERT_OK(writer.InsertItem("table", 1.0, {{first[0].value()}}));
+  REVERB_ASSERT_OK(writer.InsertItem("table", 1.0, {{first[1].value()}}));
+
+  // Flushing should trigger the first item to be finalized and sent. The second
+  // item should still be pending as its chunk have not yet been finalized.
+  REVERB_ASSERT_OK(writer.Flush(/*ignore_last_num_items=*/1));
+
+  // Only one item sent.
+  EXPECT_THAT(stream->requests(), ElementsAre(IsChunk(), IsItem()));
+
+  // The chunk of the first item is finalized while the other is not.
+  EXPECT_TRUE(first[0]->lock()->IsReady());
+  EXPECT_FALSE(first[1]->lock()->IsReady());
 }
 
 TEST(TrajectoryWriter, InsertItemRejectsExpiredCellRefs) {

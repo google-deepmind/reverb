@@ -304,7 +304,8 @@ TrajectoryWriter::~TrajectoryWriter() {
     absl::MutexLock lock(&mu_);
     if (closed_) return;
 
-    auto status = FlushLocked(/*timeout=*/absl::InfiniteDuration());
+    auto status = FlushLocked(/*ignore_last_num_items=*/0,
+                              /*timeout=*/absl::InfiniteDuration());
     REVERB_LOG_IF(REVERB_WARNING, !status.ok())
         << "TrajectoryWriter destroyed before content finalized. Encountered "
            "error when trying to finalize content: "
@@ -599,16 +600,23 @@ absl::Status TrajectoryWriter::RunStreamWorker() {
   return absl::OkStatus();
 }
 
-absl::Status TrajectoryWriter::Flush(absl::Duration timeout) {
+absl::Status TrajectoryWriter::Flush(int ignore_last_num_items,
+                                     absl::Duration timeout) {
   absl::MutexLock lock(&mu_);
-  return FlushLocked(timeout);
+  return FlushLocked(ignore_last_num_items, timeout);
 }
 
-absl::Status TrajectoryWriter::FlushLocked(absl::Duration timeout) {
+absl::Status TrajectoryWriter::FlushLocked(int ignore_last_num_items,
+                                           absl::Duration timeout) {
   // If items are referencing any data which has not yet been finalized into a
   // `ChunkData` then force the chunk to be created prematurely. This will allow
-  // the worker to write all items to the stream.
+  // the worker to write all items to the stream. Note that we don't need to
+  // force the finalization of the `ignore_last_num_items` last items in the
+  // queue.
+  int num_items_to_force_flush = write_queue_.size() - ignore_last_num_items;
   for (const auto& item : write_queue_) {
+    if (num_items_to_force_flush-- <= 0) break;
+
     for (auto& ref : item.refs) {
       if (!ref->IsReady()) {
         REVERB_RETURN_IF_ERROR(ref->chunker()->Flush());
@@ -620,17 +628,31 @@ absl::Status TrajectoryWriter::FlushLocked(absl::Duration timeout) {
   // can be woken up.
   data_cv_.Signal();
 
-  // The write worker is now able to send all pending items so we can now await
-  // all in flight items to be empty or for the TrajectoryWriter to be closed.
-  if (!mu_.AwaitWithTimeout(
-          absl::Condition(
-              +[](TrajectoryWriter* w) ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_) {
-                return (w->write_queue_.empty() &&
-                        w->in_flight_items_.empty()) ||
-                       !w->unrecoverable_status_.ok();
-              },
-              this),
-          timeout)) {
+  // The write worker is now able to send  (at least) all but the last
+  // `ignore_last_num_items` items to the server. We release the mutex and wait
+  // for the items to be confirmed or the TrajectoryWriter to be closed.
+  auto cond = [ignore_last_num_items,
+               this]() ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_) {
+    if (!unrecoverable_status_.ok()) {
+      return true;
+    }
+
+    // Items are considered pending until they are confirmed by the server so
+    // both `write_queue_` and `in_flight_items_` must be counted. However, to
+    // protect against data races the write worker will wait to add the item to
+    // `in_flight_items_` BEFORE removing it from `write_queue_` and then
+    // release the mutex for a period in order to perform the actual write to
+    // the gRPC stream. We check for this here to avoid double counting.
+    int num_pending_items = write_queue_.size() + in_flight_items_.size();
+    if (!write_queue_.empty() &&
+        in_flight_items_.contains(write_queue_.front().item.key())) {
+      num_pending_items--;
+    }
+
+    return num_pending_items <= ignore_last_num_items;
+  };
+
+  if (!mu_.AwaitWithTimeout(absl::Condition(&cond), timeout)) {
     return absl::DeadlineExceededError(
         absl::StrCat("Timeout exceeded with ", write_queue_.size(),
                      " items waiting to be written and ",
@@ -646,7 +668,7 @@ absl::Status TrajectoryWriter::EndEpisode(bool clear_buffers,
   absl::MutexLock lock(&mu_);
   REVERB_RETURN_IF_ERROR(unrecoverable_status_);
 
-  REVERB_RETURN_IF_ERROR(FlushLocked(timeout));
+  REVERB_RETURN_IF_ERROR(FlushLocked(0, timeout));
 
   for (auto& it : chunkers_) {
     if (clear_buffers) {

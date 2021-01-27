@@ -115,12 +115,19 @@ class TrajectoryWriter {
       const std::vector<std::vector<std::weak_ptr<CellRef>>>& trajectory)
       ABSL_LOCKS_EXCLUDED(mu_);
 
-  // Sends all pending items and awaits confirmation. Incomplete chunks
-  // referenced by pending items are finalized and transmitted.
+  // Sends all but the last `ignore_last_num_items` pending items and awaits
+  // confirmation. Incomplete chunks referenced by these items are finalized
+  // and transmitted.
   //
-  // TODO(b/178087048): Support flushing and blocking until at most N items are
-  //   unconfirmed.
-  absl::Status Flush(absl::Duration timeout = absl::InfiniteDuration())
+  // `ignore_last_num_items` can be used to limit how much the writer runs ahead
+  // of the server, only blocking when the gap grows too big. For example, to
+  // limit the "run ahead" to 20 just call `Flush(20)` after every `InsertItem`
+  // call. If the number of unconfirmed items never reaches 20 (which is likely
+  // if the rate limiter does not block), then no blocking ever occur. However,
+  // if the sample rate suddenly falls and the rate limiter kicks in then the
+  // `Flush` call blocks the writer from running ahead too much.
+  absl::Status Flush(int ignore_last_num_items = 0,
+                     absl::Duration timeout = absl::InfiniteDuration())
       ABSL_LOCKS_EXCLUDED(mu_);
 
   // Finalizes all chunks (including ones not referenced by any items), writes
@@ -147,12 +154,10 @@ class TrajectoryWriter {
     std::vector<std::shared_ptr<CellRef>> refs;
   };
 
-  // Sends all pending items and awaits confirmation. Incomplete chunks
-  // referenced by pending items are finalized and transmitted.
-  //
-  // TODO(b/178087048): Support flushing and blocking until at most N items are
-  //   unconfirmed.
-  absl::Status FlushLocked(absl::Duration timeout)
+  // Sends all but the last `ignore_last_num_items` pending items and awaits
+  // confirmation. Incomplete chunks referenced by non ignored items are
+  // finalized and transmitted.
+  absl::Status FlushLocked(int ignore_last_num_items, absl::Duration timeout)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_);
 
   // Creates a gRPC stream to the server with `context_` and continues to run
