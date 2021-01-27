@@ -110,8 +110,6 @@ class TrajectoryWriter {
   // of pending items (and referenced data) could grow until the process runs
   // out of memory. The caller must therefore use `Flush` to achieve the
   // desired level of synchronization.
-  //
-  // TODO(b/178089532): Validate that trajectory columns can be concatenated.
   tensorflow::Status InsertItem(
       absl::string_view table, double priority,
       const std::vector<std::vector<std::weak_ptr<CellRef>>>& trajectory)
