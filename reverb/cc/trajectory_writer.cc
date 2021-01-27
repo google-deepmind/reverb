@@ -367,6 +367,12 @@ absl::Status TrajectoryWriter::Append(
 absl::Status TrajectoryWriter::InsertItem(
     absl::string_view table, double priority,
     const std::vector<std::vector<std::weak_ptr<CellRef>>>& trajectory) {
+  if (trajectory.empty() ||
+      std::all_of(trajectory.begin(), trajectory.end(),
+                  [](const auto& col) { return col.empty(); })) {
+    return absl::InvalidArgumentError("trajectory must not be empty.");
+  }
+
   {
     absl::MutexLock lock(&mu_);
     REVERB_RETURN_IF_ERROR(unrecoverable_status_);

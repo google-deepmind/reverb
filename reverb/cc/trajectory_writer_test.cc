@@ -898,6 +898,31 @@ TEST(TrajectoryWriter, InsertItemValidatesTrajectoryShapes) {
                   "(index 0) not compatible with [2] (index 1)."));
 }
 
+TEST(TrajectoryWriter, InsertItemValidatesTrajectoryNotEmpty) {
+  auto* stream = new FakeStream();
+  auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
+  EXPECT_CALL(*stub, InsertStreamRaw(_)).WillOnce(Return(stream));
+
+  TrajectoryWriter writer(stub,
+                          {/*max_chunk_length=*/1, /*num_keep_alive_refs=*/1});
+
+  StepRef step;
+  REVERB_ASSERT_OK(writer.Append(Step({MakeTensor(kIntSpec)}), &step));
+
+  // Create a trajectory without any columns.
+  auto no_columns_status = writer.InsertItem("table", 1.0, {});
+  EXPECT_EQ(no_columns_status.code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_THAT(std::string(no_columns_status.message()),
+              ::testing::HasSubstr("trajectory must not be empty."));
+
+  // Create a trajectory where all columns are empty.
+  auto all_columns_empty_status = writer.InsertItem("table", 1.0, {{}, {}});
+  EXPECT_EQ(all_columns_empty_status.code(),
+            absl::StatusCode::kInvalidArgument);
+  EXPECT_THAT(std::string(all_columns_empty_status.message()),
+              ::testing::HasSubstr("trajectory must not be empty."));
+}
+
 TEST(TrajectoryWriter, EndEpisodeCanClearBuffers) {
   auto* stream = new FakeStream();
   auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
