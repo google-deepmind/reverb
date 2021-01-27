@@ -12,21 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef REVERB_CC_ERRORS_H_
-#define REVERB_CC_ERRORS_H_
+#ifndef REVERB_CC_PLATFORM_STATUS_MATCHERS_H_
+#define REVERB_CC_PLATFORM_STATUS_MATCHERS_H_
 
-#include "absl/status/status.h"
+#include "reverb/cc/platform/default/status_matchers.h"
 
-namespace deepmind {
-namespace reverb {
-namespace errors {
-
-absl::Status RateLimiterTimeout();
-
-bool IsRateLimiterTimeout(absl::Status status);
-
-}  // namespace errors
-}  // namespace reverb
-}  // namespace deepmind
-
-#endif  // REVERB_CC_ERRORS_H_
+#endif  // REVERB_CC_PLATFORM_STATUS_MATCHERS_H_

@@ -67,6 +67,7 @@ reverb_cc_library(
         "//reverb/cc/checkpointing:checkpoint_cc_proto",
         "//reverb/cc/platform:hash_map",
         "//reverb/cc/platform:logging",
+        "//reverb/cc/platform:status_macros",
     ] + reverb_tf_deps() + reverb_absl_deps(),
 )
 
@@ -89,8 +90,9 @@ reverb_cc_test(
     deps = [
         ":uniform",
         "//reverb/cc:schema_cc_proto",
+        "//reverb/cc/platform:status_matchers",
         "//reverb/cc/testing:proto_test_util",
-    ],
+    ] + reverb_absl_deps(),
 )
 
 reverb_cc_test(
@@ -99,8 +101,9 @@ reverb_cc_test(
     deps = [
         ":fifo",
         "//reverb/cc:schema_cc_proto",
+        "//reverb/cc/platform:status_matchers",
         "//reverb/cc/testing:proto_test_util",
-    ],
+    ] + reverb_absl_deps(),
 )
 
 reverb_cc_test(
@@ -109,8 +112,9 @@ reverb_cc_test(
     deps = [
         ":lifo",
         "//reverb/cc:schema_cc_proto",
+        "//reverb/cc/platform:status_matchers",
         "//reverb/cc/testing:proto_test_util",
-    ],
+    ] + reverb_absl_deps(),
 )
 
 reverb_cc_test(
@@ -120,6 +124,7 @@ reverb_cc_test(
         ":prioritized",
         "//reverb/cc:schema_cc_proto",
         "//reverb/cc/platform:hash_map",
+        "//reverb/cc/platform:status_matchers",
         "//reverb/cc/testing:proto_test_util",
     ] + reverb_absl_deps(),
 )
@@ -131,6 +136,7 @@ reverb_cc_test(
         ":heap",
         ":interface",
         "//reverb/cc:schema_cc_proto",
+        "//reverb/cc/platform:status_matchers",
         "//reverb/cc/testing:proto_test_util",
     ],
 )

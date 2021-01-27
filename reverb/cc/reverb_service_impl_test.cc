@@ -25,6 +25,8 @@
 #include "absl/synchronization/notification.h"
 #include "absl/types/optional.h"
 #include "reverb/cc/platform/checkpointing.h"
+#include "reverb/cc/platform/status_macros.h"
+#include "reverb/cc/platform/status_matchers.h"
 #include "reverb/cc/platform/thread.h"
 #include "reverb/cc/reverb_service.pb.h"
 #include "reverb/cc/schema.pb.h"
@@ -174,8 +176,8 @@ std::unique_ptr<ReverbServiceImpl> MakeService(
       std::vector<std::shared_ptr<TableExtension>>{},
       /*signature=*/absl::make_optional(MakeSignature())));
   std::unique_ptr<ReverbServiceImpl> service;
-  TF_CHECK_OK(ReverbServiceImpl::Create(std::move(tables),
-                                        std::move(checkpointer), &service));
+  REVERB_CHECK_OK(ReverbServiceImpl::Create(std::move(tables),
+                                            std::move(checkpointer), &service));
   return service;
 }
 
@@ -224,7 +226,7 @@ TEST(ReverbServiceImplTest, InsertChunksWithoutItemWorks) {
   FakeInsertStream stream;
   stream.AddChunk(1);
   stream.AddChunk(2);
-  EXPECT_OK(service->InsertStreamInternal(&context, &stream));
+  REVERB_EXPECT_OK(service->InsertStreamInternal(&context, &stream));
 }
 
 TEST(ReverbServiceImplTest, InsertSameChunkTwiceWorks) {
@@ -234,7 +236,7 @@ TEST(ReverbServiceImplTest, InsertSameChunkTwiceWorks) {
   FakeInsertStream stream;
   stream.AddChunk(1);
   stream.AddChunk(1);
-  EXPECT_OK(service->InsertStreamInternal(&context, &stream));
+  REVERB_EXPECT_OK(service->InsertStreamInternal(&context, &stream));
 }
 
 TEST(ReverbServiceImplTest, InsertItemWithoutKeptChunkFails) {
@@ -284,7 +286,7 @@ TEST(ReverbServiceImplTest, InsertStreamRespondsWithItemKeys) {
   stream.AddItem("dist", {1}, {1}, /*send_confirmation=*/true);
   stream.AddItem("dist", {1}, {1}, /*send_confirmation=*/false);
   stream.AddItem("dist", {1}, {}, /*send_confirmation=*/true);
-  EXPECT_OK(service->InsertStreamInternal(&context, &stream));
+  REVERB_EXPECT_OK(service->InsertStreamInternal(&context, &stream));
   EXPECT_THAT(stream.responses(), ::testing::SizeIs(2));
   EXPECT_EQ(stream.responses()[0].key(), first_id);
   EXPECT_EQ(stream.responses()[1].key(), first_id + 2);
@@ -297,7 +299,7 @@ TEST(ReverbServiceImplTest, SampleBlocksUntilEnoughInserts) {
     FakeSampleStream stream;
     stream.AddRequest("dist", 1);
     grpc::ServerContext context;
-    EXPECT_OK(service->SampleStreamInternal(&context, &stream));
+    REVERB_EXPECT_OK(service->SampleStreamInternal(&context, &stream));
     notification.Notify();
   });
 
@@ -329,7 +331,8 @@ TEST(ReverbServiceImplTest, MutateDeletionWorks) {
   MutatePrioritiesRequest mutate_request;
   mutate_request.set_table("dist");
   mutate_request.add_delete_keys(item.key());
-  EXPECT_OK(service->MutatePriorities(nullptr, &mutate_request, nullptr));
+  REVERB_EXPECT_OK(
+      service->MutatePriorities(nullptr, &mutate_request, nullptr));
 
   EXPECT_EQ(service->tables()["dist"]->size(), 0);
 }
@@ -446,7 +449,7 @@ TEST(ReverbServiceImplTest, CheckpointAndLoadFromCheckpoint) {
     CheckpointRequest request;
     CheckpointResponse response;
     grpc::ServerContext context;
-    EXPECT_OK(service->Checkpoint(nullptr, &request, &response));
+    REVERB_EXPECT_OK(service->Checkpoint(nullptr, &request, &response));
   }
 
   // Create a new service from the checkpoint and check that it has the correct

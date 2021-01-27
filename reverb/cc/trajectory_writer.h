@@ -21,6 +21,7 @@
 
 #include "grpcpp/impl/codegen/client_context.h"
 #include "absl/base/thread_annotations.h"
+#include "absl/status/status.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/time/time.h"
 #include "absl/types/optional.h"
@@ -32,7 +33,6 @@
 #include "reverb/cc/schema.pb.h"
 #include "reverb/cc/support/signature.h"
 #include "tensorflow/core/framework/tensor.h"
-#include "tensorflow/core/platform/status.h"
 
 namespace deepmind {
 namespace reverb {
@@ -88,7 +88,7 @@ class TrajectoryWriter {
   //
   // TODO(b/178085792): Figure out how episode information should be handled.
   // TODO(b/178085755): Decide how to manage partially invalid data.
-  tensorflow::Status Append(
+  absl::Status Append(
       std::vector<absl::optional<tensorflow::Tensor>> data,
       std::vector<absl::optional<std::weak_ptr<CellRef>>>* refs)
       ABSL_LOCKS_EXCLUDED(mu_);
@@ -110,7 +110,7 @@ class TrajectoryWriter {
   // of pending items (and referenced data) could grow until the process runs
   // out of memory. The caller must therefore use `Flush` to achieve the
   // desired level of synchronization.
-  tensorflow::Status InsertItem(
+  absl::Status InsertItem(
       absl::string_view table, double priority,
       const std::vector<std::vector<std::weak_ptr<CellRef>>>& trajectory)
       ABSL_LOCKS_EXCLUDED(mu_);
@@ -120,14 +120,14 @@ class TrajectoryWriter {
   //
   // TODO(b/178087048): Support flushing and blocking until at most N items are
   //   unconfirmed.
-  tensorflow::Status Flush(absl::Duration timeout = absl::InfiniteDuration())
+  absl::Status Flush(absl::Duration timeout = absl::InfiniteDuration())
       ABSL_LOCKS_EXCLUDED(mu_);
 
   // Finalizes all chunks (including ones not referenced by any items), writes
   // and confirms all pending items, and resets the episode state (i.e generates
   // a new episode ID and sets step index to 0). If `clear_buffers` is true then
   // all `CellRef`s are invalidated (and their data deleted).
-  tensorflow::Status EndEpisode(
+  absl::Status EndEpisode(
       bool clear_buffers, absl::Duration timeout = absl::InfiniteDuration());
 
   // Closes the stream, joins the worker thread and unblocks any concurrent
@@ -152,7 +152,7 @@ class TrajectoryWriter {
   //
   // TODO(b/178087048): Support flushing and blocking until at most N items are
   //   unconfirmed.
-  tensorflow::Status FlushLocked(absl::Duration timeout)
+  absl::Status FlushLocked(absl::Duration timeout)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_);
 
   // Creates a gRPC stream to the server with `context_` and continues to run
@@ -163,7 +163,7 @@ class TrajectoryWriter {
   // errors are instead retried through resetting of `context_` and calling this
   // method again. This is managed by the anonymous function executed
   // by `worker_thread_`.
-  tensorflow::Status RunStreamWorker();
+  absl::Status RunStreamWorker();
 
   // Sets `context_` and opens a gRPC InsertStream to the server.
   std::unique_ptr<InsertStream> SetContextAndCreateStream()
@@ -214,7 +214,7 @@ class TrajectoryWriter {
   // Set if a non transient error encountered by the stream worker or if `Close`
   // has been called. In the latter case `unrecoverable_status_` will be set to
   // `CancelledError`.
-  tensorflow::Status unrecoverable_status_ ABSL_GUARDED_BY(mu_);
+  absl::Status unrecoverable_status_ ABSL_GUARDED_BY(mu_);
 
   // Items waiting for `stream_worker_` to write it to the steam.
   std::deque<ItemAndRefs> write_queue_ ABSL_GUARDED_BY(mu_);
@@ -311,14 +311,14 @@ class Chunker {
   // calls, appends it to the active chunk and returns a reference to the new
   // row. If the active chunk now has `max_chunk_length` rows then it is
   // finalized and its `CellRef`s notified (including `ref`).
-  tensorflow::Status Append(tensorflow::Tensor tensor,
-                            CellRef::EpisodeInfo episode_info,
-                            std::weak_ptr<CellRef>* ref)
+  absl::Status Append(tensorflow::Tensor tensor,
+                      CellRef::EpisodeInfo episode_info,
+                      std::weak_ptr<CellRef>* ref)
       ABSL_LOCKS_EXCLUDED(mu_);
 
   // Creates a chunk from the data in the buffer and calls `SetChunk` on its
   // `CellRef`s.
-  tensorflow::Status Flush() ABSL_LOCKS_EXCLUDED(mu_);
+  absl::Status Flush() ABSL_LOCKS_EXCLUDED(mu_);
 
   // Clears buffers of both references and data not yet committed to a Chunk.
   void Reset();
@@ -330,7 +330,7 @@ class Chunker {
   const internal::TensorSpec& spec() const;
 
  private:
-  tensorflow::Status FlushLocked() ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_);
+  absl::Status FlushLocked() ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_);
 
   // Spec which all data in `Append` must follow.
   internal::TensorSpec spec_;

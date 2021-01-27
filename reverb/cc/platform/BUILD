@@ -27,12 +27,14 @@ reverb_cc_library(
         "//reverb/cc:schema_cc_proto",
         "//reverb/cc/checkpointing:checkpoint_cc_proto",
         "//reverb/cc/checkpointing:interface",
+        "//reverb/cc/platform:status_macros",
         "//reverb/cc/selectors:fifo",
         "//reverb/cc/selectors:heap",
         "//reverb/cc/selectors:interface",
         "//reverb/cc/selectors:lifo",
         "//reverb/cc/selectors:prioritized",
         "//reverb/cc/selectors:uniform",
+        "//reverb/cc/support:tf_util",
         "//reverb/cc/table_extensions:interface",
     ] + reverb_tf_deps() + reverb_absl_deps(),
 )
@@ -44,10 +46,12 @@ reverb_cc_test(
         ":tfrecord_checkpointer",
         "//reverb/cc:chunk_store",
         "//reverb/cc:table",
+        "//reverb/cc/platform:status_matchers",
         "//reverb/cc/selectors:fifo",
         "//reverb/cc/selectors:heap",
         "//reverb/cc/selectors:prioritized",
         "//reverb/cc/selectors:uniform",
+        "//reverb/cc/support:tf_util",
         "//reverb/cc/testing:proto_test_util",
     ] + reverb_tf_deps(),
 )
@@ -92,7 +96,7 @@ reverb_cc_library(
         "//reverb/cc:client",
         "//reverb/cc:table",
         "//reverb/cc/checkpointing:interface",
-    ],
+    ] + reverb_absl_deps(),
 )
 
 reverb_cc_library(
@@ -113,7 +117,8 @@ reverb_cc_test(
     deps = [
         ":server",
         "//reverb/cc/platform:net",
-    ] + reverb_tf_deps() + reverb_grpc_deps(),
+        "//reverb/cc/platform:status_matchers",
+    ] + reverb_tf_deps() + reverb_grpc_deps() + reverb_absl_deps(),
 )
 
 reverb_cc_library(
@@ -129,6 +134,20 @@ reverb_cc_library(
     deps = [
         "//reverb/cc/platform/default:snappy",
     ] + reverb_absl_deps(),
+)
+
+reverb_cc_library(
+    name = "status_macros",
+    hdrs = ["status_macros.h"],
+    visibility = ["//reverb:__subpackages__"],
+    deps = ["//reverb/cc/platform/default:status_macros"],
+)
+
+reverb_cc_library(
+    name = "status_matchers",
+    hdrs = ["status_matchers.h"],
+    visibility = ["//reverb:__subpackages__"],
+    deps = ["//reverb/cc/platform/default:status_matchers"],
 )
 
 reverb_cc_library(

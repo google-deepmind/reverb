@@ -18,11 +18,11 @@
 #include <cstddef>
 
 #include "absl/random/distributions.h"
+#include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 #include "reverb/cc/platform/logging.h"
+#include "reverb/cc/platform/status_macros.h"
 #include "reverb/cc/schema.pb.h"
-#include "tensorflow/core/lib/core/errors.h"
-#include "tensorflow/core/lib/core/status.h"
 
 namespace deepmind {
 namespace reverb {
@@ -39,13 +39,13 @@ inline double power(double base, double exponent) {
   return base == 0. ? 0. : std::pow(base, exponent);
 }
 
-tensorflow::Status CheckValidPriority(double priority) {
+absl::Status CheckValidPriority(double priority) {
   if (std::isnan(priority))
-    return tensorflow::errors::InvalidArgument("Priority must not be NaN.");
+    return absl::InvalidArgumentError("Priority must not be NaN.");
   if (priority < 0)
-    return tensorflow::errors::InvalidArgument(
+    return absl::InvalidArgumentError(
         "Priority must not be negative.");
-  return tensorflow::Status::OK();
+  return absl::OkStatus();
 }
 
 }  // namespace
@@ -56,11 +56,11 @@ PrioritizedSelector::PrioritizedSelector(double priority_exponent)
   sum_tree_.resize(capacity_);
 }
 
-tensorflow::Status PrioritizedSelector::Delete(Key key) {
+absl::Status PrioritizedSelector::Delete(Key key) {
   const size_t last_index = key_to_index_.size() - 1;
   const auto it = key_to_index_.find(key);
   if (it == key_to_index_.end())
-    return tensorflow::errors::InvalidArgument("Key ", key, " not found.");
+    return absl::InvalidArgumentError(absl::StrCat("Key ", key, " not found."));
   const size_t index = it->second;
 
   if (index != last_index) {
@@ -74,34 +74,34 @@ tensorflow::Status PrioritizedSelector::Delete(Key key) {
   SetNode(last_index, 0);
   key_to_index_.erase(it);  // Note that this must occur after SetNode.
 
-  return tensorflow::Status::OK();
+  return absl::OkStatus();
 }
 
-tensorflow::Status PrioritizedSelector::Insert(Key key, double priority) {
-  TF_RETURN_IF_ERROR(CheckValidPriority(priority));
+absl::Status PrioritizedSelector::Insert(Key key, double priority) {
+  REVERB_RETURN_IF_ERROR(CheckValidPriority(priority));
   const size_t index = key_to_index_.size();
   if (index == capacity_) {
     capacity_ *= 2;
     sum_tree_.resize(capacity_);
   }
   if (!key_to_index_.try_emplace(key, index).second) {
-    return tensorflow::errors::InvalidArgument("Key ", key,
-                                               " already inserted.");
+    return absl::InvalidArgumentError(
+        absl::StrCat("Key ", key, " already inserted."));
   }
   sum_tree_[index].key = key;
 
   SetNode(index, power(priority, priority_exponent_));
-  return tensorflow::Status::OK();
+  return absl::OkStatus();
 }
 
-tensorflow::Status PrioritizedSelector::Update(Key key, double priority) {
-  TF_RETURN_IF_ERROR(CheckValidPriority(priority));
+absl::Status PrioritizedSelector::Update(Key key, double priority) {
+  REVERB_RETURN_IF_ERROR(CheckValidPriority(priority));
   const auto it = key_to_index_.find(key);
   if (it == key_to_index_.end()) {
-    return tensorflow::errors::InvalidArgument("Key ", key, " not found.");
+    return absl::InvalidArgumentError(absl::StrCat("Key ", key, " not found."));
   }
   SetNode(it->second, power(priority, priority_exponent_));
-  return tensorflow::Status::OK();
+  return absl::OkStatus();
 }
 
 ItemSelector::KeyWithProbability PrioritizedSelector::Sample() {

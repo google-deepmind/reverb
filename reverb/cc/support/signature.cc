@@ -16,8 +16,10 @@
 
 #include <string>
 
+#include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "reverb/cc/platform/status_macros.h"
 #include "tensorflow/core/framework/tensor.h"
 #include "tensorflow/core/framework/tensor.pb.h"
 #include "tensorflow/core/framework/types.h"
@@ -27,7 +29,7 @@ namespace deepmind {
 namespace reverb {
 namespace internal {
 
-tensorflow::Status FlatSignatureFromTableInfo(
+absl::Status FlatSignatureFromTableInfo(
     const TableInfo& info, DtypesAndShapes* dtypes_and_shapes) {
   if (!info.has_signature()) {
     *dtypes_and_shapes = absl::nullopt;
@@ -36,12 +38,13 @@ tensorflow::Status FlatSignatureFromTableInfo(
     *dtypes_and_shapes = DtypesAndShapes::value_type{};
     auto status = FlatSignatureFromStructuredValue(sig, dtypes_and_shapes);
     if (!status.ok()) {
-      tensorflow::errors::AppendToMessage(&status, "Full signature struct: '",
-                                          info.signature().DebugString(), "'");
-      return status;
+      return absl::Status(
+          status.code(),
+          absl::StrCat(status.message(), "Full signature struct: '",
+                       info.signature().DebugString(), "'"));
     }
   }
-  return tensorflow::Status::OK();
+  return absl::OkStatus();
 }
 
 namespace {
@@ -54,7 +57,7 @@ std::string ExtendContext(absl::string_view context, T val) {
                       val_string);
 }
 
-tensorflow::Status FlatSignatureFromStructuredValue(
+absl::Status FlatSignatureFromStructuredValue(
     const tensorflow::StructuredValue& value, absl::string_view context,
     DtypesAndShapes* dtypes_and_shapes) {
   switch (value.kind_case()) {
@@ -79,14 +82,14 @@ tensorflow::Status FlatSignatureFromStructuredValue(
     case tensorflow::StructuredValue::kListValue: {
       const auto& values = value.list_value().values();
       for (size_t i = 0; i < values.size(); ++i) {
-        TF_RETURN_IF_ERROR(FlatSignatureFromStructuredValue(
+        REVERB_RETURN_IF_ERROR(FlatSignatureFromStructuredValue(
             values[i], ExtendContext(context, i), dtypes_and_shapes));
       }
     } break;
     case tensorflow::StructuredValue::kTupleValue: {
       const auto& values = value.tuple_value().values();
       for (size_t i = 0; i < values.size(); ++i) {
-        TF_RETURN_IF_ERROR(FlatSignatureFromStructuredValue(
+        REVERB_RETURN_IF_ERROR(FlatSignatureFromStructuredValue(
             values[i], ExtendContext(context, i), dtypes_and_shapes));
       }
     } break;
@@ -98,28 +101,28 @@ tensorflow::Status FlatSignatureFromStructuredValue(
       }
       std::sort(keys.begin(), keys.end());
       for (const auto& k : keys) {
-        TF_RETURN_IF_ERROR(FlatSignatureFromStructuredValue(
+        REVERB_RETURN_IF_ERROR(FlatSignatureFromStructuredValue(
             value.dict_value().fields().at(k), ExtendContext(context, k),
             dtypes_and_shapes));
       }
     } break;
     case tensorflow::StructuredValue::kNamedTupleValue: {
       for (const auto& p : value.named_tuple_value().values()) {
-        TF_RETURN_IF_ERROR(FlatSignatureFromStructuredValue(
+        REVERB_RETURN_IF_ERROR(FlatSignatureFromStructuredValue(
             p.value(), ExtendContext(context, p.key()), dtypes_and_shapes));
       }
     } break;
     default:
-      return tensorflow::errors::InvalidArgument(
-          "Saw unsupported encoded subtree in signature: '",
-          value.DebugString(), "'");
+      return absl::InvalidArgumentError(
+          absl::StrCat("Saw unsupported encoded subtree in signature: '",
+                       value.DebugString(), "'"));
   }
-  return tensorflow::Status::OK();
+  return absl::OkStatus();
 }
 
 }  // namespace
 
-tensorflow::Status FlatSignatureFromStructuredValue(
+absl::Status FlatSignatureFromStructuredValue(
     const tensorflow::StructuredValue& value,
     DtypesAndShapes* dtypes_and_shapes) {
   return FlatSignatureFromStructuredValue(value, "", dtypes_and_shapes);

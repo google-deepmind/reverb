@@ -19,6 +19,7 @@
 #include <memory>
 #include <vector>
 
+#include "absl/status/status.h"
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
 #include "absl/time/clock.h"
@@ -27,6 +28,7 @@
 #include "reverb/cc/platform/hash_map.h"
 #include "reverb/cc/platform/hash_set.h"
 #include "reverb/cc/platform/logging.h"
+#include "reverb/cc/platform/status_macros.h"
 #include "reverb/cc/platform/thread.h"
 #include "reverb/cc/reverb_service.grpc.pb.h"
 #include "reverb/cc/reverb_service.pb.h"
@@ -36,8 +38,6 @@
 #include "reverb/cc/support/queue.h"
 #include "reverb/cc/support/trajectory_util.h"
 #include "reverb/cc/support/uint128.h"
-#include "tensorflow/core/lib/core/errors.h"
-#include "tensorflow/core/lib/core/status.h"
 
 namespace deepmind {
 namespace reverb {
@@ -57,29 +57,29 @@ inline grpc::Status Internal(const std::string& message) {
 ReverbServiceImpl::ReverbServiceImpl(std::shared_ptr<Checkpointer> checkpointer)
     : checkpointer_(std::move(checkpointer)) {}
 
-tensorflow::Status ReverbServiceImpl::Create(
+absl::Status ReverbServiceImpl::Create(
     std::vector<std::shared_ptr<Table>> tables,
     std::shared_ptr<Checkpointer> checkpointer,
     std::unique_ptr<ReverbServiceImpl>* service) {
   // Can't use make_unique because it can't see the Impl's private constructor.
   auto new_service = std::unique_ptr<ReverbServiceImpl>(
       new ReverbServiceImpl(std::move(checkpointer)));
-  TF_RETURN_IF_ERROR(new_service->Initialize(std::move(tables)));
+  REVERB_RETURN_IF_ERROR(new_service->Initialize(std::move(tables)));
   std::swap(new_service, *service);
-  return tensorflow::Status::OK();
+  return absl::OkStatus();
 }
 
-tensorflow::Status ReverbServiceImpl::Create(
+absl::Status ReverbServiceImpl::Create(
     std::vector<std::shared_ptr<Table>> tables,
     std::unique_ptr<ReverbServiceImpl>* service) {
   return Create(std::move(tables), /*checkpointer=*/nullptr, service);
 }
 
-tensorflow::Status ReverbServiceImpl::Initialize(
+absl::Status ReverbServiceImpl::Initialize(
     std::vector<std::shared_ptr<Table>> tables) {
   if (checkpointer_ != nullptr) {
     auto status = checkpointer_->LoadLatest(&chunk_store_, &tables);
-    if (!status.ok() && !tensorflow::errors::IsNotFound(status)) {
+    if (!status.ok() && !absl::IsNotFound(status)) {
       return status;
     }
   }
@@ -91,7 +91,7 @@ tensorflow::Status ReverbServiceImpl::Initialize(
   tables_state_id_ = absl::MakeUint128(absl::Uniform<uint64_t>(rnd_),
                                        absl::Uniform<uint64_t>(rnd_));
 
-  return tensorflow::Status::OK();
+  return absl::OkStatus();
 }
 
 grpc::Status ReverbServiceImpl::Checkpoint(grpc::ServerContext* context,

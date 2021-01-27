@@ -18,9 +18,10 @@
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
+#include "absl/status/status.h"
 #include "reverb/cc/schema.pb.h"
+#include "reverb/cc/platform/status_matchers.h"
 #include "reverb/cc/testing/proto_test_util.h"
-#include "tensorflow/core/lib/core/status_test_util.h"
 
 namespace deepmind {
 namespace reverb {
@@ -30,20 +31,20 @@ TEST(LifoSelectorTest, ReturnValueSantiyChecks) {
   LifoSelector lifo;
 
   // Non existent keys cannot be deleted or updated.
-  EXPECT_EQ(lifo.Delete(123).code(), tensorflow::error::INVALID_ARGUMENT);
-  EXPECT_EQ(lifo.Update(123, 4).code(), tensorflow::error::INVALID_ARGUMENT);
+  EXPECT_EQ(lifo.Delete(123).code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_EQ(lifo.Update(123, 4).code(), absl::StatusCode::kInvalidArgument);
 
   // Keys cannot be inserted twice.
-  TF_EXPECT_OK(lifo.Insert(123, 4));
-  EXPECT_THAT(lifo.Insert(123, 4).code(), tensorflow::error::INVALID_ARGUMENT);
+  REVERB_EXPECT_OK(lifo.Insert(123, 4));
+  EXPECT_THAT(lifo.Insert(123, 4).code(), absl::StatusCode::kInvalidArgument);
 
   // Existing keys can be updated and sampled.
-  TF_EXPECT_OK(lifo.Update(123, 5));
+  REVERB_EXPECT_OK(lifo.Update(123, 5));
   EXPECT_EQ(lifo.Sample().key, 123);
 
   // Existing keys cannot be deleted twice.
-  TF_EXPECT_OK(lifo.Delete(123));
-  EXPECT_THAT(lifo.Delete(123).code(), tensorflow::error::INVALID_ARGUMENT);
+  REVERB_EXPECT_OK(lifo.Delete(123));
+  EXPECT_THAT(lifo.Delete(123).code(), absl::StatusCode::kInvalidArgument);
 }
 
 TEST(LifoSelectorTest, MatchesLifoOrdering) {
@@ -52,11 +53,13 @@ TEST(LifoSelectorTest, MatchesLifoOrdering) {
   LifoSelector lifo;
   // Insert items.
   for (int i = 0; i < kItems; i++) {
-    TF_EXPECT_OK(lifo.Insert(i, 0));
+    REVERB_EXPECT_OK(lifo.Insert(i, 0));
   }
   // Delete every 10th item.
   for (int i = 0; i < kItems; i++) {
-    if (i % 10 == 0) TF_EXPECT_OK(lifo.Delete(i));
+    if (i % 10 == 0) {
+      REVERB_EXPECT_OK(lifo.Delete(i));
+    }
   }
 
   for (int i = kItems - 1; i >= 0; i--) {
@@ -64,7 +67,7 @@ TEST(LifoSelectorTest, MatchesLifoOrdering) {
     ItemSelector::KeyWithProbability sample = lifo.Sample();
     EXPECT_EQ(sample.key, i);
     EXPECT_EQ(sample.probability, 1);
-    TF_EXPECT_OK(lifo.Delete(sample.key));
+    REVERB_EXPECT_OK(lifo.Delete(sample.key));
   }
 }
 
@@ -77,7 +80,7 @@ TEST(LifoSelectorTest, Options) {
 TEST(LifoSelectorDeathTest, ClearThenSample) {
   LifoSelector lifo;
   for (int i = 0; i < 100; i++) {
-    TF_EXPECT_OK(lifo.Insert(i, i));
+    REVERB_EXPECT_OK(lifo.Insert(i, i));
   }
   lifo.Sample();
   lifo.Clear();

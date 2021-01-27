@@ -19,11 +19,11 @@
 #include <string>
 #include <vector>
 
+#include "absl/status/status.h"
 #include "absl/strings/string_view.h"
 #include "reverb/cc/checkpointing/interface.h"
 #include "reverb/cc/chunk_store.h"
 #include "reverb/cc/table.h"
-#include "tensorflow/core/lib/core/status.h"
 
 namespace deepmind {
 namespace reverb {
@@ -72,18 +72,16 @@ class TFRecordCheckpointer : public Checkpointer {
   //
   // After a successful save, all but the `keep_latest` most recent checkpoints
   // are deleted.
-  tensorflow::Status Save(std::vector<Table*> tables, int keep_latest,
-                          std::string* path) override;
+  absl::Status Save(std::vector<Table*> tables, int keep_latest,
+                    std::string* path) override;
 
   // Attempts to load a checkpoint stored within `root_dir_`.
-  tensorflow::Status Load(absl::string_view relative_path,
-                          ChunkStore* chunk_store,
-                          std::vector<std::shared_ptr<Table>>* tables) override;
+  absl::Status Load(absl::string_view relative_path, ChunkStore* chunk_store,
+                    std::vector<std::shared_ptr<Table>>* tables) override;
 
   // Finds the most recent checkpoint within `root_dir_` and calls `Load`.
-  tensorflow::Status LoadLatest(
-      ChunkStore* chunk_store,
-      std::vector<std::shared_ptr<Table>>* tables) override;
+  absl::Status LoadLatest(ChunkStore* chunk_store,
+                          std::vector<std::shared_ptr<Table>>* tables) override;
 
   // Returns a summary string description.
   std::string DebugString() const override;

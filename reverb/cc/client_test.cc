@@ -23,9 +23,9 @@
 #include "gtest/gtest.h"
 #include "reverb/cc/reverb_service.pb.h"
 #include "reverb/cc/reverb_service_mock.grpc.pb.h"
+#include "reverb/cc/platform/status_matchers.h"
 #include "reverb/cc/support/uint128.h"
 #include "reverb/cc/testing/proto_test_util.h"
-#include "tensorflow/core/lib/core/status_test_util.h"
 
 namespace deepmind {
 namespace reverb {
@@ -87,7 +87,7 @@ class FakeStub : public /* grpc_gen:: */MockReverbServiceStub {
 TEST(ClientTest, MutatePrioritiesDefaultValues) {
   auto stub = std::make_shared<FakeStub>();
   Client client(stub);
-  TF_EXPECT_OK(client.MutatePriorities("", {}, {}));
+  REVERB_EXPECT_OK(client.MutatePriorities("", {}, {}));
   EXPECT_THAT(stub->mutate_priorities_request(),
               testing::EqualsProto(MutatePrioritiesRequest()));
 }
@@ -96,7 +96,7 @@ TEST(ClientTest, MutatePrioritiesFilled) {
   auto stub = std::make_shared<FakeStub>();
   Client client(stub);
   auto pair = testing::MakeKeyWithPriority(123, 456);
-  TF_EXPECT_OK(client.MutatePriorities("table", {pair}, {4}));
+  REVERB_EXPECT_OK(client.MutatePriorities("table", {pair}, {4}));
 
   MutatePrioritiesRequest expected;
   expected.set_table("table");
@@ -111,11 +111,12 @@ TEST(ClientTest, Deadline) {
   Client client(stub);
   auto pair = testing::MakeKeyWithPriority(123, 456);
 
-  TF_EXPECT_OK(client.MutatePriorities("table", {pair}, {4}));
+  REVERB_EXPECT_OK(client.MutatePriorities("table", {pair}, {4}));
   EXPECT_EQ(stub->last_deadline(),
             std::chrono::system_clock::time_point::max());
 
-  TF_EXPECT_OK(client.MutatePriorities("table", {pair}, {4}, absl::Seconds(1)));
+  REVERB_EXPECT_OK(
+      client.MutatePriorities("table", {pair}, {4}, absl::Seconds(1)));
   EXPECT_LE(stub->last_deadline(),
             absl::ToChronoTime(absl::Now() + absl::Seconds(1)));
 }
@@ -123,7 +124,7 @@ TEST(ClientTest, Deadline) {
 TEST(ClientTest, ResetRequestFilled) {
   auto stub = std::make_shared<FakeStub>();
   Client client(stub);
-  TF_EXPECT_OK(client.Reset("table"));
+  REVERB_EXPECT_OK(client.Reset("table"));
 
   ResetRequest expected;
   expected.set_table("table");
@@ -134,7 +135,7 @@ TEST(ClientTest, Checkpoint) {
   auto stub = std::make_shared<FakeStub>();
   Client client(stub);
   std::string path;
-  TF_EXPECT_OK(client.Checkpoint(&path));
+  REVERB_EXPECT_OK(client.Checkpoint(&path));
   EXPECT_EQ(path, kCheckpointPath);
 }
 
@@ -142,7 +143,7 @@ TEST(ClientTest, ServerInfoRequestFilled) {
   auto stub = std::make_shared<FakeStub>();
   Client client(stub);
   struct Client::ServerInfo info;
-  TF_EXPECT_OK(client.ServerInfo(&info));
+  REVERB_EXPECT_OK(client.ServerInfo(&info));
 
   TableInfo expected_info;
   expected_info.set_max_size(2);

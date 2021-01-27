@@ -80,8 +80,9 @@ reverb_cc_test(
     deps = [
         ":queue",
         "//reverb/cc/platform:logging",
+        "//reverb/cc/platform:status_matchers",
         "//reverb/cc/platform:thread",
-    ] + reverb_absl_deps() + reverb_tf_deps(),
+    ] + reverb_absl_deps(),
 )
 
 reverb_cc_test(
@@ -89,6 +90,7 @@ reverb_cc_test(
     srcs = ["periodic_closure_test.cc"],
     deps = [
         ":periodic_closure",
+        "//reverb/cc/platform:status_matchers",
         "//reverb/cc/testing:time_testutil",
     ] + reverb_absl_deps() + reverb_tf_deps(),
 )
@@ -101,6 +103,7 @@ reverb_cc_library(
         "//reverb/cc:schema_cc_proto",
         "//reverb/cc/platform:hash_map",
         "//reverb/cc/platform:hash_set",
+        "//reverb/cc/platform:status_macros",
     ] + reverb_tf_deps() + reverb_absl_deps(),
 )
 
@@ -110,6 +113,13 @@ reverb_cc_test(
     deps = [
         ":signature",
     ] + reverb_tf_deps() + reverb_absl_deps(),
+)
+
+reverb_cc_library(
+    name = "tf_util",
+    hdrs = ["tf_util.h"],
+    deps = [
+    ] + reverb_absl_deps() + reverb_tf_deps(),
 )
 
 reverb_cc_library(

@@ -20,6 +20,7 @@
 
 #include <cstdint>
 #include "absl/strings/str_cat.h"
+#include "reverb/cc/support/tf_util.h"
 #include "tensorflow/core/framework/op.h"
 #include "tensorflow/core/framework/op_kernel.h"
 #include "tensorflow/core/framework/resource_op_kernel.h"
@@ -96,8 +97,7 @@ class ClientResource : public tensorflow::ResourceBase {
         server_address_(server_address) {}
 
   std::string DebugString() const override {
-    return tensorflow::strings::StrCat("Client with server address: ",
-                                       server_address_);
+    return absl::StrCat("Client with server address: ", server_address_);
   }
 
   Client* client() { return &client_; }
@@ -151,10 +151,11 @@ class SampleOp : public tensorflow::OpKernel {
 
     constexpr auto kValidationTimeout = absl::Seconds(30);
     OP_REQUIRES_OK(
-        context, resource->client()->NewSampler(
+        context, ToTensorflowStatus(resource->client()->NewSampler(
                      table, options, /*validation_timeout=*/kValidationTimeout,
-                     &sampler));
-    OP_REQUIRES_OK(context, sampler->GetNextTimestep(&sample, nullptr));
+                     &sampler)));
+    OP_REQUIRES_OK(context, ToTensorflowStatus(
+                                sampler->GetNextTimestep(&sample, nullptr)));
     OP_REQUIRES(context, sample.size() == context->num_outputs(),
                 InvalidArgument(
                     "Number of tensors in the replay sample did not match the "
@@ -211,12 +212,11 @@ class UpdatePrioritiesOp : public tensorflow::OpKernel {
     // since MutatePriorities sets `wait_for_ready` the request will no be sent
     // before the server is brought up again. It is therefore no problem to have
     // this retry in this tight loop.
-    tensorflow::Status status;
+    absl::Status status;
     do {
       status = resource->client()->MutatePriorities(table_str, updates, {});
-    } while (tensorflow::errors::IsUnavailable(status) ||
-             tensorflow::errors::IsDeadlineExceeded(status));
-    OP_REQUIRES_OK(context, status);
+    } while (absl::IsUnavailable(status) || absl::IsDeadlineExceeded(status));
+    OP_REQUIRES_OK(context, ToTensorflowStatus(status));
   }
 
   TF_DISALLOW_COPY_AND_ASSIGN(UpdatePrioritiesOp);
@@ -254,18 +254,19 @@ class InsertOp : public tensorflow::OpKernel {
     }
 
     std::unique_ptr<Writer> writer;
+    OP_REQUIRES_OK(context, ToTensorflowStatus(resource->client()->NewWriter(
+                                1, 1, false, &writer)));
     OP_REQUIRES_OK(context,
-                   resource->client()->NewWriter(1, 1, false, &writer));
-    OP_REQUIRES_OK(context, writer->Append(std::move(tensors)));
+                   ToTensorflowStatus(writer->Append(std::move(tensors))));
 
     auto tables_t = tables->flat<tstring>();
     auto priorities_t = priorities->flat<double>();
     for (int i = 0; i < tables->dim_size(0); i++) {
-      OP_REQUIRES_OK(context,
-                     writer->CreateItem(tables_t(i), 1, priorities_t(i)));
+      OP_REQUIRES_OK(context, ToTensorflowStatus(writer->CreateItem(
+                                  tables_t(i), 1, priorities_t(i))));
     }
 
-    OP_REQUIRES_OK(context, writer->Close());
+    OP_REQUIRES_OK(context, ToTensorflowStatus(writer->Close()));
   }
 
   TF_DISALLOW_COPY_AND_ASSIGN(InsertOp);

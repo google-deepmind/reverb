@@ -18,9 +18,10 @@
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
+#include "absl/status/status.h"
+#include "reverb/cc/platform/status_matchers.h"
 #include "reverb/cc/schema.pb.h"
 #include "reverb/cc/testing/proto_test_util.h"
-#include "tensorflow/core/lib/core/status_test_util.h"
 
 namespace deepmind {
 namespace reverb {
@@ -30,20 +31,20 @@ TEST(FifoSelectorTest, ReturnValueSantiyChecks) {
   FifoSelector fifo;
 
   // Non existent keys cannot be deleted or updated.
-  EXPECT_EQ(fifo.Delete(123).code(), tensorflow::error::INVALID_ARGUMENT);
-  EXPECT_EQ(fifo.Update(123, 4).code(), tensorflow::error::INVALID_ARGUMENT);
+  EXPECT_EQ(fifo.Delete(123).code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_EQ(fifo.Update(123, 4).code(), absl::StatusCode::kInvalidArgument);
 
   // Keys cannot be inserted twice.
-  TF_EXPECT_OK(fifo.Insert(123, 4));
-  EXPECT_THAT(fifo.Insert(123, 4).code(), tensorflow::error::INVALID_ARGUMENT);
+  REVERB_EXPECT_OK(fifo.Insert(123, 4));
+  EXPECT_THAT(fifo.Insert(123, 4).code(), absl::StatusCode::kInvalidArgument);
 
   // Existing keys can be updated and sampled.
-  TF_EXPECT_OK(fifo.Update(123, 5));
+  REVERB_EXPECT_OK(fifo.Update(123, 5));
   EXPECT_EQ(fifo.Sample().key, 123);
 
   // Existing keys cannot be deleted twice.
-  TF_EXPECT_OK(fifo.Delete(123));
-  EXPECT_THAT(fifo.Delete(123).code(), tensorflow::error::INVALID_ARGUMENT);
+  REVERB_EXPECT_OK(fifo.Delete(123));
+  EXPECT_THAT(fifo.Delete(123).code(), absl::StatusCode::kInvalidArgument);
 }
 
 TEST(FifoSelectorTest, MatchesFifoOrdering) {
@@ -52,11 +53,13 @@ TEST(FifoSelectorTest, MatchesFifoOrdering) {
   FifoSelector fifo;
   // Insert items.
   for (int i = 0; i < kItems; i++) {
-    TF_EXPECT_OK(fifo.Insert(i, 0));
+    REVERB_EXPECT_OK(fifo.Insert(i, 0));
   }
   // Delete every 10th item.
   for (int i = 0; i < kItems; i++) {
-    if (i % 10 == 0) TF_EXPECT_OK(fifo.Delete(i));
+    if (i % 10 == 0) {
+      REVERB_EXPECT_OK(fifo.Delete(i));
+    }
   }
 
   for (int i = 0; i < kItems; i++) {
@@ -64,7 +67,7 @@ TEST(FifoSelectorTest, MatchesFifoOrdering) {
     ItemSelector::KeyWithProbability sample = fifo.Sample();
     EXPECT_EQ(sample.key, i);
     EXPECT_EQ(sample.probability, 1);
-    TF_EXPECT_OK(fifo.Delete(sample.key));
+    REVERB_EXPECT_OK(fifo.Delete(sample.key));
   }
 }
 
@@ -77,7 +80,7 @@ TEST(FifoSelectorTest, Options) {
 TEST(FifoDeathTest, ClearThenSample) {
   FifoSelector fifo;
   for (int i = 0; i < 100; i++) {
-    TF_EXPECT_OK(fifo.Insert(i, i));
+    REVERB_EXPECT_OK(fifo.Insert(i, i));
   }
   fifo.Sample();
   fifo.Clear();

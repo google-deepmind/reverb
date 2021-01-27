@@ -15,6 +15,7 @@ reverb_kernel_library(
     srcs = ["client.cc"],
     deps = [
         "//reverb/cc:client",
+        "//reverb/cc/support:tf_util",
     ] + reverb_absl_deps(),
 )
 
@@ -26,6 +27,7 @@ reverb_kernel_library(
         "//reverb/cc:errors",
         "//reverb/cc:sampler",
         "//reverb/cc/platform:logging",
+        "//reverb/cc/support:tf_util",
     ] + reverb_absl_deps(),
 )
 

@@ -29,11 +29,9 @@
 #include "reverb/cc/checkpointing/checkpoint.pb.h"
 #include "reverb/cc/errors.h"
 #include "reverb/cc/platform/logging.h"
+#include "reverb/cc/platform/status_macros.h"
 #include "reverb/cc/schema.pb.h"
 #include "reverb/cc/table.h"
-#include "tensorflow/core/lib/core/errors.h"
-#include "tensorflow/core/lib/core/status.h"
-#include "tensorflow/core/platform/errors.h"
 
 namespace deepmind {
 namespace reverb {
@@ -75,16 +73,16 @@ RateLimiter::RateLimiter(const RateLimiterCheckpoint& checkpoint)
   deletes_ = checkpoint.delete_count();
 }
 
-tensorflow::Status RateLimiter::RegisterTable(Table* table) {
+absl::Status RateLimiter::RegisterTable(Table* table) {
   if (table_) {
-    return tensorflow::errors::FailedPrecondition(
-        "Attempting to registering a table ", table, " (name: ", table->name(),
-        ") with RateLimiter when is ",
-        "already registered with this limiter: ", table_,
-        " (name: ", table_->name(), ")");
+    return absl::FailedPreconditionError(absl::StrCat(
+        "Attempting to registering a table ", absl::Hex(table),
+        " (name: ", table->name(), ") with RateLimiter when is ",
+        "already registered with this limiter: ", absl::Hex(table_),
+        " (name: ", table_->name(), ")"));
   }
   table_ = table;
-  return tensorflow::Status::OK();
+  return absl::OkStatus();
 }
 
 void RateLimiter::UnregisterTable(absl::Mutex* mu, Table* table) {
@@ -95,8 +93,8 @@ void RateLimiter::UnregisterTable(absl::Mutex* mu, Table* table) {
   table_ = nullptr;
 }
 
-tensorflow::Status RateLimiter::AwaitCanInsert(absl::Mutex* mu,
-                                               absl::Duration timeout) {
+absl::Status RateLimiter::AwaitCanInsert(absl::Mutex* mu,
+                                         absl::Duration timeout) {
   const auto deadline = absl::Now() + timeout;
   {
     auto event = insert_stats_.CreateEvent(mu);
@@ -107,8 +105,8 @@ tensorflow::Status RateLimiter::AwaitCanInsert(absl::Mutex* mu,
       }
     }
   }
-  TF_RETURN_IF_ERROR(CheckIfCancelled());
-  return tensorflow::Status::OK();
+  REVERB_RETURN_IF_ERROR(CheckIfCancelled());
+  return absl::OkStatus();
 }
 
 void RateLimiter::Insert(absl::Mutex* mu) {
@@ -128,8 +126,8 @@ void RateLimiter::Reset(absl::Mutex* mu) {
   MaybeSignalCondVars(mu);
 }
 
-tensorflow::Status RateLimiter::AwaitAndFinalizeSample(absl::Mutex* mu,
-                                                       absl::Duration timeout) {
+absl::Status RateLimiter::AwaitAndFinalizeSample(absl::Mutex* mu,
+                                                 absl::Duration timeout) {
   const auto deadline = absl::Now() + timeout;
 
   {
@@ -142,11 +140,11 @@ tensorflow::Status RateLimiter::AwaitAndFinalizeSample(absl::Mutex* mu,
     }
   }
 
-  TF_RETURN_IF_ERROR(CheckIfCancelled());
+  REVERB_RETURN_IF_ERROR(CheckIfCancelled());
 
   samples_++;
   MaybeSignalCondVars(mu);
-  return tensorflow::Status::OK();
+  return absl::OkStatus();
 }
 
 bool RateLimiter::CanSample(absl::Mutex*, int num_samples) const {
@@ -188,9 +186,9 @@ RateLimiterCheckpoint RateLimiter::CheckpointReader(absl::Mutex*) const {
   return checkpoint;
 }
 
-tensorflow::Status RateLimiter::CheckIfCancelled() const {
-  if (!cancelled_) return tensorflow::Status::OK();
-  return tensorflow::errors::Cancelled("RateLimiter has been cancelled");
+absl::Status RateLimiter::CheckIfCancelled() const {
+  if (!cancelled_) return absl::OkStatus();
+  return absl::CancelledError("RateLimiter has been cancelled");
 }
 
 void RateLimiter::MaybeSignalCondVars(absl::Mutex* mu) {

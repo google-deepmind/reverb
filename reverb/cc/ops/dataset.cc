@@ -19,6 +19,7 @@
 #include "reverb/cc/errors.h"
 #include "reverb/cc/platform/logging.h"
 #include "reverb/cc/sampler.h"
+#include "reverb/cc/support/tf_util.h"
 #include "tensorflow/core/framework/common_shape_fns.h"
 #include "tensorflow/core/framework/op.h"
 #include "tensorflow/core/framework/op_kernel.h"
@@ -154,7 +155,7 @@ class ReverbDatasetOp : public tensorflow::data::DatasetOpKernel {
       }
     }
 
-    OP_REQUIRES_OK(ctx, sampler_options_.Validate());
+    OP_REQUIRES_OK(ctx, ToTensorflowStatus(sampler_options_.Validate()));
   }
 
   void MakeDataset(tensorflow::OpKernelContext* ctx,
@@ -309,7 +310,7 @@ class ReverbDatasetOp : public tensorflow::data::DatasetOpKernel {
                                           /*validation_dtypes=*/dtypes_,
                                           validation_shapes, kValidationTimeout,
                                           &sampler_);
-        if (tensorflow::errors::IsDeadlineExceeded(status)) {
+        if (absl::IsDeadlineExceeded(status)) {
           REVERB_LOG(REVERB_WARNING)
               << "Unable to validate shapes and dtypes of new sampler for '"
               << table_ << "' as server could not be reached in time ("
@@ -319,11 +320,11 @@ class ReverbDatasetOp : public tensorflow::data::DatasetOpKernel {
                  "and shapes.";
           // Ask for a NewSampler with negative validation_timeout Duration,
           // which causes it to skip the validation and return an OK status.
-          return client_->NewSampler(
+          return ToTensorflowStatus(client_->NewSampler(
               table_, sampler_options_,
-              /*validation_timeout=*/-absl::InfiniteDuration(), &sampler_);
+              /*validation_timeout=*/-absl::InfiniteDuration(), &sampler_));
         }
-        return status;
+        return ToTensorflowStatus(status);
       }
 
       tensorflow::Status GetNextInternal(
@@ -342,7 +343,8 @@ class ReverbDatasetOp : public tensorflow::data::DatasetOpKernel {
         tensorflow::Status status;
         if (emit_timesteps_) {
           bool last_timestep = false;
-          status = sampler_->GetNextTimestep(out_tensors, &last_timestep);
+          status = ToTensorflowStatus(
+              sampler_->GetNextTimestep(out_tensors, &last_timestep));
 
           step_within_sample_++;
 
@@ -362,7 +364,7 @@ class ReverbDatasetOp : public tensorflow::data::DatasetOpKernel {
             step_within_sample_ = 0;
           }
         } else {
-          status = sampler_->GetNextSample(out_tensors);
+          status = ToTensorflowStatus(sampler_->GetNextSample(out_tensors));
         }
 
         if (registered &&
@@ -375,7 +377,7 @@ class ReverbDatasetOp : public tensorflow::data::DatasetOpKernel {
           return status;
         } else if (sampler_options_.rate_limiter_timeout <
                        absl::InfiniteDuration() &&
-                   errors::IsRateLimiterTimeout(status)) {
+                   errors::IsRateLimiterTimeout(FromTensorflowStatus(status))) {
           *end_of_sequence = true;
           return tensorflow::Status::OK();
         } else {

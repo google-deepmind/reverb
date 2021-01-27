@@ -18,6 +18,7 @@
 #include <string>
 #include <vector>
 
+#include "absl/status/status.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/optional.h"
 #include "reverb/cc/platform/hash_map.h"
@@ -41,10 +42,10 @@ struct TensorSpec {
 
 typedef absl::optional<std::vector<TensorSpec>> DtypesAndShapes;
 
-tensorflow::Status FlatSignatureFromTableInfo(
+absl::Status FlatSignatureFromTableInfo(
     const TableInfo& info, DtypesAndShapes* dtypes_and_shapes);
 
-tensorflow::Status FlatSignatureFromStructuredValue(
+absl::Status FlatSignatureFromStructuredValue(
     const tensorflow::StructuredValue& value,
     DtypesAndShapes* dtypes_and_shapes);
 

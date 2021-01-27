@@ -25,6 +25,7 @@
 #include "google/protobuf/timestamp.pb.h"
 #include <cstdint>
 #include "absl/memory/memory.h"
+#include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/time/clock.h"
@@ -35,20 +36,18 @@
 #include "reverb/cc/platform/hash_map.h"
 #include "reverb/cc/platform/hash_set.h"
 #include "reverb/cc/platform/logging.h"
+#include "reverb/cc/platform/status_macros.h"
 #include "reverb/cc/rate_limiter.h"
 #include "reverb/cc/schema.pb.h"
 #include "reverb/cc/selectors/interface.h"
 #include "reverb/cc/support/trajectory_util.h"
 #include "reverb/cc/table_extensions/interface.h"
-#include "tensorflow/core/platform/errors.h"
-#include "tensorflow/core/platform/status.h"
 
 namespace deepmind {
 namespace reverb {
 namespace {
 
 using Extensions = std::vector<std::shared_ptr<TableExtension>>;
-using ::tensorflow::errors::InvalidArgument;
 
 inline bool IsInsertedBefore(const PrioritizedItem& a,
                              const PrioritizedItem& b) {
@@ -64,28 +63,29 @@ inline void EncodeAsTimestampProto(absl::Time t,
   proto->set_nanos((t - absl::FromUnixSeconds(s)) / absl::Nanoseconds(1));
 }
 
-inline tensorflow::Status CheckItemValidity(const Table::Item& item) {
+inline absl::Status CheckItemValidity(const Table::Item& item) {
   if (item.item.flat_trajectory().columns().empty() ||
       item.item.flat_trajectory().columns(0).chunk_slices().empty()) {
-    return InvalidArgument("Item trajectory must not be empty.");
+    return absl::InvalidArgumentError("Item trajectory must not be empty.");
   }
 
   auto trajectory_keys = internal::GetChunkKeys(item.item.flat_trajectory());
   if (trajectory_keys.size() != item.chunks.size()) {
-    return InvalidArgument("The number of chunks (", item.chunks.size(),
-                           ") does not equal the number of chunks referenced "
-                           "in item's trajectory (",
-                           trajectory_keys.size(), ").");
+    return absl::InvalidArgumentError(
+        absl::StrCat("The number of chunks (", item.chunks.size(),
+                     ") does not equal the number of chunks referenced "
+                     "in item's trajectory (",
+                     trajectory_keys.size(), ")."));
   }
 
   for (int i = 0; i < trajectory_keys.size(); ++i) {
     if (item.chunks[i]->key() != trajectory_keys[i]) {
-      return InvalidArgument(
+      return absl::InvalidArgumentError(
           "Item chunks does not match chunks referenced in trajectory.");
     }
   }
 
-  return tensorflow::Status::OK();
+  return absl::OkStatus();
 }
 
 }  // namespace
@@ -104,9 +104,9 @@ Table::Table(std::string name, std::shared_ptr<ItemSelector> sampler,
       rate_limiter_(std::move(rate_limiter)),
       extensions_(std::move(extensions)),
       signature_(std::move(signature)) {
-  TF_CHECK_OK(rate_limiter_->RegisterTable(this));
+  REVERB_CHECK_OK(rate_limiter_->RegisterTable(this));
   for (auto& extension : extensions_) {
-    TF_CHECK_OK(extension->RegisterTable(&mu_, this));
+    REVERB_CHECK_OK(extension->RegisterTable(&mu_, this));
   }
 }
 
@@ -128,8 +128,8 @@ std::vector<Table::Item> Table::Copy(size_t count) const {
   return items;
 }
 
-tensorflow::Status Table::InsertOrAssign(Item item) {
-  TF_RETURN_IF_ERROR(CheckItemValidity(item));
+absl::Status Table::InsertOrAssign(Item item) {
+  REVERB_RETURN_IF_ERROR(CheckItemValidity(item));
 
   auto key = item.item.key();
   auto priority = item.item.priority();
@@ -148,7 +148,7 @@ tensorflow::Status Table::InsertOrAssign(Item item) {
     // Wait for the insert to be staged. While waiting the lock is released but
     // once it returns the lock is acquired again. While waiting for the right
     // to insert the operation might have transformed into an update.
-    TF_RETURN_IF_ERROR(rate_limiter_->AwaitCanInsert(&mu_));
+    REVERB_RETURN_IF_ERROR(rate_limiter_->AwaitCanInsert(&mu_));
 
     if (data_.contains(key)) {
       // If the insert was transformed into an update while waiting we need to
@@ -162,8 +162,8 @@ tensorflow::Status Table::InsertOrAssign(Item item) {
     EncodeAsTimestampProto(absl::Now(), item.item.mutable_inserted_at());
     data_[key] = std::move(item);
 
-    TF_RETURN_IF_ERROR(sampler_->Insert(key, priority));
-    TF_RETURN_IF_ERROR(remover_->Insert(key, priority));
+    REVERB_RETURN_IF_ERROR(sampler_->Insert(key, priority));
+    REVERB_RETURN_IF_ERROR(remover_->Insert(key, priority));
 
     auto it = data_.find(key);
     for (auto& extension : extensions_) {
@@ -179,7 +179,7 @@ tensorflow::Status Table::InsertOrAssign(Item item) {
 
     // Remove an item if we exceeded `max_size_`.
     if (data_.size() > max_size_) {
-      TF_RETURN_IF_ERROR(DeleteItem(remover_->Sample().key, &deleted_item));
+      REVERB_RETURN_IF_ERROR(DeleteItem(remover_->Sample().key, &deleted_item));
     }
 
     // Now that the new item has been inserted and an older item has
@@ -187,35 +187,34 @@ tensorflow::Status Table::InsertOrAssign(Item item) {
     rate_limiter_->Insert(&mu_);
   }
 
-  return tensorflow::Status::OK();
+  return absl::OkStatus();
 }
 
-tensorflow::Status Table::MutateItems(absl::Span<const KeyWithPriority> updates,
-                                      absl::Span<const Key> deletes) {
+absl::Status Table::MutateItems(absl::Span<const KeyWithPriority> updates,
+                                absl::Span<const Key> deletes) {
   std::vector<Item> deleted_items(deletes.size());
   {
     absl::MutexLock lock(&mu_);
     for (int i = 0; i < deletes.size(); i++) {
-      TF_RETURN_IF_ERROR(DeleteItem(deletes[i], &deleted_items[i]));
+      REVERB_RETURN_IF_ERROR(DeleteItem(deletes[i], &deleted_items[i]));
     }
     for (const auto& item : updates) {
-      TF_RETURN_IF_ERROR(UpdateItem(item.key(), item.priority()));
+      REVERB_RETURN_IF_ERROR(UpdateItem(item.key(), item.priority()));
     }
   }
-  return tensorflow::Status::OK();
+  return absl::OkStatus();
 }
 
-tensorflow::Status Table::Sample(SampledItem* sampled_item,
-                                 absl::Duration timeout) {
+absl::Status Table::Sample(SampledItem* sampled_item, absl::Duration timeout) {
   std::vector<SampledItem> items;
-  TF_RETURN_IF_ERROR(SampleFlexibleBatch(&items, 1, timeout));
+  REVERB_RETURN_IF_ERROR(SampleFlexibleBatch(&items, 1, timeout));
   *sampled_item = std::move(items[0]);
-  return tensorflow::Status::OK();
+  return absl::OkStatus();
 }
 
-tensorflow::Status Table::SampleFlexibleBatch(std::vector<SampledItem>* items,
-                                              int batch_size,
-                                              absl::Duration timeout) {
+absl::Status Table::SampleFlexibleBatch(std::vector<SampledItem>* items,
+                                        int batch_size,
+                                        absl::Duration timeout) {
   // Allocate memory outside of critical section.
   items->reserve(batch_size);
 
@@ -231,8 +230,8 @@ tensorflow::Status Table::SampleFlexibleBatch(std::vector<SampledItem>* items,
         // it was not possible to proceed with another sample without awaiting
         // changes. If this happens then we simply return the items that we
         // sampled so far.
-        if (i != 0 && tensorflow::errors::IsDeadlineExceeded(status)) {
-          return tensorflow::Status::OK();
+        if (i != 0 && absl::IsDeadlineExceeded(status)) {
+          return absl::OkStatus();
         }
         return status;
       }
@@ -266,12 +265,13 @@ tensorflow::Status Table::SampleFlexibleBatch(std::vector<SampledItem>* items,
       // released.
       if (item.item.times_sampled() == max_times_sampled_) {
         deleted_items.emplace_back();
-        TF_RETURN_IF_ERROR(DeleteItem(item.item.key(), &deleted_items.back()));
+        REVERB_RETURN_IF_ERROR(
+            DeleteItem(item.item.key(), &deleted_items.back()));
       }
     }
   }
 
-  return tensorflow::Status::OK();
+  return absl::OkStatus();
 }
 
 int64_t Table::size() const {
@@ -308,9 +308,9 @@ void Table::Close() {
   rate_limiter_->Cancel(&mu_);
 }
 
-tensorflow::Status Table::DeleteItem(Table::Key key, Item* deleted_item) {
+absl::Status Table::DeleteItem(Table::Key key, Item* deleted_item) {
   auto it = data_.find(key);
-  if (it == data_.end()) return tensorflow::Status::OK();
+  if (it == data_.end()) return absl::OkStatus();
 
   for (auto& extension : extensions_) {
     extension->OnDelete(&mu_, it->second);
@@ -329,20 +329,20 @@ tensorflow::Status Table::DeleteItem(Table::Key key, Item* deleted_item) {
   *deleted_item = std::move(it->second);
   data_.erase(it);
   rate_limiter_->Delete(&mu_);
-  TF_RETURN_IF_ERROR(sampler_->Delete(key));
-  TF_RETURN_IF_ERROR(remover_->Delete(key));
-  return tensorflow::Status::OK();
+  REVERB_RETURN_IF_ERROR(sampler_->Delete(key));
+  REVERB_RETURN_IF_ERROR(remover_->Delete(key));
+  return absl::OkStatus();
 }
 
-tensorflow::Status Table::UpdateItem(
+absl::Status Table::UpdateItem(
     Key key, double priority, std::initializer_list<TableExtension*> exclude) {
   auto it = data_.find(key);
   if (it == data_.end()) {
-    return tensorflow::Status::OK();
+    return absl::OkStatus();
   }
   it->second.item.set_priority(priority);
-  TF_RETURN_IF_ERROR(sampler_->Update(key, priority));
-  TF_RETURN_IF_ERROR(remover_->Update(key, priority));
+  REVERB_RETURN_IF_ERROR(sampler_->Update(key, priority));
+  REVERB_RETURN_IF_ERROR(remover_->Update(key, priority));
 
   for (auto& extension : extensions_) {
     if (std::none_of(
@@ -352,10 +352,10 @@ tensorflow::Status Table::UpdateItem(
     }
   }
 
-  return tensorflow::Status::OK();
+  return absl::OkStatus();
 }
 
-tensorflow::Status Table::Reset() {
+absl::Status Table::Reset() {
   absl::MutexLock lock(&mu_);
 
   for (auto& extension : extensions_) {
@@ -371,7 +371,7 @@ tensorflow::Status Table::Reset() {
 
   rate_limiter_->Reset(&mu_);
 
-  return tensorflow::Status::OK();
+  return absl::OkStatus();
 }
 
 Table::CheckpointAndChunks Table::Checkpoint() {
@@ -410,7 +410,7 @@ Table::CheckpointAndChunks Table::Checkpoint() {
   return {std::move(checkpoint), std::move(chunks)};
 }
 
-tensorflow::Status Table::InsertCheckpointItem(Table::Item item) {
+absl::Status Table::InsertCheckpointItem(Table::Item item) {
   absl::MutexLock lock(&mu_);
   REVERB_CHECK_LE(data_.size() + 1, max_size_)
       << "InsertCheckpointItem called on already full Table";
@@ -418,8 +418,10 @@ tensorflow::Status Table::InsertCheckpointItem(Table::Item item) {
       << "InsertCheckpointItem called for item with already present key: "
       << item.item.key();
 
-  TF_RETURN_IF_ERROR(sampler_->Insert(item.item.key(), item.item.priority()));
-  TF_RETURN_IF_ERROR(remover_->Insert(item.item.key(), item.item.priority()));
+  REVERB_RETURN_IF_ERROR(
+      sampler_->Insert(item.item.key(), item.item.priority()));
+  REVERB_RETURN_IF_ERROR(
+      remover_->Insert(item.item.key(), item.item.priority()));
 
   const auto key = item.item.key();
   auto it = data_.emplace(key, std::move(item)).first;
@@ -431,7 +433,7 @@ tensorflow::Status Table::InsertCheckpointItem(Table::Item item) {
     ++episode_refs_[chunk->episode_id()];
   }
 
-  return tensorflow::Status::OK();
+  return absl::OkStatus();
 }
 
 bool Table::Get(Table::Key key, Table::Item* item) {
@@ -450,7 +452,7 @@ const internal::flat_hash_map<Table::Key, Table::Item>* Table::RawLookup() {
 }
 
 void Table::UnsafeAddExtension(std::shared_ptr<TableExtension> extension) {
-  TF_CHECK_OK(extension->RegisterTable(&mu_, this));
+  REVERB_CHECK_OK(extension->RegisterTable(&mu_, this));
   absl::MutexLock lock(&mu_);
   REVERB_CHECK(data_.empty());
   extensions_.push_back(std::move(extension));
@@ -486,7 +488,7 @@ int64_t Table::num_episodes() const {
   return episode_refs_.size();
 }
 
-tensorflow::Status Table::UnsafeUpdateItem(
+absl::Status Table::UnsafeUpdateItem(
     Key key, double priority, std::initializer_list<TableExtension*> exclude) {
   mu_.AssertHeld();
   return UpdateItem(key, priority, std::move(exclude));

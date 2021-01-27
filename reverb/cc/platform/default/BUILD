@@ -45,10 +45,33 @@ reverb_cc_library(
         "//reverb/cc/platform:grpc_utils",
         "//reverb/cc/platform:logging",
         "//reverb/cc/platform:server_hdr",
+        "//reverb/cc/platform:status_macros",
         "//reverb/cc/platform:tfrecord_checkpointer",
         "@com_google_absl//absl/strings",
     ] + reverb_grpc_deps(),
     alwayslink = 1,
+)
+
+reverb_cc_library(
+    name = "status_macros",
+    srcs = ["status_builder.cc"],
+    hdrs = [
+        "source_location.h",
+        "status_builder.h",
+        "status_macros.h",
+        "status_matchers.h",
+    ],
+    deps = [
+        "@com_google_absl//absl/status",
+    ],
+)
+
+reverb_cc_library(
+    name = "status_matchers",
+    hdrs = ["status_matchers.h"],
+    deps = [
+        "@com_google_absl//absl/status",
+    ],
 )
 
 reverb_cc_library(

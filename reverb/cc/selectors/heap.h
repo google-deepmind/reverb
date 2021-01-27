@@ -19,7 +19,6 @@
 #include "reverb/cc/platform/hash_map.h"
 #include "reverb/cc/selectors/interface.h"
 #include "reverb/cc/support/intrusive_heap.h"
-#include "tensorflow/core/lib/core/status.h"
 
 namespace deepmind {
 namespace reverb {
@@ -32,13 +31,13 @@ class HeapSelector : public ItemSelector {
   explicit HeapSelector(bool min_heap = true);
 
   // O(log n) time.
-  tensorflow::Status Delete(Key key) override;
+  absl::Status Delete(Key key) override;
 
   // O(log n) time.
-  tensorflow::Status Insert(Key key, double priority) override;
+  absl::Status Insert(Key key, double priority) override;
 
   // O(log n) time.
-  tensorflow::Status Update(Key key, double priority) override;
+  absl::Status Update(Key key, double priority) override;
 
   // O(1) time.
   KeyWithProbability Sample() override;

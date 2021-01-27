@@ -29,6 +29,7 @@
 #include "absl/time/time.h"
 #include "reverb/cc/checkpointing/checkpoint.pb.h"
 #include "reverb/cc/chunk_store.h"
+#include "reverb/cc/platform/status_matchers.h"
 #include "reverb/cc/platform/thread.h"
 #include "reverb/cc/rate_limiter.h"
 #include "reverb/cc/schema.pb.h"
@@ -39,8 +40,6 @@
 #include "tensorflow/core/framework/tensor_shape.h"
 #include "tensorflow/core/framework/tensor_shape.pb.h"
 #include "tensorflow/core/framework/types.pb.h"
-#include "tensorflow/core/lib/core/status.h"
-#include "tensorflow/core/lib/core/status_test_util.h"
 #include "tensorflow/core/protobuf/struct.pb.h"
 
 namespace deepmind {
@@ -96,7 +95,7 @@ TEST(TableTest, SetsName) {
 
 TEST(TableTest, CopyAfterInsert) {
   auto table = MakeUniformTable("dist");
-  TF_EXPECT_OK(table->InsertOrAssign(MakeItem(3, 123)));
+  REVERB_EXPECT_OK(table->InsertOrAssign(MakeItem(3, 123)));
 
   auto items = table->Copy();
   ASSERT_THAT(items, SizeIs(1));
@@ -107,17 +106,17 @@ TEST(TableTest, CopyAfterInsert) {
 
 TEST(TableTest, CopySubset) {
   auto table = MakeUniformTable("dist");
-  TF_EXPECT_OK(table->InsertOrAssign(MakeItem(3, 123)));
-  TF_EXPECT_OK(table->InsertOrAssign(MakeItem(4, 123)));
-  TF_EXPECT_OK(table->InsertOrAssign(MakeItem(5, 123)));
+  REVERB_EXPECT_OK(table->InsertOrAssign(MakeItem(3, 123)));
+  REVERB_EXPECT_OK(table->InsertOrAssign(MakeItem(4, 123)));
+  REVERB_EXPECT_OK(table->InsertOrAssign(MakeItem(5, 123)));
   EXPECT_THAT(table->Copy(1), SizeIs(1));
   EXPECT_THAT(table->Copy(2), SizeIs(2));
 }
 
 TEST(TableTest, InsertOrAssignOverwrites) {
   auto table = MakeUniformTable("dist");
-  TF_EXPECT_OK(table->InsertOrAssign(MakeItem(3, 123)));
-  TF_EXPECT_OK(table->InsertOrAssign(MakeItem(3, 456)));
+  REVERB_EXPECT_OK(table->InsertOrAssign(MakeItem(3, 123)));
+  REVERB_EXPECT_OK(table->InsertOrAssign(MakeItem(3, 456)));
 
   auto items = table->Copy();
   ASSERT_THAT(items, SizeIs(1));
@@ -126,8 +125,8 @@ TEST(TableTest, InsertOrAssignOverwrites) {
 
 TEST(TableTest, UpdatesAreAppliedPartially) {
   auto table = MakeUniformTable("dist");
-  TF_EXPECT_OK(table->InsertOrAssign(MakeItem(3, 123)));
-  TF_EXPECT_OK(table->MutateItems(
+  REVERB_EXPECT_OK(table->InsertOrAssign(MakeItem(3, 123)));
+  REVERB_EXPECT_OK(table->MutateItems(
       {
           testing::MakeKeyWithPriority(5, 55),
           testing::MakeKeyWithPriority(3, 456),
@@ -141,9 +140,9 @@ TEST(TableTest, UpdatesAreAppliedPartially) {
 
 TEST(TableTest, DeletesAreAppliedPartially) {
   auto table = MakeUniformTable("dist");
-  TF_EXPECT_OK(table->InsertOrAssign(MakeItem(3, 123)));
-  TF_EXPECT_OK(table->InsertOrAssign(MakeItem(7, 456)));
-  TF_EXPECT_OK(table->MutateItems({}, {5, 3}));
+  REVERB_EXPECT_OK(table->InsertOrAssign(MakeItem(3, 123)));
+  REVERB_EXPECT_OK(table->InsertOrAssign(MakeItem(7, 456)));
+  REVERB_EXPECT_OK(table->MutateItems({}, {5, 3}));
   EXPECT_THAT(table->Copy(), ElementsAre(HasItemKey(7)));
 }
 
@@ -153,14 +152,14 @@ TEST(TableTest, SampleBlocksWhenNotEnoughItems) {
   absl::Notification notification;
   auto sample_thread = internal::StartThread("", [&table, &notification] {
     Table::SampledItem item;
-    TF_EXPECT_OK(table->Sample(&item));
+    REVERB_EXPECT_OK(table->Sample(&item));
     notification.Notify();
   });
 
   EXPECT_FALSE(notification.WaitForNotificationWithTimeout(kTimeout));
 
   // Inserting an item should allow the call to complete.
-  TF_EXPECT_OK(table->InsertOrAssign(MakeItem(3, 123)));
+  REVERB_EXPECT_OK(table->InsertOrAssign(MakeItem(3, 123)));
   EXPECT_TRUE(notification.WaitForNotificationWithTimeout(kTimeout));
 
   sample_thread = nullptr;  // Joins the thread.
@@ -170,10 +169,10 @@ TEST(TableTest, SampleMatchesInsert) {
   auto table = MakeUniformTable("dist");
 
   Table::Item item = MakeItem(3, 123);
-  TF_EXPECT_OK(table->InsertOrAssign(item));
+  REVERB_EXPECT_OK(table->InsertOrAssign(item));
 
   Table::SampledItem sample;
-  TF_EXPECT_OK(table->Sample(&sample));
+  REVERB_EXPECT_OK(table->Sample(&sample));
   item.item.set_times_sampled(1);
   sample.item.clear_inserted_at();
   EXPECT_THAT(sample.item, testing::EqualsProto(item.item));
@@ -184,26 +183,26 @@ TEST(TableTest, SampleMatchesInsert) {
 TEST(TableTest, SampleIncrementsSampleTimes) {
   auto table = MakeUniformTable("dist");
 
-  TF_EXPECT_OK(table->InsertOrAssign(MakeItem(3, 123)));
+  REVERB_EXPECT_OK(table->InsertOrAssign(MakeItem(3, 123)));
 
   Table::SampledItem item;
   EXPECT_EQ(table->Copy()[0].item.times_sampled(), 0);
-  TF_EXPECT_OK(table->Sample(&item));
+  REVERB_EXPECT_OK(table->Sample(&item));
   EXPECT_EQ(table->Copy()[0].item.times_sampled(), 1);
-  TF_EXPECT_OK(table->Sample(&item));
+  REVERB_EXPECT_OK(table->Sample(&item));
   EXPECT_EQ(table->Copy()[0].item.times_sampled(), 2);
 }
 
 TEST(TableTest, MaxTimesSampledIsRespected) {
   auto table = MakeUniformTable("dist", 10, 2);
 
-  TF_EXPECT_OK(table->InsertOrAssign(MakeItem(3, 123)));
+  REVERB_EXPECT_OK(table->InsertOrAssign(MakeItem(3, 123)));
 
   Table::SampledItem item;
   EXPECT_EQ(table->Copy()[0].item.times_sampled(), 0);
-  TF_ASSERT_OK(table->Sample(&item));
+  REVERB_ASSERT_OK(table->Sample(&item));
   EXPECT_EQ(table->Copy()[0].item.times_sampled(), 1);
-  TF_ASSERT_OK(table->Sample(&item));
+  REVERB_ASSERT_OK(table->Sample(&item));
   EXPECT_THAT(table->Copy(), IsEmpty());
 }
 
@@ -211,7 +210,7 @@ TEST(TableTest, InsertDeletesWhenOverflowing) {
   auto table = MakeUniformTable("dist", 10);
 
   for (int i = 0; i < 15; i++) {
-    TF_EXPECT_OK(table->InsertOrAssign(MakeItem(i, 123)));
+    REVERB_EXPECT_OK(table->InsertOrAssign(MakeItem(i, 123)));
   }
   auto items = table->Copy();
   EXPECT_THAT(items, SizeIs(10));
@@ -228,10 +227,10 @@ TEST(TableTest, ConcurrentCalls) {
   std::atomic<int> count(0);
   for (Table::Key i = 0; i < 1000; i++) {
     bundle.push_back(internal::StartThread("", [i, &table, &count] {
-      TF_EXPECT_OK(table->InsertOrAssign(MakeItem(i, 123)));
+      REVERB_EXPECT_OK(table->InsertOrAssign(MakeItem(i, 123)));
       Table::SampledItem item;
-      TF_EXPECT_OK(table->Sample(&item));
-      TF_EXPECT_OK(
+      REVERB_EXPECT_OK(table->Sample(&item));
+      REVERB_EXPECT_OK(
           table->MutateItems({testing::MakeKeyWithPriority(i, 456)}, {i}));
       count++;
     }));
@@ -253,13 +252,13 @@ TEST(TableTest, UseAsQueue) {
           /*min_diff=*/0,
           /*max_diff=*/10.0));
   for (int i = 0; i < 10; i++) {
-    TF_EXPECT_OK(queue.InsertOrAssign(MakeItem(i, 123)));
+    REVERB_EXPECT_OK(queue.InsertOrAssign(MakeItem(i, 123)));
   }
 
   // This should now be blocked
   absl::Notification insert;
   auto insert_thread = internal::StartThread("", [&] {
-    TF_EXPECT_OK(queue.InsertOrAssign(MakeItem(10, 123)));
+    REVERB_EXPECT_OK(queue.InsertOrAssign(MakeItem(10, 123)));
     insert.Notify();
   });
 
@@ -267,7 +266,7 @@ TEST(TableTest, UseAsQueue) {
 
   for (int i = 0; i < 11; i++) {
     Table::SampledItem item;
-    TF_EXPECT_OK(queue.Sample(&item));
+    REVERB_EXPECT_OK(queue.Sample(&item));
     EXPECT_THAT(item, HasItemKey(i));
   }
 
@@ -281,14 +280,14 @@ TEST(TableTest, UseAsQueue) {
   absl::Notification sample;
   auto sample_thread = internal::StartThread("", [&] {
     Table::SampledItem item;
-    TF_EXPECT_OK(queue.Sample(&item));
+    REVERB_EXPECT_OK(queue.Sample(&item));
     sample.Notify();
   });
 
   EXPECT_FALSE(sample.WaitForNotificationWithTimeout(kTimeout));
 
   // Inserting a new item should result in it being sampled straight away.
-  TF_EXPECT_OK(queue.InsertOrAssign(MakeItem(100, 123)));
+  REVERB_EXPECT_OK(queue.InsertOrAssign(MakeItem(100, 123)));
   EXPECT_TRUE(sample.WaitForNotificationWithTimeout(kTimeout));
 
   EXPECT_EQ(queue.size(), 0);
@@ -310,7 +309,7 @@ TEST(TableTest, ConcurrentInsertOfTheSameKey) {
           /*max_diff=*/1));
 
   // Insert one item to make new inserts block.
-  TF_ASSERT_OK(table.InsertOrAssign(MakeItem(1, 123)));  // diff = 1.0
+  REVERB_ASSERT_OK(table.InsertOrAssign(MakeItem(1, 123)));  // diff = 1.0
 
   std::vector<std::unique_ptr<internal::Thread>> bundle;
 
@@ -318,7 +317,7 @@ TEST(TableTest, ConcurrentInsertOfTheSameKey) {
   std::atomic<int> count(0);
   for (int i = 0; i < 10; i++) {
     bundle.push_back(internal::StartThread("", [&] {
-      TF_EXPECT_OK(table.InsertOrAssign(MakeItem(10, 123)));
+      REVERB_EXPECT_OK(table.InsertOrAssign(MakeItem(10, 123)));
       count++;
     }));
   }
@@ -328,12 +327,12 @@ TEST(TableTest, ConcurrentInsertOfTheSameKey) {
   // Making a single sample should unblock one of the inserts. The other inserts
   // are now updates but they are still waiting for their right to insert.
   Table::SampledItem item;
-  TF_EXPECT_OK(table.Sample(&item));
+  REVERB_EXPECT_OK(table.Sample(&item));
 
   // Sampling once more would unblock one of the inserts, it will then see that
   // it is now an update and not use its right to insert. Once it releases the
   // lock the same process will follow for all the remaining inserts.
-  TF_EXPECT_OK(table.Sample(&item));
+  REVERB_EXPECT_OK(table.Sample(&item));
 
   bundle.clear();  // Joins all threads.
 
@@ -355,9 +354,9 @@ TEST(TableTest, CloseCancelsPendingCalls) {
           /*max_diff=*/1));
 
   // Insert two item to make new inserts block.
-  TF_ASSERT_OK(table.InsertOrAssign(MakeItem(1, 123)));  // diff = 1.0
+  REVERB_ASSERT_OK(table.InsertOrAssign(MakeItem(1, 123)));  // diff = 1.0
 
-  tensorflow::Status status;
+  absl::Status status;
   absl::Notification notification;
   auto thread = internal::StartThread("", [&] {
     status = table.InsertOrAssign(MakeItem(10, 123));
@@ -369,7 +368,7 @@ TEST(TableTest, CloseCancelsPendingCalls) {
   table.Close();
 
   EXPECT_TRUE(notification.WaitForNotificationWithTimeout(kTimeout));
-  EXPECT_EQ(status.code(), tensorflow::error::CANCELLED);
+  EXPECT_EQ(status.code(), absl::StatusCode::kCancelled);
 
   thread = nullptr;  // Joins the thread.
 }
@@ -388,18 +387,18 @@ TEST(TableTest, ResetResetsRateLimiter) {
           /*max_diff=*/1));
 
   // Insert two item to make new inserts block.
-  TF_ASSERT_OK(table.InsertOrAssign(MakeItem(1, 123)));  // diff = 1.0
+  REVERB_ASSERT_OK(table.InsertOrAssign(MakeItem(1, 123)));  // diff = 1.0
 
   absl::Notification notification;
   auto thread = internal::StartThread("", [&] {
-    TF_ASSERT_OK(table.InsertOrAssign(MakeItem(10, 123)));
+    REVERB_ASSERT_OK(table.InsertOrAssign(MakeItem(10, 123)));
     notification.Notify();
   });
 
   EXPECT_FALSE(notification.WaitForNotificationWithTimeout(kTimeout));
 
   // Resetting the table should unblock new inserts.
-  TF_ASSERT_OK(table.Reset());
+  REVERB_ASSERT_OK(table.Reset());
 
   EXPECT_TRUE(notification.WaitForNotificationWithTimeout(kTimeout));
 
@@ -408,9 +407,9 @@ TEST(TableTest, ResetResetsRateLimiter) {
 
 TEST(TableTest, ResetClearsAllData) {
   auto table = MakeUniformTable("dist");
-  TF_ASSERT_OK(table->InsertOrAssign(MakeItem(1, 123)));
+  REVERB_ASSERT_OK(table->InsertOrAssign(MakeItem(1, 123)));
   EXPECT_EQ(table->size(), 1);
-  TF_ASSERT_OK(table->Reset());
+  REVERB_ASSERT_OK(table->Reset());
   EXPECT_EQ(table->size(), 0);
 }
 
@@ -419,9 +418,11 @@ TEST(TableTest, ResetWhileConcurrentCalls) {
   std::vector<std::unique_ptr<internal::Thread>> bundle;
   for (Table::Key i = 0; i < 1000; i++) {
     bundle.push_back(internal::StartThread("", [i, &table] {
-      if (i % 123 == 0) TF_EXPECT_OK(table->Reset());
-      TF_EXPECT_OK(table->InsertOrAssign(MakeItem(i, 123)));
-      TF_EXPECT_OK(
+      if (i % 123 == 0) {
+        REVERB_EXPECT_OK(table->Reset());
+      }
+      REVERB_EXPECT_OK(table->InsertOrAssign(MakeItem(i, 123)));
+      REVERB_EXPECT_OK(
           table->MutateItems({testing::MakeKeyWithPriority(i, 456)}, {i}));
     }));
   }
@@ -431,9 +432,9 @@ TEST(TableTest, ResetWhileConcurrentCalls) {
 TEST(TableTest, CheckpointOrderItems) {
   auto table = MakeUniformTable("dist");
 
-  TF_EXPECT_OK(table->InsertOrAssign(MakeItem(1, 123)));
-  TF_EXPECT_OK(table->InsertOrAssign(MakeItem(3, 125)));
-  TF_EXPECT_OK(table->InsertOrAssign(MakeItem(2, 124)));
+  REVERB_EXPECT_OK(table->InsertOrAssign(MakeItem(1, 123)));
+  REVERB_EXPECT_OK(table->InsertOrAssign(MakeItem(3, 125)));
+  REVERB_EXPECT_OK(table->InsertOrAssign(MakeItem(2, 124)));
 
   auto checkpoint = table->Checkpoint();
   EXPECT_THAT(checkpoint.checkpoint.items(),
@@ -455,7 +456,7 @@ TEST(TableTest, CheckpointSanityCheck) {
               absl::make_unique<RateLimiter>(1.0, 3, -10, 7),
               std::vector<std::shared_ptr<TableExtension>>(), signature);
 
-  TF_EXPECT_OK(table.InsertOrAssign(MakeItem(1, 123)));
+  REVERB_EXPECT_OK(table.InsertOrAssign(MakeItem(1, 123)));
 
   auto checkpoint = table.Checkpoint();
 
@@ -516,18 +517,18 @@ TEST(TableTest, BlocksSamplesWhenSizeToSmallDueToAutoDelete) {
           /*min_size_to_sample=*/3,
           /*min_diff=*/0,
           /*max_diff=*/5));
-  TF_EXPECT_OK(table.InsertOrAssign(MakeItem(1, 1)));
-  TF_EXPECT_OK(table.InsertOrAssign(MakeItem(2, 1)));
-  TF_EXPECT_OK(table.InsertOrAssign(MakeItem(3, 1)));
+  REVERB_EXPECT_OK(table.InsertOrAssign(MakeItem(1, 1)));
+  REVERB_EXPECT_OK(table.InsertOrAssign(MakeItem(2, 1)));
+  REVERB_EXPECT_OK(table.InsertOrAssign(MakeItem(3, 1)));
 
   // It should be fine to sample now as the table has been reached its min size.
   Table::SampledItem sample_1;
-  TF_EXPECT_OK(table.Sample(&sample_1));
+  REVERB_EXPECT_OK(table.Sample(&sample_1));
   EXPECT_THAT(sample_1, HasItemKey(1));
 
   // A second sample should be fine since the table is still large enough.
   Table::SampledItem sample_2;
-  TF_EXPECT_OK(table.Sample(&sample_2));
+  REVERB_EXPECT_OK(table.Sample(&sample_2));
   EXPECT_THAT(sample_2, HasItemKey(1));
 
   // Due to max_times_sampled, the table should have one item less which should
@@ -535,13 +536,13 @@ TEST(TableTest, BlocksSamplesWhenSizeToSmallDueToAutoDelete) {
   absl::Notification notification;
   auto sample_thread = internal::StartThread("", [&] {
     Table::SampledItem sample;
-    TF_EXPECT_OK(table.Sample(&sample));
+    REVERB_EXPECT_OK(table.Sample(&sample));
     notification.Notify();
   });
   EXPECT_FALSE(notification.WaitForNotificationWithTimeout(kTimeout));
 
   // Inserting a new item should unblock the sampling.
-  TF_EXPECT_OK(table.InsertOrAssign(MakeItem(4, 1)));
+  REVERB_EXPECT_OK(table.InsertOrAssign(MakeItem(4, 1)));
   EXPECT_TRUE(notification.WaitForNotificationWithTimeout(kTimeout));
 
   sample_thread = nullptr;  // Joins the thread.
@@ -559,44 +560,44 @@ TEST(TableTest, BlocksSamplesWhenSizeToSmallDueToExplicitDelete) {
           /*min_size_to_sample=*/3,
           /*min_diff=*/0,
           /*max_diff=*/5));
-  TF_EXPECT_OK(table.InsertOrAssign(MakeItem(1, 1)));
-  TF_EXPECT_OK(table.InsertOrAssign(MakeItem(2, 1)));
-  TF_EXPECT_OK(table.InsertOrAssign(MakeItem(3, 1)));
+  REVERB_EXPECT_OK(table.InsertOrAssign(MakeItem(1, 1)));
+  REVERB_EXPECT_OK(table.InsertOrAssign(MakeItem(2, 1)));
+  REVERB_EXPECT_OK(table.InsertOrAssign(MakeItem(3, 1)));
 
   // It should be fine to sample now as the table has been reached its min size.
   Table::SampledItem sample_1;
-  TF_EXPECT_OK(table.Sample(&sample_1));
+  REVERB_EXPECT_OK(table.Sample(&sample_1));
   EXPECT_THAT(sample_1, HasItemKey(1));
 
   // Deleting an item will make the table too small to allow samples.
-  TF_EXPECT_OK(table.MutateItems({}, {1}));
+  REVERB_EXPECT_OK(table.MutateItems({}, {1}));
 
   absl::Notification notification;
   auto sample_thread = internal::StartThread("", [&] {
     Table::SampledItem sample;
-    TF_EXPECT_OK(table.Sample(&sample));
+    REVERB_EXPECT_OK(table.Sample(&sample));
     notification.Notify();
   });
   EXPECT_FALSE(notification.WaitForNotificationWithTimeout(kTimeout));
 
   // Inserting a new item should unblock the sampling.
-  TF_EXPECT_OK(table.InsertOrAssign(MakeItem(4, 1)));
+  REVERB_EXPECT_OK(table.InsertOrAssign(MakeItem(4, 1)));
   EXPECT_TRUE(notification.WaitForNotificationWithTimeout(kTimeout));
 
   sample_thread = nullptr;  // Joins the thread.
 
   // And any new samples should be fine.
   Table::SampledItem sample_2;
-  TF_EXPECT_OK(table.Sample(&sample_2));
+  REVERB_EXPECT_OK(table.Sample(&sample_2));
   EXPECT_THAT(sample_2, HasItemKey(2));
 }
 
 TEST(TableTest, GetExistingItem) {
   auto table = MakeUniformTable("dist");
 
-  TF_EXPECT_OK(table->InsertOrAssign(MakeItem(1, 1)));
-  TF_EXPECT_OK(table->InsertOrAssign(MakeItem(2, 1)));
-  TF_EXPECT_OK(table->InsertOrAssign(MakeItem(3, 1)));
+  REVERB_EXPECT_OK(table->InsertOrAssign(MakeItem(1, 1)));
+  REVERB_EXPECT_OK(table->InsertOrAssign(MakeItem(2, 1)));
+  REVERB_EXPECT_OK(table->InsertOrAssign(MakeItem(3, 1)));
 
   TableItem item;
   EXPECT_TRUE(table->Get(2, &item));
@@ -606,8 +607,8 @@ TEST(TableTest, GetExistingItem) {
 TEST(TableTest, GetMissingItem) {
   auto table = MakeUniformTable("dist");
 
-  TF_EXPECT_OK(table->InsertOrAssign(MakeItem(1, 1)));
-  TF_EXPECT_OK(table->InsertOrAssign(MakeItem(3, 1)));
+  REVERB_EXPECT_OK(table->InsertOrAssign(MakeItem(1, 1)));
+  REVERB_EXPECT_OK(table->InsertOrAssign(MakeItem(3, 1)));
 
   TableItem item;
   EXPECT_FALSE(table->Get(2, &item));
@@ -617,16 +618,16 @@ TEST(TableTest, SampleSetsTableSize) {
   auto table = MakeUniformTable("dist");
 
   for (int i = 1; i <= 10; i++) {
-    TF_EXPECT_OK(table->InsertOrAssign(MakeItem(i, 1)));
+    REVERB_EXPECT_OK(table->InsertOrAssign(MakeItem(i, 1)));
     Table::SampledItem sample;
-    TF_EXPECT_OK(table->Sample(&sample));
+    REVERB_EXPECT_OK(table->Sample(&sample));
     EXPECT_EQ(sample.table_size, i);
   }
 }
 
 TEST(PriorityTableDeathTest, DiesIfUnsafeAddExtensionCalledWhenNonEmpty) {
   auto table = MakeUniformTable("dist");
-  TF_EXPECT_OK(table->InsertOrAssign(MakeItem(1, 1)));
+  REVERB_EXPECT_OK(table->InsertOrAssign(MakeItem(1, 1)));
   ASSERT_DEATH(table->UnsafeAddExtension(nullptr), "");
 }
 
@@ -640,25 +641,25 @@ TEST(TableTest, NumEpisodes) {
   };
 
   // First item has a never seen episode before.
-  TF_EXPECT_OK(table->InsertOrAssign(MakeItem(1, 1, {ranges[0]})));
+  REVERB_EXPECT_OK(table->InsertOrAssign(MakeItem(1, 1, {ranges[0]})));
   EXPECT_EQ(table->num_episodes(), 1);
 
   // Second item references the same episode.
-  TF_EXPECT_OK(table->InsertOrAssign(MakeItem(2, 1, {ranges[1]})));
+  REVERB_EXPECT_OK(table->InsertOrAssign(MakeItem(2, 1, {ranges[1]})));
   EXPECT_EQ(table->num_episodes(), 1);
 
   // Third item has a new episode.
-  TF_EXPECT_OK(table->InsertOrAssign(MakeItem(3, 1, {ranges[2]})));
+  REVERB_EXPECT_OK(table->InsertOrAssign(MakeItem(3, 1, {ranges[2]})));
   EXPECT_EQ(table->num_episodes(), 2);
 
   // Removing the second item should not change the episode count as the first
   // item is still referencing the episode.
-  TF_EXPECT_OK(table->MutateItems({}, {2}));
+  REVERB_EXPECT_OK(table->MutateItems({}, {2}));
   EXPECT_EQ(table->num_episodes(), 2);
 
   // Removing the first item should now result in the episode count reduced as
   // it is the last reference to the episode.
-  TF_EXPECT_OK(table->MutateItems({}, {1}));
+  REVERB_EXPECT_OK(table->MutateItems({}, {1}));
   EXPECT_EQ(table->num_episodes(), 1);
 }
 
@@ -681,34 +682,34 @@ TEST(TableTest, NumDeletedEpisodes) {
   // Add two items referencing the same episode and one item that reference a
   // second episode. This should not have any impact on the number of deleted
   // episodes.
-  TF_EXPECT_OK(table->InsertOrAssign(MakeItem(1, 1, {ranges[0]})));
-  TF_EXPECT_OK(table->InsertOrAssign(MakeItem(2, 1, {ranges[1]})));
-  TF_EXPECT_OK(table->InsertOrAssign(MakeItem(3, 1, {ranges[2]})));
+  REVERB_EXPECT_OK(table->InsertOrAssign(MakeItem(1, 1, {ranges[0]})));
+  REVERB_EXPECT_OK(table->InsertOrAssign(MakeItem(2, 1, {ranges[1]})));
+  REVERB_EXPECT_OK(table->InsertOrAssign(MakeItem(3, 1, {ranges[2]})));
   EXPECT_EQ(table->num_deleted_episodes(), 1);
 
   // Removing one of the items that reference the episode shared by two items
   // should not impact the number of deleted episodes.
-  TF_EXPECT_OK(table->MutateItems({}, {2}));
+  REVERB_EXPECT_OK(table->MutateItems({}, {2}));
   EXPECT_EQ(table->num_deleted_episodes(), 1);
 
   // Removing the ONLY item that references the second episode should result
   // in the deleted items count being incremented.
-  TF_EXPECT_OK(table->MutateItems({}, {3}));
+  REVERB_EXPECT_OK(table->MutateItems({}, {3}));
   EXPECT_EQ(table->num_deleted_episodes(), 2);
 
   // Removing the second (and last) item referencing the first episode should
   // also result in the deleted episodes count being incremented.
-  TF_EXPECT_OK(table->MutateItems({}, {1}));
+  REVERB_EXPECT_OK(table->MutateItems({}, {1}));
   EXPECT_EQ(table->num_deleted_episodes(), 3);
 
   // Resetting the table should bring the count back to zero.
-  TF_EXPECT_OK(table->Reset());
+  REVERB_EXPECT_OK(table->Reset());
   EXPECT_EQ(table->num_deleted_episodes(), 0);
 }
 
 TEST(TableDeathTest, SetNumDeletedEpisodesFromCheckpointOnNonEmptyTable) {
   auto table = MakeUniformTable("dist");
-  TF_EXPECT_OK(table->InsertOrAssign(MakeItem(1, 1)));
+  REVERB_EXPECT_OK(table->InsertOrAssign(MakeItem(1, 1)));
   ASSERT_DEATH(table->set_num_deleted_episodes_from_checkpoint(1), "");
 }
 
@@ -733,13 +734,13 @@ TEST(TableTest, Info) {
   table.set_num_deleted_episodes_from_checkpoint(5);
 
   // Insert two items (each with different episodes).
-  TF_EXPECT_OK(table.InsertOrAssign(MakeItem(1, 1)));
-  TF_EXPECT_OK(table.InsertOrAssign(MakeItem(2, 1)));
+  REVERB_EXPECT_OK(table.InsertOrAssign(MakeItem(1, 1)));
+  REVERB_EXPECT_OK(table.InsertOrAssign(MakeItem(2, 1)));
 
   // Sample an item. This will trigger the removal of that item since
   // `max_times_sampled` is 1.
   Table::SampledItem sample;
-  TF_EXPECT_OK(table.Sample(&sample));
+  REVERB_EXPECT_OK(table.Sample(&sample));
 
   EXPECT_THAT(table.info(), testing::EqualsProto(R"pb(
                 name: 'dist'
@@ -809,8 +810,8 @@ TEST(TableTest, InsertOrAssignOfItemWithoutTrajectory) {
   auto item = MakeItem(1, 1);
   item.item.clear_flat_trajectory();
   auto status = table->InsertOrAssign(item);
-  EXPECT_EQ(status.code(), tensorflow::error::INVALID_ARGUMENT);
-  EXPECT_THAT(status.error_message(),
+  EXPECT_EQ(status.code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_THAT(std::string(status.message()),
               ::testing::HasSubstr("Item trajectory must not be empty."));
 }
 
@@ -823,9 +824,9 @@ TEST(TableTest, InsertOrAssignOfItemWithChunkMissmatch) {
       ->mutable_chunk_slices(0)
       ->set_chunk_key(1337);
   auto status = table->InsertOrAssign(item);
-  EXPECT_EQ(status.code(), tensorflow::error::INVALID_ARGUMENT);
+  EXPECT_EQ(status.code(), absl::StatusCode::kInvalidArgument);
   EXPECT_THAT(
-      status.error_message(),
+      std::string(status.message()),
       ::testing::HasSubstr(
           "Item chunks does not match chunks referenced in trajectory"));
 }
@@ -836,9 +837,9 @@ TEST(TableTest, InsertOrAssignOfItemWithChunkLengthMissmatch) {
   auto item = MakeItem(1, 1);
   item.chunks.push_back(item.chunks.front());
   auto status = table->InsertOrAssign(item);
-  EXPECT_EQ(status.code(), tensorflow::error::INVALID_ARGUMENT);
+  EXPECT_EQ(status.code(), absl::StatusCode::kInvalidArgument);
   EXPECT_THAT(
-      status.error_message(),
+      std::string(status.message()),
       ::testing::HasSubstr("The number of chunks (2) does not equal the number "
                            "of chunks referenced in item's trajectory (1)."));
 }

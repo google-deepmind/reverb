@@ -22,11 +22,11 @@
 #include "absl/synchronization/mutex.h"
 #include "absl/synchronization/notification.h"
 #include "absl/time/time.h"
+#include "reverb/cc/platform/status_matchers.h"
 #include "reverb/cc/platform/thread.h"
 #include "reverb/cc/selectors/uniform.h"
 #include "reverb/cc/table.h"
 #include "reverb/cc/testing/proto_test_util.h"
-#include "tensorflow/core/lib/core/status_test_util.h"
 
 namespace deepmind {
 namespace reverb {
@@ -55,7 +55,7 @@ TEST(RateLimiterTest, BlocksSamplesUntilMinInsertsReached) {
   absl::Mutex mu;
   auto thread = internal::StartThread("", [&] {
     absl::WriterMutexLock lock(&mu);
-    TF_EXPECT_OK(limiter->AwaitAndFinalizeSample(&mu));
+    REVERB_EXPECT_OK(limiter->AwaitAndFinalizeSample(&mu));
     notification.Notify();
   });
 
@@ -65,7 +65,7 @@ TEST(RateLimiterTest, BlocksSamplesUntilMinInsertsReached) {
   // 1 insert is not enough so the sample should still be blocked.
   {
     absl::WriterMutexLock lock(&mu);
-    TF_EXPECT_OK(limiter->AwaitCanInsert(&mu));
+    REVERB_EXPECT_OK(limiter->AwaitCanInsert(&mu));
     limiter->Insert(&mu);
   }
   EXPECT_FALSE(notification.WaitForNotificationWithTimeout(kTimeout));
@@ -73,7 +73,7 @@ TEST(RateLimiterTest, BlocksSamplesUntilMinInsertsReached) {
   // 2 inserts is enough, the sampling should now be unblocked.
   {
     absl::WriterMutexLock lock(&mu);
-    TF_EXPECT_OK(limiter->AwaitCanInsert(&mu));
+    REVERB_EXPECT_OK(limiter->AwaitCanInsert(&mu));
     limiter->Insert(&mu);
   }
   EXPECT_TRUE(notification.WaitForNotificationWithTimeout(kTimeout));
@@ -92,21 +92,21 @@ TEST(RateLimiterTest, OperationsWithinTheBufferAreNotBlocked) {
   // First insert is always fine because min_size_to_sample is not yet
   // reached. The "diff" is now 1.5.
   absl::WriterMutexLock lock(&mu);
-  TF_EXPECT_OK(limiter->AwaitCanInsert(&mu));
+  REVERB_EXPECT_OK(limiter->AwaitCanInsert(&mu));
   limiter->Insert(&mu);
 
   // Second insert should be fine as the "diff" after the insert is 3.0 which
   // is part of the buffer range.
-  TF_EXPECT_OK(limiter->AwaitCanInsert(&mu));
+  REVERB_EXPECT_OK(limiter->AwaitCanInsert(&mu));
   limiter->Insert(&mu);
 
   // Sample calls should not be blocked as long as diff is >= -3.0.
-  TF_EXPECT_OK(limiter->AwaitAndFinalizeSample(&mu));  // diff = 2.0.
-  TF_EXPECT_OK(limiter->AwaitAndFinalizeSample(&mu));  // diff = 1.0.
-  TF_EXPECT_OK(limiter->AwaitAndFinalizeSample(&mu));  // diff = 0.0.
-  TF_EXPECT_OK(limiter->AwaitAndFinalizeSample(&mu));  // diff = -1.0.
-  TF_EXPECT_OK(limiter->AwaitAndFinalizeSample(&mu));  // diff = -2.0.
-  TF_EXPECT_OK(limiter->AwaitAndFinalizeSample(&mu));  // diff = -3.0.
+  REVERB_EXPECT_OK(limiter->AwaitAndFinalizeSample(&mu));  // diff = 2.0.
+  REVERB_EXPECT_OK(limiter->AwaitAndFinalizeSample(&mu));  // diff = 1.0.
+  REVERB_EXPECT_OK(limiter->AwaitAndFinalizeSample(&mu));  // diff = 0.0.
+  REVERB_EXPECT_OK(limiter->AwaitAndFinalizeSample(&mu));  // diff = -1.0.
+  REVERB_EXPECT_OK(limiter->AwaitAndFinalizeSample(&mu));  // diff = -2.0.
+  REVERB_EXPECT_OK(limiter->AwaitAndFinalizeSample(&mu));  // diff = -3.0.
 }
 
 TEST(RateLimiterTest, UnblocksCallsWhenCancelled) {
@@ -120,7 +120,7 @@ TEST(RateLimiterTest, UnblocksCallsWhenCancelled) {
   auto thread = internal::StartThread("", [&] {
     absl::WriterMutexLock lock(&mu);
     EXPECT_EQ(limiter->AwaitAndFinalizeSample(&mu).code(),
-              tensorflow::error::CANCELLED);
+              absl::StatusCode::kCancelled);
     notification.Notify();
   });
 
@@ -148,7 +148,7 @@ TEST(RateLimiterTest, BlocksCallsThatExceedsTheMinMaxLimits) {
   absl::Notification sample;
   bundle.push_back(internal::StartThread("", [&] {
     absl::WriterMutexLock lock(&mu);
-    TF_EXPECT_OK(limiter->AwaitAndFinalizeSample(&mu));
+    REVERB_EXPECT_OK(limiter->AwaitAndFinalizeSample(&mu));
     sample.Notify();
   }));
 
@@ -158,7 +158,7 @@ TEST(RateLimiterTest, BlocksCallsThatExceedsTheMinMaxLimits) {
   // 1 insert is not enough so the sample should still be blocked.
   {
     absl::WriterMutexLock lock(&mu);
-    TF_EXPECT_OK(limiter->AwaitCanInsert(&mu));  // diff = 1.5
+    REVERB_EXPECT_OK(limiter->AwaitCanInsert(&mu));  // diff = 1.5
     limiter->Insert(&mu);
   }
   EXPECT_FALSE(sample.WaitForNotificationWithTimeout(kTimeout));
@@ -166,7 +166,7 @@ TEST(RateLimiterTest, BlocksCallsThatExceedsTheMinMaxLimits) {
   // 2 inserts is enough, the sampling should now be unblocked.
   {
     absl::WriterMutexLock lock(&mu);
-    TF_EXPECT_OK(limiter->AwaitCanInsert(&mu));
+    REVERB_EXPECT_OK(limiter->AwaitCanInsert(&mu));
     limiter->Insert(&mu);  // diff = 3.0
   }
 
@@ -176,7 +176,7 @@ TEST(RateLimiterTest, BlocksCallsThatExceedsTheMinMaxLimits) {
   absl::Notification insert;
   bundle.push_back(internal::StartThread("", [&] {
     absl::WriterMutexLock lock(&mu);
-    TF_EXPECT_OK(limiter->AwaitCanInsert(&mu));
+    REVERB_EXPECT_OK(limiter->AwaitCanInsert(&mu));
     limiter->Insert(&mu);
     insert.Notify();
   }));
@@ -186,7 +186,7 @@ TEST(RateLimiterTest, BlocksCallsThatExceedsTheMinMaxLimits) {
   // But adding a new sample should allow it to proceed.
   {
     absl::WriterMutexLock lock(&mu);
-    TF_EXPECT_OK(limiter->AwaitAndFinalizeSample(&mu));
+    REVERB_EXPECT_OK(limiter->AwaitAndFinalizeSample(&mu));
   }
 
   EXPECT_TRUE(insert.WaitForNotificationWithTimeout(kTimeout));
@@ -207,7 +207,7 @@ TEST(RateLimiterTest, CanSample) {
   EXPECT_FALSE(limiter->CanSample(&mu, 1));
 
   // Insert a single item.
-  TF_EXPECT_OK(limiter->AwaitCanInsert(&mu, kTimeout));
+  REVERB_EXPECT_OK(limiter->AwaitCanInsert(&mu, kTimeout));
   limiter->Insert(&mu);
 
   // It should now be possible to sample at most two items.
@@ -234,7 +234,7 @@ TEST(RateLimiterTest, CanInsert) {
 
   // Do the inserts.
   for (int i = 0; i < 3; i++) {
-    TF_EXPECT_OK(limiter->AwaitCanInsert(&mu, kTimeout));
+    REVERB_EXPECT_OK(limiter->AwaitCanInsert(&mu, kTimeout));
     limiter->Insert(&mu);
   }
 
@@ -242,8 +242,10 @@ TEST(RateLimiterTest, CanInsert) {
   EXPECT_FALSE(limiter->CanInsert(&mu, 1));  // diff = 6.0
 
   // Move the cursor by sampling two items.
-  TF_EXPECT_OK(limiter->AwaitAndFinalizeSample(&mu, kTimeout));  // diff = 3.5
-  TF_EXPECT_OK(limiter->AwaitAndFinalizeSample(&mu, kTimeout));  // diff = 2.5
+  REVERB_EXPECT_OK(
+      limiter->AwaitAndFinalizeSample(&mu, kTimeout));  // diff = 3.5
+  REVERB_EXPECT_OK(
+      limiter->AwaitAndFinalizeSample(&mu, kTimeout));  // diff = 2.5
 
   // One more sample should now be allowed.
   EXPECT_TRUE(limiter->CanInsert(&mu, 1));   // diff = 4.0.
@@ -276,11 +278,11 @@ TEST(RateLimiterTest, CheckpointSetsInsertAndDeleteAndSampleCount) {
       limiter->CheckpointReader(&mu),
       Partially(testing::EqualsProto("sample_count: 0 insert_count: 0")));
 
-  TF_EXPECT_OK(limiter->AwaitCanInsert(&mu, kTimeout));
+  REVERB_EXPECT_OK(limiter->AwaitCanInsert(&mu, kTimeout));
   limiter->Insert(&mu);
-  TF_EXPECT_OK(limiter->AwaitCanInsert(&mu, kTimeout));
+  REVERB_EXPECT_OK(limiter->AwaitCanInsert(&mu, kTimeout));
   limiter->Insert(&mu);
-  TF_EXPECT_OK(limiter->AwaitAndFinalizeSample(&mu, kTimeout));
+  REVERB_EXPECT_OK(limiter->AwaitAndFinalizeSample(&mu, kTimeout));
   limiter->Delete(&mu);
 
   EXPECT_THAT(limiter->CheckpointReader(&mu),
@@ -297,11 +299,11 @@ TEST(RateLimiterTest, CanBeRestoredFromCheckpoint) {
   absl::Mutex mu;
   absl::WriterMutexLock lock(&mu);
 
-  TF_EXPECT_OK(limiter->AwaitCanInsert(&mu, kTimeout));
+  REVERB_EXPECT_OK(limiter->AwaitCanInsert(&mu, kTimeout));
   limiter->Insert(&mu);
-  TF_EXPECT_OK(limiter->AwaitCanInsert(&mu, kTimeout));
+  REVERB_EXPECT_OK(limiter->AwaitCanInsert(&mu, kTimeout));
   limiter->Insert(&mu);
-  TF_EXPECT_OK(limiter->AwaitAndFinalizeSample(&mu, kTimeout));
+  REVERB_EXPECT_OK(limiter->AwaitAndFinalizeSample(&mu, kTimeout));
   limiter->Delete(&mu);
 
   // Create a checkpoint and check its content.
@@ -320,9 +322,9 @@ TEST(RateLimiterTest, CanBeRestoredFromCheckpoint) {
   auto restored = std::make_shared<RateLimiter>(checkpoint);
   table = MakeTable("table", restored);
 
-  TF_EXPECT_OK(restored->AwaitCanInsert(&mu, kTimeout));
+  REVERB_EXPECT_OK(restored->AwaitCanInsert(&mu, kTimeout));
   restored->Insert(&mu);
-  TF_EXPECT_OK(restored->AwaitAndFinalizeSample(&mu, kTimeout));
+  REVERB_EXPECT_OK(restored->AwaitAndFinalizeSample(&mu, kTimeout));
 
   EXPECT_THAT(restored->CheckpointReader(&mu),
               testing::EqualsProto("samples_per_insert: 1.5 "
@@ -344,9 +346,9 @@ TEST(RateLimiterTest, UnblocksInsertsIfDeletedItemsBringsSizeBelowMinSize) {
 
   {
     absl::WriterMutexLock lock(&mu);
-    TF_EXPECT_OK(limiter->AwaitCanInsert(&mu, kTimeout));
+    REVERB_EXPECT_OK(limiter->AwaitCanInsert(&mu, kTimeout));
     limiter->Insert(&mu);
-    TF_EXPECT_OK(limiter->AwaitCanInsert(&mu, kTimeout));
+    REVERB_EXPECT_OK(limiter->AwaitCanInsert(&mu, kTimeout));
     limiter->Insert(&mu);
   }
 
@@ -354,7 +356,7 @@ TEST(RateLimiterTest, UnblocksInsertsIfDeletedItemsBringsSizeBelowMinSize) {
   absl::Notification insert;
   auto insert_thread = internal::StartThread("", [&] {
     absl::WriterMutexLock lock(&mu);
-    TF_EXPECT_OK(limiter->AwaitCanInsert(&mu));
+    REVERB_EXPECT_OK(limiter->AwaitCanInsert(&mu));
     insert.Notify();
   });
   EXPECT_FALSE(insert.WaitForNotificationWithTimeout(kTimeout));
@@ -362,7 +364,7 @@ TEST(RateLimiterTest, UnblocksInsertsIfDeletedItemsBringsSizeBelowMinSize) {
   // Sampling should be fine now since the min size has been reached.
   {
     absl::WriterMutexLock lock(&mu);
-    TF_EXPECT_OK(limiter->AwaitAndFinalizeSample(&mu, kTimeout));
+    REVERB_EXPECT_OK(limiter->AwaitAndFinalizeSample(&mu, kTimeout));
   }
 
   // The insert should still be blocked due to the large samples_per_insert.
@@ -389,13 +391,13 @@ TEST(RateLimiterTest, BlocksSamplesIfDeleteBringsSizeBelowMinSize) {
 
   {
     absl::WriterMutexLock lock(&mu);
-    TF_EXPECT_OK(limiter->AwaitCanInsert(&mu, kTimeout));
+    REVERB_EXPECT_OK(limiter->AwaitCanInsert(&mu, kTimeout));
     limiter->Insert(&mu);
-    TF_EXPECT_OK(limiter->AwaitCanInsert(&mu, kTimeout));
+    REVERB_EXPECT_OK(limiter->AwaitCanInsert(&mu, kTimeout));
     limiter->Insert(&mu);
 
     // Sampling should be fine now since the min size has been reached.
-    TF_EXPECT_OK(limiter->AwaitAndFinalizeSample(&mu, kTimeout));
+    REVERB_EXPECT_OK(limiter->AwaitAndFinalizeSample(&mu, kTimeout));
 
     // Deleting an item will bring the size back below the
     // min_size_to_sample which should block any further samples.
@@ -405,7 +407,7 @@ TEST(RateLimiterTest, BlocksSamplesIfDeleteBringsSizeBelowMinSize) {
   absl::Notification sample;
   auto sample_thread = internal::StartThread("", [&] {
     absl::WriterMutexLock lock(&mu);
-    TF_EXPECT_OK(limiter->AwaitAndFinalizeSample(&mu));
+    REVERB_EXPECT_OK(limiter->AwaitAndFinalizeSample(&mu));
     sample.Notify();
   });
   EXPECT_FALSE(sample.WaitForNotificationWithTimeout(kTimeout));
@@ -414,7 +416,7 @@ TEST(RateLimiterTest, BlocksSamplesIfDeleteBringsSizeBelowMinSize) {
   // sampling. It should however not be unblocked by simply staging the insert.
   {
     absl::WriterMutexLock lock(&mu);
-    TF_EXPECT_OK(limiter->AwaitCanInsert(&mu, kTimeout));
+    REVERB_EXPECT_OK(limiter->AwaitCanInsert(&mu, kTimeout));
   }
   EXPECT_FALSE(sample.WaitForNotificationWithTimeout(kTimeout));
   {

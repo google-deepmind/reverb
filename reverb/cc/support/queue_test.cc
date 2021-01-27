@@ -19,12 +19,12 @@
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
+#include "absl/status/status.h"
 #include "absl/synchronization/notification.h"
 #include "absl/time/time.h"
 #include "reverb/cc/platform/logging.h"
+#include "reverb/cc/platform/status_matchers.h"
 #include "reverb/cc/platform/thread.h"
-#include "tensorflow/core/lib/core/status_test_util.h"
-#include "tensorflow/core/protobuf/error_codes.pb.h"
 
 namespace deepmind {
 namespace reverb {
@@ -167,11 +167,11 @@ TEST(QueueTest, PopBatchBlocksUntilBatchFull) {
   std::vector<int> v;
   for (int i = 0; i < 5; i++) {
     EXPECT_EQ(q.PopBatch(5, absl::ZeroDuration(), &v).code(),
-              tensorflow::error::DEADLINE_EXCEEDED);
+              absl::StatusCode::kDeadlineExceeded);
     EXPECT_TRUE(q.Push(i));
   }
 
-  TF_EXPECT_OK(q.PopBatch(5, &v));
+  REVERB_EXPECT_OK(q.PopBatch(5, &v));
 }
 
 TEST(QueueTest, PopBatchEmitsItemsInOrder) {
@@ -182,14 +182,14 @@ TEST(QueueTest, PopBatchEmitsItemsInOrder) {
   }
 
   std::vector<int> v;
-  TF_EXPECT_OK(q.PopBatch(5, &v));
+  REVERB_EXPECT_OK(q.PopBatch(5, &v));
   EXPECT_THAT(v, testing::ElementsAre(0, 1, 2, 3, 4));
 }
 
 TEST(QueueTest, PopBatchReturnsIfSetLastItemPushed) {
   Queue<int> q(3);
   absl::Notification n;
-  tensorflow::Status status;
+  absl::Status status;
 
   auto thread = internal::StartThread("", [&] {
     std::vector<int> out;
@@ -205,19 +205,19 @@ TEST(QueueTest, PopBatchReturnsIfSetLastItemPushed) {
   // be filled now.
   q.SetLastItemPushed();
   n.WaitForNotification();
-  EXPECT_EQ(status.code(), tensorflow::error::RESOURCE_EXHAUSTED);
+  EXPECT_EQ(status.code(), absl::StatusCode::kResourceExhausted);
 }
 
 TEST(QueueTest, PopBatchReturnsInvalidArgumentIfBatchSizeTooBig) {
   Queue<int> q(3);
   std::vector<int> v;
-  EXPECT_EQ(q.PopBatch(4, &v).code(), tensorflow::error::INVALID_ARGUMENT);
+  EXPECT_EQ(q.PopBatch(4, &v).code(), absl::StatusCode::kInvalidArgument);
 }
 
 TEST(QueueTest, PopBatchReturnsCancelledIfClosedCalled) {
   Queue<int> q(3);
   absl::Notification n;
-  tensorflow::Status status;
+  absl::Status status;
 
   auto thread = internal::StartThread("", [&] {
     std::vector<int> out;
@@ -232,7 +232,7 @@ TEST(QueueTest, PopBatchReturnsCancelledIfClosedCalled) {
   // Calling `Close` should unblock the call.
   q.Close();
   n.WaitForNotification();
-  EXPECT_EQ(status.code(), tensorflow::error::CANCELLED);
+  EXPECT_EQ(status.code(), absl::StatusCode::kCancelled);
 }
 
 }  // namespace

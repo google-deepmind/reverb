@@ -22,9 +22,9 @@
 #include "absl/random/distributions.h"
 #include "absl/random/random.h"
 #include "reverb/cc/platform/hash_map.h"
+#include "reverb/cc/platform/status_matchers.h"
 #include "reverb/cc/schema.pb.h"
 #include "reverb/cc/testing/proto_test_util.h"
-#include "tensorflow/core/lib/core/status_test_util.h"
 
 namespace deepmind {
 namespace reverb {
@@ -37,35 +37,35 @@ TEST(PrioritizedSelectorTest, ReturnValueSantiyChecks) {
 
   // Non existent keys cannot be deleted or updated.
   EXPECT_EQ(prioritized.Delete(123).code(),
-            tensorflow::error::INVALID_ARGUMENT);
+            absl::StatusCode::kInvalidArgument);
   EXPECT_EQ(prioritized.Update(123, 4).code(),
-            tensorflow::error::INVALID_ARGUMENT);
+            absl::StatusCode::kInvalidArgument);
 
   // Keys cannot be inserted twice.
-  TF_EXPECT_OK(prioritized.Insert(123, 4));
+  REVERB_EXPECT_OK(prioritized.Insert(123, 4));
   EXPECT_EQ(prioritized.Insert(123, 4).code(),
-            tensorflow::error::INVALID_ARGUMENT);
+            absl::StatusCode::kInvalidArgument);
 
   // Existing keys can be updated and sampled.
-  TF_EXPECT_OK(prioritized.Update(123, 5));
+  REVERB_EXPECT_OK(prioritized.Update(123, 5));
   EXPECT_EQ(prioritized.Sample().key, 123);
 
   // Negative priorities are not allowed.
   EXPECT_EQ(prioritized.Update(123, -1).code(),
-            tensorflow::error::INVALID_ARGUMENT);
+            absl::StatusCode::kInvalidArgument);
   EXPECT_EQ(prioritized.Insert(456, -1).code(),
-            tensorflow::error::INVALID_ARGUMENT);
+            absl::StatusCode::kInvalidArgument);
 
   // NAN priorites are not allowed
   EXPECT_EQ(prioritized.Update(123, NAN).code(),
-            tensorflow::error::INVALID_ARGUMENT);
+            absl::StatusCode::kInvalidArgument);
   EXPECT_EQ(prioritized.Insert(456, NAN).code(),
-            tensorflow::error::INVALID_ARGUMENT);
+            absl::StatusCode::kInvalidArgument);
 
   // Existing keys cannot be deleted twice.
-  TF_EXPECT_OK(prioritized.Delete(123));
+  REVERB_EXPECT_OK(prioritized.Delete(123));
   EXPECT_EQ(prioritized.Delete(123).code(),
-            tensorflow::error::INVALID_ARGUMENT);
+            absl::StatusCode::kInvalidArgument);
 }
 
 TEST(PrioritizedSelectorTest, AllZeroPrioritiesResultsInUniformSampling) {
@@ -75,7 +75,7 @@ TEST(PrioritizedSelectorTest, AllZeroPrioritiesResultsInUniformSampling) {
 
   PrioritizedSelector prioritized(kInitialPriorityExponent);
   for (int i = 0; i < kItems; i++) {
-    TF_EXPECT_OK(prioritized.Insert(i, 0));
+    REVERB_EXPECT_OK(prioritized.Insert(i, 0));
   }
   std::vector<int64_t> counts(kItems);
   for (int i = 0; i < kSamples; i++) {
@@ -99,16 +99,16 @@ TEST(PrioritizedSelectorTest, SampledDistributionMatchesProbabilities) {
   absl::BitGen bit_gen_;
   for (int i = 0; i < kEnd; i++) {
     if (absl::Uniform<double>(bit_gen_, 0, 1) < 0.5) {
-      TF_EXPECT_OK(prioritized.Insert(i, i));
+      REVERB_EXPECT_OK(prioritized.Insert(i, i));
     } else {
-      TF_EXPECT_OK(prioritized.Insert(i, 123));
-      TF_EXPECT_OK(prioritized.Update(i, i));
+      REVERB_EXPECT_OK(prioritized.Insert(i, 123));
+      REVERB_EXPECT_OK(prioritized.Update(i, i));
     }
     sum += i;
   }
   // Remove the first few items.
   for (int i = 0; i < kStart; i++) {
-    TF_EXPECT_OK(prioritized.Delete(i));
+    REVERB_EXPECT_OK(prioritized.Delete(i));
     sum -= i;
   }
   // Update the priorities.
@@ -143,13 +143,13 @@ TEST(PrioritizedSelectorTest, SetsPriorityExponentInOptions) {
 TEST(PrioritizedSelector, RoundingErrors) {
   PrioritizedSelector prioritized(1.0);
 
-  TF_EXPECT_OK(prioritized.Insert(0, 1e-15));
+  REVERB_EXPECT_OK(prioritized.Insert(0, 1e-15));
   for (int i = 0; i < 10000; ++i) {
-    TF_EXPECT_OK(prioritized.Insert(i + 1, 0.3));
+    REVERB_EXPECT_OK(prioritized.Insert(i + 1, 0.3));
   }
 
   for (int i = 0; i < 10000; ++i) {
-    TF_EXPECT_OK(prioritized.Delete(i + 1));
+    REVERB_EXPECT_OK(prioritized.Delete(i + 1));
   }
 
   // The root node should now have a value of 1e-15. However, due to rounding
@@ -160,7 +160,7 @@ TEST(PrioritizedSelector, RoundingErrors) {
 TEST(PrioritizedDeathTest, ClearThenSample) {
   PrioritizedSelector prioritized(kInitialPriorityExponent);
   for (int i = 0; i < 100; i++) {
-    TF_EXPECT_OK(prioritized.Insert(i, i));
+    REVERB_EXPECT_OK(prioritized.Insert(i, i));
   }
   prioritized.Sample();
   prioritized.Clear();

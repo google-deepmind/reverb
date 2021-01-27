@@ -18,10 +18,10 @@
 #include <vector>
 
 #include "absl/random/random.h"
+#include "absl/status/status.h"
 #include "reverb/cc/checkpointing/checkpoint.pb.h"
 #include "reverb/cc/platform/hash_map.h"
 #include "reverb/cc/selectors/interface.h"
-#include "tensorflow/core/lib/core/status.h"
 
 namespace deepmind {
 namespace reverb {
@@ -45,13 +45,13 @@ class PrioritizedSelector : public ItemSelector {
   explicit PrioritizedSelector(double priority_exponent);
 
   // O(log n) time.
-  tensorflow::Status Delete(Key key) override;
+  absl::Status Delete(Key key) override;
 
   // The priority must be non-negative. O(log n) time.
-  tensorflow::Status Insert(Key key, double priority) override;
+  absl::Status Insert(Key key, double priority) override;
 
   // The priority must be non-negative. O(log n) time.
-  tensorflow::Status Update(Key key, double priority) override;
+  absl::Status Update(Key key, double priority) override;
 
   // O(log n) time.
   KeyWithProbability Sample() override;

@@ -14,20 +14,19 @@
 
 #include "reverb/cc/selectors/uniform.h"
 
+#include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 #include "reverb/cc/checkpointing/checkpoint.pb.h"
 #include "reverb/cc/platform/logging.h"
 #include "reverb/cc/schema.pb.h"
-#include "tensorflow/core/lib/core/errors.h"
-#include "tensorflow/core/lib/core/status.h"
 
 namespace deepmind {
 namespace reverb {
 
-tensorflow::Status UniformSelector::Delete(Key key) {
+absl::Status UniformSelector::Delete(Key key) {
   const auto it = key_to_index_.find(key);
   if (it == key_to_index_.end())
-    return tensorflow::errors::InvalidArgument("Key ", key, " not found.");
+    return absl::InvalidArgumentError(absl::StrCat("Key ", key, " not found."));
   const size_t index = it->second;
   key_to_index_.erase(it);
 
@@ -39,22 +38,22 @@ tensorflow::Status UniformSelector::Delete(Key key) {
   }
 
   keys_.pop_back();
-  return tensorflow::Status::OK();
+  return absl::OkStatus();
 }
 
-tensorflow::Status UniformSelector::Insert(Key key, double priority) {
+absl::Status UniformSelector::Insert(Key key, double priority) {
   const size_t index = keys_.size();
   if (!key_to_index_.emplace(key, index).second)
-    return tensorflow::errors::InvalidArgument("Key ", key,
-                                               " already inserted.");
+    return absl::InvalidArgumentError(
+        absl::StrCat("Key ", key, " already inserted."));
   keys_.push_back(key);
-  return tensorflow::Status::OK();
+  return absl::OkStatus();
 }
 
-tensorflow::Status UniformSelector::Update(Key key, double priority) {
+absl::Status UniformSelector::Update(Key key, double priority) {
   if (key_to_index_.find(key) == key_to_index_.end())
-    return tensorflow::errors::InvalidArgument("Key ", key, " not found.");
-  return tensorflow::Status::OK();
+    return absl::InvalidArgumentError(absl::StrCat("Key ", key, " not found."));
+  return absl::OkStatus();
 }
 
 ItemSelector::KeyWithProbability UniformSelector::Sample() {

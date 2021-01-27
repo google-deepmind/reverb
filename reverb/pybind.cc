@@ -17,6 +17,8 @@
 
 #include "numpy/arrayobject.h"
 #include "absl/container/inlined_vector.h"
+#include "absl/status/status.h"
+#include "absl/strings/str_cat.h"
 #include "absl/time/time.h"
 #include "absl/types/optional.h"
 #include "pybind11/numpy.h"
@@ -43,8 +45,6 @@
 
 namespace {
 
-using ::tensorflow::error::Code;
-
 struct PyDecrefDeleter {
   void operator()(PyObject *p) const { Py_DECREF(p); }
 };
@@ -53,7 +53,7 @@ Safe_PyObjectPtr make_safe(PyObject *o) { return Safe_PyObjectPtr(o); }
 
 // Converts non OK statuses to Python exceptions and throws. Does nothing for
 // OK statuses.
-inline void MaybeRaiseFromStatus(const tensorflow::Status &status) {
+inline void MaybeRaiseFromStatus(const absl::Status &status) {
   if (status.ok()) return;
 
   // TODO(b/152982733): Add tests that validates that casting behaviour is
@@ -61,20 +61,20 @@ inline void MaybeRaiseFromStatus(const tensorflow::Status &status) {
   switch (status.code()) {
 #define CODE_TO_PY_EXC(CODE, PY_EXC)                         \
   case CODE:                                                 \
-    PyErr_SetString(PY_EXC, status.error_message().c_str()); \
+    PyErr_SetString(PY_EXC, std::string(status.message()).data()); \
     break;
 
-    CODE_TO_PY_EXC(Code::INVALID_ARGUMENT, PyExc_ValueError)
-    CODE_TO_PY_EXC(Code::RESOURCE_EXHAUSTED, PyExc_IndexError)
-    CODE_TO_PY_EXC(Code::UNIMPLEMENTED, PyExc_NotImplementedError)
-    CODE_TO_PY_EXC(Code::INTERNAL, PyExc_RuntimeError)
+    CODE_TO_PY_EXC(absl::StatusCode::kInvalidArgument, PyExc_ValueError)
+    CODE_TO_PY_EXC(absl::StatusCode::kResourceExhausted, PyExc_IndexError)
+    CODE_TO_PY_EXC(absl::StatusCode::kUnimplemented, PyExc_NotImplementedError)
+    CODE_TO_PY_EXC(absl::StatusCode::kInternal, PyExc_RuntimeError)
 
     // TODO(b/154927554): Map more status codes to Python exceptions.
 
 #undef CODE_TO_PY_EXC
 
     default:
-      PyErr_SetString(PyExc_RuntimeError, status.error_message().c_str());
+      PyErr_SetString(PyExc_RuntimeError, std::string(status.message()).data());
   }
 
   throw pybind11::error_already_set();
@@ -441,10 +441,10 @@ struct type_caster<tensorflow::Tensor> {
 
 // Raise an exception if a given status is not OK, otherwise return None.
 template <>
-struct type_caster<tensorflow::Status> {
+struct type_caster<absl::Status> {
  public:
-  PYBIND11_TYPE_CASTER(tensorflow::Status, _("Status"));
-  static handle cast(tensorflow::Status status, return_value_policy, handle) {
+  PYBIND11_TYPE_CASTER(absl::Status, _("Status"));
+  static handle cast(absl::Status status, return_value_policy, handle) {
     MaybeRaiseFromStatus(status);
     return none().inc_ref();
   }
@@ -515,10 +515,11 @@ PYBIND11_MODULE(libpybind, m) {
                  if (serialized_signature) {
                    signature.emplace();
                    if (!signature->ParseFromString(*serialized_signature)) {
-                     MaybeRaiseFromStatus(tensorflow::errors::InvalidArgument(
-                         "Unable to deserialize StructuredValue from "
-                         "serialized proto bytes: '",
-                         *serialized_signature, "'"));
+                     MaybeRaiseFromStatus(
+                         absl::InvalidArgumentError(absl::StrCat(
+                             "Unable to deserialize StructuredValue from "
+                             "serialized proto bytes: '",
+                             *serialized_signature, "'")));
                      return nullptr;
                    }
                  }
@@ -556,7 +557,7 @@ PYBIND11_MODULE(libpybind, m) {
            [](Sampler *sampler) {
              std::vector<tensorflow::Tensor> sample;
              bool end_of_sequence;
-             tensorflow::Status status;
+             absl::Status status;
 
              // Release the GIL only when waiting for the call to complete. If
              // the GIL is not held when `MaybeRaiseFromStatus` is called it can
@@ -632,7 +633,7 @@ PYBIND11_MODULE(libpybind, m) {
              // the GIL is not held when `MaybeRaiseFromStatus` is called it can
              // result in segfaults as the Python exception is populated with
              // details from the status.
-             tensorflow::Status status;
+             absl::Status status;
              {
                py::gil_scoped_release g;
                status = client->ServerInfo(timeout, &info);
@@ -650,7 +651,7 @@ PYBIND11_MODULE(libpybind, m) {
            })
       .def("Checkpoint", [](Client *client) {
         std::string path;
-        tensorflow::Status status;
+        absl::Status status;
         {
           py::gil_scoped_release g;
           status = client->Checkpoint(&path);

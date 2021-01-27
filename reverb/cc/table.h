@@ -24,6 +24,7 @@
 
 #include <cstdint>
 #include "absl/base/thread_annotations.h"
+#include "absl/status/status.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/types/optional.h"
 #include "absl/types/span.h"
@@ -35,7 +36,6 @@
 #include "reverb/cc/schema.pb.h"
 #include "reverb/cc/selectors/interface.h"
 #include "reverb/cc/table_extensions/interface.h"
-#include "tensorflow/core/lib/core/status.h"
 #include "tensorflow/core/protobuf/struct.pb.h"
 
 namespace deepmind {
@@ -135,21 +135,21 @@ class Table {
   // that we insert the new item that exceeds the capacity BEFORE we run the
   // remover. This means that the newly inserted item could be deleted right
   // away.
-  tensorflow::Status InsertOrAssign(Item item);
+  absl::Status InsertOrAssign(Item item);
 
   // Inserts an item without consulting or modifying the RateLimiter about the
   // operation.
   //
   // This should ONLY be used when restoring a `Table` from a checkpoint.
-  tensorflow::Status InsertCheckpointItem(Item item);
+  absl::Status InsertCheckpointItem(Item item);
 
   // Updates the priority or deletes items in this table distribution. All
   // operations in the arguments are applied in the order that they are listed.
   // Different operations can be set at the same time. Ignores non existing keys
   // but returns any other errors. The operations might be applied partially
   // when an error occurs.
-  tensorflow::Status MutateItems(absl::Span<const KeyWithPriority> updates,
-                                 absl::Span<const Key> deletes);
+  absl::Status MutateItems(absl::Span<const KeyWithPriority> updates,
+                           absl::Span<const Key> deletes);
 
   // Attempts to sample an item from table with the sampling
   // strategy passed to the constructor. We only allow the sample operation if
@@ -157,8 +157,8 @@ class Table {
   // `max_times_sampled_`, then we delete it before returning so it cannot be
   // sampled again.  If `Sample` waits for `rate_limiter_` for longer than
   // `timeout`, instead of sampling a `DeadlineExceeded` status is returned.
-  tensorflow::Status Sample(SampledItem* item,
-                            absl::Duration timeout = kDefaultTimeout);
+  absl::Status Sample(SampledItem* item,
+                      absl::Duration timeout = kDefaultTimeout);
 
   // Attempts to sample up to `batch_size` items (without releasing the lock).
   //
@@ -179,9 +179,9 @@ class Table {
   // operation to be "approved" by the rate limiter. The remaining items of the
   // batch will only be added if these can proceeed without releasing the lock
   // and awaiting state changes in the rate limiter.
-  tensorflow::Status SampleFlexibleBatch(
-      std::vector<SampledItem>* items, int batch_size,
-      absl::Duration timeout = kDefaultTimeout);
+  absl::Status SampleFlexibleBatch(std::vector<SampledItem>* items,
+                                   int batch_size,
+                                   absl::Duration timeout = kDefaultTimeout);
 
   // Returns true iff the current state would allow for `num_samples` to be
   // sampled. Dies if `num_samples` is < 1.
@@ -225,7 +225,7 @@ class Table {
       ABSL_ASSERT_EXCLUSIVE_LOCK(mu_);
 
   // Removes all items and resets the RateLimiter to its initial state.
-  tensorflow::Status Reset();
+  absl::Status Reset();
 
   // Generate a checkpoint from the table's current state.
   CheckpointAndChunks Checkpoint() ABSL_LOCKS_EXCLUDED(mu_);
@@ -265,7 +265,7 @@ class Table {
   void Close();
 
   // Asserts that `mu_` is held at runtime and calls UpdateItem.
-  tensorflow::Status UnsafeUpdateItem(
+  absl::Status UnsafeUpdateItem(
       Key key, double priority, std::initializer_list<TableExtension*> exclude)
       ABSL_ASSERT_EXCLUSIVE_LOCK(mu_);
 
@@ -278,7 +278,7 @@ class Table {
  private:
   // Updates item priority in `data_`, `samper_`, `remover_` and calls
   // `OnUpdate` on all extensions not part of `exclude`.
-  tensorflow::Status UpdateItem(
+  absl::Status UpdateItem(
       Key key, double priority,
       std::initializer_list<TableExtension*> exclude = {})
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_);
@@ -288,7 +288,7 @@ class Table {
   //
   // The deleted item is returned in order to allow the deallocation of the
   // underlying item to be postponed until the lock has been released.
-  tensorflow::Status DeleteItem(Key key, Item* deleted_item)
+  absl::Status DeleteItem(Key key, Item* deleted_item)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_);
 
   // Distribution used for sampling.

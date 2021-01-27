@@ -24,6 +24,7 @@
 
 #include "absl/base/attributes.h"
 #include <cstdint>
+#include "absl/status/status.h"
 #include "absl/time/time.h"
 #include "reverb/cc/platform/thread.h"
 #include "reverb/cc/reverb_service.grpc.pb.h"
@@ -31,7 +32,6 @@
 #include "reverb/cc/support/signature.h"
 #include "reverb/cc/table.h"
 #include "tensorflow/core/framework/tensor.h"
-#include "tensorflow/core/lib/core/status.h"
 
 namespace deepmind {
 namespace reverb {
@@ -69,7 +69,7 @@ class Sample {
   //   a tensor of shape [N, ...original_shape]. The following four tensors are
   //   1D (length N) tensors representing the key, sample probability, table
   //   size and priority respectively.
-  tensorflow::Status AsBatchedTimesteps(std::vector<tensorflow::Tensor>* data);
+  absl::Status AsBatchedTimesteps(std::vector<tensorflow::Tensor>* data);
 
   // Returns true if the end of the sample has been reached.
   ABSL_MUST_USE_RESULT bool is_end_of_sample() const;
@@ -114,7 +114,7 @@ class SamplerWorker {
 
   // Attempt to sample up to `num_samples` and push results to `queue`. Returns
   // when `num_samples` pushed to `queue` or error encountered.
-  virtual std::pair<int64_t, tensorflow::Status> FetchSamples(
+  virtual std::pair<int64_t, absl::Status> FetchSamples(
       internal::Queue<std::unique_ptr<Sample>>* queue, int64_t num_samples,
       absl::Duration rate_limiter_timeout) = 0;
 };
@@ -228,7 +228,7 @@ class Sampler {
 
     // Checks that field values are valid and returns `InvalidArgument` if any
     // field value invalid.
-    tensorflow::Status Validate() const;
+    absl::Status Validate() const;
   };
 
   // Constructs a new `Sampler` using gRPC streams.
@@ -254,12 +254,12 @@ class Sampler {
 
   // Blocks until a timestep has been retrieved or until a non transient error
   // is encountered or `Close` has been called.
-  tensorflow::Status GetNextTimestep(std::vector<tensorflow::Tensor>* data,
-                                     bool* end_of_sequence);
+  absl::Status GetNextTimestep(std::vector<tensorflow::Tensor>* data,
+                               bool* end_of_sequence);
 
   // Blocks until a complete sample has been retrieved or until a non transient
   // error is encountered or `Close` has been called.
-  tensorflow::Status GetNextSample(std::vector<tensorflow::Tensor>* data);
+  absl::Status GetNextSample(std::vector<tensorflow::Tensor>* data);
 
   // Cancels all workers and joins their threads. Any blocking or future call
   // to `GetNextTimestep` or `GetNextSample` will return CancelledError without
@@ -279,20 +279,20 @@ class Sampler {
   // `data` is the data received by GetNextTimeStep or GetNextSample.
   // `time_step` is `true` if `GetNextTimeStep` is the caller and `false`
   //   if `GetNextSample` is the caller.
-  tensorflow::Status ValidateAgainstOutputSpec(
+  absl::Status ValidateAgainstOutputSpec(
       const std::vector<tensorflow::Tensor>& data, bool time_step);
 
   void RunWorker(SamplerWorker* worker) ABSL_LOCKS_EXCLUDED(mu_);
 
   // If `active_sample_` has been read, blocks until a sample has been retrieved
   // (popped from `samples_`) and populates `active_sample_`.
-  tensorflow::Status MaybeSampleNext();
+  absl::Status MaybeSampleNext();
 
   // Blocks until a complete sample has been retrieved or until a non transient
   // error is encountered or `Close` has been called. Note that this method does
   // NOT increment `returned_`. This is left to `GetNextTimestep` and
   // `GetNextSample`. The returned pointer is only valid if the status is OK.
-  tensorflow::Status PopNextSample(std::unique_ptr<Sample>* sample);
+  absl::Status PopNextSample(std::unique_ptr<Sample>* sample);
 
   // True if the workers should be shut down. This is the case when either:
   //  - `Close` has been called.
@@ -334,7 +334,7 @@ class Sampler {
   std::vector<std::unique_ptr<internal::Thread>> worker_threads_;
 
   // OK or the first non transient error encountered by a worker.
-  tensorflow::Status worker_status_ ABSL_GUARDED_BY(mu_);
+  absl::Status worker_status_ ABSL_GUARDED_BY(mu_);
 
   // Remaining timesteps of the currently active sample. Not that this is not
   // protected by mutex as concurrent calls to `GetNextTimestep` is not

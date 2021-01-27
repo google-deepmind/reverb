@@ -15,7 +15,6 @@
 #include "reverb/cc/errors.h"
 
 #include "absl/strings/match.h"
-#include "tensorflow/core/platform/errors.h"
 
 namespace deepmind {
 namespace reverb {
@@ -28,14 +27,13 @@ constexpr auto kTimeoutExceededErrorMessage =
 
 }  // namespace
 
-tensorflow::Status RateLimiterTimeout() {
-  return tensorflow::errors::DeadlineExceeded(kTimeoutExceededErrorMessage);
+absl::Status RateLimiterTimeout() {
+  return absl::DeadlineExceededError(kTimeoutExceededErrorMessage);
 }
 
-bool IsRateLimiterTimeout(tensorflow::Status status) {
-  return tensorflow::errors::IsDeadlineExceeded(status) &&
-         absl::StrContains(status.error_message(),
-                           kTimeoutExceededErrorMessage);
+bool IsRateLimiterTimeout(absl::Status status) {
+  return absl::IsDeadlineExceeded(status) &&
+         absl::StrContains(status.message(), kTimeoutExceededErrorMessage);
 }
 
 }  // namespace errors

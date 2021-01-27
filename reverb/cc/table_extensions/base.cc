@@ -14,24 +14,25 @@
 
 #include "reverb/cc/table_extensions/base.h"
 
+#include "absl/status/status.h"
+#include "absl/strings/str_cat.h"
 #include "reverb/cc/platform/logging.h"
 #include "reverb/cc/table.h"
-#include "tensorflow/core/platform/errors.h"
 
 namespace deepmind {
 namespace reverb {
 
-tensorflow::Status TableExtensionBase::RegisterTable(absl::Mutex* mu,
-                                                     Table* table) {
+absl::Status TableExtensionBase::RegisterTable(absl::Mutex* mu, Table* table) {
   absl::MutexLock lock(&table_mu_);
   if (table_) {
-    return tensorflow::errors::FailedPrecondition(
-        "Attempting to registering a table ", table, " (name: ", table->name(),
-        ") with extension that has already been ", "registered with: ", table_,
-        " (name: ", table->name(), ")");
+    return absl::FailedPreconditionError(absl::StrCat(
+        "Attempting to registering a table ", absl::Hex(table),
+        " (name: ", table->name(), ") with extension that has already been ",
+        "registered with: ", absl::Hex(table_), " (name: ", table->name(),
+        ")"));
   }
   table_ = table;
-  return tensorflow::Status::OK();
+  return absl::OkStatus();
 }
 
 void TableExtensionBase::UnregisterTable(absl::Mutex* mu, Table* table) {

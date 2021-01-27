@@ -19,10 +19,10 @@
 #include <string>
 
 #include "absl/base/thread_annotations.h"
+#include "absl/status/status.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/time/time.h"
 #include "reverb/cc/platform/thread.h"
-#include "tensorflow/core/lib/core/status.h"
 
 namespace deepmind {
 namespace reverb {
@@ -77,15 +77,15 @@ class PeriodicClosure {
 
   // Starts the background thread that will be calling the closure.
   //
-  // Returns InvalidArgument if called more than once.
-  tensorflow::Status Start();
+  // Returns InvalidArgumentError if called more than once.
+  absl::Status Start();
 
   // Waits for active closure call (if any) to complete and joins background
   // thread. Must be called before object is destroyed and `Start` has been
   // called.
   //
-  // Returns InvalidArgument if called more than once.
-  tensorflow::Status Stop();
+  // Returns InvalidArgumentError if called more than once.
+  absl::Status Stop();
 
   // PeriodicClosure is neither copyable nor movable.
   PeriodicClosure(const PeriodicClosure&) = delete;

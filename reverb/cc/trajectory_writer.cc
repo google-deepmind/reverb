@@ -22,12 +22,14 @@
 #include "absl/memory/memory.h"
 #include "absl/random/distributions.h"
 #include "absl/random/random.h"
+#include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/time/time.h"
 #include "absl/types/optional.h"
 #include "reverb/cc/platform/hash_set.h"
 #include "reverb/cc/platform/logging.h"
+#include "reverb/cc/platform/status_macros.h"
 #include "reverb/cc/platform/thread.h"
 #include "reverb/cc/reverb_service.grpc.pb.h"
 #include "reverb/cc/reverb_service.pb.h"
@@ -35,12 +37,11 @@
 #include "reverb/cc/support/cleanup.h"
 #include "reverb/cc/support/grpc_util.h"
 #include "reverb/cc/support/signature.h"
+#include "reverb/cc/support/tf_util.h"
 #include "reverb/cc/tensor_compression.h"
 #include "tensorflow/core/framework/tensor.h"
 #include "tensorflow/core/framework/tensor_util.h"
 #include "tensorflow/core/framework/types.h"
-#include "tensorflow/core/platform/errors.h"
-#include "tensorflow/core/platform/status.h"
 
 namespace deepmind {
 namespace reverb {
@@ -153,32 +154,32 @@ Chunker::Chunker(internal::TensorSpec spec, int max_chunk_length,
   Reset();
 }
 
-tensorflow::Status Chunker::Append(tensorflow::Tensor tensor,
+absl::Status Chunker::Append(tensorflow::Tensor tensor,
                                    CellRef::EpisodeInfo episode_info,
                                    std::weak_ptr<CellRef>* ref) {
   if (tensor.dtype() != spec_.dtype) {
-    return tensorflow::errors::InvalidArgument(
+    return absl::InvalidArgumentError(absl::StrCat(
         "Tensor of wrong dtype provided for column ", spec_.name, ". Got ",
         tensorflow::DataTypeString(tensor.dtype()), " but expected ",
-        tensorflow::DataTypeString(spec_.dtype), ".");
+        tensorflow::DataTypeString(spec_.dtype), "."));
   }
   if (!spec_.shape.IsCompatibleWith(tensor.shape())) {
-    return tensorflow::errors::InvalidArgument(
+    return absl::InvalidArgumentError(absl::StrCat(
         "Tensor of incompatible shape provided for column ", spec_.name,
         ". Got ", tensor.shape().DebugString(), " which is incompatible with ",
-        spec_.shape.DebugString(), ".");
+        spec_.shape.DebugString(), "."));
   }
 
   absl::MutexLock lock(&mu_);
 
   if (!buffer_.empty() &&
       active_refs_.back()->episode_id() != episode_info.episode_id) {
-    return tensorflow::errors::FailedPrecondition(
+    return absl::FailedPreconditionError(
         "Chunker::Append called with new episode when buffer non empty.");
   }
   if (!buffer_.empty() &&
       active_refs_.back()->episode_step() >= episode_info.step) {
-    return tensorflow::errors::FailedPrecondition(
+    return absl::FailedPreconditionError(
         "Chunker::Append called with an episode step which was not greater "
         "than already observed.");
   }
@@ -189,7 +190,7 @@ tensorflow::Status Chunker::Append(tensorflow::Tensor tensor,
 
   // Create the chunk if max buffer size reached.
   if (buffer_.size() == max_chunk_length_) {
-    TF_RETURN_IF_ERROR(FlushLocked());
+    REVERB_RETURN_IF_ERROR(FlushLocked());
   }
 
   // Delete references which which have exceeded their max age.
@@ -199,7 +200,7 @@ tensorflow::Status Chunker::Append(tensorflow::Tensor tensor,
 
   *ref = active_refs_.back();
 
-  return tensorflow::Status::OK();
+  return absl::OkStatus();
 }
 
 std::vector<uint64_t> Chunker::GetKeepKeys() const {
@@ -213,19 +214,20 @@ std::vector<uint64_t> Chunker::GetKeepKeys() const {
   return keys;
 }
 
-tensorflow::Status Chunker::Flush() {
+absl::Status Chunker::Flush() {
   absl::MutexLock lock(&mu_);
   return FlushLocked();
 }
 
-tensorflow::Status Chunker::FlushLocked() {
-  if (buffer_.empty()) return tensorflow::Status::OK();
+absl::Status Chunker::FlushLocked() {
+  if (buffer_.empty()) return absl::OkStatus();
 
   auto chunk = std::make_shared<ChunkData>();
   chunk->set_chunk_key(next_chunk_key_);
 
   tensorflow::Tensor batched;
-  TF_RETURN_IF_ERROR(tensorflow::tensor::Concat(buffer_, &batched));
+  REVERB_RETURN_IF_ERROR(
+      FromTensorflowStatus(tensorflow::tensor::Concat(buffer_, &batched)));
   CompressTensorAsProto(batched, chunk->mutable_data()->add_tensors());
 
   for (auto& ref : active_refs_) {
@@ -255,7 +257,7 @@ tensorflow::Status Chunker::FlushLocked() {
   next_chunk_key_ = NewKey();
   offset_ = 0;
 
-  return tensorflow::Status::OK();
+  return absl::OkStatus();
 }
 
 void Chunker::Reset() {
@@ -285,12 +287,12 @@ TrajectoryWriter::TrajectoryWriter(
               absl::MutexLock lock(&mu_);
 
               if (closed_) {
-                unrecoverable_status_ = tensorflow::errors::Cancelled(
+                unrecoverable_status_ = absl::CancelledError(
                     "TrajectoryWriter::Close has been called.");
                 return;
               }
 
-              if (!status.ok() && !tensorflow::errors::IsUnavailable(status)) {
+              if (!status.ok() && !absl::IsUnavailable(status)) {
                 unrecoverable_status_ = status;
                 return;
               }
@@ -311,13 +313,13 @@ TrajectoryWriter::~TrajectoryWriter() {
   Close();
 }
 
-tensorflow::Status TrajectoryWriter::Append(
+absl::Status TrajectoryWriter::Append(
     std::vector<absl::optional<tensorflow::Tensor>> data,
     std::vector<absl::optional<std::weak_ptr<CellRef>>>* refs) {
   CellRef::EpisodeInfo episode_info;
   {
     absl::MutexLock lock(&mu_);
-    TF_RETURN_IF_ERROR(unrecoverable_status_);
+    REVERB_RETURN_IF_ERROR(unrecoverable_status_);
     episode_info = {episode_id_, episode_step_};
   }
 
@@ -341,7 +343,7 @@ tensorflow::Status TrajectoryWriter::Append(
     }
 
     std::weak_ptr<CellRef> ref;
-    TF_RETURN_IF_ERROR(
+    REVERB_RETURN_IF_ERROR(
         chunkers_[i]->Append(std::move(data[i].value()), episode_info, &ref));
     refs->push_back(std::move(ref));
   }
@@ -358,15 +360,15 @@ tensorflow::Status TrajectoryWriter::Append(
   // incomplete chunks
   data_cv_.Signal();
 
-  return tensorflow::Status::OK();
+  return absl::OkStatus();
 }
 
-tensorflow::Status TrajectoryWriter::InsertItem(
+absl::Status TrajectoryWriter::InsertItem(
     absl::string_view table, double priority,
     const std::vector<std::vector<std::weak_ptr<CellRef>>>& trajectory) {
   {
     absl::MutexLock lock(&mu_);
-    TF_RETURN_IF_ERROR(unrecoverable_status_);
+    REVERB_RETURN_IF_ERROR(unrecoverable_status_);
   }
 
   ItemAndRefs item_and_refs;
@@ -381,7 +383,7 @@ tensorflow::Status TrajectoryWriter::InsertItem(
     for (auto& ref : col) {
       auto sp = ref.lock();
       if (!sp) {
-        return tensorflow::errors::InvalidArgument(
+        return absl::InvalidArgumentError(
             "Trajectory contains expired CellRef.");
       }
       item_and_refs.refs.push_back(std::move(sp));
@@ -392,18 +394,17 @@ tensorflow::Status TrajectoryWriter::InsertItem(
     for (int ref_idx = 1; ref_idx < col.size(); ++ref_idx) {
       const auto& spec = col[ref_idx].lock()->chunker()->spec();
       if (spec.dtype != col_spec.dtype) {
-        return tensorflow::errors::InvalidArgument(
+        return absl::InvalidArgumentError(absl::StrCat(
             "Column ", col_idx, " references tensors with different dtypes: ",
-            tensorflow::DataTypeString(col_spec.dtype),
-            " (index 0) != ", tensorflow::DataTypeString(spec.dtype),
-            " (index ", ref_idx, ").");
+            tensorflow::DataTypeString(col_spec.dtype), " (index 0) != ",
+            tensorflow::DataTypeString(spec.dtype), " (index ", ref_idx, ")."));
       }
       if (!spec.shape.IsCompatibleWith(col_spec.shape)) {
-        return tensorflow::errors::InvalidArgument(
+        return absl::InvalidArgumentError(absl::StrCat(
             "Column ", col_idx,
             " references tensors with incompatible shapes: ",
             col_spec.shape.DebugString(), " (index 0) not compatible with ",
-            spec.shape.DebugString(), " (index ", ref_idx, ").");
+            spec.shape.DebugString(), " (index ", ref_idx, ")."));
       }
     }
   }
@@ -426,7 +427,7 @@ tensorflow::Status TrajectoryWriter::InsertItem(
     write_queue_.push_back(std::move(item_and_refs));
   }
 
-  return tensorflow::Status::OK();
+  return absl::OkStatus();
 }
 
 void TrajectoryWriter::Close() {
@@ -521,7 +522,7 @@ internal::flat_hash_set<uint64_t> TrajectoryWriter::GetKeepKeys(
   return keys;
 }
 
-tensorflow::Status TrajectoryWriter::RunStreamWorker() {
+absl::Status TrajectoryWriter::RunStreamWorker() {
   auto stream = SetContextAndCreateStream();
 
   auto reader = internal::StartThread("TrajectoryWriter_ReaderWorker", [&] {
@@ -595,22 +596,22 @@ tensorflow::Status TrajectoryWriter::RunStreamWorker() {
     }
   }
 
-  return tensorflow::Status::OK();
+  return absl::OkStatus();
 }
 
-tensorflow::Status TrajectoryWriter::Flush(absl::Duration timeout) {
+absl::Status TrajectoryWriter::Flush(absl::Duration timeout) {
   absl::MutexLock lock(&mu_);
   return FlushLocked(timeout);
 }
 
-tensorflow::Status TrajectoryWriter::FlushLocked(absl::Duration timeout) {
+absl::Status TrajectoryWriter::FlushLocked(absl::Duration timeout) {
   // If items are referencing any data which has not yet been finalized into a
   // `ChunkData` then force the chunk to be created prematurely. This will allow
   // the worker to write all items to the stream.
   for (const auto& item : write_queue_) {
     for (auto& ref : item.refs) {
       if (!ref->IsReady()) {
-        TF_RETURN_IF_ERROR(ref->chunker()->Flush());
+        REVERB_RETURN_IF_ERROR(ref->chunker()->Flush());
       }
     }
   }
@@ -630,22 +631,22 @@ tensorflow::Status TrajectoryWriter::FlushLocked(absl::Duration timeout) {
               },
               this),
           timeout)) {
-    return tensorflow::errors::DeadlineExceeded(
-        "Timeout exceeded with ", write_queue_.size(),
-        " items waiting to be written and ", in_flight_items_.size(),
-        " items awaiting confirmation.");
+    return absl::DeadlineExceededError(
+        absl::StrCat("Timeout exceeded with ", write_queue_.size(),
+                     " items waiting to be written and ",
+                     in_flight_items_.size(), " items awaiting confirmation."));
   }
 
-  TF_RETURN_IF_ERROR(unrecoverable_status_);
-  return tensorflow::Status::OK();
+  REVERB_RETURN_IF_ERROR(unrecoverable_status_);
+  return absl::OkStatus();
 }
 
-tensorflow::Status TrajectoryWriter::EndEpisode(bool clear_buffers,
+absl::Status TrajectoryWriter::EndEpisode(bool clear_buffers,
                                                 absl::Duration timeout) {
   absl::MutexLock lock(&mu_);
-  TF_RETURN_IF_ERROR(unrecoverable_status_);
+  REVERB_RETURN_IF_ERROR(unrecoverable_status_);
 
-  TF_RETURN_IF_ERROR(FlushLocked(timeout));
+  REVERB_RETURN_IF_ERROR(FlushLocked(timeout));
 
   for (auto& it : chunkers_) {
     if (clear_buffers) {
@@ -654,13 +655,13 @@ tensorflow::Status TrajectoryWriter::EndEpisode(bool clear_buffers,
       // This call should NEVER fail but if it does then we will not be able to
       // recover from it.
       unrecoverable_status_ = it.second->Flush();
-      TF_RETURN_IF_ERROR(unrecoverable_status_);
+      REVERB_RETURN_IF_ERROR(unrecoverable_status_);
     }
   }
 
   episode_id_ = NewKey();
   episode_step_ = 0;
-  return tensorflow::Status::OK();
+  return absl::OkStatus();
 }
 
 }  // namespace reverb

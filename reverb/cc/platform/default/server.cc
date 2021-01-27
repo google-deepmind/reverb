@@ -23,6 +23,7 @@
 #include "reverb/cc/client.h"
 #include "reverb/cc/platform/grpc_utils.h"
 #include "reverb/cc/platform/logging.h"
+#include "reverb/cc/platform/status_macros.h"
 #include "reverb/cc/reverb_service_impl.h"
 
 namespace deepmind {
@@ -33,11 +34,11 @@ class ServerImpl : public Server {
  public:
   ServerImpl(int port) : port_(port) {}
 
-  tensorflow::Status Initialize(std::vector<std::shared_ptr<Table>> tables,
-                                std::shared_ptr<Checkpointer> checkpointer) {
+  absl::Status Initialize(std::vector<std::shared_ptr<Table>> tables,
+                          std::shared_ptr<Checkpointer> checkpointer) {
     absl::WriterMutexLock lock(&mu_);
     REVERB_CHECK(!running_) << "Initialize() called twice?";
-    TF_RETURN_IF_ERROR(ReverbServiceImpl::Create(
+    REVERB_RETURN_IF_ERROR(ReverbServiceImpl::Create(
         std::move(tables), std::move(checkpointer), &reverb_service_));
     server_ = grpc::ServerBuilder()
                   .AddListeningPort(absl::StrCat("[::]:", port_),
@@ -47,12 +48,11 @@ class ServerImpl : public Server {
                   .SetMaxReceiveMessageSize(kMaxMessageSize)
                   .BuildAndStart();
     if (!server_) {
-      return tensorflow::errors::InvalidArgument(
-          "Failed to BuildAndStart gRPC server");
+      return absl::InvalidArgumentError("Failed to BuildAndStart gRPC server");
     }
     running_ = true;
     REVERB_LOG(REVERB_INFO) << "Started replay server on port " << port_;
-    return tensorflow::Status::OK();
+    return absl::OkStatus();
   }
 
   ~ServerImpl() override { Stop(); }
@@ -102,14 +102,14 @@ class ServerImpl : public Server {
 
 }  // namespace
 
-tensorflow::Status StartServer(std::vector<std::shared_ptr<Table>> tables,
-                               int port,
-                               std::shared_ptr<Checkpointer> checkpointer,
-                               std::unique_ptr<Server> *server) {
+absl::Status StartServer(std::vector<std::shared_ptr<Table>> tables, int port,
+                         std::shared_ptr<Checkpointer> checkpointer,
+                         std::unique_ptr<Server> *server) {
   auto s = absl::make_unique<ServerImpl>(port);
-  TF_RETURN_IF_ERROR(s->Initialize(std::move(tables), std::move(checkpointer)));
+  REVERB_RETURN_IF_ERROR(
+      s->Initialize(std::move(tables), std::move(checkpointer)));
   *server = std::move(s);
-  return tensorflow::Status::OK();
+  return absl::OkStatus();
 }
 
 }  // namespace reverb

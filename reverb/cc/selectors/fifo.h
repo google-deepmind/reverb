@@ -20,7 +20,6 @@
 #include "reverb/cc/checkpointing/checkpoint.pb.h"
 #include "reverb/cc/platform/hash_map.h"
 #include "reverb/cc/selectors/interface.h"
-#include "tensorflow/core/lib/core/status.h"
 
 namespace deepmind {
 namespace reverb {
@@ -31,13 +30,13 @@ namespace reverb {
 // about the methods.
 class FifoSelector : public ItemSelector {
  public:
-  tensorflow::Status Delete(Key key) override;
+  absl::Status Delete(Key key) override;
 
   // The priority is ignored.
-  tensorflow::Status Insert(Key key, double priority) override;
+  absl::Status Insert(Key key, double priority) override;
 
   // This is a no-op but will return an error if the key does not exist.
-  tensorflow::Status Update(Key key, double priority) override;
+  absl::Status Update(Key key, double priority) override;
 
   KeyWithProbability Sample() override;
 

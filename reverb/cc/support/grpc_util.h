@@ -17,6 +17,7 @@
 
 #include "grpcpp/grpcpp.h"
 #include "grpcpp/impl/codegen/proto_utils.h"
+#include "absl/status/status.h"
 #include "absl/strings/string_view.h"
 #include "absl/strings/substitute.h"
 #include "tensorflow/core/lib/core/error_codes.pb.h"
@@ -40,24 +41,23 @@ inline bool IsStreamRemovedError(const ::grpc::Status& s) {
          s.error_message() == kStreamRemovedMessage;
 }
 
-inline grpc::Status ToGrpcStatus(const tensorflow::Status& s) {
+inline grpc::Status ToGrpcStatus(const absl::Status& s) {
   if (s.ok()) return grpc::Status::OK;
 
   return grpc::Status(static_cast<grpc::StatusCode>(s.code()),
-                      s.error_message());
+                      std::string(s.message()));
 }
 
-inline tensorflow::Status FromGrpcStatus(const grpc::Status& s) {
-  if (s.ok()) return tensorflow::Status::OK();
+inline absl::Status FromGrpcStatus(const grpc::Status& s) {
+  if (s.ok()) return absl::OkStatus();
 
   // Convert "UNKNOWN" stream removed errors into unavailable, to allow
   // for retry upstream.
   if (IsStreamRemovedError(s)) {
-    return tensorflow::Status(tensorflow::error::UNAVAILABLE,
-                              s.error_message());
+    return absl::UnavailableError(s.error_message());
   }
-  return tensorflow::Status(
-      static_cast<tensorflow::error::Code>(s.error_code()), s.error_message());
+  return absl::Status(
+      static_cast<absl::StatusCode>(s.error_code()), s.error_message());
 }
 
 inline std::string FormatGrpcStatus(const grpc::Status& s) {

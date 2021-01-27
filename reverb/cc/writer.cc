@@ -22,21 +22,22 @@
 
 #include "absl/base/thread_annotations.h"
 #include "absl/functional/bind_front.h"
+#include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 #include "absl/synchronization/mutex.h"
 #include "reverb/cc/platform/hash_set.h"
 #include "reverb/cc/platform/logging.h"
+#include "reverb/cc/platform/status_macros.h"
 #include "reverb/cc/platform/thread.h"
 #include "reverb/cc/reverb_service.pb.h"
 #include "reverb/cc/schema.pb.h"
 #include "reverb/cc/support/grpc_util.h"
 #include "reverb/cc/support/signature.h"
+#include "reverb/cc/support/tf_util.h"
 #include "reverb/cc/support/trajectory_util.h"
 #include "reverb/cc/tensor_compression.h"
 #include "tensorflow/core/framework/tensor.h"
 #include "tensorflow/core/framework/tensor_util.h"
-#include "tensorflow/core/lib/core/status.h"
-#include "tensorflow/core/platform/errors.h"
 
 namespace deepmind {
 namespace reverb {
@@ -77,15 +78,16 @@ Writer::~Writer() {
   if (!closed_) Close().IgnoreError();
 }
 
-tensorflow::Status Writer::Append(std::vector<tensorflow::Tensor> data) {
+absl::Status Writer::Append(std::vector<tensorflow::Tensor> data) {
   if (closed_) {
-    return tensorflow::errors::FailedPrecondition(
+    return absl::FailedPreconditionError(
         "Calling method Append after Close has been called");
   }
   if (!buffer_.empty() && buffer_.front().size() != data.size()) {
-    return tensorflow::errors::InvalidArgument(
-        "Number of tensors per timestep was inconsistent. Previously it was ",
-        buffer_.front().size(), ", but is now ", data.size(), ".");
+    return absl::InvalidArgumentError(absl::StrCat(
+        "Number of tensors per timestep was "
+        "inconsistent. Previously it was ",
+        buffer_.front().size(), ", but is now ", data.size(), "."));
   }
 
   // Store flattened signature into inserted_dtypes_and_shapes_
@@ -101,7 +103,7 @@ tensorflow::Status Writer::Append(std::vector<tensorflow::Tensor> data) {
       (insert_dtypes_and_shapes_location_ + 1) % max_timesteps_;
 
   buffer_.push_back(std::move(data));
-  if (buffer_.size() < chunk_length_) return tensorflow::Status::OK();
+  if (buffer_.size() < chunk_length_) return absl::OkStatus();
 
   auto status = Finish(/*retry_on_unavailable=*/true);
   if (!status.ok()) {
@@ -115,21 +117,20 @@ tensorflow::Status Writer::Append(std::vector<tensorflow::Tensor> data) {
   return status;
 }
 
-tensorflow::Status Writer::AppendSequence(
-    std::vector<tensorflow::Tensor> sequence) {
+absl::Status Writer::AppendSequence(std::vector<tensorflow::Tensor> sequence) {
   if (sequence.empty()) {
-    return tensorflow::errors::InvalidArgument(
-        "AppendSequence called with empty data.");
+    return absl::InvalidArgumentError("AppendSequence called with empty data.");
   }
   for (int i = 0; i < sequence.size(); i++) {
     if (sequence[i].shape().dims() == 0) {
-      return tensorflow::errors::InvalidArgument(
-          "AppendSequence called with scalar tensor at index ", i, ".");
+      return absl::InvalidArgumentError(absl::StrCat(
+          "AppendSequence called with scalar tensor at index ", i, "."));
     }
     if (sequence[i].shape().dim_size(0) != sequence[0].shape().dim_size(0)) {
-      return tensorflow::errors::InvalidArgument(
-          "AppendSequence called with tensors of non equal batch dimension: ",
-          internal::DtypesShapesString(sequence), ".");
+      return absl::InvalidArgumentError(
+          absl::StrCat("AppendSequence called with tensors of non equal batch "
+                       "dimension: ",
+                       internal::DtypesShapesString(sequence), "."));
     }
   }
 
@@ -139,30 +140,30 @@ tensorflow::Status Writer::AppendSequence(
     for (const auto& column : sequence) {
       step.push_back(column.SubSlice(i));
     }
-    TF_RETURN_IF_ERROR(Append(std::move(step)));
+    REVERB_RETURN_IF_ERROR(Append(std::move(step)));
   }
 
-  return tensorflow::Status::OK();
+  return absl::OkStatus();
 }
 
-tensorflow::Status Writer::CreateItem(const std::string& table,
-                                      int num_timesteps, double priority) {
+absl::Status Writer::CreateItem(const std::string& table, int num_timesteps,
+                                double priority) {
   if (closed_) {
-    return tensorflow::errors::FailedPrecondition(
+    return absl::FailedPreconditionError(
         "Calling method CreateItem after Close has been called");
   }
   if (num_timesteps > chunks_.size() * chunk_length_ + buffer_.size()) {
-    return tensorflow::errors::InvalidArgument(
+    return absl::InvalidArgumentError(
         "Argument `num_timesteps` is larger than number of buffered "
         "timesteps.");
   }
   if (num_timesteps > max_timesteps_) {
-    return tensorflow::errors::InvalidArgument(
+    return absl::InvalidArgumentError(
         "`num_timesteps` must be <= `max_timesteps`");
   }
 
   const internal::DtypesAndShapes* dtypes_and_shapes = nullptr;
-  TF_RETURN_IF_ERROR(GetFlatSignature(table, &dtypes_and_shapes));
+  REVERB_RETURN_IF_ERROR(GetFlatSignature(table, &dtypes_and_shapes));
   CHECK(dtypes_and_shapes != nullptr);
   if (dtypes_and_shapes->has_value()) {
     for (int t = 0; t < num_timesteps; ++t) {
@@ -173,14 +174,15 @@ tensorflow::Status Writer::CreateItem(const std::string& table,
       const auto& dtypes_and_shapes_t =
           inserted_dtypes_and_shapes_[check_offset];
       if (!dtypes_and_shapes_t.has_value()) {
-        return tensorflow::errors::Internal(
-            "Unexpected missing dtypes and shapes while calling CreateItem: "
-            "expected a value at index ",
-            check_offset, " (timestep offset ", t, ")");
+        return absl::InternalError(
+            absl::StrCat("Unexpected missing dtypes and shapes while calling "
+                         "CreateItem: "
+                         "expected a value at index ",
+                         check_offset, " (timestep offset ", t, ")"));
       }
 
       if (dtypes_and_shapes_t->size() != (*dtypes_and_shapes)->size()) {
-        return tensorflow::errors::InvalidArgument(
+        return absl::InvalidArgumentError(absl::StrCat(
             "Unable to CreateItem in table '", table,
             "' because Append was called with a tensor signature "
             "inconsistent with table signature.  Append for timestep "
@@ -190,7 +192,7 @@ tensorflow::Status Writer::CreateItem(const std::string& table,
             " tensors per entry.  Table signature: ",
             internal::DtypesShapesString(**dtypes_and_shapes),
             ", data signature: ",
-            internal::DtypesShapesString(*dtypes_and_shapes_t), ".");
+            internal::DtypesShapesString(*dtypes_and_shapes_t), "."));
       }
 
       for (int c = 0; c < dtypes_and_shapes_t->size(); ++c) {
@@ -199,7 +201,7 @@ tensorflow::Status Writer::CreateItem(const std::string& table,
         if (seen_dtype_and_shape.dtype != signature_dtype_and_shape.dtype ||
             !signature_dtype_and_shape.shape.IsCompatibleWith(
                 seen_dtype_and_shape.shape)) {
-          return tensorflow::errors::InvalidArgument(
+          return absl::InvalidArgumentError(absl::StrCat(
               "Unable to CreateItem in table '", table,
               "' because Append was called with a tensor signature "
               "inconsistent with the table signature. At timestep offset ",
@@ -213,7 +215,7 @@ tensorflow::Status Writer::CreateItem(const std::string& table,
               ".  (Flattened) table signature: ",
               internal::DtypesShapesString(**dtypes_and_shapes),
               ", data signature: ",
-              internal::DtypesShapesString(*dtypes_and_shapes_t), ".");
+              internal::DtypesShapesString(*dtypes_and_shapes_t), "."));
         }
       }
     }
@@ -264,12 +266,12 @@ tensorflow::Status Writer::CreateItem(const std::string& table,
     return status;
   }
 
-  return tensorflow::Status::OK();
+  return absl::OkStatus();
 }
 
-tensorflow::Status Writer::Flush() {
+absl::Status Writer::Flush() {
   if (closed_) {
-    return tensorflow::errors::FailedPrecondition(
+    return absl::FailedPreconditionError(
         "Calling method Flush after Close has been called");
   }
 
@@ -277,10 +279,10 @@ tensorflow::Status Writer::Flush() {
     return Finish(/*retry_on_unavailable=*/true);
   }
   if (!ConfirmItems(0)) {
-    return tensorflow::errors::Internal(
+    return absl::InternalError(
         "Error when confirming that all items written to table.");
   }
-  return tensorflow::Status::OK();
+  return absl::OkStatus();
 }
 
 std::string Writer::DebugString() const {
@@ -298,10 +300,10 @@ std::string Writer::DebugString() const {
   return str;
 }
 
-tensorflow::Status Writer::StopItemConfirmationWorker() {
+absl::Status Writer::StopItemConfirmationWorker() {
   // There is nothing to stop if there are no limitations on the number of
   // in flight items.
-  if (!max_in_flight_items_.has_value()) return tensorflow::Status::OK();
+  if (!max_in_flight_items_.has_value()) return absl::OkStatus();
 
   absl::MutexLock lock(&mu_);
   item_confirmation_worker_stop_requested_ = true;
@@ -314,13 +316,15 @@ tensorflow::Status Writer::StopItemConfirmationWorker() {
   item_confirmation_worker_thread_ = nullptr;
 
   if (num_items_in_flight_ > 0) {
-    return tensorflow::errors::DataLoss(
-        "Item confirmation worker were stopped when ", num_items_in_flight_,
-        " unconfirmed items (sent to server but validation response not yet "
-        "received).");
+    return absl::DataLossError(
+        absl::StrCat("Item confirmation worker were stopped when ",
+                     num_items_in_flight_,
+                     " unconfirmed items (sent to server but validation "
+                     "response not yet "
+                     "received)."));
   }
   num_items_in_flight_ = 0;
-  return tensorflow::Status::OK();
+  return absl::OkStatus();
 }
 
 void Writer::StartItemConfirmationWorker() {
@@ -345,15 +349,15 @@ void Writer::StartItemConfirmationWorker() {
       &item_confirmation_worker_running_));
 }
 
-tensorflow::Status Writer::Close(bool retry_on_unavailable) {
+absl::Status Writer::Close(bool retry_on_unavailable) {
   if (closed_) {
-    return tensorflow::errors::FailedPrecondition(
+    return absl::FailedPreconditionError(
         "Calling method Close after Close has been called");
   }
   if (!pending_items_.empty()) {
     auto status = Finish(retry_on_unavailable);
     if (!status.ok()) {
-      if (!tensorflow::errors::IsUnavailable(status) || retry_on_unavailable) {
+      if (!absl::IsUnavailable(status) || retry_on_unavailable) {
         return status;
       }
       // if retries are disabled and the server is Unavailable, we continue and
@@ -366,7 +370,7 @@ tensorflow::Status Writer::Close(bool retry_on_unavailable) {
     stream_->WritesDone();
     REVERB_LOG_IF(REVERB_ERROR, !ConfirmItems(0))
         << "Unable to confirm that items were written.";
-    TF_RETURN_IF_ERROR(StopItemConfirmationWorker());
+    REVERB_RETURN_IF_ERROR(StopItemConfirmationWorker());
     auto status = stream_->Finish();
     if (!status.ok()) {
       REVERB_LOG(REVERB_INFO) << "Received error when closing the stream: "
@@ -376,10 +380,10 @@ tensorflow::Status Writer::Close(bool retry_on_unavailable) {
   }
   chunks_.clear();
   closed_ = true;
-  return tensorflow::Status::OK();
+  return absl::OkStatus();
 }
 
-tensorflow::Status Writer::Finish(bool retry_on_unavailable) {
+absl::Status Writer::Finish(bool retry_on_unavailable) {
   std::vector<tensorflow::Tensor> batched_tensors;
   for (int i = 0; i < buffer_[0].size(); ++i) {
     std::vector<tensorflow::Tensor> tensors(buffer_.size());
@@ -393,8 +397,8 @@ tensorflow::Status Writer::Finish(bool retry_on_unavailable) {
       REVERB_CHECK(tensors[j].CopyFrom(item, shape));
     }
     batched_tensors.emplace_back();
-    TF_RETURN_IF_ERROR(
-        tensorflow::tensor::Concat(tensors, &batched_tensors.back()));
+    REVERB_RETURN_IF_ERROR(FromTensorflowStatus(
+        tensorflow::tensor::Concat(tensors, &batched_tensors.back())));
   }
 
   ChunkData chunk_data;
@@ -430,16 +434,16 @@ tensorflow::Status Writer::Finish(bool retry_on_unavailable) {
   return status;
 }
 
-tensorflow::Status Writer::WriteWithRetries(bool retry_on_unavailable) {
+absl::Status Writer::WriteWithRetries(bool retry_on_unavailable) {
   while (true) {
-    if (WritePendingData()) return tensorflow::Status::OK();
+    if (WritePendingData()) return absl::OkStatus();
     stream_->WritesDone();
-    TF_RETURN_IF_ERROR(StopItemConfirmationWorker());
+    REVERB_RETURN_IF_ERROR(StopItemConfirmationWorker());
     auto status = FromGrpcStatus(stream_->Finish());
     stream_ = nullptr;
-    if (!tensorflow::errors::IsUnavailable(status) ||
-        !retry_on_unavailable)
+    if (!absl::IsUnavailable(status) || !retry_on_unavailable) {
       return status;
+    }
   }
 }
 
@@ -514,7 +518,7 @@ bool Writer::ConfirmItems(int limit) {
   return num_items_in_flight_ <= limit;
 }
 
-tensorflow::Status Writer::GetFlatSignature(
+absl::Status Writer::GetFlatSignature(
     absl::string_view table,
     const internal::DtypesAndShapes** dtypes_and_shapes) const {
   static const auto* empty_dtypes_and_shapes =
@@ -522,7 +526,7 @@ tensorflow::Status Writer::GetFlatSignature(
   if (!signatures_) {
     // No signatures available, return an unknown set.
     *dtypes_and_shapes = empty_dtypes_and_shapes;
-    return tensorflow::Status::OK();
+    return absl::OkStatus();
   }
   auto iter = signatures_->find(table);
   if (iter == signatures_->end()) {
@@ -530,13 +534,13 @@ tensorflow::Status Writer::GetFlatSignature(
     for (const auto& table : *signatures_) {
       table_names.push_back(absl::StrCat("'", table.first, "'"));
     }
-    return tensorflow::errors::InvalidArgument(
-        "Unable to find signatures for table '", table,
-        "' in signature cache.  Available tables: [",
-        absl::StrJoin(table_names, ", "), "].");
+    return absl::InvalidArgumentError(
+        absl::StrCat("Unable to find signatures for table '", table,
+                     "' in signature cache.  Available tables: [",
+                     absl::StrJoin(table_names, ", "), "]."));
   }
   *dtypes_and_shapes = &(iter->second);
-  return tensorflow::Status::OK();
+  return absl::OkStatus();
 }
 
 void Writer::ItemConfirmationWorker() {

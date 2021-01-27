@@ -16,8 +16,8 @@
 #define REVERB_CC_SELECTORS_INTERFACE_H_
 
 #include <cstdint>
+#include "absl/status/status.h"
 #include "reverb/cc/checkpointing/checkpoint.pb.h"
-#include "tensorflow/core/lib/core/status.h"
 
 namespace deepmind {
 namespace reverb {
@@ -41,15 +41,15 @@ class ItemSelector {
 
   // Deletes a key and the associated priority. Returns an error if the key does
   // not exist.
-  virtual tensorflow::Status Delete(Key key) = 0;
+  virtual absl::Status Delete(Key key) = 0;
 
   // Inserts a key and associated priority. Returns an error without any change
   // if the key already exists.
-  virtual tensorflow::Status Insert(Key key, double priority) = 0;
+  virtual absl::Status Insert(Key key, double priority) = 0;
 
   // Updates a key and associated priority. Returns an error if the key does
   // not exist.
-  virtual tensorflow::Status Update(Key key, double priority) = 0;
+  virtual absl::Status Update(Key key, double priority) = 0;
 
   // Samples a key. Must contain keys when this is called.
   virtual KeyWithProbability Sample() = 0;

@@ -23,6 +23,7 @@
 
 #include <cstdint>
 #include "absl/memory/memory.h"
+#include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
 #include "absl/strings/string_view.h"
@@ -32,6 +33,7 @@
 #include "reverb/cc/chunk_store.h"
 #include "reverb/cc/platform/hash_map.h"
 #include "reverb/cc/platform/hash_set.h"
+#include "reverb/cc/platform/status_macros.h"
 #include "reverb/cc/rate_limiter.h"
 #include "reverb/cc/schema.pb.h"
 #include "reverb/cc/selectors/fifo.h"
@@ -40,16 +42,14 @@
 #include "reverb/cc/selectors/lifo.h"
 #include "reverb/cc/selectors/prioritized.h"
 #include "reverb/cc/selectors/uniform.h"
+#include "reverb/cc/support/tf_util.h"
 #include "reverb/cc/support/trajectory_util.h"
 #include "reverb/cc/table.h"
 #include "reverb/cc/table_extensions/interface.h"
-#include "tensorflow/core/lib/core/errors.h"
-#include "tensorflow/core/lib/core/status.h"
 #include "tensorflow/core/lib/io/path.h"
 #include "tensorflow/core/lib/io/record_reader.h"
 #include "tensorflow/core/lib/io/record_writer.h"
 #include "tensorflow/core/platform/env.h"
-#include "tensorflow/core/platform/errors.h"
 #include "tensorflow/core/platform/file_system.h"
 
 namespace deepmind {
@@ -67,38 +67,40 @@ using RecordReaderUniquePtr =
     std::unique_ptr<tensorflow::io::RecordReader,
                     std::function<void(tensorflow::io::RecordReader*)>>;
 
-tensorflow::Status OpenWriter(const std::string& path,
-                              RecordWriterUniquePtr* writer) {
+absl::Status OpenWriter(const std::string& path,
+                        RecordWriterUniquePtr* writer) {
   std::unique_ptr<tensorflow::WritableFile> file;
-  TF_RETURN_IF_ERROR(tensorflow::Env::Default()->NewWritableFile(path, &file));
+  REVERB_RETURN_IF_ERROR(FromTensorflowStatus(
+      tensorflow::Env::Default()->NewWritableFile(path, &file)));
   auto* file_ptr = file.release();
   *writer = RecordWriterUniquePtr(new tensorflow::io::RecordWriter(file_ptr),
                                   [file_ptr](tensorflow::io::RecordWriter* w) {
                                     delete w;
                                     delete file_ptr;
                                   });
-  return tensorflow::Status::OK();
+  return absl::OkStatus();
 }
 
-tensorflow::Status OpenReader(const std::string& path,
-                              RecordReaderUniquePtr* reader) {
+absl::Status OpenReader(const std::string& path,
+                        RecordReaderUniquePtr* reader) {
   std::unique_ptr<tensorflow::RandomAccessFile> file;
-  TF_RETURN_IF_ERROR(
-      tensorflow::Env::Default()->NewRandomAccessFile(path, &file));
+  REVERB_RETURN_IF_ERROR(FromTensorflowStatus(
+      tensorflow::Env::Default()->NewRandomAccessFile(path, &file)));
   auto* file_ptr = file.release();
   *reader = RecordReaderUniquePtr(new tensorflow::io::RecordReader(file_ptr),
                                   [file_ptr](tensorflow::io::RecordReader* r) {
                                     delete r;
                                     delete file_ptr;
                                   });
-  return tensorflow::Status::OK();
+  return absl::OkStatus();
 }
 
-inline tensorflow::Status WriteDone(const std::string& path) {
+inline absl::Status WriteDone(const std::string& path) {
   std::unique_ptr<tensorflow::WritableFile> file;
-  TF_RETURN_IF_ERROR(tensorflow::Env::Default()->NewWritableFile(
-      tensorflow::io::JoinPath(path, kDoneFileName), &file));
-  return file->Close();
+  REVERB_RETURN_IF_ERROR(
+      FromTensorflowStatus(tensorflow::Env::Default()->NewWritableFile(
+          tensorflow::io::JoinPath(path, kDoneFileName), &file)));
+  return FromTensorflowStatus(file->Close());
 }
 
 inline bool HasDone(const std::string& path) {
@@ -146,80 +148,81 @@ TFRecordCheckpointer::TFRecordCheckpointer(std::string root_dir,
                           << root_dir_;
 }
 
-tensorflow::Status TFRecordCheckpointer::Save(std::vector<Table*> tables,
-                                              int keep_latest,
-                                              std::string* path) {
+absl::Status TFRecordCheckpointer::Save(std::vector<Table*> tables,
+                                        int keep_latest, std::string* path) {
   if (keep_latest <= 0) {
-    return tensorflow::errors::InvalidArgument(
+    return absl::InvalidArgumentError(
         "TFRecordCheckpointer must have keep_latest > 0.");
   }
   if (!group_.empty()) {
-    return tensorflow::errors::InvalidArgument(
+    return absl::InvalidArgumentError(
         "Setting non-empty group is not supported");
   }
 
   std::string dir_path =
       tensorflow::io::JoinPath(root_dir_, absl::FormatTime(absl::Now()));
-  TF_RETURN_IF_ERROR(
-      tensorflow::Env::Default()->RecursivelyCreateDir(dir_path));
+  REVERB_RETURN_IF_ERROR(FromTensorflowStatus(
+      tensorflow::Env::Default()->RecursivelyCreateDir(dir_path)));
 
   RecordWriterUniquePtr table_writer;
-  TF_RETURN_IF_ERROR(OpenWriter(
+  REVERB_RETURN_IF_ERROR(OpenWriter(
       tensorflow::io::JoinPath(dir_path, kTablesFileName), &table_writer));
 
   absl::flat_hash_set<std::shared_ptr<ChunkStore::Chunk>> chunks;
   for (Table* table : tables) {
     auto checkpoint = table->Checkpoint();
     chunks.merge(checkpoint.chunks);
-    TF_RETURN_IF_ERROR(
-        table_writer->WriteRecord(checkpoint.checkpoint.SerializeAsString()));
+    REVERB_RETURN_IF_ERROR(FromTensorflowStatus(
+        table_writer->WriteRecord(checkpoint.checkpoint.SerializeAsString())));
   }
 
-  TF_RETURN_IF_ERROR(table_writer->Close());
+  REVERB_RETURN_IF_ERROR(FromTensorflowStatus(table_writer->Close()));
   table_writer = nullptr;
 
   RecordWriterUniquePtr chunk_writer;
-  TF_RETURN_IF_ERROR(OpenWriter(
+  REVERB_RETURN_IF_ERROR(OpenWriter(
       tensorflow::io::JoinPath(dir_path, kChunksFileName), &chunk_writer));
 
   for (const auto& chunk : chunks) {
-    TF_RETURN_IF_ERROR(
-        chunk_writer->WriteRecord(chunk->data().SerializeAsString()));
+    REVERB_RETURN_IF_ERROR(FromTensorflowStatus(
+        chunk_writer->WriteRecord(chunk->data().SerializeAsString())));
   }
-  TF_RETURN_IF_ERROR(chunk_writer->Close());
+  REVERB_RETURN_IF_ERROR(FromTensorflowStatus(chunk_writer->Close()));
   chunk_writer = nullptr;
 
   // Both chunks and table checkpoint has now been written so we can proceed to
   // add the DONE-file.
-  TF_RETURN_IF_ERROR(WriteDone(dir_path));
+  REVERB_RETURN_IF_ERROR(WriteDone(dir_path));
 
   // Delete the older checkpoints.
   std::vector<std::string> filenames;
-  TF_RETURN_IF_ERROR(tensorflow::Env::Default()->GetMatchingPaths(
-      tensorflow::io::JoinPath(root_dir_, "*"), &filenames));
+  REVERB_RETURN_IF_ERROR(
+      FromTensorflowStatus(tensorflow::Env::Default()->GetMatchingPaths(
+          tensorflow::io::JoinPath(root_dir_, "*"), &filenames)));
   std::sort(filenames.begin(), filenames.end());
   int history_counter = 0;
   for (auto it = filenames.rbegin(); it != filenames.rend(); it++) {
     if (++history_counter > keep_latest) {
       tensorflow::int64 undeleted_files;
       tensorflow::int64 undeleted_dirs;
-      TF_RETURN_IF_ERROR(tensorflow::Env::Default()->DeleteRecursively(
-          *it, &undeleted_files, &undeleted_dirs));
+      REVERB_RETURN_IF_ERROR(
+          FromTensorflowStatus(tensorflow::Env::Default()->DeleteRecursively(
+              *it, &undeleted_files, &undeleted_dirs)));
     }
   }
 
   *path = std::move(dir_path);
-  return tensorflow::Status::OK();
+  return absl::OkStatus();
 }
 
-tensorflow::Status TFRecordCheckpointer::Load(
+absl::Status TFRecordCheckpointer::Load(
     absl::string_view relative_path, ChunkStore* chunk_store,
     std::vector<std::shared_ptr<Table>>* tables) {
   const std::string dir_path =
       tensorflow::io::JoinPath(root_dir_, relative_path);
   REVERB_LOG(REVERB_INFO) << "Loading checkpoint from " << dir_path;
   if (!HasDone(dir_path)) {
-    return tensorflow::errors::InvalidArgument(
+    return absl::InvalidArgumentError(
         absl::StrCat("Load called with invalid checkpoint path: ", dir_path));
   }
   // Insert data first to ensure that all data referenced by the tables
@@ -229,51 +232,55 @@ tensorflow::Status TFRecordCheckpointer::Load(
       chunk_by_key;
   {
     RecordReaderUniquePtr chunk_reader;
-    TF_RETURN_IF_ERROR(OpenReader(
+    REVERB_RETURN_IF_ERROR(OpenReader(
         tensorflow::io::JoinPath(dir_path, kChunksFileName), &chunk_reader));
 
     ChunkData chunk_data;
-    tensorflow::Status chunk_status;
+    absl::Status chunk_status;
     tensorflow::uint64 chunk_offset = 0;
     tensorflow::tstring chunk_record;
     do {
-      chunk_status = chunk_reader->ReadRecord(&chunk_offset, &chunk_record);
+      chunk_status = FromTensorflowStatus(
+          chunk_reader->ReadRecord(&chunk_offset, &chunk_record));
       if (!chunk_status.ok()) break;
       if (!chunk_data.ParseFromArray(chunk_record.data(),
                                      chunk_record.size())) {
-        return tensorflow::errors::DataLoss(
-            "Could not parse TFRecord as ChunkData: '", chunk_record, "'");
+        return absl::DataLossError(
+            absl::StrCat("Could not parse TFRecord as ChunkData: '",
+                         absl::string_view(chunk_record), "'"));
       }
       if (chunk_data.deprecated_data_size()) {
         if (!chunk_data.data().tensors().empty()) {
-          return tensorflow::errors::Internal(
-              "Checkpoint ChunkData at offset: ", chunk_offset,
-              " has both data and deprecated_data.");
+          return absl::InternalError(
+              absl::StrCat("Checkpoint ChunkData at offset: ", chunk_offset,
+              " has both data and deprecated_data."));
         }
         chunk_data.mutable_data()->mutable_tensors()->Swap(
             chunk_data.mutable_deprecated_data());
       }
       chunk_by_key[chunk_data.chunk_key()] = chunk_store->Insert(chunk_data);
     } while (chunk_status.ok());
-    if (!tensorflow::errors::IsOutOfRange(chunk_status)) {
+    if (!absl::IsOutOfRange(chunk_status)) {
       return chunk_status;
     }
   }
 
   RecordReaderUniquePtr table_reader;
-  TF_RETURN_IF_ERROR(OpenReader(
+  REVERB_RETURN_IF_ERROR(OpenReader(
       tensorflow::io::JoinPath(dir_path, kTablesFileName), &table_reader));
 
   PriorityTableCheckpoint checkpoint;
-  tensorflow::Status table_status;
+  absl::Status table_status;
   tensorflow::uint64 table_offset = 0;
   tensorflow::tstring table_record;
   do {
-    table_status = table_reader->ReadRecord(&table_offset, &table_record);
+    table_status = FromTensorflowStatus(
+        table_reader->ReadRecord(&table_offset, &table_record));
     if (!table_status.ok()) break;
     if (!checkpoint.ParseFromArray(table_record.data(), table_record.size())) {
-      return tensorflow::errors::DataLoss(
-          "Could not parse TFRecord as Checkpoint: '", table_record, "'");
+      return absl::DataLossError(
+          absl::StrCat("Could not parse TFRecord as Checkpoint: '",
+                       absl::string_view(table_record), "'"));
     }
 
     int index = find_table_index(tables, checkpoint.table_name());
@@ -282,11 +289,11 @@ tensorflow::Status TFRecordCheckpointer::Load(
       for (const auto& table : *tables) {
         table_names.push_back(absl::StrCat("'", table->name(), "'"));
       }
-      return tensorflow::errors::InvalidArgument(
+      return absl::InvalidArgumentError(absl::StrCat(
           "Trying to load table ", checkpoint.table_name(),
           " but table was not found in provided list of tables. Available "
           "tables: [",
-          absl::StrJoin(table_names, ", "), "]");
+          absl::StrJoin(table_names, ", "), "]"));
     }
 
     auto sampler = MakeDistribution(checkpoint.sampler());
@@ -317,16 +324,16 @@ tensorflow::Status TFRecordCheckpointer::Load(
 
       if (insert_item.item.has_deprecated_sequence_range() &&
           insert_item.item.has_flat_trajectory()) {
-        return tensorflow::errors::Internal(
-            "Item ", insert_item.item.key(),
-            " has both deprecated and new trajectory format: ",
-            insert_item.item.DebugString(), ".");
+        return absl::InternalError(
+            absl::StrCat("Item ", insert_item.item.key(),
+                         " has both deprecated and new trajectory format: ",
+                         insert_item.item.DebugString(), "."));
       }
 
       if (insert_item.item.has_deprecated_sequence_range()) {
         std::vector<std::shared_ptr<ChunkStore::Chunk>> trajectory_chunks;
-        TF_CHECK_OK(chunk_store->Get(insert_item.item.deprecated_chunk_keys(),
-                                     &trajectory_chunks));
+        REVERB_CHECK_OK(FromTensorflowStatus(chunk_store->Get(
+            insert_item.item.deprecated_chunk_keys(), &trajectory_chunks)));
 
         *insert_item.item.mutable_flat_trajectory() =
             internal::FlatTimestepTrajectory(
@@ -346,31 +353,32 @@ tensorflow::Status TFRecordCheckpointer::Load(
 
       // The original table has already been destroyed so if this fails then
       // there is way to recover.
-      TF_CHECK_OK(table->InsertCheckpointItem(std::move(insert_item)));
+      REVERB_CHECK_OK(table->InsertCheckpointItem(std::move(insert_item)));
     }
 
     tables->at(index).swap(table);
   } while (table_status.ok());
 
-  if (!tensorflow::errors::IsOutOfRange(table_status)) {
+  if (!absl::IsOutOfRange(table_status)) {
     return table_status;
   }
-  return tensorflow::Status::OK();
+  return absl::OkStatus();
 }
 
-tensorflow::Status TFRecordCheckpointer::LoadLatest(
+absl::Status TFRecordCheckpointer::LoadLatest(
     ChunkStore* chunk_store, std::vector<std::shared_ptr<Table>>* tables) {
   REVERB_LOG(REVERB_INFO) << "Loading latest checkpoint from " << root_dir_;
   std::vector<std::string> filenames;
-  TF_RETURN_IF_ERROR(tensorflow::Env::Default()->GetMatchingPaths(
-      tensorflow::io::JoinPath(root_dir_, "*"), &filenames));
+  REVERB_RETURN_IF_ERROR(
+      FromTensorflowStatus(tensorflow::Env::Default()->GetMatchingPaths(
+          tensorflow::io::JoinPath(root_dir_, "*"), &filenames)));
   std::sort(filenames.begin(), filenames.end());
   for (auto it = filenames.rbegin(); it != filenames.rend(); it++) {
     if (HasDone(*it)) {
       return Load(tensorflow::io::Basename(*it), chunk_store, tables);
     }
   }
-  return tensorflow::errors::NotFound(
+  return absl::NotFoundError(
       absl::StrCat("No checkpoint found in ", root_dir_));
 }
 

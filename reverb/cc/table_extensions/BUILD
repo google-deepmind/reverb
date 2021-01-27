@@ -26,5 +26,5 @@ reverb_cc_library(
         "//reverb/cc:table",
         "//reverb/cc:schema_cc_proto",
         "//reverb/cc/platform:logging",
-    ] + reverb_absl_deps() + reverb_tf_deps(),
+    ] + reverb_absl_deps(),
 )

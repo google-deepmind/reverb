@@ -45,7 +45,7 @@ class TableExtensionBase : public TableExtension {
   friend class Table;
 
   // Validates table and saves it to table_.
-  tensorflow::Status RegisterTable(absl::Mutex* mu, Table* table)
+  absl::Status RegisterTable(absl::Mutex* mu, Table* table)
       ABSL_LOCKS_EXCLUDED(mu) override;
   void UnregisterTable(absl::Mutex* mu, Table* table)
       ABSL_LOCKS_EXCLUDED(mu) override;
