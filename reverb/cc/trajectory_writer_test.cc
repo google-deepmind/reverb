@@ -108,8 +108,17 @@ class FakeStream
   }
 
   grpc::Status Finish() override {
+    absl::MutexLock lock(&mu_);
     pending_confirmation_.Close();
     return grpc::Status::OK;
+  }
+
+  void BlockUntilNumRequestsIs(int size) const {
+    absl::MutexLock lock(&mu_);
+    auto trigger = [size, this]() ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_) {
+      return requests_->size() == size;
+    };
+    mu_.Await(absl::Condition(&trigger));
   }
 
   const std::vector<InsertStreamRequest>& requests() const {
@@ -515,8 +524,8 @@ TEST(TrajectoryWriter, ItemSentStraightAwayIfChunksReady) {
   auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
   EXPECT_CALL(*stub, InsertStreamRaw(_)).WillOnce(Return(stream));
 
-  TrajectoryWriter writer(stub,
-                          {/*max_chunk_length=*/1, /*num_keep_alive_refs=*/1});
+  TrajectoryWriter writer(stub, {/*max_chunk_length=*/1,
+                                 /*num_keep_alive_refs=*/1});
   StepRef refs;
   REVERB_ASSERT_OK(writer.Append(Step({MakeTensor(kIntSpec)}), &refs));
 
@@ -528,8 +537,7 @@ TEST(TrajectoryWriter, ItemSentStraightAwayIfChunksReady) {
   REVERB_ASSERT_OK(
       writer.InsertItem("table", 1.0, TrajectoryRef{{refs[0].value()}}));
 
-  while (stream->requests().size() < 2) {
-  }
+  stream->BlockUntilNumRequestsIs(2);
 
   // Chunk is sent before item.
   EXPECT_THAT(stream->requests(), ElementsAre(IsChunk(), IsItem()));
@@ -538,8 +546,9 @@ TEST(TrajectoryWriter, ItemSentStraightAwayIfChunksReady) {
   // Note that the chunk is not sent again.
   REVERB_ASSERT_OK(
       writer.InsertItem("table", 0.5, TrajectoryRef({{refs[0].value()}})));
-  while (stream->requests().size() < 3) {
-  }
+
+  stream->BlockUntilNumRequestsIs(3);
+
   EXPECT_THAT(stream->requests()[2], IsItem());
 }
 
@@ -569,8 +578,9 @@ TEST(TrajectoryWriter, ItemIsSentWhenAllChunksDone) {
   StepRef second;
   REVERB_ASSERT_OK(
       writer.Append(Step({MakeTensor(kIntSpec), absl::nullopt}), &second));
-  while (stream->requests().empty()) {
-  }
+
+  stream->BlockUntilNumRequestsIs(1);
+
   EXPECT_THAT(stream->requests(), ElementsAre(IsChunk()));
 
   // Writing to the first column again, even if we do it twice and trigger a new
@@ -588,8 +598,9 @@ TEST(TrajectoryWriter, ItemIsSentWhenAllChunksDone) {
   StepRef third;
   REVERB_ASSERT_OK(
       writer.Append(Step({absl::nullopt, MakeTensor(kIntSpec)}), &third));
-  while (stream->requests().size() < 3) {
-  }
+
+  stream->BlockUntilNumRequestsIs(3);
+
   EXPECT_THAT(stream->requests(), ElementsAre(IsChunk(), IsChunk(), IsItem()));
 }
 
