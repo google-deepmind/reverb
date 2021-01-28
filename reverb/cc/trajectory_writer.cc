@@ -186,7 +186,18 @@ absl::Status Chunker::Append(tensorflow::Tensor tensor,
 
   active_refs_.push_back(std::make_shared<CellRef>(
       this, next_chunk_key_, offset_++, std::move(episode_info)));
-  buffer_.push_back(std::move(tensor));
+
+  // Add a batch dim to the tensor before adding it to the buffer. This will
+  // prepare it for the concat op when the chunk is finalized.
+  tensorflow::TensorShape shape = tensor.shape();
+  shape.InsertDim(0, 1);
+
+  // This should never fail due to dtype or shape differences, because the dtype
+  // of tensors[j] is UNKNOWN and `shape` has the same number of elements as
+  // `item`.
+  tensorflow::Tensor batched_tensor(tensor.dtype(), shape);
+  REVERB_CHECK(batched_tensor.CopyFrom(tensor, shape));
+  buffer_.push_back(std::move(batched_tensor));
 
   // Create the chunk if max buffer size reached.
   if (buffer_.size() == max_chunk_length_) {

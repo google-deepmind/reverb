@@ -39,7 +39,9 @@
 #include "reverb/cc/support/signature.h"
 #include "reverb/cc/testing/proto_test_util.h"
 #include "tensorflow/core/framework/tensor.h"
+#include "tensorflow/core/framework/tensor.pb.h"
 #include "tensorflow/core/framework/tensor_shape.h"
+#include "tensorflow/core/framework/tensor_shape.pb.h"
 #include "tensorflow/core/framework/types.h"
 #include "tensorflow/core/framework/types.pb.h"
 
@@ -195,6 +197,28 @@ TEST(Chunker, Flush) {
   EXPECT_FALSE(ref.lock()->IsReady());
   REVERB_ASSERT_OK(chunker.Flush());
   EXPECT_TRUE(ref.lock()->IsReady());
+}
+
+TEST(Chunker, ChunkHasBatchDim) {
+  Chunker chunker(kIntSpec, /*max_chunk_length=*/2, /*num_keep_alive_refs=*/5);
+
+  // Add two data items to trigger the finalization.
+  std::weak_ptr<CellRef> ref;
+  REVERB_ASSERT_OK(chunker.Append(MakeTensor(kIntSpec),
+                                  {/*episode_id=*/1, /*step=*/0}, &ref));
+  REVERB_ASSERT_OK(chunker.Append(MakeTensor(kIntSpec),
+                                  {/*episode_id=*/1, /*step=*/1}, &ref));
+  ASSERT_TRUE(ref.lock()->IsReady());
+  EXPECT_THAT(ref.lock()->GetChunk()->data().tensors(0).tensor_shape(),
+              testing::EqualsProto("dim { size: 2} dim { size: 1}"));
+
+  // The batch dim is added even if it only contains a single step.
+  REVERB_ASSERT_OK(chunker.Append(MakeTensor(kIntSpec),
+                                  {/*episode_id=*/1, /*step=*/0}, &ref));
+  REVERB_ASSERT_OK(chunker.Flush());
+  ASSERT_TRUE(ref.lock()->IsReady());
+  EXPECT_THAT(ref.lock()->GetChunk()->data().tensors(0).tensor_shape(),
+              testing::EqualsProto("dim { size: 1} dim { size: 1}"));
 }
 
 TEST(Chunker, DeletesRefsWhenMageAgeExceeded) {
