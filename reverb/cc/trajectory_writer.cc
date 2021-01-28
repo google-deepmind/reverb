@@ -82,7 +82,7 @@ bool SendChunk(grpc::ClientReaderWriterInterface<InsertStreamRequest,
   REVERB_CHECK(ref.IsReady());
 
   InsertStreamRequest request;
-  request.set_allocated_chunk(ref.GetChunk().get());
+  request.set_allocated_chunk(const_cast<ChunkData*>(ref.GetChunk().get()));
   auto release_chunk =
       internal::MakeCleanup([&request] { request.release_chunk(); });
 
@@ -129,14 +129,14 @@ bool CellRef::IsReady() const {
   return chunk_.has_value();
 }
 
-void CellRef::SetChunk(std::shared_ptr<ChunkData> chunk) {
+void CellRef::SetChunk(std::shared_ptr<const ChunkData> chunk) {
   absl::MutexLock lock(&mu_);
   chunk_ = std::move(chunk);
 }
 
 Chunker* CellRef::chunker() const { return chunker_; }
 
-std::shared_ptr<ChunkData> CellRef::GetChunk() const {
+std::shared_ptr<const ChunkData> CellRef::GetChunk() const {
   absl::MutexLock lock(&mu_);
   return chunk_.value_or(nullptr);
 }
@@ -222,34 +222,41 @@ absl::Status Chunker::Flush() {
 absl::Status Chunker::FlushLocked() {
   if (buffer_.empty()) return absl::OkStatus();
 
-  auto chunk = std::make_shared<ChunkData>();
-  chunk->set_chunk_key(next_chunk_key_);
+  ChunkData chunk;
+  chunk.set_chunk_key(next_chunk_key_);
 
   tensorflow::Tensor batched;
   REVERB_RETURN_IF_ERROR(
       FromTensorflowStatus(tensorflow::tensor::Concat(buffer_, &batched)));
-  CompressTensorAsProto(batched, chunk->mutable_data()->add_tensors());
+  CompressTensorAsProto(batched, chunk.mutable_data()->add_tensors());
 
-  for (auto& ref : active_refs_) {
-    if (ref->chunk_key() == chunk->chunk_key()) {
-      ref->SetChunk(chunk);
+  // Set the sequence range of the chunk.
+  for (const auto& ref : active_refs_) {
+    if (ref->chunk_key() != chunk.chunk_key()) continue;
 
-      if (!chunk->has_sequence_range()) {
-        auto* range = chunk->mutable_sequence_range();
-        range->set_episode_id(ref->episode_id());
-        range->set_start(ref->episode_step());
-        range->set_end(ref->episode_step());
-      } else {
-        auto* range = chunk->mutable_sequence_range();
-        REVERB_CHECK(range->episode_id() == ref->episode_id() &&
-                     range->end() < ref->episode_step());
+    if (!chunk.has_sequence_range()) {
+      auto* range = chunk.mutable_sequence_range();
+      range->set_episode_id(ref->episode_id());
+      range->set_start(ref->episode_step());
+      range->set_end(ref->episode_step());
+    } else {
+      auto* range = chunk.mutable_sequence_range();
+      REVERB_CHECK(range->episode_id() == ref->episode_id() &&
+                   range->end() < ref->episode_step());
 
-        // The chunk is sparse if not all steps are represented in the data.
-        if (ref->episode_step() != range->end() + 1) {
-          range->set_sparse(true);
-        }
-        range->set_end(ref->episode_step());
+      // The chunk is sparse if not all steps are represented in the data.
+      if (ref->episode_step() != range->end() + 1) {
+        range->set_sparse(true);
       }
+      range->set_end(ref->episode_step());
+    }
+  }
+
+  // Now the chunk has been finalized we can notify the `CellRef`s.
+  auto chunk_sp = std::make_shared<const ChunkData>(std::move(chunk));
+  for (auto& ref : active_refs_) {
+    if (ref->chunk_key() == chunk_sp->chunk_key()) {
+      ref->SetChunk(chunk_sp);
     }
   }
 
@@ -297,7 +304,8 @@ TrajectoryWriter::TrajectoryWriter(
                 return;
               }
             }
-          })) {}
+          })) {
+}
 
 TrajectoryWriter::~TrajectoryWriter() {
   {

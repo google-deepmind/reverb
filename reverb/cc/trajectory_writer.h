@@ -270,13 +270,14 @@ class CellRef {
   bool IsReady() const ABSL_LOCKS_EXCLUDED(mu_);
 
   // Gets chunker if set. If not yet set then nullptr is returned.
-  std::shared_ptr<ChunkData> GetChunk() const ABSL_LOCKS_EXCLUDED(mu_);
+  std::shared_ptr<const ChunkData> GetChunk() const ABSL_LOCKS_EXCLUDED(mu_);
 
  private:
   friend Chunker;
 
   // Called by chunker the referenced data is flushed into a ChunkData.
-  void SetChunk(std::shared_ptr<ChunkData> chunk) ABSL_LOCKS_EXCLUDED(mu_);
+  void SetChunk(std::shared_ptr<const ChunkData> chunk)
+      ABSL_LOCKS_EXCLUDED(mu_);
 
  private:
   friend TrajectoryWriter;
@@ -304,7 +305,7 @@ class CellRef {
   mutable absl::Mutex mu_;
 
   // Parent chunk which eventually be set by parent `Chunker`.
-  absl::optional<std::shared_ptr<ChunkData>> chunk_ ABSL_GUARDED_BY(mu_);
+  absl::optional<std::shared_ptr<const ChunkData>> chunk_ ABSL_GUARDED_BY(mu_);
 };
 
 class Chunker {
