@@ -202,8 +202,10 @@ class TrajectoryWriter {
   // Configuration options.
   Options options_;
 
-  // Mapping from column index to Chunker.
-  internal::flat_hash_map<int, std::unique_ptr<Chunker>> chunkers_;
+  // Mapping from column index to Chunker. Shared pointers are used as the
+  // `CellRef`s created by the chunker will own a weak_ptr created using
+  // `weak_from_this()` on the Chunker.
+  internal::flat_hash_map<int, std::shared_ptr<Chunker>> chunkers_;
 
   mutable absl::Mutex mu_;
 
@@ -251,7 +253,7 @@ class CellRef {
     int32_t step;
   };
 
-  CellRef(Chunker* chunker, uint64_t chunk_key, int offset,
+  CellRef(std::weak_ptr<Chunker> chunker, uint64_t chunk_key, int offset,
           EpisodeInfo episode_info);
 
   // Key of the parent chunk.
@@ -272,6 +274,9 @@ class CellRef {
   // Gets chunker if set. If not yet set then nullptr is returned.
   std::shared_ptr<const ChunkData> GetChunk() const ABSL_LOCKS_EXCLUDED(mu_);
 
+  // Weak pointer to the parent Chunker.
+  std::weak_ptr<Chunker> chunker() const;
+
  private:
   friend Chunker;
 
@@ -280,18 +285,9 @@ class CellRef {
       ABSL_LOCKS_EXCLUDED(mu_);
 
  private:
-  friend TrajectoryWriter;
-
-  // Raw pointer to the parent. This method should only be used by the ancestor
-  // `TrajectoryWriter` whos existence guarantees that the `Chunker` also exists
-  // and thus the pointer can safely be dereferenced.
-  Chunker* chunker() const;
-
- private:
   // Chunker which created the `CellRef` and will eventually create the chunk
-  // and call `SetChunk`. Note that the `CellRef` may outlive the parent
-  // `Chunker` so it is not generally safe to dereference this value.
-  Chunker* chunker_;
+  // and call `SetChunk`.
+  std::weak_ptr<Chunker> chunker_;
 
   // Key of the parent chunk.
   uint64_t chunk_key_;
@@ -308,7 +304,7 @@ class CellRef {
   absl::optional<std::shared_ptr<const ChunkData>> chunk_ ABSL_GUARDED_BY(mu_);
 };
 
-class Chunker {
+class Chunker : public std::enable_shared_from_this<Chunker> {
  public:
   Chunker(internal::TensorSpec spec, int max_chunk_length,
           int num_keep_alive_refs);

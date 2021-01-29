@@ -139,24 +139,25 @@ class FakeStream
 };
 
 TEST(CellRef, IsReady) {
-  Chunker chunker(kIntSpec, 2, 5);
+  auto chunker = std::make_shared<Chunker>(kIntSpec, 2, 5);
 
   std::weak_ptr<CellRef> ref;
-  REVERB_ASSERT_OK(chunker.Append(MakeTensor(kIntSpec), {1, 0}, &ref));
+  REVERB_ASSERT_OK(chunker->Append(MakeTensor(kIntSpec), {1, 0}, &ref));
 
   // Chunk is not finalized yet.
   EXPECT_FALSE(ref.lock()->IsReady());
 
   // Force chunk creation.
-  REVERB_ASSERT_OK(chunker.Flush());
+  REVERB_ASSERT_OK(chunker->Flush());
   EXPECT_TRUE(ref.lock()->IsReady());
 }
 
 TEST(Chunker, AppendValidatesSpecDtype) {
-  Chunker chunker(kIntSpec, /*max_chunk_length=*/2, /*num_keep_alive_refs=*/5);
+  auto chunker = std::make_shared<Chunker>(kIntSpec, /*max_chunk_length=*/2,
+                                           /*num_keep_alive_refs=*/5);
 
   std::weak_ptr<CellRef> ref;
-  auto status = chunker.Append(MakeTensor(kFloatSpec), {1, 0}, &ref);
+  auto status = chunker->Append(MakeTensor(kFloatSpec), {1, 0}, &ref);
 
   EXPECT_EQ(status.code(), absl::StatusCode::kInvalidArgument);
   EXPECT_THAT(std::string(status.message()),
@@ -167,10 +168,11 @@ TEST(Chunker, AppendValidatesSpecDtype) {
 }
 
 TEST(Chunker, AppendValidatesSpecShape) {
-  Chunker chunker(kIntSpec, /*max_chunk_length=*/2, /*num_keep_alive_refs=*/5);
+  auto chunker = std::make_shared<Chunker>(kIntSpec, /*max_chunk_length=*/2,
+                                           /*num_keep_alive_refs=*/5);
 
   std::weak_ptr<CellRef> ref;
-  auto status = chunker.Append(
+  auto status = chunker->Append(
       MakeTensor(internal::TensorSpec{kIntSpec.name, kIntSpec.dtype, {2}}),
       {/*episode_id=*/1, /*step=*/0}, &ref);
 
@@ -182,78 +184,82 @@ TEST(Chunker, AppendValidatesSpecShape) {
 }
 
 TEST(Chunker, AppendFlushesOnMaxChunkLength) {
-  Chunker chunker(kIntSpec, /*max_chunk_length=*/2, /*num_keep_alive_refs=*/5);
+  auto chunker = std::make_shared<Chunker>(kIntSpec, /*max_chunk_length=*/2,
+                                           /*num_keep_alive_refs=*/5);
 
   // Buffer is not full after first step.
   std::weak_ptr<CellRef> first;
-  REVERB_ASSERT_OK(chunker.Append(MakeTensor(kIntSpec),
-                                  {/*episode_id=*/1, /*step=*/0}, &first));
+  REVERB_ASSERT_OK(chunker->Append(MakeTensor(kIntSpec),
+                                   {/*episode_id=*/1, /*step=*/0}, &first));
   EXPECT_FALSE(first.lock()->IsReady());
 
   // Second step should trigger flushing of buffer.
   std::weak_ptr<CellRef> second;
-  REVERB_ASSERT_OK(chunker.Append(MakeTensor(kIntSpec),
-                                  {/*episode_id=*/1, /*step=*/1}, &second));
+  REVERB_ASSERT_OK(chunker->Append(MakeTensor(kIntSpec),
+                                   {/*episode_id=*/1, /*step=*/1}, &second));
   EXPECT_TRUE(first.lock()->IsReady());
   EXPECT_TRUE(second.lock()->IsReady());
 }
 
 TEST(Chunker, Flush) {
-  Chunker chunker(kIntSpec, /*max_chunk_length=*/2, /*num_keep_alive_refs=*/5);
+  auto chunker = std::make_shared<Chunker>(kIntSpec, /*max_chunk_length=*/2,
+                                           /*num_keep_alive_refs=*/5);
   std::weak_ptr<CellRef> ref;
-  REVERB_ASSERT_OK(chunker.Append(MakeTensor(kIntSpec),
-                                  {/*episode_id=*/1, /*step=*/0}, &ref));
+  REVERB_ASSERT_OK(chunker->Append(MakeTensor(kIntSpec),
+                                   {/*episode_id=*/1, /*step=*/0}, &ref));
   EXPECT_FALSE(ref.lock()->IsReady());
-  REVERB_ASSERT_OK(chunker.Flush());
+  REVERB_ASSERT_OK(chunker->Flush());
   EXPECT_TRUE(ref.lock()->IsReady());
 }
 
 TEST(Chunker, ChunkHasBatchDim) {
-  Chunker chunker(kIntSpec, /*max_chunk_length=*/2, /*num_keep_alive_refs=*/5);
+  auto chunker = std::make_shared<Chunker>(kIntSpec, /*max_chunk_length=*/2,
+                                           /*num_keep_alive_refs=*/5);
 
   // Add two data items to trigger the finalization.
   std::weak_ptr<CellRef> ref;
-  REVERB_ASSERT_OK(chunker.Append(MakeTensor(kIntSpec),
-                                  {/*episode_id=*/1, /*step=*/0}, &ref));
-  REVERB_ASSERT_OK(chunker.Append(MakeTensor(kIntSpec),
-                                  {/*episode_id=*/1, /*step=*/1}, &ref));
+  REVERB_ASSERT_OK(chunker->Append(MakeTensor(kIntSpec),
+                                   {/*episode_id=*/1, /*step=*/0}, &ref));
+  REVERB_ASSERT_OK(chunker->Append(MakeTensor(kIntSpec),
+                                   {/*episode_id=*/1, /*step=*/1}, &ref));
   ASSERT_TRUE(ref.lock()->IsReady());
   EXPECT_THAT(ref.lock()->GetChunk()->data().tensors(0).tensor_shape(),
               testing::EqualsProto("dim { size: 2} dim { size: 1}"));
 
   // The batch dim is added even if it only contains a single step.
-  REVERB_ASSERT_OK(chunker.Append(MakeTensor(kIntSpec),
-                                  {/*episode_id=*/1, /*step=*/0}, &ref));
-  REVERB_ASSERT_OK(chunker.Flush());
+  REVERB_ASSERT_OK(chunker->Append(MakeTensor(kIntSpec),
+                                   {/*episode_id=*/1, /*step=*/0}, &ref));
+  REVERB_ASSERT_OK(chunker->Flush());
   ASSERT_TRUE(ref.lock()->IsReady());
   EXPECT_THAT(ref.lock()->GetChunk()->data().tensors(0).tensor_shape(),
               testing::EqualsProto("dim { size: 1} dim { size: 1}"));
 }
 
 TEST(Chunker, DeletesRefsWhenMageAgeExceeded) {
-  Chunker chunker(kIntSpec, /*max_chunk_length=*/2, /*num_keep_alive_refs=*/3);
+  auto chunker = std::make_shared<Chunker>(kIntSpec, /*max_chunk_length=*/2,
+                                           /*num_keep_alive_refs=*/3);
 
   std::weak_ptr<CellRef> first;
-  REVERB_ASSERT_OK(chunker.Append(MakeTensor(kIntSpec),
-                                  {/*episode_id=*/1, /*step=*/0}, &first));
+  REVERB_ASSERT_OK(chunker->Append(MakeTensor(kIntSpec),
+                                   {/*episode_id=*/1, /*step=*/0}, &first));
   EXPECT_FALSE(first.expired());
 
   std::weak_ptr<CellRef> second;
-  REVERB_ASSERT_OK(chunker.Append(MakeTensor(kIntSpec),
-                                  {/*episode_id=*/1, /*step=*/1}, &second));
+  REVERB_ASSERT_OK(chunker->Append(MakeTensor(kIntSpec),
+                                   {/*episode_id=*/1, /*step=*/1}, &second));
   EXPECT_FALSE(first.expired());
   EXPECT_FALSE(second.expired());
 
   std::weak_ptr<CellRef> third;
-  REVERB_ASSERT_OK(chunker.Append(MakeTensor(kIntSpec),
-                                  {/*episode_id=*/1, /*step=*/2}, &third));
+  REVERB_ASSERT_OK(chunker->Append(MakeTensor(kIntSpec),
+                                   {/*episode_id=*/1, /*step=*/2}, &third));
   EXPECT_FALSE(first.expired());
   EXPECT_FALSE(second.expired());
   EXPECT_FALSE(third.expired());
 
   std::weak_ptr<CellRef> fourth;
-  REVERB_ASSERT_OK(chunker.Append(MakeTensor(kIntSpec),
-                                  {/*episode_id=*/1, /*step=*/3}, &fourth));
+  REVERB_ASSERT_OK(chunker->Append(MakeTensor(kIntSpec),
+                                   {/*episode_id=*/1, /*step=*/3}, &fourth));
   EXPECT_TRUE(first.expired());
   EXPECT_FALSE(second.expired());
   EXPECT_FALSE(third.expired());
@@ -261,108 +267,113 @@ TEST(Chunker, DeletesRefsWhenMageAgeExceeded) {
 }
 
 TEST(Chunker, GetKeepKeys) {
-  Chunker chunker(kIntSpec, /*max_chunk_length=*/2, /*num_keep_alive_refs=*/2);
+  auto chunker = std::make_shared<Chunker>(kIntSpec, /*max_chunk_length=*/2,
+                                           /*num_keep_alive_refs=*/2);
 
   std::weak_ptr<CellRef> first;
-  REVERB_ASSERT_OK(chunker.Append(MakeTensor(kIntSpec),
-                                  {/*episode_id=*/1, /*step=*/0}, &first));
-  EXPECT_THAT(chunker.GetKeepKeys(), ElementsAre(first.lock()->chunk_key()));
+  REVERB_ASSERT_OK(chunker->Append(MakeTensor(kIntSpec),
+                                   {/*episode_id=*/1, /*step=*/0}, &first));
+  EXPECT_THAT(chunker->GetKeepKeys(), ElementsAre(first.lock()->chunk_key()));
 
   // The second ref will belong to the same chunk.
   std::weak_ptr<CellRef> second;
-  REVERB_ASSERT_OK(chunker.Append(MakeTensor(kIntSpec),
-                                  {/*episode_id=*/1, /*step=*/1}, &second));
-  EXPECT_THAT(chunker.GetKeepKeys(), ElementsAre(first.lock()->chunk_key()));
+  REVERB_ASSERT_OK(chunker->Append(MakeTensor(kIntSpec),
+                                   {/*episode_id=*/1, /*step=*/1}, &second));
+  EXPECT_THAT(chunker->GetKeepKeys(), ElementsAre(first.lock()->chunk_key()));
 
   // The third ref will belong to a new chunk. The first ref is now expired but
   // since the second ref belong to the same chunk we expect the chunker to tell
   // us to keep both chunks around.
   std::weak_ptr<CellRef> third;
-  REVERB_ASSERT_OK(chunker.Append(MakeTensor(kIntSpec),
-                                  {/*episode_id=*/1, /*step=*/2}, &third));
-  EXPECT_THAT(chunker.GetKeepKeys(), ElementsAre(second.lock()->chunk_key(),
-                                                 third.lock()->chunk_key()));
+  REVERB_ASSERT_OK(chunker->Append(MakeTensor(kIntSpec),
+                                   {/*episode_id=*/1, /*step=*/2}, &third));
+  EXPECT_THAT(chunker->GetKeepKeys(), ElementsAre(second.lock()->chunk_key(),
+                                                  third.lock()->chunk_key()));
 
   // Adding a fourth value results in the second one expiring. The only chunk
   // which should be kept thus is the one referenced by the third and fourth.
   std::weak_ptr<CellRef> fourth;
-  REVERB_ASSERT_OK(chunker.Append(MakeTensor(kIntSpec),
-                                  {/*episode_id=*/1, /*step=*/3}, &fourth));
-  EXPECT_THAT(chunker.GetKeepKeys(), ElementsAre(third.lock()->chunk_key()));
+  REVERB_ASSERT_OK(chunker->Append(MakeTensor(kIntSpec),
+                                   {/*episode_id=*/1, /*step=*/3}, &fourth));
+  EXPECT_THAT(chunker->GetKeepKeys(), ElementsAre(third.lock()->chunk_key()));
 }
 
 TEST(Chunker, ResetClearsRefs) {
-  Chunker chunker(kIntSpec, /*max_chunk_length=*/2, /*num_keep_alive_refs=*/2);
+  auto chunker = std::make_shared<Chunker>(kIntSpec, /*max_chunk_length=*/2,
+                                           /*num_keep_alive_refs=*/2);
 
   std::weak_ptr<CellRef> first;
-  REVERB_ASSERT_OK(chunker.Append(MakeTensor(kIntSpec),
-                                  {/*episode_id=*/1, /*step=*/0}, &first));
+  REVERB_ASSERT_OK(chunker->Append(MakeTensor(kIntSpec),
+                                   {/*episode_id=*/1, /*step=*/0}, &first));
   std::weak_ptr<CellRef> second;
-  REVERB_ASSERT_OK(chunker.Append(MakeTensor(kIntSpec),
-                                  {/*episode_id=*/1, /*step=*/1}, &second));
+  REVERB_ASSERT_OK(chunker->Append(MakeTensor(kIntSpec),
+                                   {/*episode_id=*/1, /*step=*/1}, &second));
 
   // Before resetting both references are alive.
   EXPECT_FALSE(first.expired());
   EXPECT_FALSE(second.expired());
 
   // After resetting both references are dead.
-  chunker.Reset();
+  chunker->Reset();
   EXPECT_TRUE(first.expired());
   EXPECT_TRUE(second.expired());
 }
 
 TEST(Chunker, ResetRefreshesChunkKey) {
-  Chunker chunker(kIntSpec, /*max_chunk_length=*/2, /*num_keep_alive_refs=*/2);
+  auto chunker = std::make_shared<Chunker>(kIntSpec, /*max_chunk_length=*/2,
+                                           /*num_keep_alive_refs=*/2);
 
   std::weak_ptr<CellRef> first;
-  REVERB_ASSERT_OK(chunker.Append(MakeTensor(kIntSpec),
-                                  {/*episode_id=*/1, /*step=*/0}, &first));
+  REVERB_ASSERT_OK(chunker->Append(MakeTensor(kIntSpec),
+                                   {/*episode_id=*/1, /*step=*/0}, &first));
 
   // Extract key since the `CellRef` will expire when we reset the
   // `Chunker`.
   uint64_t first_chunk_key = first.lock()->chunk_key();
 
-  chunker.Reset();
+  chunker->Reset();
 
   // Take a second step now that the Chunker have been reseted. Note that since
   // `max_chunk_length` hasn't been reached we would expect the second step to
   // be part of the same chunk if `Reset` wasn't called in between.
   std::weak_ptr<CellRef> second;
-  REVERB_ASSERT_OK(chunker.Append(MakeTensor(kIntSpec),
-                                  {/*episode_id=*/1, /*step=*/1}, &second));
+  REVERB_ASSERT_OK(chunker->Append(MakeTensor(kIntSpec),
+                                   {/*episode_id=*/1, /*step=*/1}, &second));
 
   EXPECT_NE(second.lock()->chunk_key(), first_chunk_key);
 }
 
 TEST(Chunker, ResetRefreshesOffset) {
-  Chunker chunker(kIntSpec, /*max_chunk_length=*/2, /*num_keep_alive_refs=*/2);
+  auto chunker = std::make_shared<Chunker>(kIntSpec, /*max_chunk_length=*/2,
+                                           /*num_keep_alive_refs=*/2);
 
   std::weak_ptr<CellRef> first;
-  REVERB_ASSERT_OK(chunker.Append(MakeTensor(kIntSpec),
-                                  {/*episode_id=*/1, /*step=*/0}, &first));
+  REVERB_ASSERT_OK(chunker->Append(MakeTensor(kIntSpec),
+                                   {/*episode_id=*/1, /*step=*/0}, &first));
 
-  chunker.Reset();
+  chunker->Reset();
 
   // Take a second step now that the Chunker have been reseted. Note that since
   // `max_chunk_length` hasn't been reached we would expect the second step to
   // be part of the same chunk if `Reset` wasn't called in between.
   std::weak_ptr<CellRef> second;
-  REVERB_ASSERT_OK(chunker.Append(MakeTensor(kIntSpec),
-                                  {/*episode_id=*/1, /*step=*/1}, &second));
+  REVERB_ASSERT_OK(chunker->Append(MakeTensor(kIntSpec),
+                                   {/*episode_id=*/1, /*step=*/1}, &second));
 
   EXPECT_EQ(second.lock()->offset(), 0);
 }
 
 TEST(Chunker, AppendRequiresSameEpisode) {
-  Chunker chunker(kIntSpec, /*max_chunk_length=*/3, /*num_keep_alive_refs=*/3);
+  auto chunker = std::make_shared<Chunker>(kIntSpec, /*max_chunk_length=*/3,
+                                           /*num_keep_alive_refs=*/3);
 
   // Add two steps referencing two different episodes.
   std::weak_ptr<CellRef> first;
-  REVERB_ASSERT_OK(chunker.Append(MakeTensor(kIntSpec),
-                                  {/*episode_id=*/1, /*step=*/0}, &first));
+  REVERB_ASSERT_OK(chunker->Append(MakeTensor(kIntSpec),
+                                   {/*episode_id=*/1, /*step=*/0}, &first));
   std::weak_ptr<CellRef> second;
-  auto status = chunker.Append(MakeTensor(kIntSpec),
-                               {/*episode_id=*/2, /*step=*/0}, &second);
+  auto status = chunker->Append(MakeTensor(kIntSpec),
+                                {/*episode_id=*/2, /*step=*/0}, &second);
 
   EXPECT_EQ(status.code(), absl::StatusCode::kFailedPrecondition);
   EXPECT_THAT(
@@ -372,17 +383,18 @@ TEST(Chunker, AppendRequiresSameEpisode) {
 }
 
 TEST(Chunker, AppendRequiresEpisodeStepIncreases) {
-  Chunker chunker(kIntSpec, /*max_chunk_length=*/3, /*num_keep_alive_refs=*/3);
+  auto chunker = std::make_shared<Chunker>(kIntSpec, /*max_chunk_length=*/3,
+                                           /*num_keep_alive_refs=*/3);
 
   // Add two steps referencing two different episodes.
   std::weak_ptr<CellRef> first;
-  REVERB_ASSERT_OK(chunker.Append(MakeTensor(kIntSpec),
-                                  {/*episode_id=*/1, /*step=*/5}, &first));
+  REVERB_ASSERT_OK(chunker->Append(MakeTensor(kIntSpec),
+                                   {/*episode_id=*/1, /*step=*/5}, &first));
 
   // Same step index.
   std::weak_ptr<CellRef> eq;
-  auto eq_status =
-      chunker.Append(MakeTensor(kIntSpec), {/*episode_id=*/1, /*step=*/5}, &eq);
+  auto eq_status = chunker->Append(MakeTensor(kIntSpec),
+                                   {/*episode_id=*/1, /*step=*/5}, &eq);
 
   EXPECT_EQ(eq_status.code(), absl::StatusCode::kFailedPrecondition);
   EXPECT_THAT(
@@ -392,8 +404,8 @@ TEST(Chunker, AppendRequiresEpisodeStepIncreases) {
 
   // Smaller step index.
   std::weak_ptr<CellRef> lt;
-  auto lt_status =
-      chunker.Append(MakeTensor(kIntSpec), {/*episode_id=*/1, /*step=*/3}, &lt);
+  auto lt_status = chunker->Append(MakeTensor(kIntSpec),
+                                   {/*episode_id=*/1, /*step=*/3}, &lt);
 
   EXPECT_EQ(lt_status.code(), absl::StatusCode::kFailedPrecondition);
   EXPECT_THAT(
@@ -403,13 +415,14 @@ TEST(Chunker, AppendRequiresEpisodeStepIncreases) {
 }
 
 TEST(Chunker, NonSparseEpisodeRange) {
-  Chunker chunker(kIntSpec, /*max_chunk_length=*/5, /*num_keep_alive_refs=*/5);
+  auto chunker = std::make_shared<Chunker>(kIntSpec, /*max_chunk_length=*/5,
+                                           /*num_keep_alive_refs=*/5);
 
   // Append five consecutive steps.
   std::weak_ptr<CellRef> step;
   for (int i = 0; i < 5; i++) {
-    REVERB_ASSERT_OK(chunker.Append(MakeTensor(kIntSpec),
-                                    {/*episode_id=*/1, /*step=*/i}, &step));
+    REVERB_ASSERT_OK(chunker->Append(MakeTensor(kIntSpec),
+                                     {/*episode_id=*/1, /*step=*/i}, &step));
   }
 
   // Check that the range is non sparse.
@@ -420,12 +433,13 @@ TEST(Chunker, NonSparseEpisodeRange) {
 }
 
 TEST(Chunker, SparseEpisodeRange) {
-  Chunker chunker(kIntSpec, /*max_chunk_length=*/5, /*num_keep_alive_refs=*/5);
+  auto chunker = std::make_shared<Chunker>(kIntSpec, /*max_chunk_length=*/5,
+                                           /*num_keep_alive_refs=*/5);
 
   // Append five steps with a stride of 2.
   std::weak_ptr<CellRef> step;
   for (int i = 0; i < 5; i++) {
-    REVERB_ASSERT_OK(chunker.Append(
+    REVERB_ASSERT_OK(chunker->Append(
         MakeTensor(kIntSpec), {/*episode_id=*/33, /*step=*/i * 2}, &step));
   }
 

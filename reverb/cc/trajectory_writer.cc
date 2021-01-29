@@ -112,9 +112,9 @@ bool ContainsAll(const internal::flat_hash_set<uint64_t>& set,
 
 }  // namespace
 
-CellRef::CellRef(Chunker* chunker, uint64_t chunk_key, int offset,
+CellRef::CellRef(std::weak_ptr<Chunker> chunker, uint64_t chunk_key, int offset,
                  CellRef::EpisodeInfo episode_info)
-    : chunker_(chunker),
+    : chunker_(std::move(chunker)),
       chunk_key_(chunk_key),
       offset_(offset),
       episode_info_(std::move(episode_info)),
@@ -134,7 +134,7 @@ void CellRef::SetChunk(std::shared_ptr<const ChunkData> chunk) {
   chunk_ = std::move(chunk);
 }
 
-Chunker* CellRef::chunker() const { return chunker_; }
+std::weak_ptr<Chunker> CellRef::chunker() const { return chunker_; }
 
 std::shared_ptr<const ChunkData> CellRef::GetChunk() const {
   absl::MutexLock lock(&mu_);
@@ -185,7 +185,8 @@ absl::Status Chunker::Append(tensorflow::Tensor tensor,
   }
 
   active_refs_.push_back(std::make_shared<CellRef>(
-      this, next_chunk_key_, offset_++, std::move(episode_info)));
+      std::weak_ptr<Chunker>(shared_from_this()), next_chunk_key_, offset_++,
+      std::move(episode_info)));
 
   // Add a batch dim to the tensor before adding it to the buffer. This will
   // prepare it for the concat op when the chunk is finalized.
@@ -348,7 +349,7 @@ absl::Status TrajectoryWriter::Append(
   for (int i = 0; i < data.size(); i++) {
     if (data[i].has_value() && !chunkers_.contains(i)) {
       const auto& tensor = data[i].value();
-      chunkers_[i] = absl::make_unique<Chunker>(
+      chunkers_[i] = std::make_shared<Chunker>(
           internal::TensorSpec{std::to_string(i), tensor.dtype(),
                                tensor.shape()},
           options_.max_chunk_length, options_.num_keep_alive_refs);
@@ -416,9 +417,9 @@ absl::Status TrajectoryWriter::InsertItem(
     }
 
     // Check that the column only contains compatible data references.
-    const auto& col_spec = col[0].lock()->chunker()->spec();
+    const auto& col_spec = col[0].lock()->chunker().lock()->spec();
     for (int ref_idx = 1; ref_idx < col.size(); ++ref_idx) {
-      const auto& spec = col[ref_idx].lock()->chunker()->spec();
+      const auto& spec = col[ref_idx].lock()->chunker().lock()->spec();
       if (spec.dtype != col_spec.dtype) {
         return absl::InvalidArgumentError(absl::StrCat(
             "Column ", col_idx, " references tensors with different dtypes: ",
@@ -644,7 +645,7 @@ absl::Status TrajectoryWriter::FlushLocked(int ignore_last_num_items,
 
     for (auto& ref : item.refs) {
       if (!ref->IsReady()) {
-        REVERB_RETURN_IF_ERROR(ref->chunker()->Flush());
+        REVERB_RETURN_IF_ERROR(ref->chunker().lock()->Flush());
       }
     }
   }
