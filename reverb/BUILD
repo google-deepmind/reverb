@@ -98,6 +98,7 @@ reverb_pybind_extension(
         "//reverb/cc:client",
         "//reverb/cc:writer",
         "//reverb/cc:sampler",
+        "//reverb/cc:trajectory_writer",
         "//reverb/cc/platform:server",
         "//reverb/cc/checkpointing:interface",
         "//reverb/cc/selectors:fifo",
@@ -151,6 +152,19 @@ reverb_pytype_strict_library(
     srcs = ["item_selectors.py"],
     srcs_version = "PY3",
     deps = [":pybind"],
+)
+
+reverb_pytype_library(
+    name = "trajectory_writer",
+    srcs = ["trajectory_writer.py"],
+    srcs_version = "PY3",
+    strict_deps = True,
+    deps = [
+        ":client",
+        ":errors",
+        ":pybind",
+        ":replay_sample",
+    ],
 )
 
 reverb_py_test(
@@ -224,5 +238,14 @@ reverb_py_test(
     python_version = "PY3",
     deps = [
         ":reverb",
+    ],
+)
+
+reverb_py_test(
+    name = "trajectory_writer_test",
+    srcs = ["trajectory_writer_test.py"],
+    python_version = "PY3",
+    deps = [
+        ":trajectory_writer",
     ],
 )

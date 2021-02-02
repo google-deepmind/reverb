@@ -38,6 +38,7 @@
 #include "reverb/cc/selectors/uniform.h"
 #include "reverb/cc/table.h"
 #include "reverb/cc/table_extensions/interface.h"
+#include "reverb/cc/trajectory_writer.h"
 #include "reverb/cc/writer.h"
 #include "tensorflow/core/framework/tensor.h"
 #include "tensorflow/core/framework/tensor_shape.h"
@@ -380,6 +381,27 @@ tensorflow::Status TensorToNdArray(const tensorflow::Tensor &tensor,
   return tensorflow::Status::OK();
 }
 
+// This wrapper exists for the sole purpose of allowing the weak_ptr to be
+// handled in Python. Pybind supports shared_ptr and unique_ptr out of the box
+// and although it is possible to implement our own `SmartPointer, using a
+// minimal wrapper class like WeakCellRef is much simpler when the weak_ptr
+// is only required for one class (in Python).
+//
+// See https://pybind11.readthedocs.io/en/stable/advanced/smart_ptrs.html for
+// more information about smart pointers in pybind. To understand why a weak
+// pointer is needed in the first place, please refer to the header and
+// implementation of `CellRef`, `Chunker` and `TrajectoryWriter`.
+class WeakCellRef {
+ public:
+  explicit WeakCellRef(std::weak_ptr<::deepmind::reverb::CellRef> ref)
+      : ref_(std::move(ref)) {}
+
+  std::weak_ptr<::deepmind::reverb::CellRef> ref() const { return ref_; }
+
+ private:
+  std::weak_ptr<::deepmind::reverb::CellRef> ref_;
+};
+
 }  // namespace
 
 namespace pybind11 {
@@ -571,6 +593,23 @@ PYBIND11_MODULE(libpybind, m) {
              MaybeRaiseFromStatus(status);
              return std::make_pair(std::move(sample), end_of_sequence);
            })
+      .def("GetNextSample",
+           [](Sampler *sampler) {
+             absl::Status status;
+             std::vector<tensorflow::Tensor> sample;
+
+             // Release the GIL only when waiting for the call to complete. If
+             // the GIL is not held when `MaybeRaiseFromStatus` is called it can
+             // result in segfaults as the Python exception is populated with
+             // details from the status.
+             {
+               py::gil_scoped_release g;
+               status = sampler->GetNextSample(&sample);
+             }
+
+             MaybeRaiseFromStatus(status);
+             return sample;
+           })
       .def("Close", &Sampler::Close, py::call_guard<py::gil_scoped_release>());
 
   py::class_<Client>(m, "Client")
@@ -605,6 +644,13 @@ PYBIND11_MODULE(libpybind, m) {
             return sampler;
           },
           py::call_guard<py::gil_scoped_release>())
+      .def("NewTrajectoryWriter",
+           [](Client *client, int max_chunk_length, int num_keep_alive_refs) {
+             std::unique_ptr<TrajectoryWriter> writer;
+             MaybeRaiseFromStatus(client->NewTrajectoryWriter(
+                 {max_chunk_length, num_keep_alive_refs}, &writer));
+             return writer.release();
+           })
       .def(
           "MutatePriorities",
           [](Client *client, const std::string &table,
@@ -689,6 +735,73 @@ PYBIND11_MODULE(libpybind, m) {
       .def("InProcessClient", &Server::InProcessClient,
            py::call_guard<py::gil_scoped_release>())
       .def("__repr__", &Server::DebugString,
+           py::call_guard<py::gil_scoped_release>());
+
+  py::class_<WeakCellRef, std::shared_ptr<WeakCellRef>>(m, "WeakCellRef");
+
+  py::class_<TrajectoryWriter, std::shared_ptr<TrajectoryWriter>>(
+      m, "TrajectoryWriter")
+      .def(
+          "Append",
+          [](TrajectoryWriter *writer,
+             std::vector<absl::optional<tensorflow::Tensor>> data) {
+            std::vector<absl::optional<std::weak_ptr<CellRef>>> refs;
+            MaybeRaiseFromStatus(writer->Append(std::move(data), &refs));
+
+            std::vector<absl::optional<std::shared_ptr<WeakCellRef>>> weak_refs(
+                refs.size());
+            for (int i = 0; i < refs.size(); i++) {
+              if (refs[i].has_value()) {
+                weak_refs[i] =
+                    std::make_shared<WeakCellRef>(std::move(refs[i].value()));
+              } else {
+                weak_refs[i] = absl::nullopt;
+              }
+            }
+
+            return weak_refs;
+          })
+      .def("InsertItem",
+           [](TrajectoryWriter *writer, const std::string &table,
+              double priority,
+              std::vector<std::vector<std::shared_ptr<WeakCellRef>>>
+                  py_trajectory) {
+             std::vector<std::vector<std::weak_ptr<CellRef>>> trajectory;
+             trajectory.reserve(py_trajectory.size());
+             for (auto &py_column : py_trajectory) {
+               std::vector<std::weak_ptr<CellRef>> column;
+               column.reserve(py_column.size());
+               for (auto &weak_ref : py_column) {
+                 column.push_back(weak_ref->ref());
+               }
+               trajectory.push_back(std::move(column));
+             }
+             MaybeRaiseFromStatus(
+                 writer->InsertItem(table, priority, trajectory));
+           })
+      .def("Flush",
+           [](TrajectoryWriter *writer, int ignore_last_num_items,
+              int timeout_ms) {
+             absl::Status status;
+             auto timeout = timeout_ms > 0 ? absl::Milliseconds(timeout_ms)
+                                           : absl::InfiniteDuration();
+             {
+               py::gil_scoped_release g;
+               status = writer->Flush(ignore_last_num_items, timeout);
+             }
+             MaybeRaiseFromStatus(status);
+           })
+      .def("EndEpisode",
+           [](TrajectoryWriter *writer, bool clear_buffers, int timeout_ms) {
+             absl::Status status;
+             {
+               py::gil_scoped_release g;
+               status = writer->EndEpisode(clear_buffers,
+                                           absl::Milliseconds(timeout_ms));
+             }
+             MaybeRaiseFromStatus(status);
+           })
+      .def("Close", &TrajectoryWriter::Close,
            py::call_guard<py::gil_scoped_release>());
 }
 
