@@ -32,6 +32,7 @@
 #include "reverb/cc/sampler.h"
 #include "reverb/cc/schema.pb.h"
 #include "reverb/cc/support/signature.h"
+#include "reverb/cc/trajectory_writer.h"
 #include "reverb/cc/writer.h"
 
 namespace deepmind {
@@ -117,6 +118,16 @@ class Client {
   absl::Status ServerInfo(absl::Duration timeout, struct ServerInfo* info);
   // Waits indefinitely for server to respond.
   absl::Status ServerInfo(struct ServerInfo* info);
+
+  //  _   _  _ _ ___     _   ___          _  _       ____     __ _
+  // |_\/|_)|_|_) | |\/||_|\ || /\ |  __ | \/ \ |\ |/ \|  | |(_ |_
+  // |_/\|  |_| \_|_|  ||_| \||/--\|_    |_/\_/ | \|\_/|  |_|__)|_
+  //
+  // Validates `options` and if valid, creates a new `TrajectoryWriter`.
+  //
+  // TODO(b/177308010): Remove banner when `TrajectoryWriter` is ready for use.
+  absl::Status NewTrajectoryWriter(const TrajectoryWriter::Options& options,
+                                   std::unique_ptr<TrajectoryWriter>* writer);
 
  private:
   const std::shared_ptr</* grpc_gen:: */ReverbService::StubInterface> stub_;

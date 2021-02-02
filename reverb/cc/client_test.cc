@@ -21,11 +21,12 @@
 #include "grpcpp/impl/codegen/status.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
+#include "reverb/cc/platform/status_matchers.h"
 #include "reverb/cc/reverb_service.pb.h"
 #include "reverb/cc/reverb_service_mock.grpc.pb.h"
-#include "reverb/cc/platform/status_matchers.h"
 #include "reverb/cc/support/uint128.h"
 #include "reverb/cc/testing/proto_test_util.h"
+#include "reverb/cc/trajectory_writer.h"
 
 namespace deepmind {
 namespace reverb {
@@ -150,6 +151,13 @@ TEST(ClientTest, ServerInfoRequestFilled) {
   EXPECT_EQ(info.tables_state_id, absl::MakeUint128(1, 2));
   EXPECT_EQ(info.table_info.size(), 1);
   EXPECT_THAT(info.table_info[0], testing::EqualsProto(expected_info));
+}
+
+TEST(ClientTest, NewTrajectoryWriterValidatesOptions) {
+  auto stub = std::make_shared<FakeStub>();
+  Client client(stub);
+  std::unique_ptr<TrajectoryWriter> writer;
+  EXPECT_FALSE(client.NewTrajectoryWriter({-1, -1}, &writer).ok());
 }
 
 }  // namespace

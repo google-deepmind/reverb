@@ -30,6 +30,7 @@
 #include "reverb/cc/schema.pb.h"
 #include "reverb/cc/support/grpc_util.h"
 #include "reverb/cc/support/uint128.h"
+#include "reverb/cc/trajectory_writer.h"
 
 namespace deepmind {
 namespace reverb {
@@ -402,6 +403,14 @@ absl::Status Client::GetLocalTablePtr(absl::string_view table_name,
   stream->Write(request);
 
   return FromGrpcStatus(stream->Finish());
+}
+
+absl::Status Client::NewTrajectoryWriter(
+    const TrajectoryWriter::Options& options,
+    std::unique_ptr<TrajectoryWriter>* writer) {
+  REVERB_RETURN_IF_ERROR(options.Validate());
+  *writer = absl::make_unique<TrajectoryWriter>(stub_, options);
+  return absl::OkStatus();
 }
 
 }  // namespace reverb

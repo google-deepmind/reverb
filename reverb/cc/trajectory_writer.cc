@@ -317,6 +317,7 @@ TrajectoryWriter::TrajectoryWriter(
               }
             }
           })) {
+  REVERB_CHECK_OK(options.Validate());
 }
 
 TrajectoryWriter::~TrajectoryWriter() {
@@ -709,6 +710,23 @@ absl::Status TrajectoryWriter::EndEpisode(bool clear_buffers,
 
   episode_id_ = NewKey();
   episode_step_ = 0;
+  return absl::OkStatus();
+}
+
+absl::Status TrajectoryWriter::Options::Validate() const {
+  if (max_chunk_length <= 0) {
+    return absl::InvalidArgumentError(absl::StrCat(
+        "max_chunk_length must be > 0 but got ", max_chunk_length, "."));
+  }
+  if (num_keep_alive_refs <= 0) {
+    return absl::InvalidArgumentError(absl::StrCat(
+        "num_keep_alive_refs must be > 0 but got ", num_keep_alive_refs, "."));
+  }
+  if (max_chunk_length > num_keep_alive_refs) {
+    return absl::InvalidArgumentError(absl::StrCat(
+        "num_keep_alive_refs (", num_keep_alive_refs,
+        ") must be >= max_chunk_length (", max_chunk_length, ")."));
+  }
   return absl::OkStatus();
 }
 

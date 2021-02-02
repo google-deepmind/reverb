@@ -15,6 +15,7 @@
 #include "reverb/cc/trajectory_writer.h"
 
 #include <memory>
+#include <string>
 
 #include "grpcpp/impl/codegen/status.h"
 #include "grpcpp/impl/codegen/sync_stream.h"
@@ -1074,6 +1075,56 @@ TEST(TrajectoryWriter, EndEpisodeReturnsIfTimeoutExpired) {
 
   // Close the writer to avoid having to mock the item confirmation response.
   writer.Close();
+}
+
+class TrajectoryWriterOptionsTest : public ::testing::Test {
+ protected:
+  void ExpectInvalidArgumentWithMessage(const std::string& message) {
+    auto status = options_.Validate();
+    EXPECT_EQ(status.code(), absl::StatusCode::kInvalidArgument);
+    EXPECT_THAT(std::string(status.message()), ::testing::HasSubstr(message));
+  }
+
+  TrajectoryWriter::Options options_;
+};
+
+TEST_F(TrajectoryWriterOptionsTest, Valid) {
+  options_.max_chunk_length = 2;
+  options_.num_keep_alive_refs = 2;
+  REVERB_EXPECT_OK(options_.Validate());
+}
+
+TEST_F(TrajectoryWriterOptionsTest, ZeroMaxChunkLength) {
+  options_.max_chunk_length = 0;
+  options_.num_keep_alive_refs = 2;
+  ExpectInvalidArgumentWithMessage("max_chunk_length must be > 0 but got 0.");
+}
+
+TEST_F(TrajectoryWriterOptionsTest, NegativeMaxChunkLength) {
+  options_.max_chunk_length = -1;
+  options_.num_keep_alive_refs = 2;
+  ExpectInvalidArgumentWithMessage("max_chunk_length must be > 0 but got -1.");
+}
+
+TEST_F(TrajectoryWriterOptionsTest, ZeroNumKeepAliveRefs) {
+  options_.max_chunk_length = 2;
+  options_.num_keep_alive_refs = 0;
+  ExpectInvalidArgumentWithMessage(
+      "num_keep_alive_refs must be > 0 but got 0.");
+}
+
+TEST_F(TrajectoryWriterOptionsTest, NegativeNumKeepAliveRefs) {
+  options_.max_chunk_length = 2;
+  options_.num_keep_alive_refs = -1;
+  ExpectInvalidArgumentWithMessage(
+      "num_keep_alive_refs must be > 0 but got -1.");
+}
+
+TEST_F(TrajectoryWriterOptionsTest, NumKeepAliveLtMaxChunkLength) {
+  options_.num_keep_alive_refs = 5;
+  options_.max_chunk_length = 6;
+  ExpectInvalidArgumentWithMessage(
+      "num_keep_alive_refs (5) must be >= max_chunk_length (6).");
 }
 
 }  // namespace

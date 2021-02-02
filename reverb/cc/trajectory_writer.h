@@ -61,6 +61,10 @@ class TrajectoryWriter {
     // calls do not provide data for all columns then the references will
     // expire with different `TrajectoryWriter::Append` calls.
     int num_keep_alive_refs;
+
+    // Checks that field values are valid and returns `InvalidArgument` if any
+    // field value, or combination of field values, are invalid.
+    absl::Status Validate() const;
   };
 
   // TODO(b/178084425): Allow chunking options to be specified for each column.
