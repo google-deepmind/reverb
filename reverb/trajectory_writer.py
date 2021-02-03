@@ -74,7 +74,6 @@ class TrajectoryWriter:
     self.flush()
 
   def __del__(self):
-    self.flush()
     self.close()
 
   @property
