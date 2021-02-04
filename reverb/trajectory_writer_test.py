@@ -28,7 +28,7 @@ class FakeWeakCellRef:
 
 
 def extract_data(column: trajectory_writer._ColumnHistory):
-  return [ref.data for ref in column[:]]
+  return [ref.data if ref else None for ref in column[:]]
 
 
 class TrajectoryWriterTest(absltest.TestCase):
@@ -57,16 +57,37 @@ class TrajectoryWriterTest(absltest.TestCase):
     history = tree.map_structure(extract_data, self.writer.history)
     self.assertDictEqual(history, {'x': [1, 2, 3], 'y': [100, 101, 102]})
 
-  def test_append_require_same_structure(self):
-    self.writer.append({'x': 1, 'y': 2})
-    with self.assertRaises(ValueError):
-      self.writer.append({'x': 2, 'z': 3})
+  def test_history_structure_evolves_with_data(self):
+    self.writer.append({'x': 1, 'z': 2})
+    first = tree.map_structure(extract_data, self.writer.history)
+    self.assertDictEqual(first, {'x': [1], 'z': [2]})
+
+    self.writer.append({'z': 3, 'y': 4})
+    second = tree.map_structure(extract_data, self.writer.history)
+    self.assertDictEqual(second, {
+        'x': [1, None],
+        'z': [2, 3],
+        'y': [None, 4],
+    })
+
+    self.writer.append({'y': 5})
+    third = tree.map_structure(extract_data, self.writer.history)
+    self.assertDictEqual(third, {
+        'x': [1, None, None],
+        'z': [2, 3, None],
+        'y': [None, 4, 5],
+    })
 
   def test_append_returns_same_structure_as_data(self):
-    data = {'x': 1, 'y': 2}
-    step_ref = self.writer.append(data)
-    ref_data = tree.map_structure(lambda x: x.data, step_ref)
-    self.assertDictEqual(ref_data, data)
+    first_step_data = {'x': 1, 'y': 2}
+    first_step_ref = self.writer.append(first_step_data)
+    tree.assert_same_structure(first_step_data, first_step_ref)
+
+    # Check that this holds true even if the data structure changes between
+    # steps.
+    second_step_data = {'y': 2, 'z': 3}
+    second_step_ref = self.writer.append(second_step_data)
+    tree.assert_same_structure(second_step_data, second_step_ref)
 
   def test_append_forwards_flat_data_to_cpp_writer(self):
     data = {'x': 1, 'y': 2}

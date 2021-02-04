@@ -21,7 +21,7 @@ test these features.
 
 import datetime
 
-from typing import Any, Iterator, Optional, Sequence
+from typing import Any, List, Iterator, Mapping, Optional, Sequence, Tuple
 
 from reverb import client as client_lib
 from reverb import errors
@@ -65,7 +65,30 @@ class TrajectoryWriter:
     """
     self._writer = client._client.NewTrajectoryWriter(max_chunk_length,
                                                       num_keep_alive_refs)
-    self._structured_history = None
+
+    # The union of the structures of all data passed to `append`. The structure
+    # grows everytime the provided data contains one or more fields which were
+    # not present in any of the data seen before.
+    self._structure = None
+
+    # References to all data seen since the writer was constructed or last reset
+    # (through end_episode). The number of columns always matches the number of
+    # leaf nodes in `_structure` but the order is not (necessarily) the same as
+    # `tree.flatten(_structure)` since the structure may evolve over time.
+    # Instead the mapping is controlled by `_path_to_column_index`. See
+    # `_flatten` and `_unflatten` for more details.
+    self._column_history: List[_ColumnHistory] = []
+
+    # Mapping from structured paths (i.e as received from
+    # `tree.flatten_with_path`) to position in `_column_history`. This is used
+    # in `_flatten`.
+    self._path_to_column_index: Mapping[str, int] = {}
+
+    # The inverse of `_path_to_column_index`. That is the mapping describes the
+    # swaps required to go from the order of `column_history` (and the C++
+    # writer) to the order of a sequence which can be unflattened into
+    # `_structure`. This is used in `_unflatten`.
+    self._column_index_to_flat_structure_index: Mapping[int, int] = {}
 
   def __enter__(self) -> 'TrajectoryWriter':
     return self
@@ -114,19 +137,30 @@ class TrajectoryWriter:
     Raises:
       RuntimeError: If `append` hasn't been called at least once before.
     """
-    if self._structured_history is None:
+    if self._structure is None:
       raise RuntimeError(
           'history cannot be accessed before `append` is called at least once.')
 
-    return self._structured_history
+    reordered_flat_history = [
+        self._column_history[self._column_index_to_flat_structure_index[i]]
+        for i in range(len(self._column_history))
+    ]
+    return tree.unflatten_as(self._structure, reordered_flat_history)
 
   def append(self, data: Any):
     """Columnwise append of data leaf nodes to internal buffers.
 
-    If this is the first call then the structure of `data` is extracted and used
-    to validate `data` of future `append` calls. The structure of `data` needs
-    to remain the same across calls. It is however fine to provide partial data.
-    Simply set the field as None.
+    If `data` includes fields or sub structures which haven't been present in
+    any previous calls then the types and shapes of the new fields are extracted
+    and used to validate future `append` calls. The structure of `history` is
+    also updated to include the union of the structure across all `append`
+    calls.
+
+    When new fields are added after the first step then the newly created
+    history field will be filled with `None` in all preceding positions. This
+    results in the equal indexing across columns. That is `a[i]` and `b[i]`
+    references the same step in the sequence even if `b` was first observed
+    after `a` had already been seen.
 
     Args:
       data: The (possibly nested) structure to make available for new items to
@@ -136,30 +170,55 @@ class TrajectoryWriter:
       References to the data structured just like provided `data`.
     """
     # Unless it is the first step, check that the structure is the same.
-    if self._structured_history is not None:
-      tree.assert_same_structure(data, self._structured_history, True)
-    else:
-      self._structured_history = tree.map_structure(lambda _: _ColumnHistory(),
-                                                    data)
+    if self._structure is None:
+      self._update_structure(tree.map_structure(lambda _: None, data))
+
+    try:
+      tree.assert_same_structure(data, self._structure, True)
+      expanded_data = data
+    except ValueError:
+      try:
+        # If `data` is a subset of the full spec then we can simply fill in the
+        # gaps with None.
+        expanded_data = _tree_merge_into(source=data, target=self._structure)
+      except ValueError:
+        # `data` contains fields which haven't been observed before so we need
+        # expand the spec using the union of the history and `data`.
+        self._update_structure(
+            _tree_union(self._structure,
+                        tree.map_structure(lambda x: None, data)))
+
+        # Now that the structure has been updated to include all the fields in
+        # `data` we are able to expand `data` to the full structure. Note that
+        # if `data` is a superset of the previous history structure then this
+        # "expansion" is just a noop.
+        expanded_data = _tree_merge_into(data, self._structure)
+
+    # Use our custom mapping to flatten the expanded structure into columns.
+    flat_column_data = self._flatten(expanded_data)
 
     # Flatten the data and pass it to the C++ writer for column wise append. In
     # all columns where data is provided (i.e not None) will return a reference
     # to the data (`pybind.WeakCellRef`) which is used to define trajectories
     # for `create_item`. The columns which did not receive a value (i.e None)
     # will return None.
-    flat_data_references = self._writer.Append(tree.flatten(data))
+    flat_column_data_references = self._writer.Append(flat_column_data)
 
-    # Structure the references (and None) in the same way the data was provided.
-    structured_data_references = tree.unflatten_as(self._structured_history,
-                                                   flat_data_references)
+    # Append references to respective columns. Note that we use the expanded
+    # structure in order to populate the columns missing from the data with
+    # None.
+    for column, data_reference in zip(self._column_history,
+                                      flat_column_data_references):
+      column.append(data_reference)
 
-    # Append references to respective columns.
-    tree.map_structure(
-        lambda column, data_reference: column.append(data_reference),
-        self._structured_history, structured_data_references)
+    # Unpack the column data into the expanded structure.
+    expanded_structured_data_references = self._unflatten(
+        flat_column_data_references)
 
-    # Return the referenced structured in the same way as `data`.
-    return structured_data_references
+    # Return the referenced structured in the same way as `data`. If only a
+    # subset of the fields were present in the input data then only these fields
+    # will exist in the output.
+    return _tree_filter(expanded_structured_data_references, data)
 
   def create_item(self, table: str, priority: float, trajectory: Any):
     """Enqueue insertion of an item into `table` referencing `trajectory`.
@@ -267,17 +326,75 @@ class TrajectoryWriter:
     self._writer.EndEpisode(clear_buffers, timeout_ms)
 
     if clear_buffers:
-      tree.map_structure(lambda x: x.reset(), self._structured_history)
+      for column in self._column_history:
+        column.reset()
 
   def close(self):
     self._writer.Close()
+
+  def _flatten(self, data):
+    flat_data = [None] * len(self._path_to_column_index)
+    for path, value in tree.flatten_with_path(data):
+      flat_data[self._path_to_column_index[path]] = value
+    return flat_data
+
+  def _unflatten(self, flat_data):
+    reordered_flat_data = [
+        flat_data[self._column_index_to_flat_structure_index[i]]
+        for i in range(len(flat_data))
+    ]
+    return tree.unflatten_as(self._structure, reordered_flat_data)
+
+  def _update_structure(self, new_structure: Any):
+    """Replace the existing structure with a superset of the current one.
+
+    Since the structure is allowed to evolve over time we are unable to simply
+    map flattened data to column indices. For example, if the first step is
+    `{'a': 1, 'c': 101}` and the second step is `{'a': 2, 'b': 12, 'c': 102}`
+    then the flatten data would be `[1, 101]` and `[2, 12, 102]`. This will
+    result in invalid behaviour as the second column (index 1) would receive `c`
+    in the first step and `b` in the second.
+
+    To mitigate this we maintain an explicit mapping from path -> column. The
+    mapping is allowed to grow over time and would in the above example be
+    `{'a': 0, 'c': 1}` and `{'a': 0, 'b': 2, 'c': 1}` after the first and second
+    step resp. Data would thus be flatten as `[1, 101]` and `[2, 102, 12]` which
+    means that the columns in the C++ layer only receive data from a single
+    field in the structure even if it evolves over time.
+
+    Args:
+      new_structure: The new structure to use. Must be a superset of the
+        previous structure.
+    """
+    # Evolve the mapping from structure path to column index.
+    for path, _ in tree.flatten_with_path(new_structure):
+      if path not in self._path_to_column_index:
+        self._path_to_column_index[path] = len(self._path_to_column_index)
+
+    # Recalculate the reverse mapping, i.e column index to index within the
+    # flatten structure.
+    self._column_index_to_flat_structure_index = {
+        self._path_to_column_index[path]: i
+        for i, (path, _) in enumerate(tree.flatten_with_path(new_structure))
+    }
+
+    # New columns are always added to the back so all we need to do expand the
+    # history structure is to append one column for every field added by this
+    # `_update_structure` call.  In order to align indexing across all columns
+    # we init the new fields with None for all steps up until this.
+    history_length = len(self._column_history[0]) if self._column_history else 0
+    while len(self._column_history) < len(tree.flatten(new_structure)):
+      self._column_history.append(_ColumnHistory(history_length))
+
+    # With the mapping and history updated the structure can be set.
+    self._structure = new_structure
 
 
 class _ColumnHistory:
   """Utility class for making construction of `TrajectoryColumn`s easy."""
 
-  def __init__(self):
-    self._data_references = []
+  def __init__(self, history_padding: int = 0):
+    self._data_references = [None] * history_padding
 
   def append(self, ref: Optional[pybind.WeakCellRef]):
     self._data_references.append(ref)
@@ -337,3 +454,60 @@ def sample_trajectory(client: client_lib.Client, table: str,
           table_size=int(sample[2][0]),
           priority=float(sample[3][0])),
       data=tree.unflatten_as(structure, sample[4:]))
+
+
+def _tree_merge_into(source, target):
+  """Update `target` with content of substructure `source`."""
+  path_to_index = {
+      path: i for i, (path, _) in enumerate(tree.flatten_with_path(target))
+  }
+
+  flat_target = tree.flatten(target)
+  for path, leaf in tree.flatten_with_path(source):
+    if path not in path_to_index:
+      raise ValueError(
+          f'Cannot expand {source} into {target} as it is not a sub structure.')
+    flat_target[path_to_index[path]] = leaf
+
+  return tree.unflatten_as(target, flat_target)
+
+
+def _tree_filter(source, filter_):
+  """Extract `filter_` from `source`."""
+  path_to_index = {
+      path: i for i, (path, _) in enumerate(tree.flatten_with_path(filter_))
+  }
+
+  flat_target = [None] * len(path_to_index)
+  for path, leaf in tree.flatten_with_path(source):
+    if path in path_to_index:
+      flat_target[path_to_index[path]] = leaf
+
+  return tree.unflatten_as(filter_, flat_target)
+
+
+def _is_named_tuple(x):
+  # Classes that look syntactically as if they inherit from `NamedTuple` in
+  # fact end up not doing so, so use this heuristic to detect them.
+  return isinstance(x, Tuple) and hasattr(x, '_fields')
+
+
+def _tree_union(a, b):
+  """Compute the disjunction of two trees with None leaves."""
+  if a is None:
+    return a
+
+  if _is_named_tuple(a):
+    return type(a)(**_tree_union(a._asdict(), b._asdict()))
+  if isinstance(a, (List, Tuple)):
+    return type(a)(_tree_union(aa, bb) for aa, bb in zip(a, b))
+
+  merged = {**a}
+
+  for k, v in b.items():
+    if k in a:
+      merged[k] = _tree_union(a[k], v)
+    else:
+      merged[k] = v
+
+  return type(a)(**merged)
