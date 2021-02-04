@@ -18,6 +18,7 @@
 #include <deque>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "grpcpp/impl/codegen/client_context.h"
 #include "grpcpp/impl/codegen/sync_stream.h"
@@ -579,6 +580,18 @@ absl::Status Sampler::GetNextSample(
   return absl::OkStatus();
 }
 
+absl::Status Sampler::GetNextTrajectory(std::vector<tensorflow::Tensor>* data) {
+  std::unique_ptr<Sample> sample;
+  REVERB_RETURN_IF_ERROR(PopNextSample(&sample));
+  REVERB_RETURN_IF_ERROR(sample->AsTrajectory(data));
+  REVERB_RETURN_IF_ERROR(ValidateAgainstOutputSpec(*data,
+                                                   /*time_step=*/false));
+
+  absl::WriterMutexLock lock(&mu_);
+  if (++returned_ == max_samples_) samples_.Close();
+  return absl::OkStatus();
+}
+
 absl::Status Sampler::ValidateAgainstOutputSpec(
     const std::vector<tensorflow::Tensor>& data, bool time_step) {
   if (!dtypes_and_shapes_) {
@@ -596,7 +609,7 @@ absl::Status Sampler::ValidateAgainstOutputSpec(
         internal::DtypesShapesString(internal::SpecsFromTensors(data))));
   }
 
-  for (int i = 0; i < data.size(); ++i) {
+  for (int i = 4; i < data.size(); ++i) {
     tensorflow::TensorShape elem_shape;
     if (!time_step) {
       // Remove the outer dimension from data[i].shape() so we can properly
@@ -788,6 +801,11 @@ absl::Status Sample::AsBatchedTimesteps(std::vector<tensorflow::Tensor>* data) {
     return absl::DataLossError(
         "Sample::AsBatchedTimesteps: Some time steps have been lost.");
   }
+  if (!is_composed_of_timesteps()) {
+    return absl::FailedPreconditionError(
+        "Sample::AsBatchedTimesteps when trajectory cannot be decomposed into "
+        "timesteps.");
+  }
 
   std::vector<tensorflow::Tensor> sequences(num_data_tensors_ + 4);
 
@@ -796,6 +814,58 @@ absl::Status Sample::AsBatchedTimesteps(std::vector<tensorflow::Tensor>* data) {
   sequences[1] = InitializeTensor(probability_, num_timesteps_);
   sequences[2] = InitializeTensor(table_size_, num_timesteps_);
   sequences[3] = InitializeTensor(priority_, num_timesteps_);
+
+  // Prepare the data for concatenation.
+  // data_tensors[i][j] is the j-th chunk of the i-th data tensor.
+  std::vector<std::vector<tensorflow::Tensor>> data_tensors(num_data_tensors_);
+
+  // Extract all chunks.
+  while (!chunks_.empty()) {
+    auto it_to = data_tensors.begin();
+    for (auto& batch : chunks_.front()) {
+      (it_to++)->push_back(std::move(batch));
+    }
+    chunks_.pop_front();
+  }
+
+  // Concatenate all chunks.
+  int64_t i = 4;
+  for (const auto& chunks : data_tensors) {
+    REVERB_RETURN_IF_ERROR(FromTensorflowStatus(
+        tensorflow::tensor::Concat(chunks, &sequences[i++])));
+  }
+
+  std::swap(sequences, *data);
+
+  return absl::OkStatus();
+}
+
+absl::Status Sample::AsTrajectory(std::vector<tensorflow::Tensor>* data) {
+  if (next_timestep_called_) {
+    return absl::DataLossError(
+        "Sample::AsBatchedTimesteps: Some time steps have been lost.");
+  }
+  std::vector<tensorflow::Tensor> sequences(num_data_tensors_ + 4);
+
+  // Initialize the first four items with the key, probability, table size and
+  // priority.
+  sequences[0] = tensorflow::Tensor(key_);
+  sequences[1] = tensorflow::Tensor(probability_);
+  sequences[2] = tensorflow::Tensor(table_size_);
+  sequences[3] = tensorflow::Tensor(priority_);
+
+  // If trajectory cannot be decomposed into timesteps then `chunks_` only has
+  // one item which is the entire (flattened) trajectory. There is therefore no
+  // need to concat tensors in this case and we can simply move the content as
+  // it is to data.
+  if (chunks_.size() == 1) {
+    for (int i = 0; i < chunks_.front().size(); i++) {
+      sequences[i + 4] = std::move(chunks_.front()[i]);
+    }
+    chunks_.pop_front();
+    std::swap(sequences, *data);
+    return absl::OkStatus();
+  }
 
   // Prepare the data for concatenation.
   // data_tensors[i][j] is the j-th chunk of the i-th data tensor.

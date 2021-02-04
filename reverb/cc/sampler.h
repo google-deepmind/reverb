@@ -62,14 +62,30 @@ class Sample {
   std::vector<tensorflow::Tensor> GetNextTimestep();
 
   // Returns the entire sample as a flat sequence of batched tensors.
-  // CHECK-fails if `GetNextTimestep()` has already been called on this sample.
+  //
+  // Fails with `DataLossError` if `GetNextTimestep()` has already been called
+  // on this sample.
+  // Fails with `FailedPreconditionError` if sample cannot be decomposed into
+  // timestpes.
+  //
   // Return:
   //   K+4 tensors each having a leading dimension of size N (= sample
-  //   length). The first K tensors holds the actual timestep data batched into
-  //   a tensor of shape [N, ...original_shape]. The following four tensors are
-  //   1D (length N) tensors representing the key, sample probability, table
-  //   size and priority respectively.
+  //   length). The first four tensors are 1D (length N) tensors representing
+  //   the key, sample probability, table size and priority respectively. The
+  //   last K tensors holds the actual timestep data batched into a tensor of
+  //   shape [N, ...original_shape].
   absl::Status AsBatchedTimesteps(std::vector<tensorflow::Tensor>* data);
+
+  // Returns the entire sample as a flat sequence of batched tensors.
+  //
+  // Fails with `DataLossError` if `GetNextTimestep()` has already been called
+  // on this sample.
+  //
+  // Return:
+  //   K+4 tensors. The first four tensors are scalar tensors representing
+  //   the key, sample probability, table size and priority respectively. The
+  //   last K tensors holds the actual trajectory data.
+  absl::Status AsTrajectory(std::vector<tensorflow::Tensor>* data);
 
   // Returns true if the end of the sample has been reached.
   ABSL_MUST_USE_RESULT bool is_end_of_sample() const;
@@ -257,9 +273,28 @@ class Sampler {
   absl::Status GetNextTimestep(std::vector<tensorflow::Tensor>* data,
                                bool* end_of_sequence);
 
+  // Blocks until a complete (timestep sequence) sample has been retrieved or
+  // until a non transient error is encountered or `Close` has been called.
+  //
+  // Once the sample has been retrieved then the data is unpacked as "batched
+  // timesteps". That is, for a timestep trajectory of length N, the result is
+  // the same as calling `GetNextTimestep` N times and then concatenating the
+  // results column wise.
+  //
+  // TODO(b/179118872): Remove this method and just use GetNextTrajectory.
+  absl::Status GetNextSample(std::vector<tensorflow::Tensor>* data);
+
   // Blocks until a complete sample has been retrieved or until a non transient
   // error is encountered or `Close` has been called.
-  absl::Status GetNextSample(std::vector<tensorflow::Tensor>* data);
+  //
+  // Once the sample has been retrieved then the sample is unpacked into 4+K
+  // tensors. The first 4 tensors are scalars representig the key, probability,
+  // table size and priority of the sample. The remaining K tensors are the
+  // columns of the flattened trajectory.
+  //
+  // TODO(b/179118872): Rename this to GetNextSample once the existing method
+  //   has been deleted.
+  absl::Status GetNextTrajectory(std::vector<tensorflow::Tensor>* data);
 
   // Cancels all workers and joins their threads. Any blocking or future call
   // to `GetNextTimestep` or `GetNextSample` will return CancelledError without
