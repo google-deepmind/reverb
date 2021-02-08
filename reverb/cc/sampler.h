@@ -55,7 +55,8 @@ class Sample {
  public:
   Sample(tensorflow::uint64 key, double probability,
          tensorflow::int64 table_size, double priority,
-         std::deque<std::vector<tensorflow::Tensor>> chunks);
+         std::deque<std::vector<tensorflow::Tensor>> chunks,
+         std::vector<bool> squeeze_columns);
 
   // Returns the next time step from this sample as a flat sequence of tensors.
   // CHECK-fails if the entire sample has already been returned.
@@ -112,6 +113,10 @@ class Sample {
 
   // A deque of tensor chunks.
   std::deque<std::vector<tensorflow::Tensor>> chunks_;
+
+  // Columns where the batch dimension should be emitted. This is only respected
+  // by `AsTrajectory`.
+  std::vector<bool> squeeze_columns_;
 
   // The next time step to return when GetNextTimestep() is called.
   int64_t next_timestep_index_;

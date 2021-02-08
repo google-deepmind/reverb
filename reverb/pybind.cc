@@ -783,24 +783,34 @@ PYBIND11_MODULE(libpybind, m) {
 
             return weak_refs;
           })
-      .def("CreateItem",
-           [](TrajectoryWriter *writer, const std::string &table,
-              double priority,
-              std::vector<std::vector<std::shared_ptr<WeakCellRef>>>
-                  py_trajectory) {
-             std::vector<std::vector<std::weak_ptr<CellRef>>> trajectory;
-             trajectory.reserve(py_trajectory.size());
-             for (auto &py_column : py_trajectory) {
-               std::vector<std::weak_ptr<CellRef>> column;
-               column.reserve(py_column.size());
-               for (auto &weak_ref : py_column) {
-                 column.push_back(weak_ref->ref());
-               }
-               trajectory.push_back(std::move(column));
-             }
-             MaybeRaiseFromStatus(
-                 writer->CreateItem(table, priority, trajectory));
-           })
+      .def(
+          "CreateItem",
+          [](TrajectoryWriter *writer, const std::string &table,
+             double priority,
+             std::vector<std::vector<std::shared_ptr<WeakCellRef>>>
+                 py_trajectory,
+             std::vector<bool> squeeze_column) {
+            if (py_trajectory.size() != squeeze_column.size()) {
+              MaybeRaiseFromStatus(absl::InternalError(
+                  "Length of py_trajectory and squeeze_column did not match."));
+              return;
+            }
+
+            std::vector<TrajectoryColumn> trajectory;
+            trajectory.reserve(py_trajectory.size());
+            for (int i = 0; i < py_trajectory.size(); i++) {
+              auto &py_column = py_trajectory[i];
+              std::vector<std::weak_ptr<CellRef>> column;
+              column.reserve(py_column.size());
+              for (auto &weak_ref : py_column) {
+                column.push_back(weak_ref->ref());
+              }
+              trajectory.push_back(
+                  TrajectoryColumn(std::move(column), squeeze_column[i]));
+            }
+            MaybeRaiseFromStatus(
+                writer->CreateItem(table, priority, trajectory));
+          })
       .def("Flush",
            [](TrajectoryWriter *writer, int ignore_last_num_items,
               int timeout_ms) {

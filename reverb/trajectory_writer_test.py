@@ -163,6 +163,29 @@ class TrajectoryColumnTest(absltest.TestCase):
           writer.history['b'][:].numpy(),
           np.stack([np.ones([3, 3], np.float) * x for x in range(i + 1)]))
 
+  def test_numpy_squeeze(self):
+    # No data will ever be sent to the server so it doesn't matter that we use
+    # an invalid address.
+    client = client_lib.Client('localhost:1234')
+    writer = trajectory_writer.TrajectoryWriter(client, 5, 10)
+
+    for i in range(10):
+      writer.append({'a': i})
+      self.assertEqual(writer.history['a'][-1].numpy(), i)
+
+  def test_validates_squeeze(self):
+    # Exactly one is valid.
+    trajectory_writer.TrajectoryColumn([FakeWeakCellRef(1)], squeeze=True)
+
+    # Zero is not fine.
+    with self.assertRaises(ValueError):
+      trajectory_writer.TrajectoryColumn([], squeeze=True)
+
+    # Neither is two (or more).
+    with self.assertRaises(ValueError):
+      trajectory_writer.TrajectoryColumn(
+          [FakeWeakCellRef(1), FakeWeakCellRef(2)], squeeze=True)
+
 
 if __name__ == '__main__':
   absltest.main()

@@ -153,9 +153,14 @@ absl::Status TimestepTrajectoryAsSample(
 
   REVERB_CHECK_EQ(remaining, 0);
 
-  *sample = absl::make_unique<Sample>(info.item().key(), info.probability(),
-                                      info.table_size(), info.item().priority(),
-                                      std::move(chunks));
+  std::vector<bool> squeeze_columns;
+  for (const auto& col : info.item().flat_trajectory().columns()) {
+    squeeze_columns.push_back(col.squeeze());
+  }
+
+  *sample = absl::make_unique<Sample>(
+      info.item().key(), info.probability(), info.table_size(),
+      info.item().priority(), std::move(chunks), std::move(squeeze_columns));
   return absl::OkStatus();
 }
 
@@ -198,11 +203,17 @@ absl::Status AsSample(std::vector<SampleStreamResponse> responses,
         tensorflow::tensor::Concat(unpacked_chunks, &unpacked_columns.back())));
   }
 
+  std::vector<bool> squeeze_columns;
+  for (const auto& col : info.item().flat_trajectory().columns()) {
+    squeeze_columns.push_back(col.squeeze());
+  }
+
   *sample =
       absl::make_unique<Sample>(info.item().key(), info.probability(),
                                 info.table_size(), info.item().priority(),
                                 std::deque<std::vector<tensorflow::Tensor>>(
-                                    {std::move(unpacked_columns)}));
+                                    {std::move(unpacked_columns)}),
+                                std::move(squeeze_columns));
 
   return absl::OkStatus();
 }
@@ -233,11 +244,16 @@ absl::Status AsSample(const Table::SampledItem& sampled_item,
         tensorflow::tensor::Concat(unpacked_chunks, &flat_trajectory.back())));
   }
 
+  std::vector<bool> squeeze_columns;
+  for (const auto& col : sampled_item.item.flat_trajectory().columns()) {
+    squeeze_columns.push_back(col.squeeze());
+  }
+
   *sample = absl::make_unique<deepmind::reverb::Sample>(
       sampled_item.item.key(), sampled_item.probability,
       sampled_item.table_size, sampled_item.item.priority(),
-      std::deque<std::vector<tensorflow::Tensor>>(
-          {std::move(flat_trajectory)}));
+      std::deque<std::vector<tensorflow::Tensor>>({std::move(flat_trajectory)}),
+      std::move(squeeze_columns));
 
   return absl::OkStatus();
 }
@@ -722,7 +738,8 @@ void Sampler::RunWorker(SamplerWorker* worker) {
 
 Sample::Sample(tensorflow::uint64 key, double probability,
                tensorflow::int64 table_size, double priority,
-               std::deque<std::vector<tensorflow::Tensor>> chunks)
+               std::deque<std::vector<tensorflow::Tensor>> chunks,
+               std::vector<bool> squeeze_columns)
     : key_(key),
       probability_(probability),
       table_size_(table_size),
@@ -730,6 +747,7 @@ Sample::Sample(tensorflow::uint64 key, double probability,
       num_timesteps_(0),
       num_data_tensors_(0),
       chunks_(std::move(chunks)),
+      squeeze_columns_(std::move(squeeze_columns)),
       next_timestep_index_(0),
       next_timestep_called_(false) {
   REVERB_CHECK(!chunks_.empty()) << "Must provide at least one chunk.";
@@ -861,28 +879,41 @@ absl::Status Sample::AsTrajectory(std::vector<tensorflow::Tensor>* data) {
       sequences[i + 4] = std::move(chunks_.front()[i]);
     }
     chunks_.pop_front();
-    std::swap(sequences, *data);
-    return absl::OkStatus();
-  }
+  } else {
+    // Prepare the data for concatenation.
+    // data_tensors[i][j] is the j-th chunk of the i-th data tensor.
+    std::vector<std::vector<tensorflow::Tensor>> data_tensors(
+        num_data_tensors_);
 
-  // Prepare the data for concatenation.
-  // data_tensors[i][j] is the j-th chunk of the i-th data tensor.
-  std::vector<std::vector<tensorflow::Tensor>> data_tensors(num_data_tensors_);
-
-  // Extract all chunks.
-  while (!chunks_.empty()) {
-    auto it_to = data_tensors.begin();
-    for (auto& batch : chunks_.front()) {
-      (it_to++)->push_back(std::move(batch));
+    // Extract all chunks.
+    while (!chunks_.empty()) {
+      auto it_to = data_tensors.begin();
+      for (auto& batch : chunks_.front()) {
+        (it_to++)->push_back(std::move(batch));
+      }
+      chunks_.pop_front();
     }
-    chunks_.pop_front();
+
+    // Concatenate all chunks.
+    int64_t i = 4;
+    for (const auto& chunks : data_tensors) {
+      REVERB_RETURN_IF_ERROR(FromTensorflowStatus(
+          tensorflow::tensor::Concat(chunks, &sequences[i++])));
+    }
   }
 
-  // Concatenate all chunks.
-  int64_t i = 4;
-  for (const auto& chunks : data_tensors) {
-    REVERB_RETURN_IF_ERROR(FromTensorflowStatus(
-        tensorflow::tensor::Concat(chunks, &sequences[i++])));
+  // Remove batch dimension from squeezed columns.
+  for (int i = 0; i < squeeze_columns_.size(); i++) {
+    if (!squeeze_columns_[i]) continue;
+    if (int batch_dim = sequences[i + 4].shape().dim_size(0); batch_dim != 1) {
+      return absl::InternalError(absl::StrCat(
+          "Tried to squeeze column with batch size ", batch_dim, "."));
+    }
+
+    sequences[i + 4] = sequences[i + 4].SubSlice(0);
+    if (!sequences[i + 4].IsAligned()) {
+      sequences[i + 4] = tensorflow::tensor::DeepCopy(sequences[i + 4]);
+    }
   }
 
   std::swap(sequences, *data);

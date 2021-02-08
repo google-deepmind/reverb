@@ -20,11 +20,13 @@
 #include <vector>
 
 #include "grpcpp/impl/codegen/client_context.h"
+#include "absl/base/attributes.h"
 #include "absl/base/thread_annotations.h"
 #include "absl/status/status.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/time/time.h"
 #include "absl/types/optional.h"
+#include "absl/types/span.h"
 #include "reverb/cc/platform/hash_map.h"
 #include "reverb/cc/platform/hash_set.h"
 #include "reverb/cc/platform/thread.h"
@@ -41,6 +43,7 @@ namespace reverb {
 
 class CellRef;
 class Chunker;
+class TrajectoryColumn;
 
 // With the exception of `Close`, none of the methods are thread safe.
 //
@@ -114,9 +117,8 @@ class TrajectoryWriter {
   // of pending items (and referenced data) could grow until the process runs
   // out of memory. The caller must therefore use `Flush` to achieve the
   // desired level of synchronization.
-  absl::Status CreateItem(
-      absl::string_view table, double priority,
-      const std::vector<std::vector<std::weak_ptr<CellRef>>>& trajectory)
+  absl::Status CreateItem(absl::string_view table, double priority,
+                          absl::Span<const TrajectoryColumn> trajectory)
       ABSL_LOCKS_EXCLUDED(mu_);
 
   // Sends all but the last `ignore_last_num_items` pending items and awaits
@@ -259,6 +261,38 @@ class TrajectoryWriter {
   std::unique_ptr<internal::Thread> stream_worker_;
 };
 
+class TrajectoryColumn {
+ public:
+  TrajectoryColumn(std::vector<std::weak_ptr<CellRef>> refs, bool squeeze);
+
+  // Checks that the column is valid, if not returns `InvalidArgumentError`.
+  //
+  // A `TrajectoryColumns` is valid iff:
+  //  * None of the `CellRef`s have expired.
+  //  * All of the `CellRef`s have the same spec.
+  //  * Columns has exactly one row if `squeeze` is true.
+  //
+  absl::Status Validate() const;
+
+  // Locks and pushes all referenses to `locked_refs`.
+  ABSL_MUST_USE_RESULT bool LockReferences(
+      std::vector<std::shared_ptr<CellRef>>* locked_refs) const;
+
+  // Encode as FlatTrajectory::Column proto.
+  void ToProto(FlatTrajectory::Column* proto) const;
+
+  // True if the column is empty.
+  bool empty() const { return refs_.empty(); }
+
+ private:
+  // References to the rows that make up the column.
+  std::vector<std::weak_ptr<CellRef>> refs_;
+
+  // If set then the batch dimension is emitted when column is unpacked. Can
+  // only be set when `refs_.size() == 1`.
+  bool squeeze_;
+};
+
 class CellRef {
  public:
   struct EpisodeInfo {
@@ -334,8 +368,7 @@ class Chunker : public std::enable_shared_from_this<Chunker> {
   // finalized and its `CellRef`s notified (including `ref`).
   absl::Status Append(tensorflow::Tensor tensor,
                       CellRef::EpisodeInfo episode_info,
-                      std::weak_ptr<CellRef>* ref)
-      ABSL_LOCKS_EXCLUDED(mu_);
+                      std::weak_ptr<CellRef>* ref) ABSL_LOCKS_EXCLUDED(mu_);
 
   // Creates a chunk from the data in the buffer and calls `SetChunk` on its
   // `CellRef`s.
@@ -351,8 +384,8 @@ class Chunker : public std::enable_shared_from_this<Chunker> {
   const internal::TensorSpec& spec() const;
 
   // Modify options on Chunker with an empty buffer (i.e newly created or
-  // `Flush` just called.). Returns `InvalidArgumentError` if `max_chunk_length
-  // > num_keep_alive_refs`  or if either is <= 0.
+  // `Flush` just called.). Returns `InvalidArgumentError` if
+  // `max_chunk_length > num_keep_alive_refs`  or if either is <= 0.
   absl::Status ApplyConfig(int max_chunk_length, int num_keep_alive_refs)
       ABSL_LOCKS_EXCLUDED(mu_);
 
@@ -360,8 +393,8 @@ class Chunker : public std::enable_shared_from_this<Chunker> {
   friend CellRef;
 
   // Get the data for referenced by `ref`. If the data has been finalized into
-  // a ChunkData then the chunk is unpacked and the row extracted. If the chunk
-  // has not been finalized the data is copied from `buffer_`.
+  // a ChunkData then the chunk is unpacked and the row extracted. If the
+  // chunk has not been finalized the data is copied from `buffer_`.
   absl::Status CopyDataForCell(const CellRef* ref,
                                tensorflow::Tensor* out) const;
 
@@ -390,8 +423,9 @@ class Chunker : public std::enable_shared_from_this<Chunker> {
   // Key of the chunk that will be constructed from `buffer_`.
   uint64_t next_chunk_key_ ABSL_GUARDED_BY(mu_);
 
-  // Circular buffer of `CellRef`s that can be referenced in by new items. When
-  // the size exceeds `num_keep_alive_refs_` then the oldest item is removed.
+  // Circular buffer of `CellRef`s that can be referenced in by new items.
+  // When the size exceeds `num_keep_alive_refs_` then the oldest item is
+  // removed.
   std::deque<std::shared_ptr<CellRef>> active_refs_ ABSL_GUARDED_BY(mu_);
 };
 

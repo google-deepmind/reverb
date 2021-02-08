@@ -78,7 +78,9 @@ message FlatTrajectory {
     // Chunk slices to concat.
     repeated ChunkSlice chunk_slices = 1;
 
-    // TODO(b/177643643): Add support for squeezing the column.
+    // If true then the batch dim (must be 1) is emitted when unpacked.
+    // Requires that column is made up of exactly one ChunkSlice of length 1.
+    bool squeeze = 2;
   }
 
   // Flattened columns of the trajectory.

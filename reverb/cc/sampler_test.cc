@@ -284,7 +284,8 @@ TEST(SampleTest, IsComposedOfTimesteps) {
       /*probability=*/0.5,
       /*table_size=*/2,
       /*priority=*/1,
-      /*chunks=*/{{MakeTensor(5), MakeTensor(5)}});
+      /*chunks=*/{{MakeTensor(5), MakeTensor(5)}},
+      /*squeeze_columns=*/{false});
   EXPECT_TRUE(timestep_sample.is_composed_of_timesteps());
 
   Sample non_timestep_sample(
@@ -292,7 +293,8 @@ TEST(SampleTest, IsComposedOfTimesteps) {
       /*probability=*/0.5,
       /*table_size=*/2,
       /*priority=*/1,
-      /*chunks=*/{{MakeTensor(5), MakeTensor(10)}});
+      /*chunks=*/{{MakeTensor(5), MakeTensor(10)}},
+      /*squeeze_columns=*/{false});
   EXPECT_FALSE(non_timestep_sample.is_composed_of_timesteps());
 }
 

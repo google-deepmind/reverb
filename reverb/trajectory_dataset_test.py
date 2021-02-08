@@ -33,7 +33,7 @@ DTYPES = {
 }
 SHAPES = {
     'observation': tf.TensorShape([1, 3, 3]),
-    'reward': tf.TensorShape([1]),
+    'reward': tf.TensorShape([]),
 }
 
 
@@ -73,7 +73,7 @@ class TrajectoryDatasetTest(tf.test.TestCase, parameterized.TestCase):
       for _ in range(10):
         writer.append([np.ones([3, 3], np.float32), 3])
         writer.create_item(TABLE, 1.0, {
-            'observation': writer.history[0][-1],
+            'observation': writer.history[0][-1:],
             'reward': writer.history[1][-1],
         })
 
@@ -208,7 +208,7 @@ class TrajectoryDatasetTest(tf.test.TestCase, parameterized.TestCase):
             'all': tf.int32,
         },
         shapes={
-            'last': tf.TensorShape([1, 3, 3]),
+            'last': tf.TensorShape([3, 3]),
             'all': tf.TensorShape([None, 3, 3]),
         },
         max_in_flight_samples_per_worker=1,

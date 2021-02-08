@@ -271,7 +271,8 @@ class TrajectoryWriter:
     # and if successful then the item is created and enqued for the background
     # worker to send to the server.
     self._writer.CreateItem(table, priority,
-                            [list(column) for column in flat_trajectory])
+                            [list(column) for column in flat_trajectory],
+                            [column.is_squeezed for column in flat_trajectory])
 
   def flush(self,
             block_until_num_items: int = 0,
@@ -436,7 +437,7 @@ class _ColumnHistory:
 
   def __getitem__(self, val) -> 'TrajectoryColumn':
     if isinstance(val, int):
-      return TrajectoryColumn([self._data_references[val]])
+      return TrajectoryColumn([self._data_references[val]], squeeze=True)
     elif isinstance(val, slice):
       return TrajectoryColumn(self._data_references[val])
     else:
@@ -447,15 +448,23 @@ class _ColumnHistory:
 class TrajectoryColumn:
   """Column used for building trajectories referenced by table items."""
 
-  def __init__(self, data_references: Sequence[pybind.WeakCellRef]):
+  def __init__(self,
+               data_references: Sequence[pybind.WeakCellRef],
+               squeeze: bool = False):
+    if squeeze and len(data_references) != 1:
+      raise ValueError(
+          f'Columns must contain exactly one data reference when squeeze set, '
+          f'got {len(data_references)}')
+
     self._data_references = tuple(data_references)
+    self.is_squeezed = squeeze
 
   def __iter__(self) -> Iterator[pybind.WeakCellRef]:
     return iter(self._data_references)
 
   def __getitem__(self, val) -> 'TrajectoryColumn':
     if isinstance(val, int):
-      return TrajectoryColumn([self._data_references[val]])
+      return TrajectoryColumn([self._data_references[val]], squeeze=True)
     elif isinstance(val, slice):
       return TrajectoryColumn(self._data_references[val])
     else:
@@ -471,7 +480,9 @@ class TrajectoryColumn:
     when used on large arrays.
 
     Returns:
-      All referenced data stacked in a single numpy array.
+      All referenced data stacked in a single numpy array if column isn't
+      squeezed. If the column is squeezed then the value is returned without
+      stacking.
 
     Raises:
       RuntimeError: If any data reference has expired.
@@ -480,6 +491,9 @@ class TrajectoryColumn:
       raise RuntimeError(
           'Cannot convert TrajectoryColumn with expired data references to '
           'numpy array.')
+
+    if self.is_squeezed:
+      return self._data_references[0].numpy()
 
     return np.stack([ref.numpy() for ref in self._data_references])
 

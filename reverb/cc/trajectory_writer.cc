@@ -27,6 +27,7 @@
 #include "absl/synchronization/mutex.h"
 #include "absl/time/time.h"
 #include "absl/types/optional.h"
+#include "absl/types/span.h"
 #include "reverb/cc/platform/hash_set.h"
 #include "reverb/cc/platform/logging.h"
 #include "reverb/cc/platform/status_macros.h"
@@ -467,7 +468,7 @@ absl::Status TrajectoryWriter::Append(
 
 absl::Status TrajectoryWriter::CreateItem(
     absl::string_view table, double priority,
-    const std::vector<std::vector<std::weak_ptr<CellRef>>>& trajectory) {
+    absl::Span<const TrajectoryColumn> trajectory) {
   if (trajectory.empty() ||
       std::all_of(trajectory.begin(), trajectory.end(),
                   [](const auto& col) { return col.empty(); })) {
@@ -485,35 +486,12 @@ absl::Status TrajectoryWriter::CreateItem(
   // deallocated before the worker has successfully written the item (and data)
   // to the gRPC stream.
   for (int col_idx = 0; col_idx < trajectory.size(); ++col_idx) {
-    const auto& col = trajectory[col_idx];
-    if (col.empty()) continue;
-
-    for (auto& ref : col) {
-      auto sp = ref.lock();
-      if (!sp) {
-        return absl::InvalidArgumentError(
-            "Trajectory contains expired CellRef.");
-      }
-      item_and_refs.refs.push_back(std::move(sp));
+    if (auto status = trajectory[col_idx].Validate(); !status.ok()) {
+      return absl::InvalidArgumentError(
+          absl::StrCat("Error in column ", col_idx, ": ", status.message()));
     }
-
-    // Check that the column only contains compatible data references.
-    const auto& col_spec = col[0].lock()->chunker().lock()->spec();
-    for (int ref_idx = 1; ref_idx < col.size(); ++ref_idx) {
-      const auto& spec = col[ref_idx].lock()->chunker().lock()->spec();
-      if (spec.dtype != col_spec.dtype) {
-        return absl::InvalidArgumentError(absl::StrCat(
-            "Column ", col_idx, " references tensors with different dtypes: ",
-            tensorflow::DataTypeString(col_spec.dtype), " (index 0) != ",
-            tensorflow::DataTypeString(spec.dtype), " (index ", ref_idx, ")."));
-      }
-      if (!spec.shape.IsCompatibleWith(col_spec.shape)) {
-        return absl::InvalidArgumentError(absl::StrCat(
-            "Column ", col_idx,
-            " references tensors with incompatible shapes: ",
-            col_spec.shape.DebugString(), " (index 0) not compatible with ",
-            spec.shape.DebugString(), " (index ", ref_idx, ")."));
-      }
+    if (!trajectory[col_idx].LockReferences(&item_and_refs.refs)) {
+      return absl::InternalError("CellRef unexpectedly expired in CreateItem.");
     }
   }
 
@@ -521,13 +499,8 @@ absl::Status TrajectoryWriter::CreateItem(
   item_and_refs.item.set_table(table.data(), table.size());
   item_and_refs.item.set_priority(priority);
 
-  for (const auto& column_refs : trajectory) {
-    auto* col = item_and_refs.item.mutable_flat_trajectory()->add_columns();
-    // Note that MergeAdjacent can safely assume that all weak_ptrs are alive
-    // since the corresponding shared_ptrs exists in item_and_refs.
-    for (auto& slice : MergeAdjacent(column_refs)) {
-      *col->add_chunk_slices() = std::move(slice);
-    }
+  for (const auto& column : trajectory) {
+    column.ToProto(item_and_refs.item.mutable_flat_trajectory()->add_columns());
   }
 
   {
@@ -536,6 +509,15 @@ absl::Status TrajectoryWriter::CreateItem(
   }
 
   return absl::OkStatus();
+}
+
+void TrajectoryColumn::ToProto(FlatTrajectory::Column* proto) const {
+  // Note that MergeAdjacent can safely assume that all weak_ptrs are alive
+  // since the corresponding shared_ptrs exists in item_and_refs.
+  for (auto& slice : MergeAdjacent(refs_)) {
+    *proto->add_chunk_slices() = std::move(slice);
+  }
+  proto->set_squeeze(squeeze_);
 }
 
 void TrajectoryWriter::Close() {
@@ -821,6 +803,53 @@ absl::Status TrajectoryWriter::Options::Validate() const {
         ") must be >= max_chunk_length (", max_chunk_length, ")."));
   }
   return absl::OkStatus();
+}
+
+TrajectoryColumn::TrajectoryColumn(std::vector<std::weak_ptr<CellRef>> refs,
+                                   bool squeeze)
+    : refs_(std::move(refs)), squeeze_(squeeze) {}
+
+absl::Status TrajectoryColumn::Validate() const {
+  std::vector<std::shared_ptr<CellRef>> locked_refs;
+  if (!LockReferences(&locked_refs)) {
+    return absl::InvalidArgumentError("Column contains expired CellRef.");
+  }
+
+  if (squeeze_ && locked_refs.size() != 1) {
+    return absl::InvalidArgumentError(
+        absl::StrCat("TrajectoryColumn must contain exactly one row when "
+                     "squeeze is set but got ",
+                     locked_refs.size(), "."));
+  }
+
+  // Check that the column only contains compatible data references.
+  const auto& col_spec = locked_refs[0]->chunker().lock()->spec();
+  for (int i = 1; i < locked_refs.size(); ++i) {
+    const auto& spec = locked_refs[i]->chunker().lock()->spec();
+    if (spec.dtype != col_spec.dtype) {
+      return absl::InvalidArgumentError(absl::StrCat(
+          "Column references tensors with different dtypes: ",
+          tensorflow::DataTypeString(col_spec.dtype), " (index 0) != ",
+          tensorflow::DataTypeString(spec.dtype), " (index ", i, ")."));
+    }
+    if (!spec.shape.IsCompatibleWith(col_spec.shape)) {
+      return absl::InvalidArgumentError(absl::StrCat(
+          "Column references tensors with incompatible shapes: ",
+          col_spec.shape.DebugString(), " (index 0) not compatible with ",
+          spec.shape.DebugString(), " (index ", i, ")."));
+    }
+  }
+
+  return absl::OkStatus();
+}
+
+bool TrajectoryColumn::LockReferences(
+    std::vector<std::shared_ptr<CellRef>>* locked_refs) const {
+  for (auto& ref : refs_) {
+    locked_refs->push_back(ref.lock());
+    if (!locked_refs->back()) return false;
+  }
+  return true;
 }
 
 }  // namespace reverb

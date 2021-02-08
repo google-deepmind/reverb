@@ -59,7 +59,6 @@ using ::testing::UnorderedElementsAre;
 
 using Step = ::std::vector<::absl::optional<::tensorflow::Tensor>>;
 using StepRef = ::std::vector<::absl::optional<::std::weak_ptr<CellRef>>>;
-using TrajectoryRef = ::std::vector<::std::vector<::std::weak_ptr<CellRef>>>;
 
 const auto kIntSpec = internal::TensorSpec{"0", tensorflow::DT_INT32, {1}};
 const auto kFloatSpec = internal::TensorSpec{"0", tensorflow::DT_FLOAT, {1}};
@@ -89,6 +88,20 @@ tensorflow::Tensor MakeConstantTensor(
         value;
   }
   return tensor;
+}
+
+std::vector<TrajectoryColumn> MakeTrajectory(
+    std::vector<std::vector<absl::optional<std::weak_ptr<CellRef>>>>
+        trajectory) {
+  std::vector<TrajectoryColumn> columns;
+  for (const auto& optional_refs : trajectory) {
+    std::vector<std::weak_ptr<CellRef>> col_refs;
+    for (const auto& optional_ref : optional_refs) {
+      col_refs.push_back(optional_ref.value());
+    }
+    columns.push_back(TrajectoryColumn(std::move(col_refs), /*squeeze=*/false));
+  }
+  return columns;
 }
 
 class FakeStream
@@ -769,7 +782,7 @@ TEST(TrajectoryWriter, ItemSentStraightAwayIfChunksReady) {
   // The chunk is completed so inserting an item should result in both chunk
   // and item being sent.
   REVERB_ASSERT_OK(
-      writer.CreateItem("table", 1.0, TrajectoryRef{{refs[0].value()}}));
+      writer.CreateItem("table", 1.0, MakeTrajectory({{refs[0]}})));
 
   stream->BlockUntilNumRequestsIs(2);
 
@@ -779,7 +792,7 @@ TEST(TrajectoryWriter, ItemSentStraightAwayIfChunksReady) {
   // Adding a second item should result in the item being sent straight away.
   // Note that the chunk is not sent again.
   REVERB_ASSERT_OK(
-      writer.CreateItem("table", 0.5, TrajectoryRef({{refs[0].value()}})));
+      writer.CreateItem("table", 0.5, MakeTrajectory({{refs[0]}})));
 
   stream->BlockUntilNumRequestsIs(3);
 
@@ -801,7 +814,7 @@ TEST(TrajectoryWriter, ItemIsSentWhenAllChunksDone) {
 
   // Create an item which references the first row in the two columns.
   REVERB_ASSERT_OK(writer.CreateItem("table", 1.0,
-                                     {{first[0].value()}, {first[1].value()}}));
+                                     MakeTrajectory({{first[0]}, {first[1]}})));
 
   // No data is sent yet since the chunks are not completed.
   EXPECT_THAT(stream->requests(), ::testing::IsEmpty());
@@ -852,7 +865,8 @@ TEST(TrajectoryWriter, FlushSendsPendingItems) {
       Step({MakeTensor(kIntSpec), MakeTensor(kIntSpec)}), &first));
 
   // Create an item which references the first row in second column.
-  REVERB_ASSERT_OK(writer.CreateItem("table", 1.0, {{first[1].value()}}));
+  REVERB_ASSERT_OK(
+      writer.CreateItem("table", 1.0, MakeTrajectory({{first[1]}})));
 
   // No data is sent yet since the chunks are not completed.
   EXPECT_THAT(stream->requests(), ::testing::IsEmpty());
@@ -884,7 +898,8 @@ TEST(TrajectoryWriter, DestructorFlushesPendingItems) {
     REVERB_ASSERT_OK(writer.Append(Step({MakeTensor(kIntSpec)}), &first));
 
     // Create an item which references the first row in the incomplete chunk..
-    REVERB_ASSERT_OK(writer.CreateItem("table", 1.0, {{first[0].value()}}));
+    REVERB_ASSERT_OK(
+        writer.CreateItem("table", 1.0, MakeTrajectory({{first[0]}})));
 
     // No data is sent yet since the chunks are not completed.
     EXPECT_THAT(stream->requests(), ::testing::IsEmpty());
@@ -915,7 +930,8 @@ TEST(TrajectoryWriter, RetriesOnTransientError) {
   // Create an item and wait for it to be confirmed.
   StepRef first;
   REVERB_ASSERT_OK(writer.Append(Step({MakeTensor(kIntSpec)}), &first));
-  REVERB_ASSERT_OK(writer.CreateItem("table", 1.0, {{first[0].value()}}));
+  REVERB_ASSERT_OK(
+      writer.CreateItem("table", 1.0, MakeTrajectory({{first[0]}})));
   REVERB_ASSERT_OK(writer.Flush());
 
   // The first stream will fail on the second request (item). The writer should
@@ -944,7 +960,8 @@ TEST(TrajectoryWriter, StopsOnNonTransientError) {
   // Create an item.
   StepRef first;
   REVERB_ASSERT_OK(writer.Append(Step({MakeTensor(kIntSpec)}), &first));
-  REVERB_ASSERT_OK(writer.CreateItem("table", 1.0, {{first[0].value()}}));
+  REVERB_ASSERT_OK(
+      writer.CreateItem("table", 1.0, MakeTrajectory({{first[0]}})));
 
   // Flushing should return the error encountered by the stream worker.
   auto flush_status = writer.Flush();
@@ -953,7 +970,8 @@ TEST(TrajectoryWriter, StopsOnNonTransientError) {
               ::testing::HasSubstr("A reason"));
 
   // The same error should be encountered in all methods.
-  auto insert_status = writer.CreateItem("table", 1.0, {{first[0].value()}});
+  auto insert_status =
+      writer.CreateItem("table", 1.0, MakeTrajectory({{first[0]}}));
   EXPECT_EQ(insert_status.code(), absl::StatusCode::kInternal);
   EXPECT_THAT(std::string(insert_status.message()),
               ::testing::HasSubstr("A reason"));
@@ -983,7 +1001,8 @@ TEST(TrajectoryWriter, FlushReturnsIfTimeoutExpired) {
   // Create an item.
   StepRef first;
   REVERB_ASSERT_OK(writer.Append(Step({MakeTensor(kIntSpec)}), &first));
-  REVERB_ASSERT_OK(writer.CreateItem("table", 1.0, {{first[0].value()}}));
+  REVERB_ASSERT_OK(
+      writer.CreateItem("table", 1.0, MakeTrajectory({{first[0]}})));
 
   // Flushing should return the error encountered by the stream worker.
   auto status =
@@ -1015,8 +1034,10 @@ TEST(TrajectoryWriter, FlushCanIgnorePendingItems) {
       Step({MakeTensor(kIntSpec), MakeTensor(kIntSpec)}), &first));
 
   // Create two items, each referencing a separate column
-  REVERB_ASSERT_OK(writer.CreateItem("table", 1.0, {{first[0].value()}}));
-  REVERB_ASSERT_OK(writer.CreateItem("table", 1.0, {{first[1].value()}}));
+  REVERB_ASSERT_OK(
+      writer.CreateItem("table", 1.0, MakeTrajectory({{first[0]}})));
+  REVERB_ASSERT_OK(
+      writer.CreateItem("table", 1.0, MakeTrajectory({{first[1]}})));
 
   // Flushing should trigger the first item to be finalized and sent. The second
   // item should still be pending as its chunk have not yet been finalized.
@@ -1030,7 +1051,7 @@ TEST(TrajectoryWriter, FlushCanIgnorePendingItems) {
   EXPECT_FALSE(first[1]->lock()->IsReady());
 }
 
-TEST(TrajectoryWriter, InsertItemRejectsExpiredCellRefs) {
+TEST(TrajectoryWriter, CreateItemRejectsExpiredCellRefs) {
   auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
   EXPECT_CALL(*stub, InsertStreamRaw(_)).WillOnce(Return(new FakeStream()));
 
@@ -1044,10 +1065,11 @@ TEST(TrajectoryWriter, InsertItemRejectsExpiredCellRefs) {
   REVERB_ASSERT_OK(writer.Append(Step({MakeTensor(kIntSpec)}), &second));
 
   // The num_keep_alive_refs is set to 1 so the first step has expired.
-  auto status = writer.CreateItem("table", 1.0, {{first[0].value()}});
+  auto status = writer.CreateItem("table", 1.0, MakeTrajectory({{first[0]}}));
   EXPECT_EQ(status.code(), absl::StatusCode::kInvalidArgument);
   EXPECT_THAT(std::string(status.message()),
-              ::testing::HasSubstr("Trajectory contains expired CellRef."));
+              ::testing::HasSubstr(
+                  "Error in column 0: Column contains expired CellRef."));
 }
 
 TEST(TrajectoryWriter, KeepKeysOnlyIncludesStreamedKeys) {
@@ -1064,7 +1086,8 @@ TEST(TrajectoryWriter, KeepKeysOnlyIncludesStreamedKeys) {
       Step({MakeTensor(kIntSpec), MakeTensor(kIntSpec)}), &first));
 
   // Create an item which only references one of the columns.
-  REVERB_ASSERT_OK(writer.CreateItem("table", 1.0, {{first[0].value()}}));
+  REVERB_ASSERT_OK(
+      writer.CreateItem("table", 1.0, MakeTrajectory({{first[0]}})));
   REVERB_ASSERT_OK(writer.Flush());
 
   // Only the chunk of the first column has been used (and thus streamed). The
@@ -1085,7 +1108,8 @@ TEST(TrajectoryWriter, KeepKeysOnlyIncludesLiveChunks) {
   // Take a step and insert a trajectory.
   StepRef first;
   REVERB_ASSERT_OK(writer.Append(Step({MakeTensor(kIntSpec)}), &first));
-  REVERB_ASSERT_OK(writer.CreateItem("table", 1.0, {{first[0].value()}}));
+  REVERB_ASSERT_OK(
+      writer.CreateItem("table", 1.0, MakeTrajectory({{first[0]}})));
   REVERB_ASSERT_OK(writer.Flush());
 
   // The one chunk that has been sent should be kept alive.
@@ -1095,7 +1119,8 @@ TEST(TrajectoryWriter, KeepKeysOnlyIncludesLiveChunks) {
   // Take a second step and insert a trajectory.
   StepRef second;
   REVERB_ASSERT_OK(writer.Append(Step({MakeTensor(kIntSpec)}), &second));
-  REVERB_ASSERT_OK(writer.CreateItem("table", 1.0, {{second[0].value()}}));
+  REVERB_ASSERT_OK(
+      writer.CreateItem("table", 1.0, MakeTrajectory({{second[0]}})));
   REVERB_ASSERT_OK(writer.Flush());
 
   // Both chunks should be kept alive since num_keep_alive_refs is 2.
@@ -1106,7 +1131,8 @@ TEST(TrajectoryWriter, KeepKeysOnlyIncludesLiveChunks) {
   // Take a third step and insert a trajectory.
   StepRef third;
   REVERB_ASSERT_OK(writer.Append(Step({MakeTensor(kIntSpec)}), &third));
-  REVERB_ASSERT_OK(writer.CreateItem("table", 1.0, {{third[0].value()}}));
+  REVERB_ASSERT_OK(
+      writer.CreateItem("table", 1.0, MakeTrajectory({{third[0]}})));
   REVERB_ASSERT_OK(writer.Flush());
 
   // The chunk of the first step has now expired and thus the server no longer
@@ -1116,7 +1142,7 @@ TEST(TrajectoryWriter, KeepKeysOnlyIncludesLiveChunks) {
                                    third[0].value().lock()->chunk_key()));
 }
 
-TEST(TrajectoryWriter, InsertItemValidatesTrajectoryDtype) {
+TEST(TrajectoryWriter, CreateItemValidatesTrajectoryDtype) {
   auto* stream = new FakeStream();
   auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
   EXPECT_CALL(*stub, InsertStreamRaw(_)).WillOnce(Return(stream));
@@ -1131,15 +1157,16 @@ TEST(TrajectoryWriter, InsertItemValidatesTrajectoryDtype) {
 
   // Create a trajectory where the two dtypes are used in the same column.
   auto status =
-      writer.CreateItem("table", 1.0, {{step[0].value(), step[1].value()}});
+      writer.CreateItem("table", 1.0, MakeTrajectory({{step[0], step[1]}}));
   EXPECT_EQ(status.code(), absl::StatusCode::kInvalidArgument);
   EXPECT_THAT(std::string(status.message()),
-              ::testing::HasSubstr(absl::StrCat(
-                  "Column 0 references tensors with different dtypes: ",
-                  Int32Str(), " (index 0) != float (index 1).")));
+              ::testing::HasSubstr(
+                  absl::StrCat("Error in column 0: Column references tensors "
+                               "with different dtypes: ",
+                               Int32Str(), " (index 0) != float (index 1).")));
 }
 
-TEST(TrajectoryWriter, InsertItemValidatesTrajectoryShapes) {
+TEST(TrajectoryWriter, CreateItemValidatesTrajectoryShapes) {
   auto* stream = new FakeStream();
   auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
   EXPECT_CALL(*stub, InsertStreamRaw(_)).WillOnce(Return(stream));
@@ -1159,15 +1186,16 @@ TEST(TrajectoryWriter, InsertItemValidatesTrajectoryShapes) {
 
   // Create a trajectory where the two shapes are used in the same column.
   auto status =
-      writer.CreateItem("table", 1.0, {{step[0].value(), step[1].value()}});
+      writer.CreateItem("table", 1.0, MakeTrajectory({{step[0], step[1]}}));
   EXPECT_EQ(status.code(), absl::StatusCode::kInvalidArgument);
-  EXPECT_THAT(std::string(status.message()),
-              ::testing::HasSubstr(
-                  "Column 0 references tensors with incompatible shapes: [1] "
-                  "(index 0) not compatible with [2] (index 1)."));
+  EXPECT_THAT(
+      std::string(status.message()),
+      ::testing::HasSubstr("Error in column 0: Column references tensors with "
+                           "incompatible shapes: [1] "
+                           "(index 0) not compatible with [2] (index 1)."));
 }
 
-TEST(TrajectoryWriter, InsertItemValidatesTrajectoryNotEmpty) {
+TEST(TrajectoryWriter, CreateItemValidatesTrajectoryNotEmpty) {
   auto* stream = new FakeStream();
   auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
   EXPECT_CALL(*stub, InsertStreamRaw(_)).WillOnce(Return(stream));
@@ -1190,6 +1218,28 @@ TEST(TrajectoryWriter, InsertItemValidatesTrajectoryNotEmpty) {
             absl::StatusCode::kInvalidArgument);
   EXPECT_THAT(std::string(all_columns_empty_status.message()),
               ::testing::HasSubstr("trajectory must not be empty."));
+}
+
+TEST(TrajectoryWriter, CreateItemValidatesSqueezedColumns) {
+  auto* stream = new FakeStream();
+  auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
+  EXPECT_CALL(*stub, InsertStreamRaw(_)).WillOnce(Return(stream));
+
+  TrajectoryWriter writer(stub,
+                          {/*max_chunk_length=*/1, /*num_keep_alive_refs=*/1});
+
+  StepRef step;
+  REVERB_ASSERT_OK(writer.Append(Step({MakeTensor(kIntSpec)}), &step));
+
+  // Create a trajectory with a column that has two rows and is squeezed.
+  auto status = writer.CreateItem(
+      "table", 1.0,
+      {TrajectoryColumn({step[0].value(), step[0].value()}, true)});
+  EXPECT_EQ(status.code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_THAT(
+      std::string(status.message()),
+      ::testing::HasSubstr("Error in column 0: TrajectoryColumn must contain "
+                           "exactly one row when squeeze is set but got 2."));
 }
 
 TEST(TrajectoryWriter, EndEpisodeCanClearBuffers) {
@@ -1279,7 +1329,8 @@ TEST(TrajectoryWriter, EndEpisodeReturnsIfTimeoutExpired) {
   // Create an item.
   StepRef first;
   REVERB_ASSERT_OK(writer.Append(Step({MakeTensor(kIntSpec)}), &first));
-  REVERB_ASSERT_OK(writer.CreateItem("table", 1.0, {{first[0].value()}}));
+  REVERB_ASSERT_OK(
+      writer.CreateItem("table", 1.0, MakeTrajectory({{first[0]}})));
 
   // EndEpisode will not be able to complete and thus should timeout.
   auto status = writer.EndEpisode(true, absl::Milliseconds(100));
