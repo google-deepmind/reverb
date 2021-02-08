@@ -46,8 +46,6 @@ namespace reverb {
 // None of the methods are thread safe.
 class Writer {
  public:
-  static constexpr absl::optional<int> kDefaultMaxInFlightItems = absl::nullopt;
-
   // The client must not be deleted while any of its writer instances exist.
   Writer(std::shared_ptr</* grpc_gen:: */ReverbService::StubInterface> stub,
          int chunk_length, int max_timesteps, bool delta_encoded = false,

@@ -318,7 +318,7 @@ class Client:
              max_sequence_length: int,
              delta_encoded: bool = False,
              chunk_length: Optional[int] = None,
-             max_in_flight_items: Optional[int] = None) -> Writer:
+             max_in_flight_items: Optional[int] = 25) -> Writer:
     """Constructs a writer with a `max_sequence_length` buffer.
 
     The writer can be used to stream data of any length. `max_sequence_length`
@@ -355,8 +355,8 @@ class Client:
         sent to the server but the response confirming that the operation
         succeeded has not yet been received. Note that "in flight" items does
         NOT include items that are in the client buffer due to the current chunk
-        not having reached its desired length yet. None (default) result in an
-        unlimited number of "in flight" items.
+        not having reached its desired length yet. None results in an unlimited
+        number of "in flight" items.
 
     Returns:
       A `Writer` with `max_sequence_length`.

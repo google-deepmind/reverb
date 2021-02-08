@@ -626,7 +626,7 @@ PYBIND11_MODULE(libpybind, m) {
           },
           py::call_guard<py::gil_scoped_release>(), py::arg("chunk_length"),
           py::arg("max_timesteps"), py::arg("delta_encoded") = false,
-          py::arg("max_in_flight_items") = absl::nullopt)
+          py::arg("max_in_flight_items"))
       .def(
           "NewSampler",
           [](Client *client, const std::string &table, int64_t max_samples,
