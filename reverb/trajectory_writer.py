@@ -270,7 +270,7 @@ class TrajectoryWriter:
     # Pass the flatten trajectory to the C++ writer where it will be validated
     # and if successful then the item is created and enqued for the background
     # worker to send to the server.
-    self._writer.InsertItem(table, priority,
+    self._writer.CreateItem(table, priority,
                             [list(column) for column in flat_trajectory])
 
   def flush(self,

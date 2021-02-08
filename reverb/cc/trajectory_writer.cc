@@ -465,7 +465,7 @@ absl::Status TrajectoryWriter::Append(
   return absl::OkStatus();
 }
 
-absl::Status TrajectoryWriter::InsertItem(
+absl::Status TrajectoryWriter::CreateItem(
     absl::string_view table, double priority,
     const std::vector<std::vector<std::weak_ptr<CellRef>>>& trajectory) {
   if (trajectory.empty() ||

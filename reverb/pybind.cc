@@ -783,7 +783,7 @@ PYBIND11_MODULE(libpybind, m) {
 
             return weak_refs;
           })
-      .def("InsertItem",
+      .def("CreateItem",
            [](TrajectoryWriter *writer, const std::string &table,
               double priority,
               std::vector<std::vector<std::shared_ptr<WeakCellRef>>>
@@ -799,7 +799,7 @@ PYBIND11_MODULE(libpybind, m) {
                trajectory.push_back(std::move(column));
              }
              MaybeRaiseFromStatus(
-                 writer->InsertItem(table, priority, trajectory));
+                 writer->CreateItem(table, priority, trajectory));
            })
       .def("Flush",
            [](TrajectoryWriter *writer, int ignore_last_num_items,

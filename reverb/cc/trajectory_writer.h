@@ -88,7 +88,7 @@ class TrajectoryWriter {
   // `refs` will be grown to the same size as `data` (assuming that an empty
   // vector is provided). Indices in `data` where a value is set, a reference to
   // the value is given. The remaining elements will hold `absl::nullopt`. The
-  // references should be used to define the trajectory in `InsertItem`.
+  // references should be used to define the trajectory in `CreateItem`.
   //
   // TODO(b/178085792): Figure out how episode information should be handled.
   // TODO(b/178085755): Decide how to manage partially invalid data.
@@ -109,12 +109,12 @@ class TrajectoryWriter {
   // `InvalidArgumentError` is returned.
   //
   // Note that this method will not block and wait for the IO to complete. This
-  // means that if only `Append` and `InsertItem` are used then the caller will
+  // means that if only `Append` and `CreateItem` are used then the caller will
   // not be impacted by the rate limiter on the server. Furthermore, the buffer
   // of pending items (and referenced data) could grow until the process runs
   // out of memory. The caller must therefore use `Flush` to achieve the
   // desired level of synchronization.
-  absl::Status InsertItem(
+  absl::Status CreateItem(
       absl::string_view table, double priority,
       const std::vector<std::vector<std::weak_ptr<CellRef>>>& trajectory)
       ABSL_LOCKS_EXCLUDED(mu_);
@@ -125,7 +125,7 @@ class TrajectoryWriter {
   //
   // `ignore_last_num_items` can be used to limit how much the writer runs ahead
   // of the server, only blocking when the gap grows too big. For example, to
-  // limit the "run ahead" to 20 just call `Flush(20)` after every `InsertItem`
+  // limit the "run ahead" to 20 just call `Flush(20)` after every `CreateItem`
   // call. If the number of unconfirmed items never reaches 20 (which is likely
   // if the rate limiter does not block), then no blocking ever occur. However,
   // if the sample rate suddenly falls and the rate limiter kicks in then the
