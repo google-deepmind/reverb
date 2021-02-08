@@ -370,7 +370,9 @@ absl::Status Writer::Close(bool retry_on_unavailable) {
     stream_->WritesDone();
     REVERB_LOG_IF(REVERB_ERROR, !ConfirmItems(0))
         << "Unable to confirm that items were written.";
-    REVERB_RETURN_IF_ERROR(StopItemConfirmationWorker());
+    auto confirmation_status = StopItemConfirmationWorker();
+    REVERB_LOG(REVERB_ERROR) << "Error when stopping the confirmation worker: "
+        << confirmation_status;
     auto status = stream_->Finish();
     if (!status.ok()) {
       REVERB_LOG(REVERB_INFO) << "Received error when closing the stream: "
