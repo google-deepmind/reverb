@@ -330,8 +330,8 @@ absl::Status Chunker::CopyDataForCell(const CellRef* ref,
   // If the chunk has been finalized then we unpack it and slice out the data.
   if (ref->IsReady()) {
     tensorflow::Tensor column;
-    REVERB_RETURN_IF_ERROR(FromTensorflowStatus(
-        internal::UnpackChunkColumn(*ref->GetChunk(), 0, &column)));
+    REVERB_RETURN_IF_ERROR(
+        internal::UnpackChunkColumn(*ref->GetChunk(), 0, &column));
     *out = column.SubSlice(ref->offset());
     if (!out->IsAligned()) {
       *out = tensorflow::tensor::DeepCopy(*out);

@@ -188,9 +188,8 @@ absl::Status AsSample(std::vector<SampleStreamResponse> responses,
                          info.item().key(), "."));
       }
       unpacked_chunks.emplace_back();
-      REVERB_RETURN_IF_ERROR(
-          FromTensorflowStatus(internal::UnpackChunkColumnAndSlice(
-              *it->second, slice, &unpacked_chunks.back())));
+      REVERB_RETURN_IF_ERROR(internal::UnpackChunkColumnAndSlice(
+          *it->second, slice, &unpacked_chunks.back()));
     }
 
     // TODO(b/177655596): Avoid this concat when timesteps are emitted.
@@ -225,9 +224,8 @@ absl::Status AsSample(const Table::SampledItem& sampled_item,
 
     for (const auto& slice : column.chunk_slices()) {
       unpacked_chunks.emplace_back();
-      REVERB_RETURN_IF_ERROR(FromTensorflowStatus(
-          internal::UnpackChunkColumnAndSlice(chunks[slice.chunk_key()]->data(),
-                                              slice, &unpacked_chunks.back())));
+      REVERB_RETURN_IF_ERROR(internal::UnpackChunkColumnAndSlice(
+          chunks[slice.chunk_key()]->data(), slice, &unpacked_chunks.back()));
     }
 
     flat_trajectory.emplace_back();

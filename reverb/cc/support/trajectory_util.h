@@ -17,12 +17,12 @@
 
 #include <vector>
 
+#include "absl/status/status.h"
 #include "absl/types/span.h"
 #include "reverb/cc/chunk_store.h"
 #include "reverb/cc/platform/hash_set.h"
 #include "reverb/cc/schema.pb.h"
 #include "tensorflow/core/framework/tensor.h"
-#include "tensorflow/core/platform/status.h"
 
 namespace deepmind {
 namespace reverb {
@@ -63,20 +63,20 @@ int TimestepTrajectoryOffset(const FlatTrajectory& trajectory);
 int ColumnLength(const FlatTrajectory& trajectory, int column);
 
 // Decompresses the tensor at index `column` in `chunk_data` into `out`.
-tensorflow::Status UnpackChunkColumn(const ChunkData& chunk_data, int column,
-                                     tensorflow::Tensor* out);
+absl::Status UnpackChunkColumn(const ChunkData& chunk_data, int column,
+                               tensorflow::Tensor* out);
 
 // Unpacks content of column (see `UnpackChunkColumn`) and returns an aligned
 // tensor of the desired slice,
-tensorflow::Status UnpackChunkColumnAndSlice(const ChunkData& chunk_data,
-                                             int column, int offset, int length,
-                                             tensorflow::Tensor* out);
+absl::Status UnpackChunkColumnAndSlice(const ChunkData& chunk_data, int column,
+                                       int offset, int length,
+                                       tensorflow::Tensor* out);
 
 // Unpacks content of column (see `UnpackChunkColumn`) and returns an aligned
 // tensor of the desired slice,
-tensorflow::Status UnpackChunkColumnAndSlice(
-    const ChunkData& chunk_data, const FlatTrajectory::ChunkSlice& slice,
-    tensorflow::Tensor* out);
+absl::Status UnpackChunkColumnAndSlice(const ChunkData& chunk_data,
+                                       const FlatTrajectory::ChunkSlice& slice,
+                                       tensorflow::Tensor* out);
 
 }  // namespace internal
 }  // namespace reverb

@@ -148,6 +148,7 @@ reverb_cc_library(
         "//reverb/cc:tensor_compression",
         "//reverb/cc/platform:hash_set",
         "//reverb/cc/platform:logging",
+        "//reverb/cc/platform:status_macros",
     ] + reverb_tf_deps() + reverb_absl_deps(),
 )
 
@@ -161,5 +162,6 @@ reverb_cc_test(
         "//reverb/cc:tensor_compression",
         "//reverb/cc/testing:proto_test_util",
         "//reverb/cc/testing:tensor_testutil",
+        "//reverb/cc/platform:status_matchers",
     ] + reverb_tf_deps(),
 )

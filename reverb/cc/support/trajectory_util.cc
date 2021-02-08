@@ -18,15 +18,17 @@
 #include <functional>
 #include <vector>
 
+#include "absl/status/status.h"
+#include "absl/strings/str_cat.h"
 #include "absl/types/span.h"
 #include "reverb/cc/platform/hash_set.h"
 #include "reverb/cc/platform/logging.h"
+#include "reverb/cc/platform/status_macros.h"
 #include "reverb/cc/schema.pb.h"
 #include "reverb/cc/tensor_compression.h"
 #include "tensorflow/core/framework/tensor.h"
 #include "tensorflow/core/framework/tensor_util.h"
 #include "tensorflow/core/platform/errors.h"
-#include "tensorflow/core/platform/status.h"
 
 namespace deepmind {
 namespace reverb {
@@ -140,12 +142,12 @@ bool IsTimestepTrajectory(const FlatTrajectory& trajectory) {
   return true;
 }
 
-tensorflow::Status UnpackChunkColumn(const ChunkData& chunk_data, int column,
-                                     tensorflow::Tensor* out) {
+absl::Status UnpackChunkColumn(const ChunkData& chunk_data, int column,
+                               tensorflow::Tensor* out) {
   if (column >= chunk_data.data().tensors_size() || column < 0) {
-    return tensorflow::errors::InvalidArgument(
+    return absl::InvalidArgumentError(absl::StrCat(
         "Cannot unpack column ", column, " in chunk ", chunk_data.chunk_key(),
-        " which has ", chunk_data.data().tensors_size(), " columns.");
+        " which has ", chunk_data.data().tensors_size(), " columns."));
   }
 
   *out = DecompressTensorFromProto(chunk_data.data().tensors(column));
@@ -153,18 +155,18 @@ tensorflow::Status UnpackChunkColumn(const ChunkData& chunk_data, int column,
     *out = DeltaEncode(*out, /*encode=*/false);
   }
 
-  return tensorflow::Status::OK();
+  return absl::OkStatus();
 }
 
-tensorflow::Status UnpackChunkColumnAndSlice(const ChunkData& chunk_data,
-                                             int column, int offset, int length,
-                                             tensorflow::Tensor* out) {
-  TF_RETURN_IF_ERROR(UnpackChunkColumn(chunk_data, column, out));
+absl::Status UnpackChunkColumnAndSlice(const ChunkData& chunk_data, int column,
+                                       int offset, int length,
+                                       tensorflow::Tensor* out) {
+  REVERB_RETURN_IF_ERROR(UnpackChunkColumn(chunk_data, column, out));
 
   if (offset < 0 || offset + length > out->shape().dim_size(0)) {
-    return tensorflow::errors::InvalidArgument(
+    return absl::InvalidArgumentError(absl::StrCat(
         "Cannot slice (", offset, ", ", offset + length,
-        ") out of tensor with shape ", out->shape().DebugString(), ".");
+        ") out of tensor with shape ", out->shape().DebugString(), "."));
   }
 
   *out = out->Slice(offset, offset + length);
@@ -172,12 +174,12 @@ tensorflow::Status UnpackChunkColumnAndSlice(const ChunkData& chunk_data,
     *out = tensorflow::tensor::DeepCopy(*out);
   }
 
-  return tensorflow::Status::OK();
+  return absl::OkStatus();
 }
 
-tensorflow::Status UnpackChunkColumnAndSlice(
-    const ChunkData& chunk_data, const FlatTrajectory::ChunkSlice& slice,
-    tensorflow::Tensor* out) {
+absl::Status UnpackChunkColumnAndSlice(const ChunkData& chunk_data,
+                                       const FlatTrajectory::ChunkSlice& slice,
+                                       tensorflow::Tensor* out) {
   return UnpackChunkColumnAndSlice(chunk_data, slice.index(), slice.offset(),
                                    slice.length(), out);
 }

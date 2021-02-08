@@ -19,6 +19,7 @@
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "reverb/cc/chunk_store.h"
+#include "reverb/cc/platform/status_matchers.h"
 #include "reverb/cc/schema.pb.h"
 #include "reverb/cc/tensor_compression.h"
 #include "reverb/cc/testing/proto_test_util.h"
@@ -246,11 +247,11 @@ TEST(UnpackChunkColumn, SelectsCorrectColumn) {
   CompressTensorAsProto(second_col_tensor, data.mutable_data()->add_tensors());
 
   tensorflow::Tensor first_got;
-  TF_EXPECT_OK(UnpackChunkColumn(data, 0, &first_got));
+  REVERB_EXPECT_OK(UnpackChunkColumn(data, 0, &first_got));
   test::ExpectTensorEqual<int32_t>(first_got, first_col_tensor);
 
   tensorflow::Tensor second_got;
-  TF_EXPECT_OK(UnpackChunkColumn(data, 1, &second_got));
+  REVERB_EXPECT_OK(UnpackChunkColumn(data, 1, &second_got));
   test::ExpectTensorEqual<int32_t>(second_got, second_col_tensor);
 }
 
