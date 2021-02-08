@@ -248,7 +248,7 @@ class ReverbTrajectoryDatasetOp : public tensorflow::data::DatasetOpKernel {
         constexpr auto kValidationTimeout = absl::Seconds(30);
         auto status =
             client_->NewSampler(table_, sampler_options_,
-                                // /*validation_dtypes=*/dtypes_, shapes_,
+                                /*validation_dtypes=*/dtypes_, shapes_,
                                 kValidationTimeout, &sampler_);
         if (absl::IsDeadlineExceeded(status)) {
           REVERB_LOG(REVERB_WARNING)

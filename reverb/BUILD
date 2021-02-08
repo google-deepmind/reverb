@@ -241,6 +241,7 @@ reverb_py_test(
     python_version = "PY3",
     deps = [
         ":client",
+        ":errors",
         ":item_selectors",
         ":rate_limiters",
         ":replay_sample",

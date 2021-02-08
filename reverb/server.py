@@ -124,7 +124,7 @@ class Table:
       extensions: Optional sequence of extensions used to add extra features to
         the table.
       signature: Optional nested structure containing `tf.TypeSpec` objects,
-        describing the storage schema for this table.
+        describing the schema of items in this table.
 
     Raises:
       ValueError: If name is empty.

@@ -315,12 +315,21 @@ class Sampler {
           const Options& options, internal::DtypesAndShapes dtypes_and_shapes);
 
   // Validates the `data` vector against `dtypes_and_shapes`.
-  //
-  // `data` is the data received by GetNextTimeStep or GetNextSample.
-  // `time_step` is `true` if `GetNextTimeStep` is the caller and `false`
-  //   if `GetNextSample` is the caller.
+  enum class ValidationMode {
+    // `GetNextTimestep` is the caller. The signature represents a single
+    // timestep and so do does the provided data.
+    kTimestep,
+
+    // `GetNextSample` is the caller. The signature represents a single timestep
+    // and the data is a sequence of batched timesteps.
+    kBatchedTimestep,
+
+    // `GetNextTrajectory` is the caller. The signature represents a complete
+    // trajectory and so does the data.
+    kTrajectory,
+  };
   absl::Status ValidateAgainstOutputSpec(
-      const std::vector<tensorflow::Tensor>& data, bool time_step);
+      const std::vector<tensorflow::Tensor>& data, ValidationMode mode);
 
   void RunWorker(SamplerWorker* worker) ABSL_LOCKS_EXCLUDED(mu_);
 

@@ -17,14 +17,17 @@
 from absl.testing import parameterized
 import numpy as np
 from reverb import client
+from reverb import errors
 from reverb import item_selectors
 from reverb import rate_limiters
 from reverb import replay_sample
-from reverb import server
+from reverb import server as reverb_server
 from reverb import trajectory_dataset
 from reverb import trajectory_writer
 import tensorflow.compat.v1 as tf
 import tree
+
+from tensorflow.python.framework import tensor_spec  # pylint:disable=g-direct-tensorflow-import
 
 TABLE = 'prioritized'
 DTYPES = {
@@ -38,9 +41,9 @@ SHAPES = {
 
 
 def make_server():
-  return server.Server(
+  return reverb_server.Server(
       tables=[
-          server.Table(
+          reverb_server.Table(
               name=TABLE,
               sampler=item_selectors.Prioritized(priority_exponent=1),
               remover=item_selectors.Fifo(),
@@ -237,6 +240,76 @@ class TrajectoryDatasetTest(tf.test.TestCase, parameterized.TestCase):
       seen_lengths.add(sample.data['all'].shape[0])
 
     self.assertEqual(seen_lengths, {1, 2, 3, 4, 5, 6, 7, 8, 9, 10})
+
+
+class FromTableSignatureTest(tf.test.TestCase):
+
+  def test_table_not_found(self):
+    server = reverb_server.Server([
+        reverb_server.Table.queue('table_a', 10),
+        reverb_server.Table.queue('table_c', 10),
+        reverb_server.Table.queue('table_b', 10),
+    ])
+    address = f'localhost:{server.port}'
+
+    with self.assertRaisesWithPredicateMatch(
+        ValueError,
+        f'Server at {address} does not contain any table named not_found. '
+        f'Found: table_a, table_b, table_c.'):
+      trajectory_dataset.TrajectoryDataset.from_table_signature(
+          address, 'not_found', 100)
+
+  def test_server_not_found(self):
+    with self.assertRaises(errors.DeadlineExceededError):
+      trajectory_dataset.TrajectoryDataset.from_table_signature(
+          'localhost:1234', 'not_found', 100, get_signature_timeout_secs=1)
+
+  def test_table_does_not_have_signature(self):
+    server = make_server()
+    address = f'localhost:{server.port}'
+    with self.assertRaisesWithPredicateMatch(
+        ValueError, f'Table {TABLE} at {address} does not have a signature.'):
+      trajectory_dataset.TrajectoryDataset.from_table_signature(
+          address, TABLE, 100)
+
+  def test_sets_dtypes_from_signature(self):
+    signature = {
+        'a': {
+            'b': tf.TensorSpec([3, 3], tf.float32),
+            'c': tf.TensorSpec([], tf.int64),
+        },
+        'x': tf.TensorSpec([None], tf.uint64),
+    }
+
+    server = reverb_server.Server(
+        [reverb_server.Table.queue('queue', 10, signature=signature)])
+
+    dataset = trajectory_dataset.TrajectoryDataset.from_table_signature(
+        f'localhost:{server.port}', 'queue', 100)
+    self.assertDictEqual(dataset.element_spec.data, signature)
+
+  def test_sets_dtypes_from_bounded_spec_signature(self):
+    bounded_spec_signature = {
+        'a': {
+            'b': tensor_spec.BoundedTensorSpec([3, 3], tf.float32, 0, 3),
+            'c': tensor_spec.BoundedTensorSpec([], tf.int64, 0, 5),
+        },
+    }
+
+    server = reverb_server.Server([
+        reverb_server.Table.queue(
+            'queue', 10, signature=bounded_spec_signature)
+    ])
+
+    dataset = trajectory_dataset.TrajectoryDataset.from_table_signature(
+        f'localhost:{server.port}', 'queue', 100)
+    self.assertDictEqual(
+        dataset.element_spec.data, {
+            'a': {
+                'b': tf.TensorSpec([3, 3], tf.float32),
+                'c': tf.TensorSpec([], tf.int64),
+            },
+        })
 
 
 if __name__ == '__main__':

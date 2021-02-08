@@ -19,8 +19,9 @@ changes may occur without notice. Please talk to cassirer@ if you wish to alpha
 test these features.
 """
 
-from typing import Any, List, Union
+from typing import Any, List, Optional, Union
 
+from reverb import client as reverb_client
 from reverb import replay_sample
 import tensorflow.compat.v1 as tf
 import tree
@@ -48,7 +49,7 @@ class TrajectoryDataset(tf.data.Dataset):
                max_samples_per_stream: int = -1,
                rate_limiter_timeout_ms: int = -1,
                flexible_batch_size: int = -1):
-    """Constructs a new ReplayDataset.
+    """Constructs a new TrajectoryDataset.
 
     Args:
       server_address: Address of gRPC ReverbService.
@@ -71,23 +72,23 @@ class TrajectoryDataset(tf.data.Dataset):
         number of samples to fetch from a stream before a new call is made.
         Keeping this number low ensures that the data is fetched uniformly from
         all server.
-      rate_limiter_timeout_ms: (Defaults to -1: infinite).  Timeout
-        (in milliseconds) to wait on the rate limiter when sampling from the
-        table. If `rate_limiter_timeout_ms >= 0`, this is the timeout passed to
+      rate_limiter_timeout_ms: (Defaults to -1: infinite).  Timeout (in
+        milliseconds) to wait on the rate limiter when sampling from the table.
+        If `rate_limiter_timeout_ms >= 0`, this is the timeout passed to
         `Table::Sample` describing how long to wait for the rate limiter to
-        allow sampling. The first time that a request times out (across any of
-        the workers), the Dataset iterator is closed and the sequence is
-        considered finished.
+          allow sampling. The first time that a request times out (across any of
+          the workers), the Dataset iterator is closed and the sequence is
+          considered finished.
       flexible_batch_size: (Defaults to -1: auto selected) The maximum number of
         items to sampled from `Table` with single call. Values > 1 enables
         `Table::SampleFlexibleBatch` to return more than one item (but no more
-        than `flexible_batch_size`) in a single call without releasing the
-        table lock iff the rate limiter allows it.
-        NOTE! It is unlikely that you need to tune this value yourself. The
-        auto selected value should almost always be preferred.
-        Larger `flexible_batch_size` values result a bias towards sampling over
-        inserts. In highly overloaded systems this results in higher sample QPS
-        and lower insert QPS compared to lower `flexible_batch_size` values.
+          than `flexible_batch_size`) in a single call without releasing the
+          table lock iff the rate limiter allows it. NOTE! It is unlikely that
+          you need to tune this value yourself. The auto selected value should
+          almost always be preferred. Larger `flexible_batch_size` values result
+          a bias towards sampling over inserts. In highly overloaded systems
+          this results in higher sample QPS and lower insert QPS compared to
+          lower `flexible_batch_size` values.
 
     Raises:
       ValueError: If `dtypes` and `shapes` don't share the same structure.
@@ -154,6 +155,70 @@ class TrajectoryDataset(tf.data.Dataset):
       # DatasetV2 requires the dataset as a variant tensor during init.
       super().__init__(self._as_variant_tensor())
       # pytype: enable=wrong-arg-count
+
+  @classmethod
+  def from_table_signature(cls,
+                           server_address: str,
+                           table: str,
+                           max_in_flight_samples_per_worker: int,
+                           num_workers_per_iterator: int = -1,
+                           max_samples_per_stream: int = -1,
+                           rate_limiter_timeout_ms: int = -1,
+                           get_signature_timeout_secs: Optional[int] = None,
+                           flexible_batch_size: int = -1):
+    """Constructs a TrajectoryDataset using the table's signature to infer specs.
+
+    Note: The target `Table` must specify a signature which represent the entire
+      trajectory (as opposed to a single timestep). See `Table.__init__`
+      (./server.py) for more details.
+
+    Args:
+      server_address: Address of gRPC ReverbService.
+      table: Table to read the signature and sample from.
+      max_in_flight_samples_per_worker: See __init__ for details.
+      num_workers_per_iterator: See __init__ for details.
+      max_samples_per_stream: See __init__ for details.
+      rate_limiter_timeout_ms: See __init__ for details.
+      get_signature_timeout_secs: Timeout in seconds to wait for server to
+        respond when fetching the table signature. By default no timeout is set
+        and the call will block indefinitely if the server does not respond.
+      flexible_batch_size: See __init__ for details.
+
+    Returns:
+      TrajectoryDataset using the specs defined by the table signature to build
+        `shapes` and `dtypes`.
+
+    Raises:
+      ValueError: If `table` does not exist on server at `server_address`.
+      ValueError: If `table` does not have a signature.
+      errors.DeadlineExceededError: If `get_signature_timeout_secs` provided and
+        exceeded.
+      ValueError: See __init__.
+    """
+    client = reverb_client.Client(server_address)
+    info = client.server_info(get_signature_timeout_secs)
+    if table not in info:
+      raise ValueError(
+          f'Server at {server_address} does not contain any table named '
+          f'{table}. Found: {", ".join(sorted(info.keys()))}.')
+
+    if not info[table].signature:
+      raise ValueError(
+          f'Table {table} at {server_address} does not have a signature.')
+
+    shapes = tree.map_structure(lambda x: x.shape, info[table].signature)
+    dtypes = tree.map_structure(lambda x: x.dtype, info[table].signature)
+
+    return cls(
+        server_address=server_address,
+        table=table,
+        shapes=shapes,
+        dtypes=dtypes,
+        max_in_flight_samples_per_worker=max_in_flight_samples_per_worker,
+        num_workers_per_iterator=num_workers_per_iterator,
+        max_samples_per_stream=max_samples_per_stream,
+        rate_limiter_timeout_ms=rate_limiter_timeout_ms,
+        flexible_batch_size=flexible_batch_size)
 
   def _as_variant_tensor(self):
     return gen_trajectory_dataset_op.reverb_trajectory_dataset(

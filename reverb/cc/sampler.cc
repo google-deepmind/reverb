@@ -568,7 +568,8 @@ absl::Status Sampler::GetNextTimestep(
   }
 
   *data = active_sample_->GetNextTimestep();
-  REVERB_RETURN_IF_ERROR(ValidateAgainstOutputSpec(*data, /*time_step=*/true));
+  REVERB_RETURN_IF_ERROR(
+      ValidateAgainstOutputSpec(*data, ValidationMode::kTimestep));
 
   if (end_of_sequence != nullptr) {
     *end_of_sequence = active_sample_->is_end_of_sample();
@@ -587,7 +588,8 @@ absl::Status Sampler::GetNextSample(
   std::unique_ptr<Sample> sample;
   REVERB_RETURN_IF_ERROR(PopNextSample(&sample));
   REVERB_RETURN_IF_ERROR(sample->AsBatchedTimesteps(data));
-  REVERB_RETURN_IF_ERROR(ValidateAgainstOutputSpec(*data, /*time_step=*/false));
+  REVERB_RETURN_IF_ERROR(
+      ValidateAgainstOutputSpec(*data, ValidationMode::kBatchedTimestep));
 
   absl::WriterMutexLock lock(&mu_);
   if (++returned_ == max_samples_) samples_.Close();
@@ -598,8 +600,8 @@ absl::Status Sampler::GetNextTrajectory(std::vector<tensorflow::Tensor>* data) {
   std::unique_ptr<Sample> sample;
   REVERB_RETURN_IF_ERROR(PopNextSample(&sample));
   REVERB_RETURN_IF_ERROR(sample->AsTrajectory(data));
-  REVERB_RETURN_IF_ERROR(ValidateAgainstOutputSpec(*data,
-                                                   /*time_step=*/false));
+  REVERB_RETURN_IF_ERROR(
+      ValidateAgainstOutputSpec(*data, ValidationMode::kTrajectory));
 
   absl::WriterMutexLock lock(&mu_);
   if (++returned_ == max_samples_) samples_.Close();
@@ -607,7 +609,7 @@ absl::Status Sampler::GetNextTrajectory(std::vector<tensorflow::Tensor>* data) {
 }
 
 absl::Status Sampler::ValidateAgainstOutputSpec(
-    const std::vector<tensorflow::Tensor>& data, bool time_step) {
+    const std::vector<tensorflow::Tensor>& data, Sampler::ValidationMode mode) {
   if (!dtypes_and_shapes_) {
     return absl::OkStatus();
   }
@@ -625,7 +627,7 @@ absl::Status Sampler::ValidateAgainstOutputSpec(
 
   for (int i = 4; i < data.size(); ++i) {
     tensorflow::TensorShape elem_shape;
-    if (!time_step) {
+    if (mode == ValidationMode::kBatchedTimestep) {
       // Remove the outer dimension from data[i].shape() so we can properly
       // compare against the spec (which doesn't have the sequence dimension).
       elem_shape = data[i].shape();
@@ -641,7 +643,10 @@ absl::Status Sampler::ValidateAgainstOutputSpec(
       elem_shape.RemoveDim(0);
     }
 
-    auto* shape_ptr = time_step ? &(data[i].shape()) : &elem_shape;
+    auto* shape_ptr =
+        mode == ValidationMode::kTimestep || mode == ValidationMode::kTrajectory
+            ? &(data[i].shape())
+            : &elem_shape;
     if (data[i].dtype() != dtypes_and_shapes_->at(i).dtype ||
         !dtypes_and_shapes_->at(i).shape.IsCompatibleWith(*shape_ptr)) {
       return absl::InvalidArgumentError(absl::StrCat(
