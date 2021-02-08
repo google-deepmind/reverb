@@ -802,7 +802,13 @@ PYBIND11_MODULE(libpybind, m) {
              MaybeRaiseFromStatus(status);
            })
       .def("Close", &TrajectoryWriter::Close,
-           py::call_guard<py::gil_scoped_release>());
+           py::call_guard<py::gil_scoped_release>())
+      .def("ConfigureChunker",
+           [](TrajectoryWriter *writer, int column, int max_chunk_length,
+              int num_keep_alive_refs) {
+             MaybeRaiseFromStatus(writer->ConfigureChunker(
+                 column, {max_chunk_length, num_keep_alive_refs}));
+           });
 }
 
 }  // namespace

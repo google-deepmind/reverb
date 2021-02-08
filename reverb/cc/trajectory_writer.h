@@ -145,6 +145,12 @@ class TrajectoryWriter {
   // `Flush` call. All future (and concurrent) calls returns CancelledError once
   void Close() ABSL_LOCKS_EXCLUDED(mu_);
 
+  // Attempts to configure a column `Chunker` (see `Chunker::Configure` for
+  // details). If no `Chunker` exists for the column then the options will be
+  // used to create the chunker when the column is present for the first time
+  // in the data of an `Append` call.
+  absl::Status ConfigureChunker(int column, const Options& options);
+
  private:
   using InsertStream = grpc::ClientReaderWriterInterface<InsertStreamRequest,
                                                          InsertStreamResponse>;
@@ -205,6 +211,9 @@ class TrajectoryWriter {
 
   // Configuration options.
   Options options_;
+
+  // Override of default options for yet to be constructed chunkers.
+  internal::flat_hash_map<int, Options> options_override_;
 
   // Mapping from column index to Chunker. Shared pointers are used as the
   // `CellRef`s created by the chunker will own a weak_ptr created using
@@ -334,6 +343,12 @@ class Chunker : public std::enable_shared_from_this<Chunker> {
 
   // Spec which appended tensors need to be compatible with.
   const internal::TensorSpec& spec() const;
+
+  // Modify options on Chunker with an empty buffer (i.e newly created or
+  // `Flush` just called.). Returns `InvalidArgumentError` if `max_chunk_length
+  // > num_keep_alive_refs`  or if either is <= 0.
+  absl::Status ApplyConfig(int max_chunk_length, int num_keep_alive_refs)
+      ABSL_LOCKS_EXCLUDED(mu_);
 
  private:
   absl::Status FlushLocked() ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_);

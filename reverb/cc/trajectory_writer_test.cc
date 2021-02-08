@@ -452,6 +452,90 @@ TEST(Chunker, SparseEpisodeRange) {
       testing::EqualsProto("episode_id: 33 start: 0 end: 8 sparse: true"));
 }
 
+TEST(Chunker, ApplyConfigChangesMaxChunkLength) {
+  auto chunker = std::make_shared<Chunker>(kIntSpec, /*max_chunk_length=*/5,
+                                           /*num_keep_alive_refs=*/5);
+
+  // Reconfigure the chunk_length to be 1 instead of 5.
+  REVERB_ASSERT_OK(
+      chunker->ApplyConfig(/*max_chunk_length=*/1, /*num_keep_alive_refs=*/5));
+
+  // Appending should now result in chunks being created with each step.
+  std::weak_ptr<CellRef> step;
+  REVERB_ASSERT_OK(chunker->Append(MakeTensor(kIntSpec),
+                                   {/*episode_id=*/1, /*step=*/0}, &step));
+  ASSERT_FALSE(step.expired());
+  ASSERT_TRUE(step.lock()->IsReady());
+  EXPECT_THAT(step.lock()->GetChunk()->sequence_range(),
+              testing::EqualsProto("episode_id: 1 start: 0 end: 0"));
+}
+
+TEST(Chunker, ApplyConfigChangesNumKeepAliveRefs) {
+  auto chunker = std::make_shared<Chunker>(kIntSpec, /*max_chunk_length=*/1,
+                                           /*num_keep_alive_refs=*/1);
+
+  // Reconfigure num_keep_alive_refs to be 2 instead of 1.
+  REVERB_ASSERT_OK(
+      chunker->ApplyConfig(/*max_chunk_length=*/1, /*num_keep_alive_refs=*/2));
+
+  // The last two steps should now be alive instead of only the last one.
+  std::weak_ptr<CellRef> first;
+  REVERB_ASSERT_OK(chunker->Append(MakeTensor(kIntSpec),
+                                   {/*episode_id=*/1, /*step=*/0}, &first));
+  ASSERT_FALSE(first.expired());
+
+  std::weak_ptr<CellRef> second;
+  REVERB_ASSERT_OK(chunker->Append(MakeTensor(kIntSpec),
+                                   {/*episode_id=*/1, /*step=*/1}, &second));
+  ASSERT_FALSE(first.expired());
+  ASSERT_FALSE(second.expired());
+
+  std::weak_ptr<CellRef> third;
+  REVERB_ASSERT_OK(chunker->Append(MakeTensor(kIntSpec),
+                                   {/*episode_id=*/1, /*step=*/2}, &third));
+  ASSERT_TRUE(first.expired());
+  ASSERT_FALSE(second.expired());
+  ASSERT_FALSE(third.expired());
+}
+
+TEST(Chunker, ApplyConfigRequireBufferToBeEmpty) {
+  auto chunker = std::make_shared<Chunker>(kIntSpec, /*max_chunk_length=*/5,
+                                           /*num_keep_alive_refs=*/5);
+
+  // Append a step which is not finalized since max_chunk_length is 2.
+  std::weak_ptr<CellRef> step;
+  REVERB_ASSERT_OK(chunker->Append(MakeTensor(kIntSpec),
+                                   {/*episode_id=*/1, /*step=*/0}, &step));
+
+  auto status =
+      chunker->ApplyConfig(/*max_chunk_length=*/1, /*num_keep_alive_refs=*/5);
+  EXPECT_EQ(status.code(), absl::StatusCode::kFailedPrecondition);
+  EXPECT_THAT(std::string(status.message()),
+              ::testing::HasSubstr("Flush must be called before ApplyConfig."));
+
+  // Flushing and retrying the same configure call should succeed.
+  REVERB_ASSERT_OK(chunker->Flush());
+  REVERB_EXPECT_OK(
+      chunker->ApplyConfig(/*max_chunk_length=*/1, /*num_keep_alive_refs=*/5));
+}
+
+TEST(Chunker, ApplyConfigRejectsInvalidOptions) {
+  auto chunker = std::make_shared<Chunker>(kIntSpec, /*max_chunk_length=*/5,
+                                           /*num_keep_alive_refs=*/5);
+  std::vector<std::pair<int, int>> invalid_options = {
+      {0, 5},   // max_chunk_length must be > 0.
+      {-1, 5},  // max_chunk_length must be > 0.
+      {5, 0},   // num_keep_alive_refs must be > 0.
+      {5, -1},  // num_keep_alive_refs must be > 0.
+      {6, 5},   // num_keep_alive_refs must be >= max_chunk_length.
+  };
+  for (const auto [max_chunk_length, num_keep_alive_refs] : invalid_options) {
+    EXPECT_EQ(
+        chunker->ApplyConfig(max_chunk_length, num_keep_alive_refs).code(),
+        absl::StatusCode::kInvalidArgument);
+  }
+}
+
 TEST(TrajectoryWriter, AppendValidatesDtype) {
   auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
   EXPECT_CALL(*stub, InsertStreamRaw(_))
@@ -516,6 +600,81 @@ TEST(TrajectoryWriter, AppendAcceptsPartialSteps) {
   REVERB_ASSERT_OK(writer.Append(Step({MakeTensor(kIntSpec), absl::nullopt}),
                                  &first_column_only));
   EXPECT_FALSE(first_column_only[1].has_value());
+}
+
+TEST(TrajectoryWriter, ConfigureChunkerOnExistingColumn) {
+  auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
+  EXPECT_CALL(*stub, InsertStreamRaw(_)).WillOnce(Return(new FakeStream()));
+
+  TrajectoryWriter writer(stub,
+                          {/*max_chunk_length=*/1, /*num_keep_alive_refs=*/1});
+
+  // Create the column with the first step.
+  StepRef first;
+  REVERB_ASSERT_OK(writer.Append(Step({MakeTensor(kIntSpec)}), &first));
+
+  // The chunk should be created automatically since max_chunk_length is 1.
+  EXPECT_TRUE(first[0]->lock()->IsReady());
+
+  // Reconfigure the column to have a chunk length of 2 instead.
+  REVERB_ASSERT_OK(writer.ConfigureChunker(
+      0, {/*max_chunk_length=*/2, /*num_keep_alive_refs=*/2}));
+
+  // Appending a second step should now NOT result in a being created.
+  StepRef second;
+  REVERB_ASSERT_OK(writer.Append(Step({MakeTensor(kIntSpec)}), &second));
+  EXPECT_FALSE(second[0]->lock()->IsReady());
+
+  // A third step should however result in the chunk being created. Also note
+  // that two steps are alive instead of the orignially configured 1.
+  StepRef third;
+  REVERB_ASSERT_OK(writer.Append(Step({MakeTensor(kIntSpec)}), &third));
+  EXPECT_TRUE(second[0]->lock()->IsReady());
+  EXPECT_TRUE(third[0]->lock()->IsReady());
+}
+
+TEST(TrajectoryWriter, ConfigureChunkerOnFutureColumn) {
+  auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
+  EXPECT_CALL(*stub, InsertStreamRaw(_)).WillOnce(Return(new FakeStream()));
+
+  TrajectoryWriter writer(stub,
+                          {/*max_chunk_length=*/1, /*num_keep_alive_refs=*/1});
+
+  // Create the first column with the first step.
+  StepRef first;
+  REVERB_ASSERT_OK(writer.Append(Step({MakeTensor(kIntSpec)}), &first));
+
+  // The chunk should be created automatically since max_chunk_length is 1.
+  EXPECT_TRUE(first[0]->lock()->IsReady());
+
+  // Configure the second column (not yet seen) to have max_chunk_length 2
+  // instead of 1.
+  REVERB_ASSERT_OK(writer.ConfigureChunker(
+      1, {/*max_chunk_length=*/2, /*num_keep_alive_refs=*/2}));
+
+  // Appending a second step should finalize the first column since it still has
+  // max_chunk_length 1. The second column should however NOT be finalized since
+  // it has max_chunk_length 2.
+  StepRef second;
+  REVERB_ASSERT_OK(writer.Append(
+      Step({MakeTensor(kIntSpec), MakeTensor(kIntSpec)}), &second));
+  EXPECT_TRUE(second[0]->lock()->IsReady());
+  EXPECT_FALSE(second[1]->lock()->IsReady());
+
+  // The first step should have expired now as well since num_keep_alive_refs is
+  // 1 for the first column.
+  EXPECT_TRUE(first[0]->expired());
+
+  // When appending the third step we expect both columns to be finalized. We
+  // also expect the first column in the second step to expire since its
+  // num_keep_alive_refs is 1.
+  StepRef third;
+  REVERB_ASSERT_OK(writer.Append(
+      Step({MakeTensor(kIntSpec), MakeTensor(kIntSpec)}), &third));
+  EXPECT_TRUE(third[0]->lock()->IsReady());
+  EXPECT_TRUE(third[1]->lock()->IsReady());
+  EXPECT_TRUE(second[0]->expired());
+  EXPECT_FALSE(second[1]->expired());
 }
 
 TEST(TrajectoryWriter, NoDataIsSentIfNoItemsCreated) {

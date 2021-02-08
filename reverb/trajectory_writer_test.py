@@ -123,6 +123,25 @@ class TrajectoryWriterTest(absltest.TestCase):
     with self.assertRaises(ValueError):
       self.writer.flush(-1)
 
+  def test_configure_seen_column(self):
+    self.writer.append({'x': 3, 'y': 2})
+    self.writer.configure(('x',), 1, 2)
+    self.cpp_writer_mock.ConfigureChunker.assert_called_with(0, 1, 2)
+
+  def test_configure_unseen_column(self):
+    self.writer.append({'x': 3, 'y': 2})
+    self.writer.configure(('z',), 1, 2)
+
+    # The configure call should be delayed until the column has been observed.
+    self.cpp_writer_mock.ConfigureChunker.assert_not_called()
+
+    # Still not seen.
+    self.writer.append({'a': 4})
+    self.cpp_writer_mock.ConfigureChunker.assert_not_called()
+
+    self.writer.append({'z': 5})
+    self.cpp_writer_mock.ConfigureChunker.assert_called_with(3, 1, 2)
+
 
 if __name__ == '__main__':
   absltest.main()

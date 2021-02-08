@@ -290,6 +290,29 @@ void Chunker::Reset() {
 
 const internal::TensorSpec& Chunker::spec() const { return spec_; }
 
+absl::Status Chunker::ApplyConfig(int max_chunk_length,
+                                  int num_keep_alive_refs) {
+  absl::MutexLock lock(&mu_);
+
+  if (!buffer_.empty()) {
+    return absl::FailedPreconditionError(
+        "Flush must be called before ApplyConfig.");
+  }
+
+  TrajectoryWriter::Options options{.max_chunk_length = max_chunk_length,
+                                    .num_keep_alive_refs = num_keep_alive_refs};
+  REVERB_RETURN_IF_ERROR(options.Validate());
+
+  max_chunk_length_ = max_chunk_length;
+  num_keep_alive_refs_ = num_keep_alive_refs;
+
+  while (active_refs_.size() > num_keep_alive_refs) {
+    active_refs_.pop_front();
+  }
+
+  return absl::OkStatus();
+}
+
 TrajectoryWriter::TrajectoryWriter(
     std::shared_ptr</* grpc_gen:: */ReverbService::StubInterface> stub,
     const Options& options)
@@ -350,10 +373,15 @@ absl::Status TrajectoryWriter::Append(
   for (int i = 0; i < data.size(); i++) {
     if (data[i].has_value() && !chunkers_.contains(i)) {
       const auto& tensor = data[i].value();
+      // If the new column has been configured with `ConfigureChunker` then we
+      // use the overrided options. If not then we use the default `options_`.
+      const auto& chunker_options =
+          options_override_.contains(i) ? options_override_[i] : options_;
       chunkers_[i] = std::make_shared<Chunker>(
           internal::TensorSpec{std::to_string(i), tensor.dtype(),
                                tensor.shape()},
-          options_.max_chunk_length, options_.num_keep_alive_refs);
+          chunker_options.max_chunk_length,
+          chunker_options.num_keep_alive_refs);
     }
   }
 
@@ -710,6 +738,19 @@ absl::Status TrajectoryWriter::EndEpisode(bool clear_buffers,
 
   episode_id_ = NewKey();
   episode_step_ = 0;
+  return absl::OkStatus();
+}
+
+absl::Status TrajectoryWriter::ConfigureChunker(int column,
+                                                const Options& options) {
+  REVERB_RETURN_IF_ERROR(options.Validate());
+
+  if (auto it = chunkers_.find(column); it != chunkers_.end()) {
+    return it->second->ApplyConfig(options.max_chunk_length,
+                                   options.num_keep_alive_refs);
+  }
+
+  options_override_[column] = options;
   return absl::OkStatus();
 }
 

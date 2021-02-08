@@ -21,7 +21,7 @@ test these features.
 
 import datetime
 
-from typing import Any, List, Iterator, Mapping, Optional, Sequence, Tuple
+from typing import Any, List, Iterator, Mapping, Optional, Sequence, Tuple, Union
 
 from reverb import client as client_lib
 from reverb import errors
@@ -89,6 +89,7 @@ class TrajectoryWriter:
     # writer) to the order of a sequence which can be unflattened into
     # `_structure`. This is used in `_unflatten`.
     self._column_index_to_flat_structure_index: Mapping[int, int] = {}
+    self._path_to_column_config = {}
 
   def __enter__(self) -> 'TrajectoryWriter':
     return self
@@ -146,6 +147,24 @@ class TrajectoryWriter:
         for i in range(len(self._column_history))
     ]
     return tree.unflatten_as(self._structure, reordered_flat_history)
+
+  def configure(self, path: Tuple[Union[int, str], ...], max_chunk_length: int,
+                num_keep_alive_refs: int):
+    """Override chunking options for a single column.
+
+    Args:
+      path: Structured path to the column to configure.
+      max_chunk_length: Override value for `max_chunk_length`. See __init__ for
+        more details.
+      num_keep_alive_refs: Override value for `num_keep_alive_refs`. See
+        __init__ for more details.
+    """
+    if path in self._path_to_column_index:
+      self._writer.ConfigureChunker(self._path_to_column_index[path],
+                                    max_chunk_length, num_keep_alive_refs)
+    else:
+      self._path_to_column_config[path] = (max_chunk_length,
+                                           num_keep_alive_refs)
 
   def append(self, data: Any):
     """Columnwise append of data leaf nodes to internal buffers.
@@ -370,6 +389,13 @@ class TrajectoryWriter:
     for path, _ in tree.flatten_with_path(new_structure):
       if path not in self._path_to_column_index:
         self._path_to_column_index[path] = len(self._path_to_column_index)
+
+        # If an explicit config have been provided for the column then forward
+        # it to the C++ writer so it will be applied when the column chunker is
+        # created.
+        if path in self._path_to_column_config:
+          self._writer.ConfigureChunker(self._path_to_column_index[path],
+                                        *self._path_to_column_config[path])
 
     # Recalculate the reverse mapping, i.e column index to index within the
     # flatten structure.
