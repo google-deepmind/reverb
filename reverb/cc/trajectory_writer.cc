@@ -38,6 +38,7 @@
 #include "reverb/cc/support/grpc_util.h"
 #include "reverb/cc/support/signature.h"
 #include "reverb/cc/support/tf_util.h"
+#include "reverb/cc/support/trajectory_util.h"
 #include "reverb/cc/tensor_compression.h"
 #include "tensorflow/core/framework/tensor.h"
 #include "tensorflow/core/framework/tensor_util.h"
@@ -144,6 +145,15 @@ std::shared_ptr<const ChunkData> CellRef::GetChunk() const {
 uint64_t CellRef::episode_id() const { return episode_info_.episode_id; }
 
 int CellRef::episode_step() const { return episode_info_.step; }
+
+absl::Status CellRef::GetData(tensorflow::Tensor* out) const {
+  auto chunker_sp = chunker_.lock();
+  if (!chunker_sp) {
+    return absl::InternalError(
+        "Chunk not finalized and parent Chunker destroyed.");
+  }
+  return chunker_sp->CopyDataForCell(this, out);
+}
 
 Chunker::Chunker(internal::TensorSpec spec, int max_chunk_length,
                  int num_keep_alive_refs)
@@ -308,6 +318,48 @@ absl::Status Chunker::ApplyConfig(int max_chunk_length,
 
   while (active_refs_.size() > num_keep_alive_refs) {
     active_refs_.pop_front();
+  }
+
+  return absl::OkStatus();
+}
+
+absl::Status Chunker::CopyDataForCell(const CellRef* ref,
+                                      tensorflow::Tensor* out) const {
+  absl::MutexLock lock(&mu_);
+
+  // If the chunk has been finalized then we unpack it and slice out the data.
+  if (ref->IsReady()) {
+    tensorflow::Tensor column;
+    REVERB_RETURN_IF_ERROR(FromTensorflowStatus(
+        internal::UnpackChunkColumn(*ref->GetChunk(), 0, &column)));
+    *out = column.SubSlice(ref->offset());
+    if (!out->IsAligned()) {
+      *out = tensorflow::tensor::DeepCopy(*out);
+    }
+    return absl::OkStatus();
+  }
+
+  // Since the chunk hasn't been finalized then the data should be in the
+  // buffer. We iterate backward over the active references until we find `ref`
+  // to determine which position in the buffer holds the data.
+  int negative_offset = 0;
+  for (auto it = active_refs_.crbegin(); it != active_refs_.crend(); it++) {
+    if (it->get() == ref) break;
+    negative_offset++;
+  }
+
+  int buffer_index = buffer_.size() - negative_offset - 1;
+  if (buffer_index < 0) {
+    return absl::InternalError(
+        "Data could not be found in buffer nor in finalized chunk.");
+  }
+
+  // A batch dimension is added to the data before it is added to the buffer so
+  // we strip that off before copying the content to the output tensor.
+  tensorflow::TensorShape shape = buffer_[buffer_index].shape();
+  shape.RemoveDim(0);
+  if (!out->CopyFrom(buffer_[buffer_index], shape)) {
+    return absl::InternalError("Unable to copy tensor from buffer.");
   }
 
   return absl::OkStatus();

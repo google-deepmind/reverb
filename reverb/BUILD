@@ -273,6 +273,7 @@ reverb_py_test(
     srcs = ["trajectory_writer_test.py"],
     python_version = "PY3",
     deps = [
+        ":client",
         ":trajectory_writer",
     ],
 )

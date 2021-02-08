@@ -278,6 +278,7 @@ reverb_cc_test(
         "//reverb/cc/platform:logging",
         "//reverb/cc/platform:status_matchers",
         "//reverb/cc/testing:proto_test_util",
+        "//reverb/cc/testing:tensor_testutil",
     ] + reverb_tf_deps() + reverb_grpc_deps() + reverb_absl_deps(),
 )
 

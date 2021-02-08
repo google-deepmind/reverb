@@ -398,6 +398,8 @@ class WeakCellRef {
 
   std::weak_ptr<::deepmind::reverb::CellRef> ref() const { return ref_; }
 
+  bool expired() const { return ref_.expired(); }
+
  private:
   std::weak_ptr<::deepmind::reverb::CellRef> ref_;
 };
@@ -737,7 +739,27 @@ PYBIND11_MODULE(libpybind, m) {
       .def("__repr__", &Server::DebugString,
            py::call_guard<py::gil_scoped_release>());
 
-  py::class_<WeakCellRef, std::shared_ptr<WeakCellRef>>(m, "WeakCellRef");
+  py::class_<WeakCellRef, std::shared_ptr<WeakCellRef>>(m, "WeakCellRef")
+      .def_property_readonly("expired", &WeakCellRef::expired)
+      .def("numpy", [](WeakCellRef *ref) -> tensorflow::Tensor {
+        tensorflow::Tensor tensor;
+
+        auto sp = ref->ref().lock();
+        if (!sp) {
+          MaybeRaiseFromStatus(absl::FailedPreconditionError(
+              "Cannot access data from expired WeakCellRef"));
+          return tensor;
+        }
+
+        absl::Status status;
+        {
+          py::gil_scoped_release g;
+          auto status = sp->GetData(&tensor);
+        }
+        MaybeRaiseFromStatus(status);
+
+        return tensor;
+      });
 
   py::class_<TrajectoryWriter, std::shared_ptr<TrajectoryWriter>>(
       m, "TrajectoryWriter")

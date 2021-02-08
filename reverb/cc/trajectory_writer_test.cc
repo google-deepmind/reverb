@@ -39,6 +39,7 @@
 #include "reverb/cc/support/queue.h"
 #include "reverb/cc/support/signature.h"
 #include "reverb/cc/testing/proto_test_util.h"
+#include "reverb/cc/testing/tensor_testutil.h"
 #include "tensorflow/core/framework/tensor.h"
 #include "tensorflow/core/framework/tensor.pb.h"
 #include "tensorflow/core/framework/tensor_shape.h"
@@ -75,6 +76,18 @@ inline tensorflow::Tensor MakeTensor(const internal::TensorSpec& spec) {
   tensorflow::TensorShape shape;
   REVERB_CHECK(spec.shape.AsTensorShape(&shape));
   tensorflow::Tensor tensor(spec.dtype, shape);
+  return tensor;
+}
+
+template <tensorflow::DataType dtype>
+tensorflow::Tensor MakeConstantTensor(
+    const tensorflow::TensorShape& shape,
+    typename tensorflow::EnumToDataType<dtype>::Type value) {
+  tensorflow::Tensor tensor(dtype, shape);
+  for (int i = 0; i < tensor.NumElements(); i++) {
+    tensor.flat<typename tensorflow::EnumToDataType<dtype>::Type>().data()[i] =
+        value;
+  }
   return tensor;
 }
 
@@ -151,6 +164,53 @@ TEST(CellRef, IsReady) {
   // Force chunk creation.
   REVERB_ASSERT_OK(chunker->Flush());
   EXPECT_TRUE(ref.lock()->IsReady());
+}
+
+TEST(CellRef, GetDataFromChunkerBuffer) {
+  internal::TensorSpec spec = {"0", tensorflow::DT_INT32, {3, 3}};
+  auto chunker = std::make_shared<Chunker>(spec,
+                                           /*max_chunk_length=*/2,
+                                           /*num_keep_alive_refs=*/2);
+
+  std::weak_ptr<CellRef> ref;
+  auto want = MakeConstantTensor<tensorflow::DT_INT32>({3, 3}, 5);
+  REVERB_ASSERT_OK(chunker->Append(want, {1, 0}, &ref));
+
+  // Chunk is not finalized yet so `GetData` must read from Chunker buffer.
+  EXPECT_FALSE(ref.lock()->IsReady());
+
+  tensorflow::Tensor got;
+  REVERB_ASSERT_OK(ref.lock()->GetData(&got));
+  test::ExpectTensorEqual<tensorflow::int32>(got, want);
+}
+
+TEST(CellRef, GetDataFromChunk) {
+  internal::TensorSpec spec = {"0", tensorflow::DT_FLOAT, {3, 3}};
+  auto chunker = std::make_shared<Chunker>(spec,
+                                           /*max_chunk_length=*/2,
+                                           /*num_keep_alive_refs=*/2);
+
+  // Take two steps to finalize the chunk.
+  std::weak_ptr<CellRef> first;
+  auto first_want = MakeConstantTensor<tensorflow::DT_FLOAT>({3, 3}, 1);
+  REVERB_ASSERT_OK(chunker->Append(first_want, {1, 0}, &first));
+
+  std::weak_ptr<CellRef> second;
+  auto second_want = MakeConstantTensor<tensorflow::DT_FLOAT>({3, 3}, 2);
+  REVERB_ASSERT_OK(chunker->Append(second_want, {1, 1}, &second));
+
+  // Both steps should be finalized.
+  EXPECT_TRUE(first.lock()->IsReady());
+  EXPECT_TRUE(second.lock()->IsReady());
+
+  // Check that the data is correct when reading it back from the chunk.
+  tensorflow::Tensor first_got;
+  REVERB_ASSERT_OK(first.lock()->GetData(&first_got));
+  test::ExpectTensorEqual<float>(first_got, first_want);
+
+  tensorflow::Tensor second_got;
+  REVERB_ASSERT_OK(second.lock()->GetData(&second_got));
+  test::ExpectTensorEqual<float>(second_got, second_want);
 }
 
 TEST(Chunker, AppendValidatesSpecDtype) {

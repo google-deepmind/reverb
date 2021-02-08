@@ -23,11 +23,11 @@ import datetime
 
 from typing import Any, List, Iterator, Mapping, Optional, Sequence, Tuple, Union
 
+import numpy as np
 from reverb import client as client_lib
 from reverb import errors
 from reverb import pybind
 from reverb import replay_sample
-
 import tree
 
 
@@ -452,6 +452,36 @@ class TrajectoryColumn:
 
   def __iter__(self) -> Iterator[pybind.WeakCellRef]:
     return iter(self._data_references)
+
+  def __getitem__(self, val) -> 'TrajectoryColumn':
+    if isinstance(val, int):
+      return TrajectoryColumn([self._data_references[val]])
+    elif isinstance(val, slice):
+      return TrajectoryColumn(self._data_references[val])
+    else:
+      raise TypeError(
+          f'TrajectoryColumn indices must be integers or slices, '
+          f'not {type(val)}')
+
+  def numpy(self) -> np.ndarray:
+    """Gets and stacks all the referenced data.
+
+    Data is copied from buffers in the C++ layers and may involve decompression
+    of already created chunks. This can be quite a memory intensive operation
+    when used on large arrays.
+
+    Returns:
+      All referenced data stacked in a single numpy array.
+
+    Raises:
+      RuntimeError: If any data reference has expired.
+    """
+    if any(reference.expired for reference in self._data_references):
+      raise RuntimeError(
+          'Cannot convert TrajectoryColumn with expired data references to '
+          'numpy array.')
+
+    return np.stack([ref.numpy() for ref in self._data_references])
 
 
 def sample_trajectory(client: client_lib.Client, table: str,

@@ -17,6 +17,8 @@
 from unittest import mock
 
 from absl.testing import absltest
+import numpy as np
+from reverb import client as client_lib
 from reverb import trajectory_writer
 import tree
 
@@ -141,6 +143,25 @@ class TrajectoryWriterTest(absltest.TestCase):
 
     self.writer.append({'z': 5})
     self.cpp_writer_mock.ConfigureChunker.assert_called_with(3, 1, 2)
+
+
+class TrajectoryColumnTest(absltest.TestCase):
+
+  def test_numpy(self):
+    # No data will ever be sent to the server so it doesn't matter that we use
+    # an invalid address.
+    client = client_lib.Client('localhost:1234')
+    writer = trajectory_writer.TrajectoryWriter(client, 5, 10)
+
+    for i in range(10):
+      writer.append({'a': i, 'b': np.ones([3, 3], np.float) * i})
+
+      np.testing.assert_array_equal(writer.history['a'][:].numpy(),
+                                    np.arange(i + 1, dtype=np.int64))
+
+      np.testing.assert_array_equal(
+          writer.history['b'][:].numpy(),
+          np.stack([np.ones([3, 3], np.float) * x for x in range(i + 1)]))
 
 
 if __name__ == '__main__':

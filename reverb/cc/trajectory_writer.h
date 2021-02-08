@@ -290,6 +290,12 @@ class CellRef {
   // Weak pointer to the parent Chunker.
   std::weak_ptr<Chunker> chunker() const;
 
+  // Gets a copy of the referenced data. If the chunk has been finalized then
+  // it is unpacked and the referenced row copied into `out`. If the chunk is
+  // not yet finalized then the data is copied from the buffer of the parent
+  // `Chunker`.
+  absl::Status GetData(tensorflow::Tensor* out) const;
+
  private:
   friend Chunker;
 
@@ -349,6 +355,15 @@ class Chunker : public std::enable_shared_from_this<Chunker> {
   // > num_keep_alive_refs`  or if either is <= 0.
   absl::Status ApplyConfig(int max_chunk_length, int num_keep_alive_refs)
       ABSL_LOCKS_EXCLUDED(mu_);
+
+ private:
+  friend CellRef;
+
+  // Get the data for referenced by `ref`. If the data has been finalized into
+  // a ChunkData then the chunk is unpacked and the row extracted. If the chunk
+  // has not been finalized the data is copied from `buffer_`.
+  absl::Status CopyDataForCell(const CellRef* ref,
+                               tensorflow::Tensor* out) const;
 
  private:
   absl::Status FlushLocked() ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_);
