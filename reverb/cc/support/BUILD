@@ -100,9 +100,12 @@ reverb_cc_library(
     srcs = ["signature.cc"],
     hdrs = ["signature.h"],
     deps = [
+        ":trajectory_util",
         "//reverb/cc:schema_cc_proto",
+        "//reverb/cc:table",
         "//reverb/cc/platform:hash_map",
         "//reverb/cc/platform:hash_set",
+        "//reverb/cc/platform:logging",
         "//reverb/cc/platform:status_macros",
     ] + reverb_tf_deps() + reverb_absl_deps(),
 )

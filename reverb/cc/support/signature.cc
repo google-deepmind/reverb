@@ -19,7 +19,11 @@
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "reverb/cc/platform/logging.h"
 #include "reverb/cc/platform/status_macros.h"
+#include "reverb/cc/schema.pb.h"
+#include "reverb/cc/support/trajectory_util.h"
+#include "reverb/cc/table.h"
 #include "tensorflow/core/framework/tensor.h"
 #include "tensorflow/core/framework/tensor.pb.h"
 #include "tensorflow/core/framework/types.h"
@@ -157,6 +161,38 @@ tensorflow::StructuredValue StructuredValueFromChunkData(
         value.mutable_list_value()->add_values()->mutable_tensor_spec_value();
     spec->set_dtype(chunk.dtype());
     shape.AsProto(spec->mutable_shape());
+  }
+
+  return value;
+}
+
+tensorflow::StructuredValue StructuredValueFromItem(const TableItem& item) {
+  tensorflow::StructuredValue value;
+
+  auto get_tensor = [&](const FlatTrajectory::ChunkSlice& slice) {
+    for (const auto& chunk : item.chunks) {
+      if (chunk->key() == slice.chunk_key()) {
+        return &chunk->data().data().tensors(slice.index());
+      }
+    }
+    REVERB_CHECK(false) << "Invalid item.";
+  };
+
+  for (int col_idx = 0; col_idx < item.item.flat_trajectory().columns_size();
+       col_idx++) {
+    const auto& col = item.item.flat_trajectory().columns(col_idx);
+    const auto* tensor_proto = get_tensor(col.chunk_slices(0));
+
+    auto* spec =
+        value.mutable_list_value()->add_values()->mutable_tensor_spec_value();
+    spec->set_dtype(tensor_proto->dtype());
+    *spec->mutable_shape() = tensor_proto->tensor_shape();
+
+    if (col.squeeze()) {
+      spec->mutable_shape()->mutable_dim()->DeleteSubrange(0, 1);
+    } else {
+      spec->mutable_shape()->mutable_dim(0)->set_size(-1);
+    }
   }
 
   return value;

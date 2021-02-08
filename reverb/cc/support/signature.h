@@ -24,6 +24,7 @@
 #include "reverb/cc/platform/hash_map.h"
 #include "reverb/cc/platform/hash_set.h"
 #include "reverb/cc/schema.pb.h"
+#include "reverb/cc/table.h"
 #include "tensorflow/core/framework/tensor.h"
 #include "tensorflow/core/framework/tensor_shape.h"
 #include "tensorflow/core/framework/types.h"
@@ -51,6 +52,10 @@ absl::Status FlatSignatureFromStructuredValue(
 
 tensorflow::StructuredValue StructuredValueFromChunkData(
     const ChunkData& chunk_data);
+
+// Create a structured value of the trajectory referenced by `item`. Non
+// squeezed columns are assigned a batch dimension of -1.
+tensorflow::StructuredValue StructuredValueFromItem(const TableItem& item);
 
 // Map from table name to optional vector of flattened (dtype, shape) pairs.
 typedef internal::flat_hash_map<std::string, internal::DtypesAndShapes>
