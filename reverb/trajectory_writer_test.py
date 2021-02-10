@@ -151,7 +151,11 @@ class TrajectoryColumnTest(absltest.TestCase):
     # No data will ever be sent to the server so it doesn't matter that we use
     # an invalid address.
     client = client_lib.Client('localhost:1234')
-    writer = trajectory_writer.TrajectoryWriter(client, 5, 10)
+    writer = trajectory_writer.TrajectoryWriter(
+        client,
+        max_chunk_length=5,
+        num_keep_alive_refs=10,
+        get_signature_timeout_ms=None)
 
     for i in range(10):
       writer.append({'a': i, 'b': np.ones([3, 3], np.float) * i})
@@ -167,7 +171,11 @@ class TrajectoryColumnTest(absltest.TestCase):
     # No data will ever be sent to the server so it doesn't matter that we use
     # an invalid address.
     client = client_lib.Client('localhost:1234')
-    writer = trajectory_writer.TrajectoryWriter(client, 5, 10)
+    writer = trajectory_writer.TrajectoryWriter(
+        client,
+        max_chunk_length=5,
+        num_keep_alive_refs=10,
+        get_signature_timeout_ms=None)
 
     for i in range(10):
       writer.append({'a': i})

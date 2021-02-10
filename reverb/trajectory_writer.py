@@ -39,7 +39,8 @@ class TrajectoryWriter:
   """
 
   def __init__(self, client: client_lib.Client, max_chunk_length: int,
-               num_keep_alive_refs: int):
+               num_keep_alive_refs: int,
+               get_signature_timeout_ms: Optional[int] = 3000):
     """Constructor of TrajectoryWriter.
 
     Note: The client is provided to the constructor as opposed to having the
@@ -62,9 +63,15 @@ class TrajectoryWriter:
         popped from the buffer it can no longer be referenced by new items. The
         value `num_keep_alive_refs` can therefore be interpreted as maximum
         number of steps which a trajectory can span.
+      get_signature_timeout_ms: The number of milliesconds to wait to pull table
+        signatures (if any) from the server. These signatures are used to
+        validate new items before they are sent to the server. Signatures are
+        only pulled once and cached. If set to None then the signature will not
+        fetched from the server. Default wait time is 3 seconds.
     """
     self._writer = client._client.NewTrajectoryWriter(max_chunk_length,
-                                                      num_keep_alive_refs)
+                                                      num_keep_alive_refs,
+                                                      get_signature_timeout_ms)
 
     # The union of the structures of all data passed to `append`. The structure
     # grows everytime the provided data contains one or more fields which were

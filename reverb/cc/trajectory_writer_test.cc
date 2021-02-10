@@ -26,6 +26,7 @@
 #include "absl/memory/memory.h"
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/str_format.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/synchronization/notification.h"
 #include "absl/time/clock.h"
@@ -72,6 +73,10 @@ inline std::string Int32Str() {
 }
 
 inline tensorflow::Tensor MakeTensor(const internal::TensorSpec& spec) {
+  if (spec.shape.dims() < 1) {
+    return tensorflow::Tensor(spec.dtype, {});
+  }
+
   tensorflow::TensorShape shape;
   REVERB_CHECK(spec.shape.AsTensorShape(&shape));
   tensorflow::Tensor tensor(spec.dtype, shape);
@@ -1240,6 +1245,185 @@ TEST(TrajectoryWriter, CreateItemValidatesSqueezedColumns) {
       std::string(status.message()),
       ::testing::HasSubstr("Error in column 0: TrajectoryColumn must contain "
                            "exactly one row when squeeze is set but got 2."));
+}
+
+class TrajectoryWriterSignatureValidationTest : public ::testing::Test {
+ protected:
+  void SetUp() override {
+    auto* stream = new FakeStream();
+    auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
+    EXPECT_CALL(*stub, InsertStreamRaw(_)).WillOnce(Return(stream));
+
+    LOG(INFO) << tensorflow::PartialTensorShape({}).dims();
+    TrajectoryWriter::Options options = {
+        .max_chunk_length = 1,
+        .num_keep_alive_refs = 1,
+        .flat_signature_map = internal::FlatSignatureMap({
+            {
+                "table",
+                std::vector<internal::TensorSpec>({
+                    internal::TensorSpec{
+                        "first_col", tensorflow::DT_INT32, {2}},
+                    internal::TensorSpec{
+                        "second_col", tensorflow::DT_FLOAT, {1}},
+                    internal::TensorSpec{
+                        "var_length_col", tensorflow::DT_FLOAT, {-1}},
+                }),
+            },
+        }),
+    };
+    writer_ = absl::make_unique<TrajectoryWriter>(stub, options);
+
+    // Take a step with enough columns to be able to compose both valid and
+    // invalid trajectories.
+    REVERB_ASSERT_OK(
+        writer_->Append(Step({
+                            MakeTensor({"0", tensorflow::DT_INT32, {}}),
+                            MakeTensor({"1", tensorflow::DT_FLOAT, {}}),
+                            MakeTensor({"2", tensorflow::DT_DOUBLE, {}}),
+                            MakeTensor({"3", tensorflow::DT_FLOAT, {2, 2}}),
+                        }),
+                        &step_));
+  }
+
+  void TearDown() override {
+    writer_->Close();
+    writer_ = nullptr;
+  }
+
+  std::unique_ptr<TrajectoryWriter> writer_;
+  StepRef step_;
+};
+
+TEST_F(TrajectoryWriterSignatureValidationTest, Valid) {
+  EXPECT_OK(writer_->CreateItem("table", 1.0,
+                                MakeTrajectory({
+                                    {step_[0], step_[0]},
+                                    {step_[1]},
+                                    {step_[1]},
+                                })));
+
+  // Third column length is undefined so two rows should be just as valid as
+  // one.
+  EXPECT_OK(writer_->CreateItem("table", 1.0,
+                                MakeTrajectory({
+                                    {step_[0], step_[0]},
+                                    {step_[1]},
+                                    {step_[1], step_[1]},
+                                })));
+}
+
+TEST_F(TrajectoryWriterSignatureValidationTest, WrongNumColumns) {
+  auto status = writer_->CreateItem("table", 1.0,
+                                    MakeTrajectory({
+                                        {step_[0], step_[0]},
+                                        {step_[1]},
+                                    }));
+  EXPECT_EQ(status.code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_THAT(
+      std::string(status.message()),
+      ::testing::HasSubstr(
+          "Unable to create item in table 'table' since the provided "
+          "trajectory is inconsistent with the table signature. The "
+          "trajectory has 2 columns but the table signature has 3 columns."));
+}
+
+TEST_F(TrajectoryWriterSignatureValidationTest, NotFoundTable) {
+  auto status = writer_->CreateItem("not_found", 1.0,
+                                    MakeTrajectory({
+                                        {step_[0], step_[0]},
+                                        {step_[1]},
+                                        {step_[1]},
+                                    }));
+  EXPECT_EQ(status.code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_THAT(std::string(status.message()),
+              ::testing::HasSubstr("Unable to create item in table 'not_found' "
+                                   "since the table could not be found."));
+}
+
+TEST_F(TrajectoryWriterSignatureValidationTest, WrongDtype) {
+  auto status = writer_->CreateItem("table", 1.0,
+                                    MakeTrajectory({
+                                        {step_[0], step_[0]},
+                                        {step_[2]},
+                                        {step_[1]},
+                                    }));
+  EXPECT_EQ(status.code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_THAT(std::string(status.message()),
+              ::testing::HasSubstr(
+                  "Unable to create item in table 'table' since the provided "
+                  "trajectory is inconsistent with the table signature. The "
+                  "table expects column 1 to be a float [1] tensor but got a "
+                  "double [1] tensor."));
+}
+
+TEST_F(TrajectoryWriterSignatureValidationTest, WrongBatchDim) {
+  auto status = writer_->CreateItem("table", 1.0,
+                                    MakeTrajectory({
+                                        {step_[0]},
+                                        {step_[1]},
+                                        {step_[1]},
+                                    }));
+  EXPECT_EQ(status.code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_THAT(std::string(status.message()),
+              ::testing::HasSubstr(absl::StrFormat(
+                  "Unable to create item in table 'table' since the provided "
+                  "trajectory is inconsistent with the table signature. The "
+                  "table expects column 0 to be a %s [2] tensor but got a "
+                  "%s [1] tensor.",
+                  Int32Str(), Int32Str())));
+}
+
+TEST_F(TrajectoryWriterSignatureValidationTest, WrongElementShape) {
+  auto status = writer_->CreateItem("table", 1.0,
+                                    MakeTrajectory({
+                                        {step_[0], step_[0]},
+                                        {step_[1]},
+                                        {step_[3]},
+                                    }));
+  EXPECT_EQ(status.code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_THAT(std::string(status.message()),
+              ::testing::HasSubstr(
+                  "Unable to create item in table 'table' since the provided "
+                  "trajectory is inconsistent with the table signature. The "
+                  "table expects column 2 to be a float [?] tensor but got a "
+                  "float [1,2,2] tensor."));
+}
+
+TEST_F(TrajectoryWriterSignatureValidationTest,
+       ErrorMessageIncludesTableSignature) {
+  auto status = writer_->CreateItem("table", 1.0,
+                                    MakeTrajectory({
+                                        {step_[0], step_[0]},
+                                        {step_[1]},
+                                        {step_[3]},
+                                    }));
+  EXPECT_EQ(status.code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_THAT(std::string(status.message()),
+              ::testing::HasSubstr(absl::StrFormat(
+                  "\n\nThe table signature is:\n\t"
+                  "0: Tensor<name: 'first_col', dtype: %s, shape: [2]>, "
+                  "1: Tensor<name: 'second_col', dtype: float, shape: [1]>, "
+                  "2: Tensor<name: 'var_length_col', dtype: float, shape: [?]>",
+                  Int32Str())));
+}
+
+TEST_F(TrajectoryWriterSignatureValidationTest,
+       ErrorMessageIncludesTrajectorySignature) {
+  auto status = writer_->CreateItem("table", 1.0,
+                                    MakeTrajectory({
+                                        {step_[0], step_[0]},
+                                        {step_[1]},
+                                        {step_[3]},
+                                    }));
+  EXPECT_EQ(status.code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_THAT(std::string(status.message()),
+              ::testing::HasSubstr(absl::StrFormat(
+                  "\n\nThe provided trajectory signature is:\n\t"
+                  "0: Tensor<name: '0', dtype: %s, shape: [2]>, "
+                  "1: Tensor<name: '1', dtype: float, shape: [1]>, "
+                  "2: Tensor<name: '2', dtype: float, shape: [1,2,2]>",
+                  Int32Str())));
 }
 
 TEST(TrajectoryWriter, EndEpisodeCanClearBuffers) {

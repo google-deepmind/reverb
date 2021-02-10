@@ -65,8 +65,15 @@ class TrajectoryWriter {
     // expire with different `TrajectoryWriter::Append` calls.
     int num_keep_alive_refs;
 
-    // Checks that field values are valid and returns `InvalidArgument` if any
-    // field value, or combination of field values, are invalid.
+    // Optional mapping from table names to optional flattened signatures. The
+    // two layers of optional allows us to distinguish between tables that we
+    // know exist but no signature is specified and a server were we have no
+    // knowledge whatsoever about the tables.
+    absl::optional<internal::FlatSignatureMap> flat_signature_map =
+        absl::nullopt;
+
+    // Checks that field values are valid and returns `InvalidArgument` if
+    // any field value, or combination of field values, are invalid.
     absl::Status Validate() const;
   };
 
@@ -207,6 +214,11 @@ class TrajectoryWriter {
   internal::flat_hash_set<uint64_t> GetKeepKeys(
       const internal::flat_hash_set<uint64_t>& streamed_chunk_keys) const
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_);
+
+  // Checks that the table the item targets exists and that the item trajectory
+  // conforms to the table signature (if any). Returns `InvalidArgumentError` if
+  // the item is not valid.
+  absl::Status Validate(const ItemAndRefs& item_and_refs) const;
 
   // Stub used to create InsertStream gRPC streams.
   std::shared_ptr</* grpc_gen:: */ReverbService::StubInterface> stub_;

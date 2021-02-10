@@ -647,10 +647,27 @@ PYBIND11_MODULE(libpybind, m) {
           },
           py::call_guard<py::gil_scoped_release>())
       .def("NewTrajectoryWriter",
-           [](Client *client, int max_chunk_length, int num_keep_alive_refs) {
+           [](Client *client, int max_chunk_length, int num_keep_alive_refs,
+              absl::optional<int> get_signature_timeout_ms) {
              std::unique_ptr<TrajectoryWriter> writer;
-             MaybeRaiseFromStatus(client->NewTrajectoryWriter(
-                 {max_chunk_length, num_keep_alive_refs}, &writer));
+
+             // Release the GIL only when waiting for the call to complete. If
+             // the GIL is not held when `MaybeRaiseFromStatus` is called it can
+             // result in segfaults as the Python exception is populated with
+             // details from the status.
+             absl::Status status;
+             if (get_signature_timeout_ms.has_value()) {
+               py::gil_scoped_release g;
+               status = client->NewTrajectoryWriter(
+                   {max_chunk_length, num_keep_alive_refs},
+                   absl::Milliseconds(get_signature_timeout_ms.value()),
+                   &writer);
+             } else {
+               status = client->NewTrajectoryWriter(
+                   {max_chunk_length, num_keep_alive_refs}, &writer);
+             }
+             MaybeRaiseFromStatus(status);
+
              return writer.release();
            })
       .def(

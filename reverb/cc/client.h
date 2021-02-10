@@ -129,6 +129,14 @@ class Client {
   absl::Status NewTrajectoryWriter(const TrajectoryWriter::Options& options,
                                    std::unique_ptr<TrajectoryWriter>* writer);
 
+  // This version tries to lookup and populate `options.flat_signature_map`
+  // using a (potentially cached) `ServerInfo` call. `get_signature_timeout`
+  // parameter controls how long the wait is on `ServerInfo` if this data is
+  // not already cached.
+  absl::Status NewTrajectoryWriter(const TrajectoryWriter::Options& options,
+                                   absl::Duration get_signature_timeout,
+                                   std::unique_ptr<TrajectoryWriter>* writer);
+
  private:
   const std::shared_ptr</* grpc_gen:: */ReverbService::StubInterface> stub_;
 

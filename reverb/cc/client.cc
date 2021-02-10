@@ -407,6 +407,19 @@ absl::Status Client::GetLocalTablePtr(absl::string_view table_name,
 
 absl::Status Client::NewTrajectoryWriter(
     const TrajectoryWriter::Options& options,
+    absl::Duration get_signature_timeout,
+    std::unique_ptr<TrajectoryWriter>* writer) {
+  std::shared_ptr<internal::FlatSignatureMap> cached_flat_signatures;
+  REVERB_RETURN_IF_ERROR(MaybeUpdateServerInfoCache(get_signature_timeout,
+                                                    &cached_flat_signatures));
+
+  TrajectoryWriter::Options updated_options = options;
+  updated_options.flat_signature_map = *cached_flat_signatures;
+  return NewTrajectoryWriter(updated_options, writer);
+}
+
+absl::Status Client::NewTrajectoryWriter(
+    const TrajectoryWriter::Options& options,
     std::unique_ptr<TrajectoryWriter>* writer) {
   REVERB_RETURN_IF_ERROR(options.Validate());
   *writer = absl::make_unique<TrajectoryWriter>(stub_, options);

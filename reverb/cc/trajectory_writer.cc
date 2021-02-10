@@ -16,6 +16,7 @@
 
 #include <algorithm>
 #include <memory>
+#include <string>
 #include <vector>
 
 #include "absl/base/thread_annotations.h"
@@ -24,6 +25,7 @@
 #include "absl/random/random.h"
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/str_format.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/time/time.h"
 #include "absl/types/optional.h"
@@ -110,6 +112,31 @@ bool ContainsAll(const internal::flat_hash_set<uint64_t>& set,
     }
   }
   return true;
+}
+
+std::vector<internal::TensorSpec> FlatSignatureFromTrajectory(
+    const FlatTrajectory& trajectory,
+    absl::Span<const std::shared_ptr<CellRef>> refs) {
+  auto get_spec = [&](uint64_t chunk_key) {
+    for (const auto& ref : refs) {
+      if (ref->chunk_key() == chunk_key) {
+        return ref->chunker().lock()->spec();
+      }
+    }
+    REVERB_CHECK(false) << "Invalid trajectory";
+  };
+
+  std::vector<internal::TensorSpec> specs;
+  for (int col_idx = 0; col_idx < trajectory.columns_size(); col_idx++) {
+    const auto& col = trajectory.columns(col_idx);
+    internal::TensorSpec spec = get_spec(col.chunk_slices(0).chunk_key());
+    spec.name = std::to_string(col_idx);
+    if (!col.squeeze()) {
+      spec.shape.InsertDim(0, internal::ColumnLength(trajectory, col_idx));
+    }
+    specs.push_back(std::move(spec));
+  }
+  return specs;
 }
 
 }  // namespace
@@ -503,9 +530,69 @@ absl::Status TrajectoryWriter::CreateItem(
     column.ToProto(item_and_refs.item.mutable_flat_trajectory()->add_columns());
   }
 
+  REVERB_RETURN_IF_ERROR(Validate(item_and_refs));
+
   {
     absl::MutexLock lock(&mu_);
     write_queue_.push_back(std::move(item_and_refs));
+  }
+
+  return absl::OkStatus();
+}
+
+absl::Status TrajectoryWriter::Validate(
+    const TrajectoryWriter::ItemAndRefs& item_and_refs) const {
+  if (!options_.flat_signature_map.has_value()) {
+    return absl::OkStatus();
+  }
+
+  const auto& table = item_and_refs.item.table();
+  const auto& signature_map = options_.flat_signature_map.value();
+  auto it = signature_map.find(table);
+  if (it == signature_map.end()) {
+    return absl::InvalidArgumentError(
+        absl::StrFormat("Unable to create item in table '%s' since the table "
+                        "could not be found.",
+                        table));
+  }
+  if (!it->second.has_value()) {
+    return absl::OkStatus();
+  }
+  const auto& table_signature = it->second.value();
+
+  const auto& trajectory = item_and_refs.item.flat_trajectory();
+  auto trajectory_signature =
+      FlatSignatureFromTrajectory(trajectory, item_and_refs.refs);
+
+  if (table_signature.size() != trajectory_signature.size()) {
+    return absl::InvalidArgumentError(absl::StrFormat(
+        "Unable to create item in table '%s' since the provided trajectory "
+        "is inconsistent with the table signature. The trajectory has %d "
+        "columns but the table signature has %d columns."
+        "\n\nThe table signature is:\n\t%s"
+        "\n\nThe provided trajectory signature was:\n\t%s.\n",
+        table, trajectory_signature.size(), table_signature.size(),
+        internal::DtypesShapesString(table_signature),
+        internal::DtypesShapesString(trajectory_signature)));
+  }
+
+  for (int i = 0; i < table_signature.size(); i++) {
+    const auto& want = table_signature[i];
+    const auto& got = trajectory_signature[i];
+
+    if (want.dtype != got.dtype || !want.shape.IsCompatibleWith(got.shape)) {
+      return absl::InvalidArgumentError(absl::StrFormat(
+          "Unable to create item in table '%s' since the provided trajectory "
+          "is inconsistent with the table signature. The table expects column "
+          "%d to be a %s %s tensor but got a %s %s tensor."
+          "\n\nThe table signature is:\n\t%s"
+          "\n\nThe provided trajectory signature is:\n\t%s.\n",
+          table, i, tensorflow::DataTypeString(want.dtype),
+          want.shape.DebugString(), tensorflow::DataTypeString(got.dtype),
+          got.shape.DebugString(),
+          internal::DtypesShapesString(table_signature),
+          internal::DtypesShapesString(trajectory_signature)));
+    }
   }
 
   return absl::OkStatus();
