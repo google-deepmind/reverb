@@ -200,6 +200,7 @@ cc_library(
     ),
     includes = ["tensorflow_includes"],
     deps = [
+        "@com_google_absl//absl/container:flat_hash_map",
         "@eigen_archive//:includes",
         "@protobuf_archive//:includes",
         "@zlib_includes//:includes",

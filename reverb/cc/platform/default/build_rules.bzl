@@ -541,7 +541,6 @@ def reverb_absl_deps():
         # are forced to use platform:hash_{map,set}, which uses a safer hasher.
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/base:core_headers",
-        "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/functional:bind_front",
         "@com_google_absl//absl/memory",
         "@com_google_absl//absl/numeric:int128",
