@@ -14,6 +14,8 @@
 
 """Tests for trajectory_dataset."""
 
+import importlib
+
 from absl.testing import parameterized
 import numpy as np
 from reverb import client
@@ -22,12 +24,14 @@ from reverb import item_selectors
 from reverb import rate_limiters
 from reverb import replay_sample
 from reverb import server as reverb_server
-from reverb import trajectory_dataset
-from reverb import trajectory_writer
 import tensorflow.compat.v1 as tf
 import tree
 
 from tensorflow.python.framework import tensor_spec  # pylint:disable=g-direct-tensorflow-import
+
+# TODO(b/179907041): Replace with "from reverb import ...".
+trajectory_writer = importlib.import_module('reverb.trajectory_writer')
+trajectory_dataset = importlib.import_module('reverb.trajectory_dataset')
 
 TABLE = 'prioritized'
 DTYPES = {

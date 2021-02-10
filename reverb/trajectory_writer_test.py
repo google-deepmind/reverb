@@ -14,13 +14,16 @@
 
 """Tests for reverb.trajectory_writer."""
 
+import importlib
 from unittest import mock
 
 from absl.testing import absltest
 import numpy as np
 from reverb import client as client_lib
-from reverb import trajectory_writer
 import tree
+
+# TODO(b/179907041): Replace with "from reverb import trajectory_writer".
+trajectory_writer = importlib.import_module('reverb.trajectory_writer')
 
 
 class FakeWeakCellRef:
