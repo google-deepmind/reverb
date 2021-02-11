@@ -155,6 +155,13 @@ class TrajectoryWriter:
     ]
     return tree.unflatten_as(self._structure, reordered_flat_history)
 
+  @property
+  def episode_steps(self):
+    """Number of append calls since last `end_episode` call."""
+    if not self._column_history:
+      return 0
+    return len(self._column_history[0])
+
   def configure(self, path: Tuple[Union[int, str], ...], max_chunk_length: int,
                 num_keep_alive_refs: int):
     """Override chunking options for a single column.

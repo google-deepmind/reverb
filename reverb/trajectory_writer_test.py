@@ -147,6 +147,20 @@ class TrajectoryWriterTest(absltest.TestCase):
     self.writer.append({'z': 5})
     self.cpp_writer_mock.ConfigureChunker.assert_called_with(3, 1, 2)
 
+  def test_episode_steps(self):
+    for _ in range(10):
+      # Every episode, including the first, should start at zero.
+      self.assertEqual(self.writer.episode_steps, 0)
+
+      for i in range(1, 21):
+        self.writer.append({'x': 3, 'y': 2})
+
+        # Step count should increment with each append call.
+        self.assertEqual(self.writer.episode_steps, i)
+
+      # Ending the episode should reset the step count to zero.
+      self.writer.end_episode()
+
 
 class TrajectoryColumnTest(absltest.TestCase):
 
