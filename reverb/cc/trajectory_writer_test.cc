@@ -82,6 +82,19 @@ inline tensorflow::Tensor MakeTensor(const internal::TensorSpec& spec) {
   tensorflow::TensorShape shape;
   REVERB_CHECK(spec.shape.AsTensorShape(&shape));
   tensorflow::Tensor tensor(spec.dtype, shape);
+
+  for (int i = 0; i < tensor.NumElements(); i++) {
+    if (spec.dtype == tensorflow::DT_FLOAT) {
+      tensor.flat<float>().data()[i] = i;
+    } else if (spec.dtype == tensorflow::DT_INT32) {
+      tensor.flat<int32_t>().data()[i] = i;
+    } else if (spec.dtype == tensorflow::DT_DOUBLE) {
+      tensor.flat<double>().data()[i] = i;
+    } else {
+      REVERB_CHECK(false) << "Unexpeted dtype";
+    }
+  }
+
   return tensor;
 }
 
@@ -855,7 +868,6 @@ class TrajectoryWriterSignatureValidationTest : public ::testing::Test {
     auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
     EXPECT_CALL(*stub, InsertStreamRaw(_)).WillOnce(Return(stream));
 
-    LOG(INFO) << tensorflow::PartialTensorShape({}).dims();
     TrajectoryWriter::Options options = {
         .chunker_options = std::make_shared<ConstantChunkerOptions>(1, 1),
         .flat_signature_map = internal::FlatSignatureMap({
@@ -889,6 +901,7 @@ class TrajectoryWriterSignatureValidationTest : public ::testing::Test {
   void TearDown() override {
     writer_->Close();
     writer_ = nullptr;
+    step_.clear();
   }
 
   std::unique_ptr<TrajectoryWriter> writer_;
