@@ -192,14 +192,15 @@ absl::Status TrajectoryWriter::Append(
     if (data[i].has_value() && !chunkers_.contains(i)) {
       const auto& tensor = data[i].value();
       // If the new column has been configured with `ConfigureChunker` then we
-      // use the overrided options. If not then we use the default `options_`.
-      const auto& chunker_options =
-          options_override_.contains(i) ? options_override_[i] : options_;
+      // use the overrided options. If not then we use the default in
+      // `options_.chunker_options`.
+      const auto& chunker_options = options_override_.contains(i)
+                                        ? options_override_[i]
+                                        : options_.chunker_options;
       chunkers_[i] = std::make_shared<Chunker>(
           internal::TensorSpec{std::to_string(i), tensor.dtype(),
                                tensor.shape()},
-          chunker_options.max_chunk_length,
-          chunker_options.num_keep_alive_refs);
+          chunker_options->Clone());
     }
   }
 
@@ -490,6 +491,10 @@ absl::Status TrajectoryWriter::RunStreamWorker() {
       streamed_chunk_keys = GetKeepKeys(streamed_chunk_keys);
     }
 
+    for (auto& it : chunkers_) {
+      it.second->OnItemFinalized(item_and_refs.item, item_and_refs.refs);
+    }
+
     // All chunks have been written to the stream so the item can now be
     // written.
     if (!SendItem(stream.get(), streamed_chunk_keys, item_and_refs.item)) {
@@ -578,7 +583,7 @@ absl::Status TrajectoryWriter::FlushLocked(int ignore_last_num_items,
 }
 
 absl::Status TrajectoryWriter::EndEpisode(bool clear_buffers,
-                                                absl::Duration timeout) {
+                                          absl::Duration timeout) {
   absl::MutexLock lock(&mu_);
   REVERB_RETURN_IF_ERROR(unrecoverable_status_);
 
@@ -600,21 +605,23 @@ absl::Status TrajectoryWriter::EndEpisode(bool clear_buffers,
   return absl::OkStatus();
 }
 
-absl::Status TrajectoryWriter::ConfigureChunker(int column,
-                                                const Options& options) {
-  REVERB_RETURN_IF_ERROR(options.Validate());
+absl::Status TrajectoryWriter::ConfigureChunker(
+    int column, const std::shared_ptr<ChunkerOptions>& options) {
+  REVERB_RETURN_IF_ERROR(ValidateChunkerOptions(options.get()));
 
   if (auto it = chunkers_.find(column); it != chunkers_.end()) {
-    return it->second->ApplyConfig(options.max_chunk_length,
-                                   options.num_keep_alive_refs);
+    return it->second->ApplyConfig(options->Clone());
   }
 
-  options_override_[column] = options;
+  options_override_[column] = options->Clone();
   return absl::OkStatus();
 }
 
 absl::Status TrajectoryWriter::Options::Validate() const {
-  return ValidateChunkerOptions(max_chunk_length, num_keep_alive_refs);
+  if (chunker_options == nullptr) {
+    return absl::InvalidArgumentError("chunker_options must be set.");
+  }
+  return ValidateChunkerOptions(chunker_options.get());
 }
 
 TrajectoryColumn::TrajectoryColumn(std::vector<std::weak_ptr<CellRef>> refs,

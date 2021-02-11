@@ -21,6 +21,7 @@
 #include "grpcpp/impl/codegen/status.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
+#include "reverb/cc/chunker.h"
 #include "reverb/cc/platform/status_matchers.h"
 #include "reverb/cc/reverb_service.pb.h"
 #include "reverb/cc/reverb_service_mock.grpc.pb.h"
@@ -157,7 +158,10 @@ TEST(ClientTest, NewTrajectoryWriterValidatesOptions) {
   auto stub = std::make_shared<FakeStub>();
   Client client(stub);
   std::unique_ptr<TrajectoryWriter> writer;
-  EXPECT_FALSE(client.NewTrajectoryWriter({-1, -1}, &writer).ok());
+  TrajectoryWriter::Options options = {
+      .chunker_options = std::make_shared<ConstantChunkerOptions>(-1, 1),
+  };
+  EXPECT_FALSE(client.NewTrajectoryWriter(options, &writer).ok());
 }
 
 }  // namespace

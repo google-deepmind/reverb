@@ -49,19 +49,7 @@ class TrajectoryColumn;
 class TrajectoryWriter {
  public:
   struct Options {
-    // The maximum size of the `Chunker` buffer. If it reaches this size then
-    // its content is automatically finalized as a `ChunkData` and pushed to
-    // related `CellRef`.
-    int max_chunk_length;
-
-    // The number of `CellRef` from most recent `Chunker::Append` calls to keep
-    // alive. When a `CellRef` is removed from the buffer it can no longer be
-    // referenced in new trajectories.
-    //
-    // Note that each column has its own buffer. This mean that if `Append`
-    // calls do not provide data for all columns then the references will
-    // expire with different `TrajectoryWriter::Append` calls.
-    int num_keep_alive_refs;
+    std::shared_ptr<ChunkerOptions> chunker_options;
 
     // Optional mapping from table names to optional flattened signatures. The
     // two layers of optional allows us to distinguish between tables that we
@@ -156,7 +144,8 @@ class TrajectoryWriter {
   // details). If no `Chunker` exists for the column then the options will be
   // used to create the chunker when the column is present for the first time
   // in the data of an `Append` call.
-  absl::Status ConfigureChunker(int column, const Options& options);
+  absl::Status ConfigureChunker(int column,
+                                const std::shared_ptr<ChunkerOptions>& options);
 
  private:
   using InsertStream = grpc::ClientReaderWriterInterface<InsertStreamRequest,
@@ -225,7 +214,8 @@ class TrajectoryWriter {
   Options options_;
 
   // Override of default options for yet to be constructed chunkers.
-  internal::flat_hash_map<int, Options> options_override_;
+  internal::flat_hash_map<int, std::shared_ptr<ChunkerOptions>>
+      options_override_;
 
   // Mapping from column index to Chunker. Shared pointers are used as the
   // `CellRef`s created by the chunker will own a weak_ptr created using

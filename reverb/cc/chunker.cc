@@ -26,6 +26,7 @@
 #include "absl/synchronization/mutex.h"
 #include "reverb/cc/platform/logging.h"
 #include "reverb/cc/platform/status_macros.h"
+#include "reverb/cc/schema.pb.h"
 #include "reverb/cc/support/signature.h"
 #include "reverb/cc/support/tf_util.h"
 #include "reverb/cc/support/trajectory_util.h"
@@ -89,12 +90,11 @@ absl::Status CellRef::GetData(tensorflow::Tensor* out) const {
   return chunker_sp->CopyDataForCell(this, out);
 }
 
-Chunker::Chunker(internal::TensorSpec spec, int max_chunk_length,
-                 int num_keep_alive_refs)
-    : spec_(std::move(spec)),
-      max_chunk_length_(max_chunk_length),
-      num_keep_alive_refs_(num_keep_alive_refs) {
-  REVERB_CHECK_GE(num_keep_alive_refs, max_chunk_length);
+Chunker::Chunker(internal::TensorSpec spec,
+                 std::shared_ptr<ChunkerOptions> options)
+    : spec_(std::move(spec)), options_(std::move(options)) {
+  REVERB_CHECK_GE(options_->GetNumKeepAliveRefs(),
+                  options_->GetMaxChunkLength());
   Reset();
 }
 
@@ -145,12 +145,12 @@ absl::Status Chunker::Append(tensorflow::Tensor tensor,
   buffer_.push_back(std::move(batched_tensor));
 
   // Create the chunk if max buffer size reached.
-  if (buffer_.size() == max_chunk_length_) {
+  if (buffer_.size() >= options_->GetMaxChunkLength()) {
     REVERB_RETURN_IF_ERROR(FlushLocked());
   }
 
   // Delete references which which have exceeded their max age.
-  while (active_refs_.size() > num_keep_alive_refs_) {
+  while (active_refs_.size() > options_->GetNumKeepAliveRefs()) {
     active_refs_.pop_front();
   }
 
@@ -226,7 +226,7 @@ absl::Status Chunker::FlushLocked() {
 void Chunker::Reset() {
   absl::MutexLock lock(&mu_);
   buffer_.clear();
-  buffer_.reserve(max_chunk_length_);
+  buffer_.reserve(options_->GetMaxChunkLength());
   offset_ = 0;
   next_chunk_key_ = NewKey();
   active_refs_.clear();
@@ -234,8 +234,7 @@ void Chunker::Reset() {
 
 const internal::TensorSpec& Chunker::spec() const { return spec_; }
 
-absl::Status Chunker::ApplyConfig(int max_chunk_length,
-                                  int num_keep_alive_refs) {
+absl::Status Chunker::ApplyConfig(std::shared_ptr<ChunkerOptions> options) {
   absl::MutexLock lock(&mu_);
 
   if (!buffer_.empty()) {
@@ -243,13 +242,10 @@ absl::Status Chunker::ApplyConfig(int max_chunk_length,
         "Flush must be called before ApplyConfig.");
   }
 
-  REVERB_RETURN_IF_ERROR(
-      ValidateChunkerOptions(max_chunk_length, num_keep_alive_refs));
+  REVERB_RETURN_IF_ERROR(ValidateChunkerOptions(options.get()));
+  options_ = std::move(options);
 
-  max_chunk_length_ = max_chunk_length;
-  num_keep_alive_refs_ = num_keep_alive_refs;
-
-  while (active_refs_.size() > num_keep_alive_refs) {
+  while (active_refs_.size() > options_->GetNumKeepAliveRefs()) {
     active_refs_.pop_front();
   }
 
@@ -298,22 +294,60 @@ absl::Status Chunker::CopyDataForCell(const CellRef* ref,
   return absl::OkStatus();
 }
 
-absl::Status ValidateChunkerOptions(int max_chunk_length,
-                                    int num_keep_alive_refs) {
-  if (max_chunk_length <= 0) {
-    return absl::InvalidArgumentError(absl::StrCat(
-        "max_chunk_length must be > 0 but got ", max_chunk_length, "."));
+void Chunker::OnItemFinalized(const PrioritizedItem& item,
+                              absl::Span<const std::shared_ptr<CellRef>> refs) {
+  std::vector<std::shared_ptr<CellRef>> child_refs;
+  for (const auto& ref : refs) {
+    auto chunker_sp = ref->chunker().lock();
+    REVERB_CHECK(chunker_sp);
+    if (chunker_sp.get() == this) {
+      child_refs.push_back(ref);
+    }
   }
-  if (num_keep_alive_refs <= 0) {
-    return absl::InvalidArgumentError(absl::StrCat(
-        "num_keep_alive_refs must be > 0 but got ", num_keep_alive_refs, "."));
+  if (!child_refs.empty()) {
+    options_->OnItemFinalized(item, child_refs);
   }
-  if (max_chunk_length > num_keep_alive_refs) {
+}
+
+absl::Status ValidateChunkerOptions(const ChunkerOptions* options) {
+  if (options->GetMaxChunkLength() <= 0) {
+    return absl::InvalidArgumentError(
+        absl::StrCat("max_chunk_length must be > 0 but got ",
+                     options->GetMaxChunkLength(), "."));
+  }
+  if (options->GetNumKeepAliveRefs() <= 0) {
+    return absl::InvalidArgumentError(
+        absl::StrCat("num_keep_alive_refs must be > 0 but got ",
+                     options->GetNumKeepAliveRefs(), "."));
+  }
+  if (options->GetMaxChunkLength() > options->GetNumKeepAliveRefs()) {
     return absl::InvalidArgumentError(absl::StrCat(
-        "num_keep_alive_refs (", num_keep_alive_refs,
-        ") must be >= max_chunk_length (", max_chunk_length, ")."));
+        "num_keep_alive_refs (", options->GetNumKeepAliveRefs(),
+        ") must be >= max_chunk_length (", options->GetMaxChunkLength(), ")."));
   }
   return absl::OkStatus();
+}
+
+ConstantChunkerOptions::ConstantChunkerOptions(int max_chunk_length,
+                                               int num_keep_alive_refs)
+    : max_chunk_length_(max_chunk_length),
+      num_keep_alive_refs_(num_keep_alive_refs) {}
+
+int ConstantChunkerOptions::GetMaxChunkLength() const {
+  return max_chunk_length_;
+}
+
+int ConstantChunkerOptions::GetNumKeepAliveRefs() const {
+  return num_keep_alive_refs_;
+}
+
+void ConstantChunkerOptions::OnItemFinalized(
+    const PrioritizedItem& item,
+    absl::Span<const std::shared_ptr<CellRef>> refs) {}
+
+std::shared_ptr<ChunkerOptions> ConstantChunkerOptions::Clone() const {
+  return std::make_shared<ConstantChunkerOptions>(max_chunk_length_,
+                                                  num_keep_alive_refs_);
 }
 
 }  // namespace reverb

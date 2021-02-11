@@ -27,11 +27,13 @@
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
+#include "absl/synchronization/blocking_counter.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/synchronization/notification.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "absl/types/optional.h"
+#include "reverb/cc/chunker.h"
 #include "reverb/cc/platform/logging.h"
 #include "reverb/cc/platform/status_matchers.h"
 #include "reverb/cc/reverb_service.grpc.pb.h"
@@ -158,6 +160,14 @@ class FakeStream
   internal::Queue<uint64_t> pending_confirmation_;
 };
 
+inline TrajectoryWriter::Options MakeOptions(int max_chunk_length,
+                                             int num_keep_alive_refs) {
+  return TrajectoryWriter::Options{
+      .chunker_options = std::make_shared<ConstantChunkerOptions>(
+          max_chunk_length, num_keep_alive_refs),
+  };
+}
+
 TEST(TrajectoryWriter, AppendValidatesDtype) {
   auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
   EXPECT_CALL(*stub, InsertStreamRaw(_))
@@ -165,7 +175,7 @@ TEST(TrajectoryWriter, AppendValidatesDtype) {
                                                   InsertStreamResponse>()));
 
   TrajectoryWriter writer(
-      stub, {/*max_chunk_length=*/10, /*num_keep_alive_refs=*/10});
+      stub, MakeOptions(/*max_chunk_length=*/10, /*num_keep_alive_refs=*/10));
   StepRef refs;
 
   // Initiate the spec with the first step.
@@ -188,7 +198,7 @@ TEST(TrajectoryWriter, AppendValidatesShapes) {
   EXPECT_CALL(*stub, InsertStreamRaw(_)).WillOnce(Return(new FakeStream()));
 
   TrajectoryWriter writer(
-      stub, {/*max_chunk_length=*/10, /*num_keep_alive_refs=*/10});
+      stub, MakeOptions(/*max_chunk_length=*/10, /*num_keep_alive_refs=*/10));
   StepRef refs;
 
   // Initiate the spec with the first step.
@@ -210,7 +220,7 @@ TEST(TrajectoryWriter, AppendAcceptsPartialSteps) {
   EXPECT_CALL(*stub, InsertStreamRaw(_)).WillOnce(Return(new FakeStream()));
 
   TrajectoryWriter writer(
-      stub, {/*max_chunk_length=*/10, /*num_keep_alive_refs=*/10});
+      stub, MakeOptions(/*max_chunk_length=*/10, /*num_keep_alive_refs=*/10));
 
   // Initiate the spec with the first step.
   StepRef both;
@@ -228,8 +238,8 @@ TEST(TrajectoryWriter, ConfigureChunkerOnExistingColumn) {
   auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
   EXPECT_CALL(*stub, InsertStreamRaw(_)).WillOnce(Return(new FakeStream()));
 
-  TrajectoryWriter writer(stub,
-                          {/*max_chunk_length=*/1, /*num_keep_alive_refs=*/1});
+  TrajectoryWriter writer(
+      stub, MakeOptions(/*max_chunk_length=*/1, /*num_keep_alive_refs=*/1));
 
   // Create the column with the first step.
   StepRef first;
@@ -240,7 +250,8 @@ TEST(TrajectoryWriter, ConfigureChunkerOnExistingColumn) {
 
   // Reconfigure the column to have a chunk length of 2 instead.
   REVERB_ASSERT_OK(writer.ConfigureChunker(
-      0, {/*max_chunk_length=*/2, /*num_keep_alive_refs=*/2}));
+      0, std::make_shared<ConstantChunkerOptions>(/*max_chunk_length=*/2,
+                                                  /*num_keep_alive_refs=*/2)));
 
   // Appending a second step should now NOT result in a being created.
   StepRef second;
@@ -259,8 +270,8 @@ TEST(TrajectoryWriter, ConfigureChunkerOnFutureColumn) {
   auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
   EXPECT_CALL(*stub, InsertStreamRaw(_)).WillOnce(Return(new FakeStream()));
 
-  TrajectoryWriter writer(stub,
-                          {/*max_chunk_length=*/1, /*num_keep_alive_refs=*/1});
+  TrajectoryWriter writer(
+      stub, MakeOptions(/*max_chunk_length=*/1, /*num_keep_alive_refs=*/1));
 
   // Create the first column with the first step.
   StepRef first;
@@ -272,7 +283,8 @@ TEST(TrajectoryWriter, ConfigureChunkerOnFutureColumn) {
   // Configure the second column (not yet seen) to have max_chunk_length 2
   // instead of 1.
   REVERB_ASSERT_OK(writer.ConfigureChunker(
-      1, {/*max_chunk_length=*/2, /*num_keep_alive_refs=*/2}));
+      1, std::make_shared<ConstantChunkerOptions>(/*max_chunk_length=*/2,
+                                                  /*num_keep_alive_refs=*/2)));
 
   // Appending a second step should finalize the first column since it still has
   // max_chunk_length 1. The second column should however NOT be finalized since
@@ -306,8 +318,8 @@ TEST(TrajectoryWriter, NoDataIsSentIfNoItemsCreated) {
   auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
   EXPECT_CALL(*stub, InsertStreamRaw(_)).WillOnce(Return(stream));
 
-  TrajectoryWriter writer(stub,
-                          {/*max_chunk_length=*/1, /*num_keep_alive_refs=*/1});
+  TrajectoryWriter writer(
+      stub, MakeOptions(/*max_chunk_length=*/1, /*num_keep_alive_refs=*/1));
   StepRef refs;
 
   for (int i = 0; i < 10; ++i) {
@@ -320,8 +332,8 @@ TEST(TrajectoryWriter, ItemSentStraightAwayIfChunksReady) {
   auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
   EXPECT_CALL(*stub, InsertStreamRaw(_)).WillOnce(Return(stream));
 
-  TrajectoryWriter writer(stub, {/*max_chunk_length=*/1,
-                                 /*num_keep_alive_refs=*/1});
+  TrajectoryWriter writer(stub, MakeOptions(/*max_chunk_length=*/1,
+                                            /*num_keep_alive_refs=*/1));
   StepRef refs;
   REVERB_ASSERT_OK(writer.Append(Step({MakeTensor(kIntSpec)}), &refs));
 
@@ -353,8 +365,8 @@ TEST(TrajectoryWriter, ItemIsSentWhenAllChunksDone) {
   auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
   EXPECT_CALL(*stub, InsertStreamRaw(_)).WillOnce(Return(stream));
 
-  TrajectoryWriter writer(stub,
-                          {/*max_chunk_length=*/2, /*num_keep_alive_refs=*/2});
+  TrajectoryWriter writer(
+      stub, MakeOptions(/*max_chunk_length=*/2, /*num_keep_alive_refs=*/2));
 
   // Write to both columns in the first step.
   StepRef first;
@@ -400,13 +412,58 @@ TEST(TrajectoryWriter, ItemIsSentWhenAllChunksDone) {
   EXPECT_THAT(stream->requests(), ElementsAre(IsChunk(), IsChunk(), IsItem()));
 }
 
+TEST(TrajectoryWriter, ChunkersNotifiedWhenAllChunksDone) {
+  class FakeChunkerOptions : public ChunkerOptions {
+   public:
+    FakeChunkerOptions(absl::BlockingCounter* counter) : counter_(counter) {}
+
+    int GetMaxChunkLength() const override { return 1; }
+    int GetNumKeepAliveRefs() const override { return 1; }
+
+    void OnItemFinalized(
+        const PrioritizedItem& item,
+        absl::Span<const std::shared_ptr<CellRef>> refs) override {
+      counter_->DecrementCount();
+    }
+
+    std::shared_ptr<ChunkerOptions> Clone() const override {
+      return std::make_shared<FakeChunkerOptions>(counter_);
+    }
+
+   private:
+    absl::BlockingCounter* counter_;
+  };
+
+  auto* stream = new FakeStream();
+  auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
+  EXPECT_CALL(*stub, InsertStreamRaw(_)).WillOnce(Return(stream));
+
+  absl::BlockingCounter counter(2);
+  TrajectoryWriter writer(stub,
+                          {std::make_shared<FakeChunkerOptions>(&counter)});
+
+  // Write to both columns in the first step.
+  StepRef step;
+  REVERB_ASSERT_OK(
+      writer.Append(Step({MakeTensor(kIntSpec), MakeTensor(kIntSpec)}), &step));
+
+  // Create an item which references the step row in the two columns.
+  REVERB_ASSERT_OK(
+      writer.CreateItem("table", 1.0, MakeTrajectory({{step[0]}, {step[1]}})));
+
+  // The options should be cloned into the chunkers of the two columns and since
+  // the chunk length is set to 1 the item should be finalized straight away and
+  // the options notified.
+  counter.Wait();
+}
+
 TEST(TrajectoryWriter, FlushSendsPendingItems) {
   auto* stream = new FakeStream();
   auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
   EXPECT_CALL(*stub, InsertStreamRaw(_)).WillOnce(Return(stream));
 
-  TrajectoryWriter writer(stub,
-                          {/*max_chunk_length=*/2, /*num_keep_alive_refs=*/2});
+  TrajectoryWriter writer(
+      stub, MakeOptions(/*max_chunk_length=*/2, /*num_keep_alive_refs=*/2));
 
   // Write to both columns in the first step.
   StepRef first;
@@ -440,7 +497,7 @@ TEST(TrajectoryWriter, DestructorFlushesPendingItems) {
   auto requests = stream->requests_ptr();
   {
     TrajectoryWriter writer(
-        stub, {/*max_chunk_length=*/2, /*num_keep_alive_refs=*/2});
+        stub, MakeOptions(/*max_chunk_length=*/2, /*num_keep_alive_refs=*/2));
 
     // Write to both columns in the first step.
     StepRef first;
@@ -473,8 +530,8 @@ TEST(TrajectoryWriter, RetriesOnTransientError) {
       .WillOnce(Return(fail_stream))
       .WillOnce(Return(success_stream));
 
-  TrajectoryWriter writer(stub,
-                          {/*max_chunk_length=*/1, /*num_keep_alive_refs=*/1});
+  TrajectoryWriter writer(
+      stub, MakeOptions(/*max_chunk_length=*/1, /*num_keep_alive_refs=*/1));
 
   // Create an item and wait for it to be confirmed.
   StepRef first;
@@ -503,8 +560,8 @@ TEST(TrajectoryWriter, StopsOnNonTransientError) {
   auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
   EXPECT_CALL(*stub, InsertStreamRaw(_)).WillOnce(Return(fail_stream));
 
-  TrajectoryWriter writer(stub,
-                          {/*max_chunk_length=*/1, /*num_keep_alive_refs=*/1});
+  TrajectoryWriter writer(
+      stub, MakeOptions(/*max_chunk_length=*/1, /*num_keep_alive_refs=*/1));
 
   // Create an item.
   StepRef first;
@@ -544,8 +601,8 @@ TEST(TrajectoryWriter, FlushReturnsIfTimeoutExpired) {
   auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
   EXPECT_CALL(*stub, InsertStreamRaw(_)).WillOnce(Return(stream));
 
-  TrajectoryWriter writer(stub,
-                          {/*max_chunk_length=*/1, /*num_keep_alive_refs=*/1});
+  TrajectoryWriter writer(
+      stub, MakeOptions(/*max_chunk_length=*/1, /*num_keep_alive_refs=*/1));
 
   // Create an item.
   StepRef first;
@@ -574,8 +631,8 @@ TEST(TrajectoryWriter, FlushCanIgnorePendingItems) {
   auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
   EXPECT_CALL(*stub, InsertStreamRaw(_)).WillOnce(Return(stream));
 
-  TrajectoryWriter writer(stub,
-                          {/*max_chunk_length=*/2, /*num_keep_alive_refs=*/2});
+  TrajectoryWriter writer(
+      stub, MakeOptions(/*max_chunk_length=*/2, /*num_keep_alive_refs=*/2));
 
   // Take a step with two columns.
   StepRef first;
@@ -604,8 +661,8 @@ TEST(TrajectoryWriter, CreateItemRejectsExpiredCellRefs) {
   auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
   EXPECT_CALL(*stub, InsertStreamRaw(_)).WillOnce(Return(new FakeStream()));
 
-  TrajectoryWriter writer(stub,
-                          {/*max_chunk_length=*/1, /*num_keep_alive_refs=*/1});
+  TrajectoryWriter writer(
+      stub, MakeOptions(/*max_chunk_length=*/1, /*num_keep_alive_refs=*/1));
 
   // Take two steps.
   StepRef first;
@@ -626,8 +683,8 @@ TEST(TrajectoryWriter, KeepKeysOnlyIncludesStreamedKeys) {
   auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
   EXPECT_CALL(*stub, InsertStreamRaw(_)).WillOnce(Return(stream));
 
-  TrajectoryWriter writer(stub,
-                          {/*max_chunk_length=*/1, /*num_keep_alive_refs=*/1});
+  TrajectoryWriter writer(
+      stub, MakeOptions(/*max_chunk_length=*/1, /*num_keep_alive_refs=*/1));
 
   // Create a step with two columns.
   StepRef first;
@@ -651,8 +708,8 @@ TEST(TrajectoryWriter, KeepKeysOnlyIncludesLiveChunks) {
   auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
   EXPECT_CALL(*stub, InsertStreamRaw(_)).WillOnce(Return(stream));
 
-  TrajectoryWriter writer(stub,
-                          {/*max_chunk_length=*/1, /*num_keep_alive_refs=*/2});
+  TrajectoryWriter writer(
+      stub, MakeOptions(/*max_chunk_length=*/1, /*num_keep_alive_refs=*/2));
 
   // Take a step and insert a trajectory.
   StepRef first;
@@ -696,8 +753,8 @@ TEST(TrajectoryWriter, CreateItemValidatesTrajectoryDtype) {
   auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
   EXPECT_CALL(*stub, InsertStreamRaw(_)).WillOnce(Return(stream));
 
-  TrajectoryWriter writer(stub,
-                          {/*max_chunk_length=*/1, /*num_keep_alive_refs=*/2});
+  TrajectoryWriter writer(
+      stub, MakeOptions(/*max_chunk_length=*/1, /*num_keep_alive_refs=*/2));
 
   // Take a step with two columns with different dtypes.
   StepRef step;
@@ -720,8 +777,8 @@ TEST(TrajectoryWriter, CreateItemValidatesTrajectoryShapes) {
   auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
   EXPECT_CALL(*stub, InsertStreamRaw(_)).WillOnce(Return(stream));
 
-  TrajectoryWriter writer(stub,
-                          {/*max_chunk_length=*/1, /*num_keep_alive_refs=*/2});
+  TrajectoryWriter writer(
+      stub, MakeOptions(/*max_chunk_length=*/1, /*num_keep_alive_refs=*/2));
 
   // Take a step with two columns with different shapes.
   StepRef step;
@@ -749,8 +806,8 @@ TEST(TrajectoryWriter, CreateItemValidatesTrajectoryNotEmpty) {
   auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
   EXPECT_CALL(*stub, InsertStreamRaw(_)).WillOnce(Return(stream));
 
-  TrajectoryWriter writer(stub,
-                          {/*max_chunk_length=*/1, /*num_keep_alive_refs=*/1});
+  TrajectoryWriter writer(
+      stub, MakeOptions(/*max_chunk_length=*/1, /*num_keep_alive_refs=*/1));
 
   StepRef step;
   REVERB_ASSERT_OK(writer.Append(Step({MakeTensor(kIntSpec)}), &step));
@@ -774,8 +831,8 @@ TEST(TrajectoryWriter, CreateItemValidatesSqueezedColumns) {
   auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
   EXPECT_CALL(*stub, InsertStreamRaw(_)).WillOnce(Return(stream));
 
-  TrajectoryWriter writer(stub,
-                          {/*max_chunk_length=*/1, /*num_keep_alive_refs=*/1});
+  TrajectoryWriter writer(
+      stub, MakeOptions(/*max_chunk_length=*/1, /*num_keep_alive_refs=*/1));
 
   StepRef step;
   REVERB_ASSERT_OK(writer.Append(Step({MakeTensor(kIntSpec)}), &step));
@@ -800,8 +857,7 @@ class TrajectoryWriterSignatureValidationTest : public ::testing::Test {
 
     LOG(INFO) << tensorflow::PartialTensorShape({}).dims();
     TrajectoryWriter::Options options = {
-        .max_chunk_length = 1,
-        .num_keep_alive_refs = 1,
+        .chunker_options = std::make_shared<ConstantChunkerOptions>(1, 1),
         .flat_signature_map = internal::FlatSignatureMap({
             {
                 "table",
@@ -975,8 +1031,8 @@ TEST(TrajectoryWriter, EndEpisodeCanClearBuffers) {
   auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
   EXPECT_CALL(*stub, InsertStreamRaw(_)).WillOnce(Return(stream));
 
-  TrajectoryWriter writer(stub,
-                          {/*max_chunk_length=*/2, /*num_keep_alive_refs=*/2});
+  TrajectoryWriter writer(
+      stub, MakeOptions(/*max_chunk_length=*/2, /*num_keep_alive_refs=*/2));
 
   // Take a step.
   StepRef step;
@@ -996,8 +1052,8 @@ TEST(TrajectoryWriter, EndEpisodeFinalizesChunksEvenIfNoItemReferenceIt) {
   auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
   EXPECT_CALL(*stub, InsertStreamRaw(_)).WillOnce(Return(stream));
 
-  TrajectoryWriter writer(stub,
-                          {/*max_chunk_length=*/2, /*num_keep_alive_refs=*/2});
+  TrajectoryWriter writer(
+      stub, MakeOptions(/*max_chunk_length=*/2, /*num_keep_alive_refs=*/2));
 
   // Take a step.
   StepRef step;
@@ -1019,8 +1075,8 @@ TEST(TrajectoryWriter, EndEpisodeResetsEpisodeKeyAndStep) {
   auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
   EXPECT_CALL(*stub, InsertStreamRaw(_)).WillOnce(Return(stream));
 
-  TrajectoryWriter writer(stub,
-                          {/*max_chunk_length=*/1, /*num_keep_alive_refs=*/2});
+  TrajectoryWriter writer(
+      stub, MakeOptions(/*max_chunk_length=*/1, /*num_keep_alive_refs=*/2));
 
   // Take two steps in two different episodes.
   StepRef first;
@@ -1051,8 +1107,8 @@ TEST(TrajectoryWriter, EndEpisodeReturnsIfTimeoutExpired) {
   auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
   EXPECT_CALL(*stub, InsertStreamRaw(_)).WillOnce(Return(stream));
 
-  TrajectoryWriter writer(stub,
-                          {/*max_chunk_length=*/2, /*num_keep_alive_refs=*/2});
+  TrajectoryWriter writer(
+      stub, MakeOptions(/*max_chunk_length=*/2, /*num_keep_alive_refs=*/2));
 
   // Create an item.
   StepRef first;
@@ -1087,40 +1143,39 @@ class TrajectoryWriterOptionsTest : public ::testing::Test {
 };
 
 TEST_F(TrajectoryWriterOptionsTest, Valid) {
-  options_.max_chunk_length = 2;
-  options_.num_keep_alive_refs = 2;
+  options_ = MakeOptions(/*max_chunk_length=*/2, /*num_keep_alive_refs=*/2);
   REVERB_EXPECT_OK(options_.Validate());
 }
 
+TEST_F(TrajectoryWriterOptionsTest, NoChunkerOptions) {
+  options_.chunker_options = nullptr;
+  ExpectInvalidArgumentWithMessage("chunker_options must be set.");
+}
+
 TEST_F(TrajectoryWriterOptionsTest, ZeroMaxChunkLength) {
-  options_.max_chunk_length = 0;
-  options_.num_keep_alive_refs = 2;
+  options_ = MakeOptions(/*max_chunk_length=*/0, /*num_keep_alive_refs=*/2);
   ExpectInvalidArgumentWithMessage("max_chunk_length must be > 0 but got 0.");
 }
 
 TEST_F(TrajectoryWriterOptionsTest, NegativeMaxChunkLength) {
-  options_.max_chunk_length = -1;
-  options_.num_keep_alive_refs = 2;
+  options_ = MakeOptions(/*max_chunk_length=*/-1, /*num_keep_alive_refs=*/2);
   ExpectInvalidArgumentWithMessage("max_chunk_length must be > 0 but got -1.");
 }
 
 TEST_F(TrajectoryWriterOptionsTest, ZeroNumKeepAliveRefs) {
-  options_.max_chunk_length = 2;
-  options_.num_keep_alive_refs = 0;
+  options_ = MakeOptions(/*max_chunk_length=*/2, /*num_keep_alive_refs=*/0);
   ExpectInvalidArgumentWithMessage(
       "num_keep_alive_refs must be > 0 but got 0.");
 }
 
 TEST_F(TrajectoryWriterOptionsTest, NegativeNumKeepAliveRefs) {
-  options_.max_chunk_length = 2;
-  options_.num_keep_alive_refs = -1;
+  options_ = MakeOptions(/*max_chunk_length=*/2, /*num_keep_alive_refs=*/-1);
   ExpectInvalidArgumentWithMessage(
       "num_keep_alive_refs must be > 0 but got -1.");
 }
 
 TEST_F(TrajectoryWriterOptionsTest, NumKeepAliveLtMaxChunkLength) {
-  options_.num_keep_alive_refs = 5;
-  options_.max_chunk_length = 6;
+  options_ = MakeOptions(/*max_chunk_length=*/6, /*num_keep_alive_refs=*/5);
   ExpectInvalidArgumentWithMessage(
       "num_keep_alive_refs (5) must be >= max_chunk_length (6).");
 }

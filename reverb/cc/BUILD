@@ -114,6 +114,7 @@ reverb_cc_test(
         ":reverb_service_cc_grpc_proto",
         ":reverb_service_cc_proto",
         ":trajectory_writer",
+        ":chunker",
         "//reverb/cc/platform:status_matchers",
         "//reverb/cc/support:uint128",
         "//reverb/cc/testing:proto_test_util",
@@ -273,6 +274,7 @@ reverb_cc_test(
         ":reverb_service_cc_grpc_proto",
         ":reverb_service_cc_proto",
         ":trajectory_writer",
+        ":chunker",
         "//reverb/cc/support:signature",
         "//reverb/cc/support:queue",
         "//reverb/cc/platform:logging",
@@ -302,6 +304,7 @@ reverb_cc_test(
     srcs = ["chunker_test.cc"],
     deps = [
         ":chunker",
+        ":schema_cc_proto",
         "//reverb/cc/platform:logging",
         "//reverb/cc/platform:status_matchers",
         "//reverb/cc/support:signature",

@@ -19,8 +19,10 @@
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
+#include "absl/types/span.h"
 #include "reverb/cc/platform/logging.h"
 #include "reverb/cc/platform/status_matchers.h"
+#include "reverb/cc/schema.pb.h"
 #include "reverb/cc/support/signature.h"
 #include "reverb/cc/testing/proto_test_util.h"
 #include "reverb/cc/testing/tensor_testutil.h"
@@ -33,7 +35,9 @@ namespace deepmind {
 namespace reverb {
 namespace {
 
+using ::testing::_;
 using ::testing::ElementsAre;
+using ::testing::Return;
 
 const auto kIntSpec = internal::TensorSpec{"0", tensorflow::DT_INT32, {1}};
 const auto kFloatSpec = internal::TensorSpec{"0", tensorflow::DT_FLOAT, {1}};
@@ -65,8 +69,27 @@ tensorflow::Tensor MakeConstantTensor(
   return tensor;
 }
 
+std::shared_ptr<Chunker> MakeChunker(internal::TensorSpec spec,
+                                     int max_chunk_length,
+                                     int num_keep_alive_refs) {
+  return std::make_shared<Chunker>(std::move(spec),
+                                   std::make_shared<ConstantChunkerOptions>(
+                                       max_chunk_length, num_keep_alive_refs));
+}
+
+class MockChunkerOptions : public ChunkerOptions {
+ public:
+  MOCK_METHOD(int, GetMaxChunkLength, (), (const override));
+  MOCK_METHOD(int, GetNumKeepAliveRefs, (), (const override));
+  MOCK_METHOD(void, OnItemFinalized,
+              (const PrioritizedItem& item,
+               absl::Span<const std::shared_ptr<CellRef>> refs),
+              (override));
+  MOCK_METHOD(std::shared_ptr<ChunkerOptions>, Clone, (), (const override));
+};
+
 TEST(CellRef, IsReady) {
-  auto chunker = std::make_shared<Chunker>(kIntSpec, 2, 5);
+  auto chunker = MakeChunker(kIntSpec, 2, 5);
 
   std::weak_ptr<CellRef> ref;
   REVERB_ASSERT_OK(chunker->Append(MakeTensor(kIntSpec), {1, 0}, &ref));
@@ -81,9 +104,9 @@ TEST(CellRef, IsReady) {
 
 TEST(CellRef, GetDataFromChunkerBuffer) {
   internal::TensorSpec spec = {"0", tensorflow::DT_INT32, {3, 3}};
-  auto chunker = std::make_shared<Chunker>(spec,
-                                           /*max_chunk_length=*/2,
-                                           /*num_keep_alive_refs=*/2);
+  auto chunker = MakeChunker(spec,
+                             /*max_chunk_length=*/2,
+                             /*num_keep_alive_refs=*/2);
 
   std::weak_ptr<CellRef> ref;
   auto want = MakeConstantTensor<tensorflow::DT_INT32>({3, 3}, 5);
@@ -99,9 +122,9 @@ TEST(CellRef, GetDataFromChunkerBuffer) {
 
 TEST(CellRef, GetDataFromChunk) {
   internal::TensorSpec spec = {"0", tensorflow::DT_FLOAT, {3, 3}};
-  auto chunker = std::make_shared<Chunker>(spec,
-                                           /*max_chunk_length=*/2,
-                                           /*num_keep_alive_refs=*/2);
+  auto chunker = MakeChunker(spec,
+                             /*max_chunk_length=*/2,
+                             /*num_keep_alive_refs=*/2);
 
   // Take two steps to finalize the chunk.
   std::weak_ptr<CellRef> first;
@@ -127,8 +150,8 @@ TEST(CellRef, GetDataFromChunk) {
 }
 
 TEST(Chunker, AppendValidatesSpecDtype) {
-  auto chunker = std::make_shared<Chunker>(kIntSpec, /*max_chunk_length=*/2,
-                                           /*num_keep_alive_refs=*/5);
+  auto chunker = MakeChunker(kIntSpec, /*max_chunk_length=*/2,
+                             /*num_keep_alive_refs=*/5);
 
   std::weak_ptr<CellRef> ref;
   auto status = chunker->Append(MakeTensor(kFloatSpec), {1, 0}, &ref);
@@ -142,8 +165,8 @@ TEST(Chunker, AppendValidatesSpecDtype) {
 }
 
 TEST(Chunker, AppendValidatesSpecShape) {
-  auto chunker = std::make_shared<Chunker>(kIntSpec, /*max_chunk_length=*/2,
-                                           /*num_keep_alive_refs=*/5);
+  auto chunker = MakeChunker(kIntSpec, /*max_chunk_length=*/2,
+                             /*num_keep_alive_refs=*/5);
 
   std::weak_ptr<CellRef> ref;
   auto status = chunker->Append(
@@ -158,8 +181,8 @@ TEST(Chunker, AppendValidatesSpecShape) {
 }
 
 TEST(Chunker, AppendFlushesOnMaxChunkLength) {
-  auto chunker = std::make_shared<Chunker>(kIntSpec, /*max_chunk_length=*/2,
-                                           /*num_keep_alive_refs=*/5);
+  auto chunker = MakeChunker(kIntSpec, /*max_chunk_length=*/2,
+                             /*num_keep_alive_refs=*/5);
 
   // Buffer is not full after first step.
   std::weak_ptr<CellRef> first;
@@ -176,8 +199,8 @@ TEST(Chunker, AppendFlushesOnMaxChunkLength) {
 }
 
 TEST(Chunker, Flush) {
-  auto chunker = std::make_shared<Chunker>(kIntSpec, /*max_chunk_length=*/2,
-                                           /*num_keep_alive_refs=*/5);
+  auto chunker = MakeChunker(kIntSpec, /*max_chunk_length=*/2,
+                             /*num_keep_alive_refs=*/5);
   std::weak_ptr<CellRef> ref;
   REVERB_ASSERT_OK(chunker->Append(MakeTensor(kIntSpec),
                                    {/*episode_id=*/1, /*step=*/0}, &ref));
@@ -187,8 +210,8 @@ TEST(Chunker, Flush) {
 }
 
 TEST(Chunker, ChunkHasBatchDim) {
-  auto chunker = std::make_shared<Chunker>(kIntSpec, /*max_chunk_length=*/2,
-                                           /*num_keep_alive_refs=*/5);
+  auto chunker = MakeChunker(kIntSpec, /*max_chunk_length=*/2,
+                             /*num_keep_alive_refs=*/5);
 
   // Add two data items to trigger the finalization.
   std::weak_ptr<CellRef> ref;
@@ -210,8 +233,8 @@ TEST(Chunker, ChunkHasBatchDim) {
 }
 
 TEST(Chunker, DeletesRefsWhenMageAgeExceeded) {
-  auto chunker = std::make_shared<Chunker>(kIntSpec, /*max_chunk_length=*/2,
-                                           /*num_keep_alive_refs=*/3);
+  auto chunker = MakeChunker(kIntSpec, /*max_chunk_length=*/2,
+                             /*num_keep_alive_refs=*/3);
 
   std::weak_ptr<CellRef> first;
   REVERB_ASSERT_OK(chunker->Append(MakeTensor(kIntSpec),
@@ -241,8 +264,8 @@ TEST(Chunker, DeletesRefsWhenMageAgeExceeded) {
 }
 
 TEST(Chunker, GetKeepKeys) {
-  auto chunker = std::make_shared<Chunker>(kIntSpec, /*max_chunk_length=*/2,
-                                           /*num_keep_alive_refs=*/2);
+  auto chunker = MakeChunker(kIntSpec, /*max_chunk_length=*/2,
+                             /*num_keep_alive_refs=*/2);
 
   std::weak_ptr<CellRef> first;
   REVERB_ASSERT_OK(chunker->Append(MakeTensor(kIntSpec),
@@ -273,8 +296,8 @@ TEST(Chunker, GetKeepKeys) {
 }
 
 TEST(Chunker, ResetClearsRefs) {
-  auto chunker = std::make_shared<Chunker>(kIntSpec, /*max_chunk_length=*/2,
-                                           /*num_keep_alive_refs=*/2);
+  auto chunker = MakeChunker(kIntSpec, /*max_chunk_length=*/2,
+                             /*num_keep_alive_refs=*/2);
 
   std::weak_ptr<CellRef> first;
   REVERB_ASSERT_OK(chunker->Append(MakeTensor(kIntSpec),
@@ -294,8 +317,8 @@ TEST(Chunker, ResetClearsRefs) {
 }
 
 TEST(Chunker, ResetRefreshesChunkKey) {
-  auto chunker = std::make_shared<Chunker>(kIntSpec, /*max_chunk_length=*/2,
-                                           /*num_keep_alive_refs=*/2);
+  auto chunker = MakeChunker(kIntSpec, /*max_chunk_length=*/2,
+                             /*num_keep_alive_refs=*/2);
 
   std::weak_ptr<CellRef> first;
   REVERB_ASSERT_OK(chunker->Append(MakeTensor(kIntSpec),
@@ -318,8 +341,8 @@ TEST(Chunker, ResetRefreshesChunkKey) {
 }
 
 TEST(Chunker, ResetRefreshesOffset) {
-  auto chunker = std::make_shared<Chunker>(kIntSpec, /*max_chunk_length=*/2,
-                                           /*num_keep_alive_refs=*/2);
+  auto chunker = MakeChunker(kIntSpec, /*max_chunk_length=*/2,
+                             /*num_keep_alive_refs=*/2);
 
   std::weak_ptr<CellRef> first;
   REVERB_ASSERT_OK(chunker->Append(MakeTensor(kIntSpec),
@@ -338,8 +361,8 @@ TEST(Chunker, ResetRefreshesOffset) {
 }
 
 TEST(Chunker, AppendRequiresSameEpisode) {
-  auto chunker = std::make_shared<Chunker>(kIntSpec, /*max_chunk_length=*/3,
-                                           /*num_keep_alive_refs=*/3);
+  auto chunker = MakeChunker(kIntSpec, /*max_chunk_length=*/3,
+                             /*num_keep_alive_refs=*/3);
 
   // Add two steps referencing two different episodes.
   std::weak_ptr<CellRef> first;
@@ -357,8 +380,8 @@ TEST(Chunker, AppendRequiresSameEpisode) {
 }
 
 TEST(Chunker, AppendRequiresEpisodeStepIncreases) {
-  auto chunker = std::make_shared<Chunker>(kIntSpec, /*max_chunk_length=*/3,
-                                           /*num_keep_alive_refs=*/3);
+  auto chunker = MakeChunker(kIntSpec, /*max_chunk_length=*/3,
+                             /*num_keep_alive_refs=*/3);
 
   // Add two steps referencing two different episodes.
   std::weak_ptr<CellRef> first;
@@ -389,8 +412,8 @@ TEST(Chunker, AppendRequiresEpisodeStepIncreases) {
 }
 
 TEST(Chunker, NonSparseEpisodeRange) {
-  auto chunker = std::make_shared<Chunker>(kIntSpec, /*max_chunk_length=*/5,
-                                           /*num_keep_alive_refs=*/5);
+  auto chunker = MakeChunker(kIntSpec, /*max_chunk_length=*/5,
+                             /*num_keep_alive_refs=*/5);
 
   // Append five consecutive steps.
   std::weak_ptr<CellRef> step;
@@ -407,8 +430,8 @@ TEST(Chunker, NonSparseEpisodeRange) {
 }
 
 TEST(Chunker, SparseEpisodeRange) {
-  auto chunker = std::make_shared<Chunker>(kIntSpec, /*max_chunk_length=*/5,
-                                           /*num_keep_alive_refs=*/5);
+  auto chunker = MakeChunker(kIntSpec, /*max_chunk_length=*/5,
+                             /*num_keep_alive_refs=*/5);
 
   // Append five steps with a stride of 2.
   std::weak_ptr<CellRef> step;
@@ -426,12 +449,13 @@ TEST(Chunker, SparseEpisodeRange) {
 }
 
 TEST(Chunker, ApplyConfigChangesMaxChunkLength) {
-  auto chunker = std::make_shared<Chunker>(kIntSpec, /*max_chunk_length=*/5,
-                                           /*num_keep_alive_refs=*/5);
+  auto chunker = MakeChunker(kIntSpec, /*max_chunk_length=*/5,
+                             /*num_keep_alive_refs=*/5);
 
   // Reconfigure the chunk_length to be 1 instead of 5.
   REVERB_ASSERT_OK(
-      chunker->ApplyConfig(/*max_chunk_length=*/1, /*num_keep_alive_refs=*/5));
+      chunker->ApplyConfig(std::make_shared<ConstantChunkerOptions>(
+          /*max_chunk_length=*/1, /*num_keep_alive_refs=*/5)));
 
   // Appending should now result in chunks being created with each step.
   std::weak_ptr<CellRef> step;
@@ -444,12 +468,13 @@ TEST(Chunker, ApplyConfigChangesMaxChunkLength) {
 }
 
 TEST(Chunker, ApplyConfigChangesNumKeepAliveRefs) {
-  auto chunker = std::make_shared<Chunker>(kIntSpec, /*max_chunk_length=*/1,
-                                           /*num_keep_alive_refs=*/1);
+  auto chunker = MakeChunker(kIntSpec, /*max_chunk_length=*/1,
+                             /*num_keep_alive_refs=*/1);
 
   // Reconfigure num_keep_alive_refs to be 2 instead of 1.
   REVERB_ASSERT_OK(
-      chunker->ApplyConfig(/*max_chunk_length=*/1, /*num_keep_alive_refs=*/2));
+      chunker->ApplyConfig(std::make_shared<ConstantChunkerOptions>(
+          /*max_chunk_length=*/1, /*num_keep_alive_refs=*/2)));
 
   // The last two steps should now be alive instead of only the last one.
   std::weak_ptr<CellRef> first;
@@ -472,16 +497,16 @@ TEST(Chunker, ApplyConfigChangesNumKeepAliveRefs) {
 }
 
 TEST(Chunker, ApplyConfigRequireBufferToBeEmpty) {
-  auto chunker = std::make_shared<Chunker>(kIntSpec, /*max_chunk_length=*/5,
-                                           /*num_keep_alive_refs=*/5);
+  auto chunker = MakeChunker(kIntSpec, /*max_chunk_length=*/5,
+                             /*num_keep_alive_refs=*/5);
 
   // Append a step which is not finalized since max_chunk_length is 2.
   std::weak_ptr<CellRef> step;
   REVERB_ASSERT_OK(chunker->Append(MakeTensor(kIntSpec),
                                    {/*episode_id=*/1, /*step=*/0}, &step));
 
-  auto status =
-      chunker->ApplyConfig(/*max_chunk_length=*/1, /*num_keep_alive_refs=*/5);
+  auto status = chunker->ApplyConfig(std::make_shared<ConstantChunkerOptions>(
+      /*max_chunk_length=*/1, /*num_keep_alive_refs=*/5));
   EXPECT_EQ(status.code(), absl::StatusCode::kFailedPrecondition);
   EXPECT_THAT(std::string(status.message()),
               ::testing::HasSubstr("Flush must be called before ApplyConfig."));
@@ -489,12 +514,78 @@ TEST(Chunker, ApplyConfigRequireBufferToBeEmpty) {
   // Flushing and retrying the same configure call should succeed.
   REVERB_ASSERT_OK(chunker->Flush());
   REVERB_EXPECT_OK(
-      chunker->ApplyConfig(/*max_chunk_length=*/1, /*num_keep_alive_refs=*/5));
+      chunker->ApplyConfig(std::make_shared<ConstantChunkerOptions>(
+          /*max_chunk_length=*/1, /*num_keep_alive_refs=*/5)));
+}
+
+TEST(Chunker, OnItemFinalizedIsNoopIfNoRefsCreatedByChunker) {
+  auto options_a = std::make_shared<MockChunkerOptions>();
+  EXPECT_CALL(*options_a, GetMaxChunkLength()).WillRepeatedly(Return(1));
+  EXPECT_CALL(*options_a, GetNumKeepAliveRefs()).WillRepeatedly(Return(1));
+
+  auto options_b = std::make_shared<MockChunkerOptions>();
+  EXPECT_CALL(*options_b, GetMaxChunkLength()).WillRepeatedly(Return(1));
+  EXPECT_CALL(*options_b, GetNumKeepAliveRefs()).WillRepeatedly(Return(1));
+
+  auto chunker_a = std::make_shared<Chunker>(kIntSpec, options_a);
+  auto chunker_b = std::make_shared<Chunker>(kIntSpec, options_b);
+
+  // Take a step with one of the chunkers.
+  std::weak_ptr<CellRef> step;
+  REVERB_ASSERT_OK(chunker_a->Append(MakeTensor(kIntSpec),
+                                     {/*episode_id=*/1, /*step=*/0}, &step));
+
+  // The call should be ignored by the other chunker since none of the refs
+  // came from it.
+  EXPECT_CALL(*options_b, OnItemFinalized(_, _)).Times(0);
+  chunker_b->OnItemFinalized(
+      testing::MakePrioritizedItem(1, 1.0, {*step.lock()->GetChunk()}),
+      {step.lock()});
+}
+
+TEST(Chunker, OnItemFinalizedFiltersRefsAndForwardsToOptions) {
+  auto options_a = std::make_shared<MockChunkerOptions>();
+  EXPECT_CALL(*options_a, GetMaxChunkLength()).WillRepeatedly(Return(1));
+  EXPECT_CALL(*options_a, GetNumKeepAliveRefs()).WillRepeatedly(Return(1));
+
+  auto options_b = std::make_shared<MockChunkerOptions>();
+  EXPECT_CALL(*options_b, GetMaxChunkLength()).WillRepeatedly(Return(1));
+  EXPECT_CALL(*options_b, GetNumKeepAliveRefs()).WillRepeatedly(Return(1));
+
+  auto chunker_a = std::make_shared<Chunker>(kIntSpec, options_a);
+  auto chunker_b = std::make_shared<Chunker>(kIntSpec, options_b);
+
+  // Take a step with both chunkers.
+  std::weak_ptr<CellRef> ref_a;
+  REVERB_ASSERT_OK(chunker_a->Append(MakeTensor(kIntSpec),
+                                     {/*episode_id=*/1, /*step=*/0}, &ref_a));
+  std::weak_ptr<CellRef> ref_b;
+  REVERB_ASSERT_OK(chunker_b->Append(MakeTensor(kIntSpec),
+                                     {/*episode_id=*/1, /*step=*/0}, &ref_b));
+
+  // The call should filter down the refs to only include the refs created by
+  // the chunker.
+  auto item = testing::MakePrioritizedItem(1, 1.0,
+                                           {
+                                               *ref_a.lock()->GetChunk(),
+                                               *ref_b.lock()->GetChunk(),
+                                           });
+  std::vector<std::shared_ptr<CellRef>> refs = {ref_a.lock(), ref_b.lock()};
+
+  EXPECT_CALL(*options_a, OnItemFinalized(testing::EqualsProto(item),
+                                          ElementsAre(ref_a.lock())))
+      .Times(1);
+  chunker_a->OnItemFinalized(item, refs);
+
+  EXPECT_CALL(*options_b, OnItemFinalized(testing::EqualsProto(item),
+                                          ElementsAre(ref_b.lock())))
+      .Times(1);
+  chunker_b->OnItemFinalized(item, refs);
 }
 
 TEST(Chunker, ApplyConfigRejectsInvalidOptions) {
-  auto chunker = std::make_shared<Chunker>(kIntSpec, /*max_chunk_length=*/5,
-                                           /*num_keep_alive_refs=*/5);
+  auto chunker = MakeChunker(kIntSpec, /*max_chunk_length=*/5,
+                             /*num_keep_alive_refs=*/5);
   std::vector<std::pair<int, int>> invalid_options = {
       {0, 5},   // max_chunk_length must be > 0.
       {-1, 5},  // max_chunk_length must be > 0.
@@ -503,36 +594,43 @@ TEST(Chunker, ApplyConfigRejectsInvalidOptions) {
       {6, 5},   // num_keep_alive_refs must be >= max_chunk_length.
   };
   for (const auto [max_chunk_length, num_keep_alive_refs] : invalid_options) {
-    EXPECT_EQ(
-        chunker->ApplyConfig(max_chunk_length, num_keep_alive_refs).code(),
-        absl::StatusCode::kInvalidArgument);
+    auto options = std::make_shared<ConstantChunkerOptions>(
+        max_chunk_length, num_keep_alive_refs);
+    EXPECT_EQ(chunker->ApplyConfig(options).code(),
+              absl::StatusCode::kInvalidArgument);
   }
 }
 
 TEST(ValidateChunkerOptions, Valid) {
-  REVERB_EXPECT_OK(ValidateChunkerOptions(/*max_chunk_length=*/2,
-                                          /*num_keep_alive_refs=*/2));
+  auto options =
+      absl::make_unique<ConstantChunkerOptions>(/*max_chunk_length=*/2,
+                                                /*num_keep_alive_refs=*/2);
+  REVERB_EXPECT_OK(ValidateChunkerOptions(options.get()));
 }
 
 TEST(ValidateChunkerOptions, ZeroMaxChunkLength) {
-  auto status =
-      ValidateChunkerOptions(/*max_chunk_length=*/0, /*num_keep_alive_refs=*/2);
+  auto options = absl::make_unique<ConstantChunkerOptions>(
+      /*max_chunk_length=*/0, /*num_keep_alive_refs=*/2);
+  auto status = ValidateChunkerOptions(options.get());
   EXPECT_EQ(status.code(), absl::StatusCode::kInvalidArgument);
   EXPECT_THAT(std::string(status.message()),
               ::testing::HasSubstr("max_chunk_length must be > 0 but got 0."));
 }
 
 TEST(ValidateChunkerOptions, NegativeMaxChunkLength) {
-  auto status = ValidateChunkerOptions(/*max_chunk_length=*/-1,
-                                       /*num_keep_alive_refs=*/2);
+  auto options =
+      absl::make_unique<ConstantChunkerOptions>(/*max_chunk_length=*/-1,
+                                                /*num_keep_alive_refs=*/2);
+  auto status = ValidateChunkerOptions(options.get());
   EXPECT_EQ(status.code(), absl::StatusCode::kInvalidArgument);
   EXPECT_THAT(std::string(status.message()),
               ::testing::HasSubstr("max_chunk_length must be > 0 but got -1."));
 }
 
 TEST(ValidateChunkerOptions, ZeroNumKeepAliveRefs) {
-  auto status =
-      ValidateChunkerOptions(/*max_chunk_length=*/2, /*num_keep_alive_refs=*/0);
+  auto options = absl::make_unique<ConstantChunkerOptions>(
+      /*max_chunk_length=*/2, /*num_keep_alive_refs=*/0);
+  auto status = ValidateChunkerOptions(options.get());
   EXPECT_EQ(status.code(), absl::StatusCode::kInvalidArgument);
   EXPECT_THAT(
       std::string(status.message()),
@@ -540,8 +638,10 @@ TEST(ValidateChunkerOptions, ZeroNumKeepAliveRefs) {
 }
 
 TEST(ValidateChunkerOptions, NegativeNumKeepAliveRefs) {
-  auto status = ValidateChunkerOptions(/*max_chunk_length=*/2,
-                                       /*num_keep_alive_refs=*/-1);
+  auto options = absl::make_unique<ConstantChunkerOptions>(
+      /*max_chunk_length=*/2,
+      /*num_keep_alive_refs=*/-1);
+  auto status = ValidateChunkerOptions(options.get());
   EXPECT_EQ(status.code(), absl::StatusCode::kInvalidArgument);
   EXPECT_THAT(
       std::string(status.message()),
@@ -549,8 +649,9 @@ TEST(ValidateChunkerOptions, NegativeNumKeepAliveRefs) {
 }
 
 TEST(ValidateChunkerOptions, NumKeepAliveLtMaxChunkLength) {
-  auto status =
-      ValidateChunkerOptions(/*max_chunk_length=*/6, /*num_keep_alive_refs=*/5);
+  auto options = absl::make_unique<ConstantChunkerOptions>(
+      /*max_chunk_length=*/6, /*num_keep_alive_refs=*/5);
+  auto status = ValidateChunkerOptions(options.get());
   EXPECT_EQ(status.code(), absl::StatusCode::kInvalidArgument);
   EXPECT_THAT(std::string(status.message()),
               ::testing::HasSubstr(
