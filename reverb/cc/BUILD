@@ -252,7 +252,7 @@ reverb_cc_library(
         ":reverb_service_cc_grpc_proto",
         ":reverb_service_cc_proto",
         ":schema_cc_proto",
-        ":tensor_compression",
+        ":chunker",
         "//reverb/cc/platform:hash_map",
         "//reverb/cc/platform:hash_set",
         "//reverb/cc/platform:logging",
@@ -280,6 +280,34 @@ reverb_cc_test(
         "//reverb/cc/testing:proto_test_util",
         "//reverb/cc/testing:tensor_testutil",
     ] + reverb_tf_deps() + reverb_grpc_deps() + reverb_absl_deps(),
+)
+
+reverb_cc_library(
+    name = "chunker",
+    srcs = ["chunker.cc"],
+    hdrs = ["chunker.h"],
+    deps = [
+        ":schema_cc_proto",
+        ":tensor_compression",
+        "//reverb/cc/support:signature",
+        "//reverb/cc/platform:logging",
+        "//reverb/cc/platform:status_macros",
+        "//reverb/cc/support:tf_util",
+        "//reverb/cc/support:trajectory_util",
+    ] + reverb_tf_deps() + reverb_absl_deps(),
+)
+
+reverb_cc_test(
+    name = "chunker_test",
+    srcs = ["chunker_test.cc"],
+    deps = [
+        ":chunker",
+        "//reverb/cc/platform:logging",
+        "//reverb/cc/platform:status_matchers",
+        "//reverb/cc/support:signature",
+        "//reverb/cc/testing:proto_test_util",
+        "//reverb/cc/testing:tensor_testutil",
+    ] + reverb_tf_deps() + reverb_absl_deps(),
 )
 
 reverb_cc_library(
