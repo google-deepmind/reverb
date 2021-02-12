@@ -14,8 +14,6 @@
 
 """Tests for trajectory_dataset."""
 
-import importlib
-
 from absl.testing import parameterized
 import numpy as np
 from reverb import client
@@ -24,14 +22,11 @@ from reverb import item_selectors
 from reverb import rate_limiters
 from reverb import replay_sample
 from reverb import server as reverb_server
+from reverb import trajectory_dataset
 import tensorflow.compat.v1 as tf
 import tree
 
 from tensorflow.python.framework import tensor_spec  # pylint:disable=g-direct-tensorflow-import
-
-# TODO(b/179907041): Replace with "from reverb import ...".
-trajectory_writer = importlib.import_module('reverb.trajectory_writer')
-trajectory_dataset = importlib.import_module('reverb.trajectory_dataset')
 
 TABLE = 'prioritized'
 DTYPES = {
@@ -76,7 +71,7 @@ class TrajectoryDatasetTest(tf.test.TestCase, parameterized.TestCase):
     cls._server.stop()
 
   def _populate_replay(self):
-    with trajectory_writer.TrajectoryWriter(self._client, 1, 1) as writer:
+    with self._client._trajectory_writer(1) as writer:  # pylint: disable=protected-access
       for _ in range(10):
         writer.append([np.ones([3, 3], np.float32), 3])
         writer.create_item(TABLE, 1.0, {
@@ -199,7 +194,7 @@ class TrajectoryDatasetTest(tf.test.TestCase, parameterized.TestCase):
             data=SHAPES))
 
   def test_sample_variable_length_trajectory(self):
-    with trajectory_writer.TrajectoryWriter(self._client, 2, 10) as writer:
+    with self._client._trajectory_writer(10) as writer:  # pylint: disable=protected-access
       for i in range(10):
         writer.append([np.ones([3, 3], np.int32) * i])
         writer.create_item(TABLE, 1.0, {

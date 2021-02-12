@@ -17,6 +17,8 @@
 #include <algorithm>
 #include <limits>
 #include <memory>
+#include <numeric>
+#include <utility>
 #include <vector>
 
 #include "absl/random/distributions.h"
@@ -44,6 +46,10 @@ namespace {
 uint64_t NewKey() {
   absl::BitGen gen;
   return absl::Uniform<uint64_t>(gen, 0, std::numeric_limits<uint64_t>::max());
+}
+
+int GetLength(const ChunkData& chunk) {
+  return chunk.data().tensors(0).tensor_shape().dim(0).size();
 }
 
 }  // namespace
@@ -348,6 +354,156 @@ void ConstantChunkerOptions::OnItemFinalized(
 std::shared_ptr<ChunkerOptions> ConstantChunkerOptions::Clone() const {
   return std::make_shared<ConstantChunkerOptions>(max_chunk_length_,
                                                   num_keep_alive_refs_);
+}
+
+AutoTunedChunkerOptions::AutoTunedChunkerOptions(int num_keep_alive_refs,
+                                                 double throughput_weight)
+    : num_keep_alive_refs_(num_keep_alive_refs),
+      throughput_weight_(throughput_weight),
+      max_chunk_length_(1),
+      prev_score_(Score{-1, -1}) {}
+
+int AutoTunedChunkerOptions::GetMaxChunkLength() const {
+  absl::MutexLock lock(&mu_);
+  return max_chunk_length_;
+}
+
+int AutoTunedChunkerOptions::GetNumKeepAliveRefs() const {
+  return num_keep_alive_refs_;
+}
+
+void AutoTunedChunkerOptions::PushItem(
+    absl::Span<const std::shared_ptr<CellRef>> refs) {
+  double total_bytes = 0;
+  double total_chunk_length = 0;
+
+  internal::flat_hash_set<uint64_t> seen_chunks;
+  for (const auto& ref : refs) {
+    if (seen_chunks.insert(ref->chunk_key()).second) {
+      total_bytes += ref->GetChunk()->ByteSizeLong();
+      total_chunk_length += GetLength(*ref->GetChunk());
+    }
+  }
+
+  Statistic summary;
+  summary.average_chunk_length = total_chunk_length / seen_chunks.size();
+  summary.bytes_per_step = total_bytes / refs.size();
+  items_.push_back(std::move(summary));
+
+  if (items_.size() > kNumItemsToScore) {
+    items_.pop_front();
+  }
+}
+
+void AutoTunedChunkerOptions::OnItemFinalized(
+    const PrioritizedItem& item,
+    absl::Span<const std::shared_ptr<CellRef>> refs) {
+  REVERB_CHECK(!refs.empty());
+
+  absl::MutexLock lock(&mu_);
+
+  // Push items and chunks to history buffers.
+  PushItem(refs);
+  PushChunks(refs);
+
+  // If there isn't enough examples yet then don't make any changes.
+  if (items_.size() < kNumItemsToScore || chunks_.size() < kNumChunksToScore) {
+    return;
+  }
+
+  auto new_score = ReduceAndClearBuffers();
+  items_.clear();
+  chunks_.clear();
+
+  // If this is the first time the score has been recorded then we increase the
+  // `max_chunk_length_` so there is something to compare to the next time the
+  // score is calculated.
+  if (prev_score_.average_chunk_length == -1) {
+    prev_score_ = new_score;
+    max_chunk_length_ = std::min(max_chunk_length_ + kPosMaxChunkLengthDiff,
+                                 num_keep_alive_refs_);
+    return;
+  }
+
+  // If the needle hasn't moved enough then remove the oldest item from the
+  // buffer and wait for the next item.
+  if (std::abs(new_score.average_chunk_length - max_chunk_length_) >
+      kMaxChunkLengthError) {
+    return;
+  }
+
+  bool cost_reduced = new_score.cost < prev_score_.cost;
+  bool length_grew =
+      new_score.average_chunk_length > prev_score_.average_chunk_length;
+
+  int diff = cost_reduced == length_grew ? kPosMaxChunkLengthDiff
+                                         : kNegMaxChunkLengthDiff;
+  int new_max_chunk_length =
+      std::min(std::max(max_chunk_length_ + diff, 1), num_keep_alive_refs_);
+
+  if (new_max_chunk_length != max_chunk_length_) {
+    prev_score_ = new_score;
+    max_chunk_length_ = new_max_chunk_length;
+  }
+}
+
+AutoTunedChunkerOptions::Score
+AutoTunedChunkerOptions::ReduceAndClearBuffers() {
+  // We can't use REVERB_CHECK_EQ here since takes arguments by reference and
+  // you can't take the address of a static member which doesn't have an
+  // out-of-class definition (https://www.stroustrup.com/bs_faq2.html#in-class).
+  REVERB_CHECK(items_.size() == kNumItemsToScore);
+  REVERB_CHECK(chunks_.size() == kNumChunksToScore);
+
+  double avg_chunk_length_sum = 0;
+
+  double avg_bytes_per_item_step = 0;
+  for (const auto& summary : items_) {
+    avg_bytes_per_item_step += summary.bytes_per_step / items_.size();
+    avg_chunk_length_sum += summary.average_chunk_length;
+  }
+
+  double avg_bytes_per_chunk_step = 0;
+  for (const auto& summary : chunks_) {
+    avg_bytes_per_chunk_step += summary.bytes_per_step / chunks_.size();
+    avg_chunk_length_sum += summary.average_chunk_length;
+  }
+
+  Score score = {
+      avg_chunk_length_sum / (items_.size() + chunks_.size()),
+      avg_bytes_per_chunk_step + avg_bytes_per_item_step * throughput_weight_,
+  };
+
+  items_.clear();
+  chunks_.clear();
+
+  return score;
+}
+
+void AutoTunedChunkerOptions::PushChunks(
+    absl::Span<const std::shared_ptr<CellRef>> refs) {
+  for (const auto& ref : refs) {
+    const auto& chunk = *ref->GetChunk();
+    if (std::all_of(chunks_.begin(), chunks_.end(), [&chunk](const auto& s) {
+          return s.key != chunk.chunk_key();
+        })) {
+      Statistic summary;
+      summary.key = chunk.chunk_key();
+      summary.average_chunk_length = GetLength(chunk);
+      summary.bytes_per_step =
+          chunk.ByteSizeLong() / summary.average_chunk_length;
+      chunks_.push_back(std::move(summary));
+    }
+  }
+
+  while (chunks_.size() > 5) {
+    chunks_.pop_front();
+  }
+}
+
+std::shared_ptr<ChunkerOptions> AutoTunedChunkerOptions::Clone() const {
+  return std::make_shared<AutoTunedChunkerOptions>(num_keep_alive_refs_,
+                                                   throughput_weight_);
 }
 
 }  // namespace reverb

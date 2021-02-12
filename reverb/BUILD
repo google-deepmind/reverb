@@ -29,6 +29,8 @@ reverb_pytype_strict_library(
         ":replay_sample",
         ":server",
         ":tf_client",
+        ":trajectory_dataset",
+        ":trajectory_writer",
         "//reverb/platform/default:checkpointers",
         "//reverb/platform/default:ensure_tf_install",
     ],
@@ -53,6 +55,7 @@ reverb_pytype_library(
         ":pybind",
         ":replay_sample",
         ":reverb_types",
+        ":trajectory_writer",
         "//reverb/cc:schema_py_pb2",
     ],
 )
@@ -173,10 +176,8 @@ reverb_pytype_library(
     srcs_version = "PY3",
     strict_deps = True,
     deps = [
-        ":client",
         ":errors",
         ":pybind",
-        ":replay_sample",
     ],
 )
 
@@ -248,7 +249,6 @@ reverb_py_test(
         ":replay_sample",
         ":server",
         ":trajectory_dataset",
-        ":trajectory_writer",
     ],
 )
 
@@ -276,6 +276,7 @@ reverb_py_test(
     python_version = "PY3",
     deps = [
         ":client",
+        ":pybind",
         ":trajectory_writer",
     ],
 )

@@ -288,6 +288,13 @@ class ClientTest(absltest.TestCase):
     pool.close()
     pool.join()
 
+  def test_validates_trajectory_writer_config(self):
+    with self.assertRaises(ValueError):
+      self.client._trajectory_writer(0)
+
+    with self.assertRaises(ValueError):
+      self.client._trajectory_writer(-1)
+
 
 if __name__ == '__main__':
   absltest.main()

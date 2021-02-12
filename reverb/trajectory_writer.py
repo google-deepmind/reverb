@@ -24,10 +24,8 @@ import datetime
 from typing import Any, List, Iterator, Mapping, Optional, Sequence, Tuple, Union
 
 import numpy as np
-from reverb import client as client_lib
 from reverb import errors
 from reverb import pybind
-from reverb import replay_sample
 import tree
 
 
@@ -36,42 +34,13 @@ class TrajectoryWriter:
 
   Note: The documentation is minimal as this is just a draft proposal to give
   alpha testers something tangible to play around with.
+
+  TODO(b/179978457): Add documentation and examples.
   """
 
-  def __init__(self, client: client_lib.Client, max_chunk_length: int,
-               num_keep_alive_refs: int,
-               get_signature_timeout_ms: Optional[int] = 3000):
-    """Constructor of TrajectoryWriter.
-
-    Note: The client is provided to the constructor as opposed to having the
-      client construct the writer object. This is a temporary indirection to
-      avoid changes to the public API while we iterate on the design.
-
-    TODO(b/177308010): Move construction to client instead.
-
-    TODO(b/178084425): Allow chunking and reference buffer size to be configured
-      at the column level.
-
-    Args:
-      client: Reverb client connected to server to write to.
-      max_chunk_length: Maximum number of data elements appended to a column
-        before its content is automatically finalized as a `ChunkData` (allowing
-        pending items which reference the chunks content to be sent to the
-        server).
-      num_keep_alive_refs: The size of the circular buffer which each column
-        maintains for the most recent data appended to it. When a data reference
-        popped from the buffer it can no longer be referenced by new items. The
-        value `num_keep_alive_refs` can therefore be interpreted as maximum
-        number of steps which a trajectory can span.
-      get_signature_timeout_ms: The number of milliesconds to wait to pull table
-        signatures (if any) from the server. These signatures are used to
-        validate new items before they are sent to the server. Signatures are
-        only pulled once and cached. If set to None then the signature will not
-        fetched from the server. Default wait time is 3 seconds.
-    """
-    self._writer = client._client.NewTrajectoryWriter(max_chunk_length,
-                                                      num_keep_alive_refs,
-                                                      get_signature_timeout_ms)
+  def __init__(self, internal_writer: pybind.TrajectoryWriter):
+    """Constructor of TrajectoryWriter (must only be called by `Client`)."""
+    self._writer = internal_writer
 
     # The union of the structures of all data passed to `append`. The structure
     # grows everytime the provided data contains one or more fields which were
@@ -162,23 +131,49 @@ class TrajectoryWriter:
       return 0
     return len(self._column_history[0])
 
-  def configure(self, path: Tuple[Union[int, str], ...], max_chunk_length: int,
-                num_keep_alive_refs: int):
+  def configure(self, path: Tuple[Union[int, str], ...],
+                *,
+                num_keep_alive_refs: int,
+                max_chunk_length: Optional[int]):
     """Override chunking options for a single column.
 
     Args:
       path: Structured path to the column to configure.
-      max_chunk_length: Override value for `max_chunk_length`. See __init__ for
-        more details.
-      num_keep_alive_refs: Override value for `num_keep_alive_refs`. See
-        __init__ for more details.
+      num_keep_alive_refs: Override value for `num_keep_alive_refs` i.e the size
+        of the circular buffer of the most recently added data.
+      max_chunk_length: Override value for the chunk length used by this column.
+        When set to None, an auto tuned chunk length is used. When set to a
+        number, a constant chunk length is used.
+
+    Raises:
+      ValueError: If num_keep_alive_refs is < 1.
+      ValueError: If max_chunk_length set to a value < 1 or to a value > than
+        num_keep_alive_refs.
     """
+    if num_keep_alive_refs < 1:
+      raise ValueError(
+          f'num_keep_alive_refs ({num_keep_alive_refs}) must be a positive '
+          f'integer')
+    if max_chunk_length is not None and (
+        max_chunk_length < 1 or max_chunk_length > num_keep_alive_refs):
+      raise ValueError(
+          f'max_chunk_length ({max_chunk_length}) must be None or a positive '
+          f'integer <= num_keep_alive_refs ({num_keep_alive_refs})')
+
+    if max_chunk_length is None:
+      chunker_options = pybind.AutoTunedChunkerOptions(
+          num_keep_alive_refs=num_keep_alive_refs,
+          throughput_weight=1.0)
+    else:
+      chunker_options = pybind.ConstantChunkerOptions(
+          max_chunk_length=max_chunk_length,
+          num_keep_alive_refs=num_keep_alive_refs)
+
     if path in self._path_to_column_index:
       self._writer.ConfigureChunker(self._path_to_column_index[path],
-                                    max_chunk_length, num_keep_alive_refs)
+                                    chunker_options)
     else:
-      self._path_to_column_config[path] = (max_chunk_length,
-                                           num_keep_alive_refs)
+      self._path_to_column_config[path] = chunker_options
 
   def append(self, data: Any):
     """Columnwise append of data leaf nodes to internal buffers.
@@ -410,7 +405,7 @@ class TrajectoryWriter:
         # created.
         if path in self._path_to_column_config:
           self._writer.ConfigureChunker(self._path_to_column_index[path],
-                                        *self._path_to_column_config[path])
+                                        self._path_to_column_config[path])
 
     # Recalculate the reverse mapping, i.e column index to index within the
     # flatten structure.
@@ -510,34 +505,6 @@ class TrajectoryColumn:
       return self._data_references[0].numpy()
 
     return np.stack([ref.numpy() for ref in self._data_references])
-
-
-def sample_trajectory(client: client_lib.Client, table: str,
-                      structure: Any) -> replay_sample.ReplaySample:
-  """Temporary helper method for sampling a trajectory.
-
-  Note! This function is only intended to make it easier for alpha testers to
-  experiment with the new API. It will be removed before this file is made
-  public.
-
-  Args:
-    client: Client connected to the server to sample from.
-    table: Name of the table to sample from.
-    structure: Structure to unpack flat data as.
-
-  Returns:
-    ReplaySample with trajectory unpacked as `structure` in `data`-field.
-  """
-
-  sampler = client._client.NewSampler(table, 1, 1, 1)  # pylint: disable=protected-access
-  sample = sampler.GetNextSample()
-  return replay_sample.ReplaySample(
-      info=replay_sample.SampleInfo(
-          key=int(sample[0][0]),
-          probability=float(sample[1][0]),
-          table_size=int(sample[2][0]),
-          priority=float(sample[3][0])),
-      data=tree.unflatten_as(structure, sample[4:]))
 
 
 def _tree_merge_into(source, target):

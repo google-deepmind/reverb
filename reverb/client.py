@@ -81,6 +81,7 @@ from reverb import errors
 from reverb import pybind
 from reverb import replay_sample
 from reverb import reverb_types
+from reverb import trajectory_writer as trajectory_writer_lib
 import tree
 
 from reverb.cc import schema_pb2
@@ -534,3 +535,48 @@ class Client:
       Absolute path to the saved checkpoint.
     """
     return self._client.Checkpoint()
+
+  def _trajectory_writer(self,
+                         num_keep_alive_refs: int,
+                         *,
+                         get_signature_timeout_ms: Optional[int] = 3000):
+    """Constructs a new `TrajectoryWriter`.
+
+    Note: The documentation is minimal as this is just a draft proposal to give
+      alpha testers something tangible to play around with.
+
+    Note: The chunk length is auto tuned by default. Use
+      `TrajectoryWriter.configure` to override this behaviour.
+
+    TODO(b/177308010): Make method public once API is stable.
+
+    TODO(b/179978457): Add documentation and examples.
+
+    Args:
+      num_keep_alive_refs: The size of the circular buffer which each column
+        maintains for the most recent data appended to it. When a data reference
+        popped from the buffer it can no longer be referenced by new items. The
+        value `num_keep_alive_refs` can therefore be interpreted as maximum
+        number of steps which a trajectory can span.
+      get_signature_timeout_ms: The number of milliesconds to wait to pull table
+        signatures (if any) from the server. These signatures are used to
+        validate new items before they are sent to the server. Signatures are
+        only pulled once and cached. If set to None then the signature will not
+        fetched from the server. Default wait time is 3 seconds.
+
+    Returns:
+      A `TrajectoryWriter` with auto tuned chunk lengths in each column.
+
+    Raises:
+      ValueError: If num_keep_alive_refs < 1.
+    """
+    if num_keep_alive_refs < 1:
+      raise ValueError(
+          f'num_keep_alive_refs ({num_keep_alive_refs}) must be a positive '
+          f'integer'
+      )
+
+    chunker_options = pybind.AutoTunedChunkerOptions(num_keep_alive_refs, 1.0)
+    cpp_writer = self._client.NewTrajectoryWriter(chunker_options,
+                                                  get_signature_timeout_ms)
+    return trajectory_writer_lib.TrajectoryWriter(cpp_writer)

@@ -14,16 +14,17 @@
 
 """Tests for reverb.trajectory_writer."""
 
-import importlib
+from typing import Optional
+
 from unittest import mock
 
 from absl.testing import absltest
+from absl.testing import parameterized
 import numpy as np
 from reverb import client as client_lib
+from reverb import pybind
+from reverb import trajectory_writer
 import tree
-
-# TODO(b/179907041): Replace with "from reverb import trajectory_writer".
-trajectory_writer = importlib.import_module('reverb.trajectory_writer')
 
 
 class FakeWeakCellRef:
@@ -36,7 +37,7 @@ def extract_data(column: trajectory_writer._ColumnHistory):
   return [ref.data if ref else None for ref in column[:]]
 
 
-class TrajectoryWriterTest(absltest.TestCase):
+class TrajectoryWriterTest(parameterized.TestCase):
 
   def setUp(self):
     super().setUp()
@@ -45,10 +46,7 @@ class TrajectoryWriterTest(absltest.TestCase):
     self.cpp_writer_mock.Append.side_effect = \
         lambda x: [FakeWeakCellRef(y) if y else None for y in x]
 
-    client_mock = mock.Mock()
-    client_mock._client.NewTrajectoryWriter.return_value = self.cpp_writer_mock
-
-    self.writer = trajectory_writer.TrajectoryWriter(client_mock, 1, 1)
+    self.writer = trajectory_writer.TrajectoryWriter(self.cpp_writer_mock)
 
   def test_history_require_append_to_be_called_before(self):
     with self.assertRaises(RuntimeError):
@@ -128,14 +126,25 @@ class TrajectoryWriterTest(absltest.TestCase):
     with self.assertRaises(ValueError):
       self.writer.flush(-1)
 
+  def test_configure_uses_auto_tune_when_max_chunk_length_not_set(self):
+    self.writer.append({'x': 3, 'y': 2})
+    self.writer.configure(('x',), num_keep_alive_refs=2, max_chunk_length=None)
+    self.cpp_writer_mock.ConfigureChunker.assert_called_with(
+        0,
+        pybind.AutoTunedChunkerOptions(
+            num_keep_alive_refs=2, throughput_weight=1.0))
+
   def test_configure_seen_column(self):
     self.writer.append({'x': 3, 'y': 2})
-    self.writer.configure(('x',), 1, 2)
-    self.cpp_writer_mock.ConfigureChunker.assert_called_with(0, 1, 2)
+    self.writer.configure(('x',), num_keep_alive_refs=2, max_chunk_length=1)
+    self.cpp_writer_mock.ConfigureChunker.assert_called_with(
+        0,
+        pybind.ConstantChunkerOptions(
+            num_keep_alive_refs=2, max_chunk_length=1))
 
   def test_configure_unseen_column(self):
     self.writer.append({'x': 3, 'y': 2})
-    self.writer.configure(('z',), 1, 2)
+    self.writer.configure(('z',), num_keep_alive_refs=2, max_chunk_length=1)
 
     # The configure call should be delayed until the column has been observed.
     self.cpp_writer_mock.ConfigureChunker.assert_not_called()
@@ -145,7 +154,33 @@ class TrajectoryWriterTest(absltest.TestCase):
     self.cpp_writer_mock.ConfigureChunker.assert_not_called()
 
     self.writer.append({'z': 5})
-    self.cpp_writer_mock.ConfigureChunker.assert_called_with(3, 1, 2)
+    self.cpp_writer_mock.ConfigureChunker.assert_called_with(
+        3,
+        pybind.ConstantChunkerOptions(
+            num_keep_alive_refs=2, max_chunk_length=1))
+
+  @parameterized.parameters(
+      (1, None, True),
+      (0, None, False),
+      (-1, None, False),
+      (1, 1, True),
+      (1, 0, False),
+      (1, -1, False),
+      (5, 5, True),
+      (4, 5, False),
+  )
+  def test_configure_validates_params(self, num_keep_alive_refs: int,
+                                      max_chunk_length: Optional[int],
+                                      valid: bool):
+    if valid:
+      self.writer.configure(('a',),
+                            num_keep_alive_refs=num_keep_alive_refs,
+                            max_chunk_length=max_chunk_length)
+    else:
+      with self.assertRaises(ValueError):
+        self.writer.configure(('a',),
+                              num_keep_alive_refs=num_keep_alive_refs,
+                              max_chunk_length=max_chunk_length)
 
   def test_episode_steps(self):
     for _ in range(10):
@@ -168,9 +203,7 @@ class TrajectoryColumnTest(absltest.TestCase):
     # No data will ever be sent to the server so it doesn't matter that we use
     # an invalid address.
     client = client_lib.Client('localhost:1234')
-    writer = trajectory_writer.TrajectoryWriter(
-        client,
-        max_chunk_length=5,
+    writer = client._trajectory_writer(  # pylint: disable=protected-access
         num_keep_alive_refs=10,
         get_signature_timeout_ms=None)
 
@@ -188,9 +221,7 @@ class TrajectoryColumnTest(absltest.TestCase):
     # No data will ever be sent to the server so it doesn't matter that we use
     # an invalid address.
     client = client_lib.Client('localhost:1234')
-    writer = trajectory_writer.TrajectoryWriter(
-        client,
-        max_chunk_length=5,
+    writer = client._trajectory_writer(  # pylint: disable=protected-access
         num_keep_alive_refs=10,
         get_signature_timeout_ms=None)
 

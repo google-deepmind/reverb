@@ -14,11 +14,14 @@
 
 #include "reverb/cc/chunker.h"
 
+#include <deque>
 #include <memory>
 #include <string>
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
+#include "absl/random/distributions.h"
+#include "absl/random/random.h"
 #include "absl/types/span.h"
 #include "reverb/cc/platform/logging.h"
 #include "reverb/cc/platform/status_matchers.h"
@@ -41,6 +44,8 @@ using ::testing::Return;
 
 const auto kIntSpec = internal::TensorSpec{"0", tensorflow::DT_INT32, {1}};
 const auto kFloatSpec = internal::TensorSpec{"0", tensorflow::DT_FLOAT, {1}};
+const auto kLargeFloatSpec =
+    internal::TensorSpec{"0", tensorflow::DT_FLOAT, {100, 100}};
 
 inline std::string Int32Str() {
   return tensorflow::DataTypeString(tensorflow::DT_INT32);
@@ -65,6 +70,20 @@ tensorflow::Tensor MakeConstantTensor(
   for (int i = 0; i < tensor.NumElements(); i++) {
     tensor.flat<typename tensorflow::EnumToDataType<dtype>::Type>().data()[i] =
         value;
+  }
+  return tensor;
+}
+
+template <tensorflow::DataType dtype>
+tensorflow::Tensor MakeRandomTensor(
+    const tensorflow::TensorShape& shape,
+    typename tensorflow::EnumToDataType<dtype>::Type low,
+    typename tensorflow::EnumToDataType<dtype>::Type high) {
+  tensorflow::Tensor tensor(dtype, shape);
+  for (int i = 0; i < tensor.NumElements(); i++) {
+    tensor.flat<typename tensorflow::EnumToDataType<dtype>::Type>().data()[i] =
+        absl::Uniform<typename tensorflow::EnumToDataType<dtype>::Type>(
+            absl::BitGen(), low, high);
   }
   return tensor;
 }
@@ -656,6 +675,95 @@ TEST(ValidateChunkerOptions, NumKeepAliveLtMaxChunkLength) {
   EXPECT_THAT(std::string(status.message()),
               ::testing::HasSubstr(
                   "num_keep_alive_refs (5) must be >= max_chunk_length (6)."));
+}
+
+TEST(AutoTunedChunkerOptions, SingleStepItemsAndRandomData) {
+  auto options = std::make_shared<AutoTunedChunkerOptions>(10);
+  auto chunker = std::make_shared<Chunker>(kLargeFloatSpec, options);
+
+  tensorflow::TensorShape shape;
+  ASSERT_TRUE(kLargeFloatSpec.shape.AsTensorShape(&shape));
+
+  // If the data is random and items only take single step then we expect
+  // the chunk length to be 1 eventually.
+  for (int i = 0; i < 1000; i++) {
+    std::weak_ptr<CellRef> ref;
+    REVERB_EXPECT_OK(
+        chunker->Append(MakeRandomTensor<tensorflow::DT_FLOAT>(shape, 0, 1),
+                        {/*episode_id=*/1, /*step=*/i}, &ref));
+    if (ref.lock()->IsReady()) {
+      chunker->OnItemFinalized(PrioritizedItem(), {ref.lock()});
+    }
+  }
+
+  EXPECT_EQ(options->GetMaxChunkLength(), 1);
+}
+
+TEST(AutoTunedChunkerOptions, MultiOverlapStepItemsAndRandomData) {
+  auto options = std::make_shared<AutoTunedChunkerOptions>(10);
+  auto chunker = std::make_shared<Chunker>(kLargeFloatSpec, options);
+
+  tensorflow::TensorShape shape;
+  ASSERT_TRUE(kLargeFloatSpec.shape.AsTensorShape(&shape));
+
+  // If the data is random and items overlap then we expect the chunk length to
+  // be small, i.e <= 3. The reason that it isn't necessarily 1 is that the
+  // overhead of the proto outweights makes it optimal to have chunk length 2 so
+  // the final value will circle between 1 and 3.
+  std::deque<std::shared_ptr<CellRef>> last_10_refs;
+
+  for (int i = 0; i < 1000; i++) {
+    std::weak_ptr<CellRef> ref;
+    REVERB_EXPECT_OK(
+        chunker->Append(MakeRandomTensor<tensorflow::DT_FLOAT>(shape, 0, 1),
+                        {/*episode_id=*/1, /*step=*/i}, &ref));
+    last_10_refs.push_back(ref.lock());
+    if (last_10_refs.size() > 10) {
+      last_10_refs.pop_front();
+    }
+
+    if (std::all_of(last_10_refs.begin(), last_10_refs.end(),
+                    [](const auto& r) { return r->IsReady(); })) {
+      chunker->OnItemFinalized(PrioritizedItem(),
+                               std::vector<std::shared_ptr<CellRef>>(
+                                   last_10_refs.begin(), last_10_refs.end()));
+    }
+  }
+
+  EXPECT_LE(options->GetMaxChunkLength(), 3);
+}
+
+TEST(AutoTunedChunkerOptions, ConstantNonOverlappingItems) {
+  auto options = std::make_shared<AutoTunedChunkerOptions>(10);
+  auto chunker = std::make_shared<Chunker>(kLargeFloatSpec, options);
+
+  tensorflow::TensorShape shape;
+  ASSERT_TRUE(kLargeFloatSpec.shape.AsTensorShape(&shape));
+
+  // When the data doesn't change then compression is king. The chunk length
+  // should therefore grow to the max value.
+  std::deque<std::shared_ptr<CellRef>> last_10_refs;
+
+  for (int i = 0; i < 1000; i++) {
+    std::weak_ptr<CellRef> ref;
+    REVERB_EXPECT_OK(
+        chunker->Append(MakeConstantTensor<tensorflow::DT_FLOAT>(shape, 33),
+                        {/*episode_id=*/1, /*step=*/i}, &ref));
+    last_10_refs.push_back(ref.lock());
+    if (last_10_refs.size() > 10) {
+      last_10_refs.pop_front();
+    }
+
+    if (std::all_of(last_10_refs.begin(), last_10_refs.end(),
+                    [](const auto& r) { return r->IsReady(); })) {
+      chunker->OnItemFinalized(PrioritizedItem(),
+                               std::vector<std::shared_ptr<CellRef>>(
+                                   last_10_refs.begin(), last_10_refs.end()));
+      last_10_refs.clear();
+    }
+  }
+
+  EXPECT_EQ(options->GetMaxChunkLength(), 10);
 }
 
 }  // namespace

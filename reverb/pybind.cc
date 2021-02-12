@@ -648,13 +648,12 @@ PYBIND11_MODULE(libpybind, m) {
           },
           py::call_guard<py::gil_scoped_release>())
       .def("NewTrajectoryWriter",
-           [](Client *client, int max_chunk_length, int num_keep_alive_refs,
+           [](Client *client, std::shared_ptr<ChunkerOptions> chunker_options,
               absl::optional<int> get_signature_timeout_ms) {
              std::unique_ptr<TrajectoryWriter> writer;
 
              TrajectoryWriter::Options options;
-             options.chunker_options = std::make_shared<ConstantChunkerOptions>(
-                 max_chunk_length, num_keep_alive_refs);
+             options.chunker_options = std::move(chunker_options);
 
              // Release the GIL only when waiting for the call to complete. If
              // the GIL is not held when `MaybeRaiseFromStatus` is called it can
@@ -783,6 +782,30 @@ PYBIND11_MODULE(libpybind, m) {
         return tensor;
       });
 
+  py::class_<ChunkerOptions, std::shared_ptr<ChunkerOptions>>(m,
+                                                              "ChunkerOptions");
+
+  py::class_<ConstantChunkerOptions, ChunkerOptions,
+             std::shared_ptr<ConstantChunkerOptions>>(m,
+                                                      "ConstantChunkerOptions")
+      .def(py::init<int, int>(), py::arg("max_chunk_length"),
+           py::arg("num_keep_alive_refs"))
+      .def("__eq__", [](ConstantChunkerOptions *self,
+                        std::shared_ptr<ConstantChunkerOptions> other) {
+        return self->GetMaxChunkLength() == other->GetMaxChunkLength() &&
+               self->GetNumKeepAliveRefs() == other->GetNumKeepAliveRefs();
+      });
+
+  py::class_<AutoTunedChunkerOptions, ChunkerOptions,
+             std::shared_ptr<AutoTunedChunkerOptions>>(
+      m, "AutoTunedChunkerOptions")
+      .def(py::init<int, double>(), py::arg("num_keep_alive_refs"),
+           py::arg("throughput_weight"))
+      .def("__eq__", [](AutoTunedChunkerOptions *self,
+                        std::shared_ptr<AutoTunedChunkerOptions> other) {
+        return self->GetNumKeepAliveRefs() == other->GetNumKeepAliveRefs();
+      });
+
   py::class_<TrajectoryWriter, std::shared_ptr<TrajectoryWriter>>(
       m, "TrajectoryWriter")
       .def(
@@ -857,13 +880,8 @@ PYBIND11_MODULE(libpybind, m) {
            })
       .def("Close", &TrajectoryWriter::Close,
            py::call_guard<py::gil_scoped_release>())
-      .def("ConfigureChunker",
-           [](TrajectoryWriter *writer, int column, int max_chunk_length,
-              int num_keep_alive_refs) {
-             MaybeRaiseFromStatus(writer->ConfigureChunker(
-                 column, std::make_shared<ConstantChunkerOptions>(
-                             max_chunk_length, num_keep_alive_refs)));
-           });
+      .def("ConfigureChunker", &TrajectoryWriter::ConfigureChunker,
+           py::call_guard<py::gil_scoped_release>());
 }
 
 }  // namespace

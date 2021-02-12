@@ -24,6 +24,7 @@
 #include "absl/synchronization/mutex.h"
 #include "absl/types/optional.h"
 #include "absl/types/span.h"
+#include "reverb/cc/platform/hash_map.h"
 #include "reverb/cc/schema.pb.h"
 #include "reverb/cc/support/signature.h"
 #include "tensorflow/core/framework/tensor.h"
@@ -238,6 +239,128 @@ class ConstantChunkerOptions : public ChunkerOptions {
  private:
   int max_chunk_length_;
   int num_keep_alive_refs_;
+};
+
+// Automatically tunes the `max_chunk_length` value within the range [1,
+// `num_keep_alive_refs`] by minimizing a score based on the number of bytes
+// sent per step in items and chunks.
+//
+// The score is calculated by maintaining a buffer of most recently observed
+// items and chunks. Once the buffer contains `kNumItemsToScore` items and
+// `kNumChunksToScore` chunks then a cost-score is calculated as follows. After
+// the score has been calculated the buffers are cleared:
+//
+//   bytes_per_step_in_item * throughput_weight + bytes_per_step_in_chunks
+//
+// Both the item and chunk `bytes_per_step_*` are averages for all elements in
+// the buffer.
+//
+// When a buffer has been scored it is compared against the most recently score
+// before that. A lower score is better so if the new score is lower then the
+// `max_chunk_length` is moved in the direction of `new_average_chunk_length -
+// prev_average_chunk_length`. For example, if the previous score was 100 and
+// the average chunk length at the time was 5 and the new score is 50 with a
+// new average chunk length of 6 then `max_chunk_length` is increased. If the
+// score is 75 (average chunk length is 7) the next time it is calculated then
+// `max_chunk_length` is decreased.
+class AutoTunedChunkerOptions : public ChunkerOptions {
+ public:
+  // Wait until the buffer includes this many items and chunks before scoring
+  // the performance and (potentially) updating the recommendations for
+  // `GetMaxChunkLength`. If a buffers exceeds this value after a new element
+  // have been pushed then the oldest element is removed.
+  static const int kNumItemsToScore = 10;
+  static const int kNumChunksToScore = 5;
+
+  // Diff added to the current max chunk length when increasing or decreasing it
+  // as a response to observed data. New values are clipped to ensure that the
+  // updated value is within the range (1, `num_keep_alive_refs`).
+  static const int kPosMaxChunkLengthDiff = 2;
+  static const int kNegMaxChunkLengthDiff = -1;
+
+  // Maximum difference between the average observed chunk length and the
+  // current recommendation of `GetMaxChunkLength` required for a score to be
+  // considered as valid. If the difference is larger than this value then the
+  // score is ignored and the content of the buffers dropped.
+  static constexpr auto kMaxChunkLengthError = 0.25;
+
+  explicit AutoTunedChunkerOptions(int num_keep_alive_ref,
+                                   double throughput_weight = 1.0);
+
+  // Returns the recommendation of the maximum chunk length.
+  int GetMaxChunkLength() const override;
+
+  // Returns the (constant) size of the reference buffer.
+  int GetNumKeepAliveRefs() const override;
+
+  // Calculates performance statistics for the item and the chunks it reference
+  // and uses thse to (potentially) update the result of `GetMaxChunkLength`.
+  void OnItemFinalized(
+      const PrioritizedItem& item,
+      absl::Span<const std::shared_ptr<CellRef>> refs) override;
+
+  std::shared_ptr<ChunkerOptions> Clone() const override;
+
+ private:
+  struct Score;
+
+  // Appends a `Statistic` for every referenced chunk which isn't already part
+  // of `chunks`.
+  void PushChunks(absl::Span<const std::shared_ptr<CellRef>> refs)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_);
+
+  // Appends a `Statistic` of the item to `items_`.
+  void PushItem(absl::Span<const std::shared_ptr<CellRef>> refs)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_);
+
+  // Calculates an overall score for the data in a FULL buffer then clears both
+  // `items_` and `chunks_`.
+  Score ReduceAndClearBuffers() ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_);
+
+  // The maximum number of CellRef to keep alive. This value is NOT tuned.
+  int num_keep_alive_refs_;
+
+  // Weight to multiply the score contribution from `items_` with. A higher
+  // value results in more emphasise on the amount of data sent per item (i.e
+  // sample speed) and lower values results in lower memory usage on the server
+  // (i.e maximize impact of compression across all of the data rather than
+  // focusing on items).
+  double throughput_weight_;
+
+  mutable absl::Mutex mu_;
+
+  // Current recommendation returned by `GetMaxChunkLength`. Will always be in
+  // the range [1, num_keep_alive_refs_].
+  int max_chunk_length_ ABSL_GUARDED_BY(mu_);
+
+  // The most recent score which resulted in a change of `max_chunk_length_`. Is
+  // initialized to {-1, -1} so an update of `max_chunk_length_` is triggered
+  // regardless of what the first score is.
+  struct Score {
+    double average_chunk_length;
+    double cost;
+  };
+  Score prev_score_ ABSL_GUARDED_BY(mu_);
+
+  struct Statistic {
+    // Key of the item or chunk.
+    uint64_t key;
+    // The average number of bytes sent per step. For items the number of steps
+    // refers to the length of the item, not the length of the chunks
+    // referenced. For chunks the length refers to the number of step
+    // represented by the chunk.
+    double bytes_per_step;
+    // Average length of the chunks referenced by the item (or chunk).
+    double average_chunk_length;
+  };
+
+  // Circular buffer of statistics of the `kNumItemsToScore` most recently
+  // observed items.
+  std::deque<Statistic> items_ ABSL_GUARDED_BY(mu_);
+
+  // Circular buffer of statistics of the `kNumChunksToScore` most recently
+  // observed chunks.
+  std::deque<Statistic> chunks_ ABSL_GUARDED_BY(mu_);
 };
 
 }  // namespace reverb
