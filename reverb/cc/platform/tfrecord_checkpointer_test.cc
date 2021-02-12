@@ -130,8 +130,8 @@ TEST(TFRecordCheckpointerTest, SaveAndLoad) {
   loaded_tables.push_back(MakePrioritizedTable("prioritized_a", 0.5));
   loaded_tables.push_back(MakePrioritizedTable("prioritized_b", 0.9));
   loaded_tables.push_back(MakeSignatureTable("signature"));
-  REVERB_ASSERT_OK(checkpointer.Load(tensorflow::io::Basename(path),
-                                     &loaded_chunk_store, &loaded_tables));
+  REVERB_ASSERT_OK(
+      checkpointer.Load(path, &loaded_chunk_store, &loaded_tables));
 
   // Check that all the chunks have been added.
   std::vector<std::shared_ptr<ChunkStore::Chunk>> chunks;
@@ -254,6 +254,59 @@ TEST(TFRecordCheckpointerTest, LoadLatestInEmptyDir) {
   std::vector<std::shared_ptr<Table>> tables;
   EXPECT_EQ(checkpointer.LoadLatest(&chunk_store, &tables).code(),
             absl::StatusCode::kNotFound);
+}
+
+TEST(TFRecordCheckpointerTest, LoadMissingFallbackCheckpoint) {
+  TFRecordCheckpointer checkpointer(MakeRoot(), "", MakeRoot());
+  ChunkStore chunk_store;
+  std::vector<std::shared_ptr<Table>> tables;
+  EXPECT_EQ(checkpointer.LoadFallbackCheckpoint(&chunk_store, &tables).code(),
+            absl::StatusCode::kNotFound);
+}
+
+TEST(TFRecordCheckpointerTest, LoadFallbackCheckpoint) {
+  ChunkStore chunk_store;
+
+  std::vector<std::shared_ptr<Table>> tables;
+  tables.push_back(MakeUniformTable("uniform"));
+  tables.push_back(MakePrioritizedTable("prioritized_a", 0.5));
+  tables.push_back(MakePrioritizedTable("prioritized_b", 0.9));
+  tables.push_back(MakeSignatureTable("signature"));
+
+  std::vector<ChunkStore::Key> chunk_keys;
+  for (int i = 0; i < 100; i++) {
+    for (int j = 0; j < tables.size(); j++) {
+      chunk_keys.push_back((j + 1) * 1000 + i);
+      auto chunk =
+          chunk_store.Insert(testing::MakeChunkData(chunk_keys.back()));
+      REVERB_EXPECT_OK(tables[j]->InsertOrAssign(
+          {testing::MakePrioritizedItem(i, i, {chunk->data()}), {chunk}}));
+    }
+  }
+
+  for (int i = 0; i < 100; i++) {
+    for (auto& table : tables) {
+      Table::SampledItem sample;
+      REVERB_EXPECT_OK(table->Sample(&sample));
+    }
+  }
+
+  TFRecordCheckpointer first_checkpointer(MakeRoot());
+
+  std::string path;
+  REVERB_ASSERT_OK(first_checkpointer.Save(
+      {tables[0].get(), tables[1].get(), tables[2].get(), tables[3].get()}, 1,
+      &path));
+
+  TFRecordCheckpointer second_checkpointer(MakeRoot(), "", path);
+  ChunkStore loaded_chunk_store;
+  std::vector<std::shared_ptr<Table>> loaded_tables;
+  loaded_tables.push_back(MakeUniformTable("uniform"));
+  loaded_tables.push_back(MakePrioritizedTable("prioritized_a", 0.5));
+  loaded_tables.push_back(MakePrioritizedTable("prioritized_b", 0.9));
+  loaded_tables.push_back(MakeSignatureTable("signature"));
+  REVERB_ASSERT_OK(second_checkpointer.LoadFallbackCheckpoint(
+      &loaded_chunk_store, &loaded_tables));
 }
 
 }  // namespace

@@ -21,6 +21,7 @@
 
 #include "absl/status/status.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/optional.h"
 #include "reverb/cc/checkpointing/interface.h"
 #include "reverb/cc/chunk_store.h"
 #include "reverb/cc/table.h"
@@ -59,9 +60,16 @@ namespace reverb {
 //
 // If `group` is nonempty then the directory containing the checkpoint will be
 // created with `group` as group.
+//
+// The optional class member `fallback_checkpoint_path` can be set to specify
+// a checkpoint to be reloaded when no checkpoints can be found in `root_dir`.
+// In practice, this enables use a checkpoint for previous experiment for
+// initialization.
 class TFRecordCheckpointer : public Checkpointer {
  public:
-  explicit TFRecordCheckpointer(std::string root_dir, std::string group = "");
+  explicit TFRecordCheckpointer(
+      std::string root_dir, std::string group = "",
+      absl::optional<std::string> fallback_checkpoint_path = absl::nullopt);
 
   // Save a new checkpoint for every table in `tables` in sub directory
   // inside `root_dir_`. If the call is successful, the ABSOLUTE path to the
@@ -70,18 +78,30 @@ class TFRecordCheckpointer : public Checkpointer {
   // If `root_path_` does not exist then `Save` attempts to recursively
   // create it before proceeding.
   //
+  // If `fallback_checkpoint_path` is provided and iff no checkpoint is found in
+  // `root_path_`, we attempt to reload the checkpoint with path
+  // `fallback_checkpoint_path`. This way, we are effectively using the fallback
+  // checkpoint as a way to initialise the service with a checkpoint generated
+  // by another experiment.
+  //
   // After a successful save, all but the `keep_latest` most recent checkpoints
   // are deleted.
   absl::Status Save(std::vector<Table*> tables, int keep_latest,
                     std::string* path) override;
 
   // Attempts to load a checkpoint stored within `root_dir_`.
-  absl::Status Load(absl::string_view relative_path, ChunkStore* chunk_store,
+  absl::Status Load(absl::string_view path, ChunkStore* chunk_store,
                     std::vector<std::shared_ptr<Table>>* tables) override;
 
   // Finds the most recent checkpoint within `root_dir_` and calls `Load`.
   absl::Status LoadLatest(ChunkStore* chunk_store,
                           std::vector<std::shared_ptr<Table>>* tables) override;
+
+  // Attempts to load the fallback checkpoint. If no fallback_checkpoint_path
+  // was set or if the no checkpoint found then `NotFoundError` is returned.
+  absl::Status LoadFallbackCheckpoint(
+      ChunkStore* chunk_store,
+      std::vector<std::shared_ptr<Table>>* tables) override;
 
   // Returns a summary string description.
   std::string DebugString() const override;
@@ -93,6 +113,7 @@ class TFRecordCheckpointer : public Checkpointer {
  private:
   const std::string root_dir_;
   const std::string group_;
+  absl::optional<std::string> fallback_checkpoint_path_;
 };
 
 }  // namespace reverb

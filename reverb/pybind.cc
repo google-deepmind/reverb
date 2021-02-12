@@ -735,8 +735,10 @@ PYBIND11_MODULE(libpybind, m) {
 
   m.def(
       "create_default_checkpointer",
-      [](const std::string &name, const std::string &group = "") {
-        auto checkpointer = CreateDefaultCheckpointer(name, group);
+      [](const std::string &name, const std::string &group,
+         absl::optional<std::string> fallback_checkpoint_path) {
+        auto checkpointer = CreateDefaultCheckpointer(
+            name, group, std::move(fallback_checkpoint_path));
         return std::shared_ptr<Checkpointer>(checkpointer.release());
       },
       py::call_guard<py::gil_scoped_release>());

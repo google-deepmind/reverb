@@ -19,13 +19,15 @@
 #include <string>
 
 #include "absl/strings/string_view.h"
+#include "absl/types/optional.h"
 #include "reverb/cc/checkpointing/interface.h"
 
 namespace deepmind {
 namespace reverb {
 
-std::unique_ptr<Checkpointer> CreateDefaultCheckpointer(std::string root_dir,
-                                                        std::string group = "");
+std::unique_ptr<Checkpointer> CreateDefaultCheckpointer(
+    std::string root_dir, std::string group = "",
+    absl::optional<std::string> fallback_checkpoint_path = absl::nullopt);
 
 }  // namespace reverb
 }  // namespace deepmind

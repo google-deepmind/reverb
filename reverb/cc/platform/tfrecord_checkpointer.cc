@@ -141,11 +141,19 @@ inline size_t find_table_index(
 
 }  // namespace
 
-TFRecordCheckpointer::TFRecordCheckpointer(std::string root_dir,
-                                           std::string group)
-    : root_dir_(std::move(root_dir)), group_(std::move(group)) {
-  REVERB_LOG(REVERB_INFO) << "Initializing TFRecordCheckpointer in "
-                          << root_dir_;
+TFRecordCheckpointer::TFRecordCheckpointer(
+    std::string root_dir, std::string group,
+    absl::optional<std::string> fallback_checkpoint_path)
+    : root_dir_(std::move(root_dir)),
+      group_(std::move(group)),
+      fallback_checkpoint_path_(std::move(fallback_checkpoint_path)) {
+  REVERB_LOG(REVERB_INFO) << " Initializing TFRecordCheckpointer in "
+                          << root_dir_
+                          << (fallback_checkpoint_path_.has_value()
+                                  ? absl::StrCat(
+                                        " and fallback directory ",
+                                        fallback_checkpoint_path_.value(), ".")
+                                  : ".");
 }
 
 absl::Status TFRecordCheckpointer::Save(std::vector<Table*> tables,
@@ -216,14 +224,12 @@ absl::Status TFRecordCheckpointer::Save(std::vector<Table*> tables,
 }
 
 absl::Status TFRecordCheckpointer::Load(
-    absl::string_view relative_path, ChunkStore* chunk_store,
+    absl::string_view path, ChunkStore* chunk_store,
     std::vector<std::shared_ptr<Table>>* tables) {
-  const std::string dir_path =
-      tensorflow::io::JoinPath(root_dir_, relative_path);
-  REVERB_LOG(REVERB_INFO) << "Loading checkpoint from " << dir_path;
-  if (!HasDone(dir_path)) {
-    return absl::InvalidArgumentError(
-        absl::StrCat("Load called with invalid checkpoint path: ", dir_path));
+  REVERB_LOG(REVERB_INFO) << "Loading checkpoint from " << std::string(path);
+  if (!HasDone(std::string(path))) {
+    return absl::InvalidArgumentError(absl::StrCat(
+        "Load called with invalid checkpoint path: ", std::string(path)));
   }
   // Insert data first to ensure that all data referenced by the tables
   // exists. Keep the map of chunks around so that none of the chunks are
@@ -232,8 +238,9 @@ absl::Status TFRecordCheckpointer::Load(
       chunk_by_key;
   {
     RecordReaderUniquePtr chunk_reader;
-    REVERB_RETURN_IF_ERROR(OpenReader(
-        tensorflow::io::JoinPath(dir_path, kChunksFileName), &chunk_reader));
+    REVERB_RETURN_IF_ERROR(
+        OpenReader(tensorflow::io::JoinPath(std::string(path), kChunksFileName),
+                   &chunk_reader));
 
     ChunkData chunk_data;
     absl::Status chunk_status;
@@ -266,8 +273,9 @@ absl::Status TFRecordCheckpointer::Load(
   }
 
   RecordReaderUniquePtr table_reader;
-  REVERB_RETURN_IF_ERROR(OpenReader(
-      tensorflow::io::JoinPath(dir_path, kTablesFileName), &table_reader));
+  REVERB_RETURN_IF_ERROR(
+      OpenReader(tensorflow::io::JoinPath(std::string(path), kTablesFileName),
+                 &table_reader));
 
   PriorityTableCheckpoint checkpoint;
   absl::Status table_status;
@@ -375,11 +383,25 @@ absl::Status TFRecordCheckpointer::LoadLatest(
   std::sort(filenames.begin(), filenames.end());
   for (auto it = filenames.rbegin(); it != filenames.rend(); it++) {
     if (HasDone(*it)) {
-      return Load(tensorflow::io::Basename(*it), chunk_store, tables);
+      return Load(
+          tensorflow::io::JoinPath(root_dir_, tensorflow::io::Basename(*it)),
+          chunk_store, tables);
     }
   }
   return absl::NotFoundError(
       absl::StrCat("No checkpoint found in ", root_dir_));
+}
+
+absl::Status TFRecordCheckpointer::LoadFallbackCheckpoint(
+    ChunkStore* chunk_store, std::vector<std::shared_ptr<Table>>* tables) {
+  if (!fallback_checkpoint_path_.has_value()) {
+    return absl::NotFoundError("No fallback checkpoint path provided.");
+  }
+  if (HasDone(fallback_checkpoint_path_.value())) {
+    return Load(fallback_checkpoint_path_.value(), chunk_store, tables);
+  }
+  return absl::NotFoundError(absl::StrCat("No checkpoint found in ",
+                                          fallback_checkpoint_path_.value()));
 }
 
 std::string TFRecordCheckpointer::DebugString() const {
