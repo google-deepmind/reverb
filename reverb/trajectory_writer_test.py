@@ -242,6 +242,11 @@ class TrajectoryColumnTest(absltest.TestCase):
       trajectory_writer.TrajectoryColumn(
           [FakeWeakCellRef(1), FakeWeakCellRef(2)], squeeze=True)
 
+  def test_len(self):
+    for i in range(1, 10):
+      column = trajectory_writer.TrajectoryColumn([FakeWeakCellRef(1)] * i)
+      self.assertLen(column, i)
+
 
 if __name__ == '__main__':
   absltest.main()

@@ -468,6 +468,9 @@ class TrajectoryColumn:
     self._data_references = tuple(data_references)
     self.is_squeezed = squeeze
 
+  def __len__(self) -> int:
+    return len(self._data_references)
+
   def __iter__(self) -> Iterator[pybind.WeakCellRef]:
     return iter(self._data_references)
 
