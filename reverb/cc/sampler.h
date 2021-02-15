@@ -55,7 +55,7 @@ class Sample {
  public:
   Sample(tensorflow::uint64 key, double probability,
          tensorflow::int64 table_size, double priority,
-         std::deque<std::vector<tensorflow::Tensor>> chunks,
+         std::vector<std::vector<tensorflow::Tensor>> column_chunks,
          std::vector<bool> squeeze_columns);
 
   // Returns the next time step from this sample as a flat sequence of tensors.
@@ -95,6 +95,10 @@ class Sample {
   ABSL_MUST_USE_RESULT bool is_composed_of_timesteps() const;
 
  private:
+  // Concatenates content of column `i` into `data[i+4]`, i.e ofset by info
+  // columns.
+  absl::Status UnpackColumns(std::vector<tensorflow::Tensor>* data);
+
   // The key of the replay item this time step was sampled from.
   tensorflow::uint64 key_;
   // The probability of the replay item this time step was sampled from.
@@ -105,14 +109,24 @@ class Sample {
   // Priority of the replay item this time step was sampled from.
   double priority_;
 
-  // Total number of time steps in this sample.
+  // Total number of time steps in this sample. Only set when
+  // `is_timestep_sample()` is true.
   int64_t num_timesteps_;
 
-  // Number of data tensors per time step.
-  int64_t num_data_tensors_;
+  struct ColumnChunk {
+    // Unpacked chunk, and potentially sliced, chunk content.
+    tensorflow::Tensor tensor;
 
-  // A deque of tensor chunks.
-  std::deque<std::vector<tensorflow::Tensor>> chunks_;
+    // Index of the next sub slice to return when emitting timesteps.
+    int offset = 0;
+  };
+
+  // Flat trajectory data. Each column uses a deque so the batched tensor can be
+  // deallocated as soon as all its content has been emitted through
+  // `GetNextTimestep`. If the data is retrieved with `AsBatchedTimesteps` or
+  // `AsTrajectory` then the column chunks are concatenated instead of
+  // subsliced.
+  std::vector<std::deque<ColumnChunk>> columns_;
 
   // Columns where the batch dimension should be emitted. This is only respected
   // by `AsTrajectory`.

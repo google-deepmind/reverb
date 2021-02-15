@@ -77,103 +77,9 @@ tensorflow::Tensor InitializeTensor(T value, int64_t length) {
   return tensor;
 }
 
-// Special of trajectory unpacking which slightly lower memory overhead as
-// chunks can be dropped incrementally instead of after all has been unpacked.
-//
-// TODO(b/177655981): Remove once the general case have been improved.
-absl::Status TimestepTrajectoryAsSample(
-    std::vector<SampleStreamResponse> responses,
-    std::unique_ptr<Sample>* sample) {
-  const auto& info = responses.front().info();
-
-  // Extract all chunks belonging to this sample.
-  std::deque<std::vector<tensorflow::Tensor>> chunks;
-
-  // The chunks are not required to be aligned perfectly with the data so a
-  // part of the first chunk is potentially stripped. The same applies to the
-  // last part of the final chunk.
-  int64_t offset =
-      internal::TimestepTrajectoryOffset(info.item().flat_trajectory());
-  int64_t remaining =
-      internal::TimestepTrajectoryLength(info.item().flat_trajectory());
-
-  for (auto& response : responses) {
-    REVERB_CHECK_GT(remaining, 0);
-
-    std::vector<tensorflow::Tensor> batches;
-    batches.resize(response.data().data().tensors_size());
-
-    int64_t batch_size = -1;
-
-    // Convert each chunk tensor and release the chunk memory afterwards.
-    int64_t insert_index = response.data().data().tensors_size() - 1;
-    while (!response.data().data().tensors().empty()) {
-      tensorflow::Tensor batch;
-
-      {
-        // This ensures we release the response proto after converting the
-        // result to a tensor.
-        auto chunk = absl::WrapUnique(response.mutable_data()
-                                          ->mutable_data()
-                                          ->mutable_tensors()
-                                          ->ReleaseLast());
-        batch = DecompressTensorFromProto(*chunk);
-      }
-
-      if (response.data().delta_encoded()) {
-        batch = DeltaEncode(batch, /*encode=*/false);
-      }
-
-      if (batch_size < 0) {
-        batch_size = batch.dim_size(0);
-      } else {
-        if (batch_size != batch.dim_size(0)) {
-          return absl::InternalError(absl::StrCat(
-              "Chunks of the same response must have identical batch size, but "
-              "first chunk has batch size ",
-              batch_size, " while the current chunk has batch size ",
-              batch.dim_size(0)));
-        }
-      }
-
-      batch =
-          batch.Slice(offset, std::min<int64_t>(offset + remaining, batch_size));
-      if (!batch.IsAligned()) {
-        batch = tensorflow::tensor::DeepCopy(batch);
-      }
-
-      batches[insert_index--] = std::move(batch);
-    }
-
-    chunks.push_back(std::move(batches));
-
-    remaining -= std::min<int64_t>(remaining, batch_size - offset);
-    offset = 0;
-  }
-
-  REVERB_CHECK_EQ(remaining, 0);
-
-  std::vector<bool> squeeze_columns;
-  for (const auto& col : info.item().flat_trajectory().columns()) {
-    squeeze_columns.push_back(col.squeeze());
-  }
-
-  *sample = absl::make_unique<Sample>(
-      info.item().key(), info.probability(), info.table_size(),
-      info.item().priority(), std::move(chunks), std::move(squeeze_columns));
-  return absl::OkStatus();
-}
-
 absl::Status AsSample(std::vector<SampleStreamResponse> responses,
                       std::unique_ptr<Sample>* sample) {
   const auto& info = responses.front().info();
-
-  // TODO(b/177655981): Remove this branch once the general case has been
-  // improved.
-  if (internal::IsTimestepTrajectory(info.item().flat_trajectory())) {
-    return TimestepTrajectoryAsSample(std::move(responses), sample);
-  }
-
   internal::flat_hash_map<uint64_t, std::unique_ptr<ChunkData>> chunks;
   for (auto& response : responses) {
     auto key = response.data().chunk_key();
@@ -181,10 +87,13 @@ absl::Status AsSample(std::vector<SampleStreamResponse> responses,
   }
 
   // Extract all chunks belonging to this sample.
-  std::vector<tensorflow::Tensor> unpacked_columns;
-  for (const auto& column : info.item().flat_trajectory().columns()) {
-    std::vector<tensorflow::Tensor> unpacked_chunks;
-    for (const auto& slice : column.chunk_slices()) {
+  const auto& columns = info.item().flat_trajectory().columns();
+
+  std::vector<std::vector<tensorflow::Tensor>> unpacked_columns(columns.size());
+  std::vector<bool> squeeze_columns(columns.size());
+
+  for (int i = 0; i < columns.size(); i++) {
+    for (const auto& slice : columns[i].chunk_slices()) {
       auto it = chunks.find(slice.chunk_key());
       if (it == chunks.end()) {
         return absl::InternalError(
@@ -192,28 +101,17 @@ absl::Status AsSample(std::vector<SampleStreamResponse> responses,
                          " could not be found when unpacking item ",
                          info.item().key(), "."));
       }
-      unpacked_chunks.emplace_back();
+
+      unpacked_columns[i].emplace_back();
       REVERB_RETURN_IF_ERROR(internal::UnpackChunkColumnAndSlice(
-          *it->second, slice, &unpacked_chunks.back()));
+          *it->second, slice, &unpacked_columns[i].back()));
     }
-
-    // TODO(b/177655596): Avoid this concat when timesteps are emitted.
-    unpacked_columns.emplace_back();
-    REVERB_RETURN_IF_ERROR(FromTensorflowStatus(
-        tensorflow::tensor::Concat(unpacked_chunks, &unpacked_columns.back())));
   }
 
-  std::vector<bool> squeeze_columns;
-  for (const auto& col : info.item().flat_trajectory().columns()) {
-    squeeze_columns.push_back(col.squeeze());
-  }
-
-  *sample =
-      absl::make_unique<Sample>(info.item().key(), info.probability(),
-                                info.table_size(), info.item().priority(),
-                                std::deque<std::vector<tensorflow::Tensor>>(
-                                    {std::move(unpacked_columns)}),
-                                std::move(squeeze_columns));
+  *sample = absl::make_unique<Sample>(info.item().key(), info.probability(),
+                                      info.table_size(), info.item().priority(),
+                                      std::move(unpacked_columns),
+                                      std::move(squeeze_columns));
 
   return absl::OkStatus();
 }
@@ -226,12 +124,11 @@ absl::Status AsSample(const Table::SampledItem& sampled_item,
     chunks[chunk->key()] = chunk;
   }
 
-  std::vector<tensorflow::Tensor> flat_trajectory;
-  flat_trajectory.reserve(sampled_item.item.flat_trajectory().columns_size());
+  std::vector<std::vector<tensorflow::Tensor>> unpacked_columns;
+  unpacked_columns.reserve(sampled_item.item.flat_trajectory().columns_size());
 
   for (const auto& column : sampled_item.item.flat_trajectory().columns()) {
     std::vector<tensorflow::Tensor> unpacked_chunks;
-    unpacked_chunks.reserve(column.chunk_slices_size());
 
     for (const auto& slice : column.chunk_slices()) {
       unpacked_chunks.emplace_back();
@@ -239,9 +136,7 @@ absl::Status AsSample(const Table::SampledItem& sampled_item,
           chunks[slice.chunk_key()]->data(), slice, &unpacked_chunks.back()));
     }
 
-    flat_trajectory.emplace_back();
-    REVERB_RETURN_IF_ERROR(FromTensorflowStatus(
-        tensorflow::tensor::Concat(unpacked_chunks, &flat_trajectory.back())));
+    unpacked_columns.push_back(std::move(unpacked_chunks));
   }
 
   std::vector<bool> squeeze_columns;
@@ -252,8 +147,7 @@ absl::Status AsSample(const Table::SampledItem& sampled_item,
   *sample = absl::make_unique<deepmind::reverb::Sample>(
       sampled_item.item.key(), sampled_item.probability,
       sampled_item.table_size, sampled_item.item.priority(),
-      std::deque<std::vector<tensorflow::Tensor>>({std::move(flat_trajectory)}),
-      std::move(squeeze_columns));
+      std::move(unpacked_columns), std::move(squeeze_columns));
 
   return absl::OkStatus();
 }
@@ -743,25 +637,36 @@ void Sampler::RunWorker(SamplerWorker* worker) {
 
 Sample::Sample(tensorflow::uint64 key, double probability,
                tensorflow::int64 table_size, double priority,
-               std::deque<std::vector<tensorflow::Tensor>> chunks,
+               std::vector<std::vector<tensorflow::Tensor>> column_chunks,
                std::vector<bool> squeeze_columns)
     : key_(key),
       probability_(probability),
       table_size_(table_size),
       priority_(priority),
-      num_timesteps_(0),
-      num_data_tensors_(0),
-      chunks_(std::move(chunks)),
+      num_timesteps_(-1),
       squeeze_columns_(std::move(squeeze_columns)),
-      next_timestep_index_(0),
       next_timestep_called_(false) {
-  REVERB_CHECK(!chunks_.empty()) << "Must provide at least one chunk.";
-  REVERB_CHECK(!chunks_.front().empty())
+  REVERB_CHECK(!column_chunks.empty()) << "Must provide at least one chunk.";
+  REVERB_CHECK(!column_chunks.front().empty())
       << "Chunks must hold at least one tensor.";
 
-  num_data_tensors_ = chunks_.front().size();
-  for (const auto& batches : chunks_) {
-    num_timesteps_ += batches.front().dim_size(0);
+  columns_.reserve(column_chunks.size());
+  for (auto& chunks : column_chunks) {
+    std::deque<ColumnChunk> slices;
+    for (auto& chunk : chunks) {
+      slices.push_back({std::move(chunk), 0});
+    }
+    columns_.push_back(std::move(slices));
+  }
+
+  if (is_composed_of_timesteps()) {
+    num_timesteps_ = 0;
+    for (const auto& column_slice : columns_.front()) {
+      // Note that we can safely assume that the tensor is not a scalar since a
+      // batch dimension is always added when building a chunk. A scalar would
+      // thus be represented as a tensor of shape [1].
+      num_timesteps_ += column_slice.tensor.dim_size(0);
+    }
   }
 }
 
@@ -769,52 +674,53 @@ std::vector<tensorflow::Tensor> Sample::GetNextTimestep() {
   REVERB_CHECK(!is_end_of_sample());
   REVERB_CHECK(is_composed_of_timesteps());
 
+  next_timestep_called_ = true;
+
   // Construct the output tensors.
   std::vector<tensorflow::Tensor> result;
-  result.reserve(num_data_tensors_ + 4);
+  result.reserve(columns_.size() + 4);
   result.push_back(tensorflow::Tensor(key_));
   result.push_back(tensorflow::Tensor(probability_));
   result.push_back(tensorflow::Tensor(table_size_));
   result.push_back(tensorflow::Tensor(priority_));
 
-  for (const auto& t : chunks_.front()) {
-    auto slice = t.SubSlice(next_timestep_index_);
-    if (slice.IsAligned()) {
-      result.push_back(std::move(slice));
-    } else {
-      result.push_back(tensorflow::tensor::DeepCopy(slice));
+  for (auto& col : columns_) {
+    auto slice = col.front().tensor.SubSlice(col.front().offset++);
+    if (!slice.IsAligned()) {
+      slice = tensorflow::tensor::DeepCopy(slice);
+    }
+    result.push_back(std::move(slice));
+
+    if (col.front().offset == col.front().tensor.dim_size(0)) {
+      col.pop_front();
     }
   }
-
-  // Advance the iterator.
-  ++next_timestep_index_;
-  if (next_timestep_index_ == chunks_.front().front().dim_size(0)) {
-    // Go to the next chunk.
-    chunks_.pop_front();
-    next_timestep_index_ = 0;
-  }
-  next_timestep_called_ = true;
 
   return result;
 }
 
-bool Sample::is_end_of_sample() const { return chunks_.empty(); }
+bool Sample::is_end_of_sample() const {
+  return std::all_of(columns_.begin(), columns_.end(),
+                     [](const auto& c) { return c.empty(); });
+}
 
 bool Sample::is_composed_of_timesteps() const {
-  std::vector<int> column_lengths;
-  for (int i = 0; i < chunks_.front().size(); i++) {
-    int length = 0;
-    for (const auto& unpacked_chunk : chunks_) {
+  int prev_column_length = -1;
+  for (const auto& col : columns_) {
+    int column_length = 0;
+    for (const auto& column_slice : col) {
       // Note that we can safely assume that the tensor is not a scalar since a
       // batch dimension is always added when building a chunk. A scalar would
       // thus be represented as a tensor of shape [1].
-      length += unpacked_chunk[i].dim_size(0);
+      column_length += column_slice.tensor.dim_size(0);
     }
-    column_lengths.push_back(length);
-  }
 
-  return std::all_of(column_lengths.begin(), column_lengths.end(),
-                     [&](int a) { return a == column_lengths[0]; });
+    if (prev_column_length != -1 && prev_column_length != column_length) {
+      return false;
+    }
+    prev_column_length = column_length;
+  }
+  return true;
 }
 
 absl::Status Sample::AsBatchedTimesteps(std::vector<tensorflow::Tensor>* data) {
@@ -828,7 +734,7 @@ absl::Status Sample::AsBatchedTimesteps(std::vector<tensorflow::Tensor>* data) {
         "timesteps.");
   }
 
-  std::vector<tensorflow::Tensor> sequences(num_data_tensors_ + 4);
+  std::vector<tensorflow::Tensor> sequences(columns_.size() + 4);
 
   // Initialize the first three items with the key, probability and table size.
   sequences[0] = InitializeTensor(key_, num_timesteps_);
@@ -836,25 +742,8 @@ absl::Status Sample::AsBatchedTimesteps(std::vector<tensorflow::Tensor>* data) {
   sequences[2] = InitializeTensor(table_size_, num_timesteps_);
   sequences[3] = InitializeTensor(priority_, num_timesteps_);
 
-  // Prepare the data for concatenation.
-  // data_tensors[i][j] is the j-th chunk of the i-th data tensor.
-  std::vector<std::vector<tensorflow::Tensor>> data_tensors(num_data_tensors_);
-
-  // Extract all chunks.
-  while (!chunks_.empty()) {
-    auto it_to = data_tensors.begin();
-    for (auto& batch : chunks_.front()) {
-      (it_to++)->push_back(std::move(batch));
-    }
-    chunks_.pop_front();
-  }
-
-  // Concatenate all chunks.
-  int64_t i = 4;
-  for (const auto& chunks : data_tensors) {
-    REVERB_RETURN_IF_ERROR(FromTensorflowStatus(
-        tensorflow::tensor::Concat(chunks, &sequences[i++])));
-  }
+  // Unpack the data columns.
+  REVERB_RETURN_IF_ERROR(UnpackColumns(&sequences));
 
   std::swap(sequences, *data);
 
@@ -866,7 +755,7 @@ absl::Status Sample::AsTrajectory(std::vector<tensorflow::Tensor>* data) {
     return absl::DataLossError(
         "Sample::AsBatchedTimesteps: Some time steps have been lost.");
   }
-  std::vector<tensorflow::Tensor> sequences(num_data_tensors_ + 4);
+  std::vector<tensorflow::Tensor> sequences(columns_.size() + 4);
 
   // Initialize the first four items with the key, probability, table size and
   // priority.
@@ -875,37 +764,8 @@ absl::Status Sample::AsTrajectory(std::vector<tensorflow::Tensor>* data) {
   sequences[2] = tensorflow::Tensor(table_size_);
   sequences[3] = tensorflow::Tensor(priority_);
 
-  // If trajectory cannot be decomposed into timesteps then `chunks_` only has
-  // one item which is the entire (flattened) trajectory. There is therefore no
-  // need to concat tensors in this case and we can simply move the content as
-  // it is to data.
-  if (chunks_.size() == 1) {
-    for (int i = 0; i < chunks_.front().size(); i++) {
-      sequences[i + 4] = std::move(chunks_.front()[i]);
-    }
-    chunks_.pop_front();
-  } else {
-    // Prepare the data for concatenation.
-    // data_tensors[i][j] is the j-th chunk of the i-th data tensor.
-    std::vector<std::vector<tensorflow::Tensor>> data_tensors(
-        num_data_tensors_);
-
-    // Extract all chunks.
-    while (!chunks_.empty()) {
-      auto it_to = data_tensors.begin();
-      for (auto& batch : chunks_.front()) {
-        (it_to++)->push_back(std::move(batch));
-      }
-      chunks_.pop_front();
-    }
-
-    // Concatenate all chunks.
-    int64_t i = 4;
-    for (const auto& chunks : data_tensors) {
-      REVERB_RETURN_IF_ERROR(FromTensorflowStatus(
-          tensorflow::tensor::Concat(chunks, &sequences[i++])));
-    }
-  }
+  // Unpack the data columns.
+  REVERB_RETURN_IF_ERROR(UnpackColumns(&sequences));
 
   // Remove batch dimension from squeezed columns.
   for (int i = 0; i < squeeze_columns_.size(); i++) {
@@ -923,6 +783,30 @@ absl::Status Sample::AsTrajectory(std::vector<tensorflow::Tensor>* data) {
 
   std::swap(sequences, *data);
 
+  return absl::OkStatus();
+}
+
+absl::Status Sample::UnpackColumns(std::vector<tensorflow::Tensor>* data) {
+  REVERB_CHECK_EQ(data->size(), columns_.size() + 4);
+
+  int64_t i = 4;
+  for (const auto& column : columns_) {
+    // If the column is made up of a single batched tensor then there will be no
+    // need for concatenation so we can save ourselves a copy by simply moving
+    // the one (unpacked) chunk into sequences.
+    if (column.size() == 1) {
+      data->at(i++) = std::move(column.front().tensor);
+    } else {
+      std::vector<tensorflow::Tensor> column_tensors;
+      column_tensors.reserve(column.size());
+      for (auto& slice : column) {
+        column_tensors.push_back(std::move(slice.tensor));
+      }
+
+      REVERB_RETURN_IF_ERROR(FromTensorflowStatus(
+          tensorflow::tensor::Concat(column_tensors, &data->at(i++))));
+    }
+  }
   return absl::OkStatus();
 }
 
