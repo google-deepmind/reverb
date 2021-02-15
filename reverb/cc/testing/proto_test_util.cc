@@ -27,16 +27,22 @@ namespace reverb {
 namespace testing {
 
 ChunkData MakeChunkData(uint64_t key) {
-  return MakeChunkData(key, MakeSequenceRange(key * 100, 0, 1));
+  return MakeChunkData(key, MakeSequenceRange(key * 100, 0, 1), 1);
 }
 
 ChunkData MakeChunkData(uint64_t key, SequenceRange range) {
+  return MakeChunkData(key, range, 1);
+}
+
+ChunkData MakeChunkData(uint64_t key, SequenceRange range, int num_tensors) {
   ChunkData chunk;
   chunk.set_chunk_key(key);
   tensorflow::Tensor t(tensorflow::DT_INT32,
                        {range.end() - range.start() + 1, 10});
   t.flat<int32_t>().setConstant(1);
-  CompressTensorAsProto(t, chunk.mutable_data()->add_tensors());
+  for (int i = 0; i < num_tensors; i++) {
+    CompressTensorAsProto(t, chunk.mutable_data()->add_tensors());
+  }
   *chunk.mutable_sequence_range() = std::move(range);
 
   return chunk;

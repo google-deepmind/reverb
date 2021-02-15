@@ -29,6 +29,7 @@ namespace testing {
 
 ChunkData MakeChunkData(uint64_t key);
 ChunkData MakeChunkData(uint64_t key, SequenceRange range);
+ChunkData MakeChunkData(uint64_t key, SequenceRange range, int num_tensors);
 
 SequenceRange MakeSequenceRange(uint64_t episode_id, int32_t start, int32_t end);
 
