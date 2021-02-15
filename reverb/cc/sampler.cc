@@ -86,10 +86,21 @@ absl::Status AsSample(std::vector<SampleStreamResponse> responses,
     chunks[key] = absl::WrapUnique<ChunkData>(response.release_data());
   }
 
+  // Count the number of times each chunk is referenced in the column slices.
+  // This allows us to check if the chunk is needed anymore after every use. If
+  // all the references have been handled then the memory of the chunk can be
+  // freed thus reducing total memory usage.
+  internal::flat_hash_map<uint64_t, int> chunk_ref_count;
+  for (const auto& column : info.item().flat_trajectory().columns()) {
+    for (const auto& slice : column.chunk_slices()) {
+      chunk_ref_count[slice.chunk_key()]++;
+    }
+  }
+
   // Extract all chunks belonging to this sample.
   const auto& columns = info.item().flat_trajectory().columns();
 
-  std::vector<std::vector<tensorflow::Tensor>> unpacked_columns(columns.size());
+  std::vector<std::vector<tensorflow::Tensor>> column_chunks(columns.size());
   std::vector<bool> squeeze_columns(columns.size());
 
   for (int i = 0; i < columns.size(); i++) {
@@ -102,15 +113,21 @@ absl::Status AsSample(std::vector<SampleStreamResponse> responses,
                          info.item().key(), "."));
       }
 
-      unpacked_columns[i].emplace_back();
+      column_chunks[i].emplace_back();
       REVERB_RETURN_IF_ERROR(internal::UnpackChunkColumnAndSlice(
-          *it->second, slice, &unpacked_columns[i].back()));
+          *it->second, slice, &column_chunks[i].back()));
+
+      // If this was the last time the chunk is referenced the we can release
+      // its memory.
+      if (--chunk_ref_count[slice.chunk_key()] == 0) {
+        chunks.erase(it);
+      }
     }
   }
 
   *sample = absl::make_unique<Sample>(info.item().key(), info.probability(),
                                       info.table_size(), info.item().priority(),
-                                      std::move(unpacked_columns),
+                                      std::move(column_chunks),
                                       std::move(squeeze_columns));
 
   return absl::OkStatus();
@@ -124,8 +141,8 @@ absl::Status AsSample(const Table::SampledItem& sampled_item,
     chunks[chunk->key()] = chunk;
   }
 
-  std::vector<std::vector<tensorflow::Tensor>> unpacked_columns;
-  unpacked_columns.reserve(sampled_item.item.flat_trajectory().columns_size());
+  std::vector<std::vector<tensorflow::Tensor>> column_chunks;
+  column_chunks.reserve(sampled_item.item.flat_trajectory().columns_size());
 
   for (const auto& column : sampled_item.item.flat_trajectory().columns()) {
     std::vector<tensorflow::Tensor> unpacked_chunks;
@@ -136,7 +153,7 @@ absl::Status AsSample(const Table::SampledItem& sampled_item,
           chunks[slice.chunk_key()]->data(), slice, &unpacked_chunks.back()));
     }
 
-    unpacked_columns.push_back(std::move(unpacked_chunks));
+    column_chunks.push_back(std::move(unpacked_chunks));
   }
 
   std::vector<bool> squeeze_columns;
@@ -147,7 +164,7 @@ absl::Status AsSample(const Table::SampledItem& sampled_item,
   *sample = absl::make_unique<deepmind::reverb::Sample>(
       sampled_item.item.key(), sampled_item.probability,
       sampled_item.table_size, sampled_item.item.priority(),
-      std::move(unpacked_columns), std::move(squeeze_columns));
+      std::move(column_chunks), std::move(squeeze_columns));
 
   return absl::OkStatus();
 }
