@@ -29,6 +29,7 @@ reverb_pytype_strict_library(
         ":replay_sample",
         ":server",
         ":tf_client",
+        ":timestep_dataset",
         ":trajectory_dataset",
         ":trajectory_writer",
         "//reverb/platform/default:checkpointers",
@@ -153,6 +154,18 @@ reverb_pytype_library(
 )
 
 reverb_pytype_library(
+    name = "timestep_dataset",
+    srcs = ["timestep_dataset.py"],
+    srcs_version = "PY3",
+    strict_deps = True,
+    deps = [
+        ":client",
+        ":replay_sample",
+        "//reverb/cc/ops:gen_timestep_dataset_op",
+    ],
+)
+
+reverb_pytype_library(
     name = "reverb_types",
     srcs = ["reverb_types.py"],
     srcs_version = "PY3",
@@ -234,6 +247,21 @@ reverb_py_test(
         ":rate_limiters",
         ":replay_sample",
         ":server",
+    ],
+)
+
+reverb_py_test(
+    name = "timestep_dataset_test",
+    srcs = ["timestep_dataset_test.py"],
+    python_version = "PY3",
+    deps = [
+        ":client",
+        ":errors",
+        ":item_selectors",
+        ":rate_limiters",
+        ":replay_sample",
+        ":server",
+        ":timestep_dataset",
     ],
 )
 

@@ -43,6 +43,18 @@ reverb_kernel_library(
     ] + reverb_absl_deps(),
 )
 
+reverb_kernel_library(
+    name = "timestep_dataset",
+    srcs = ["timestep_dataset.cc"],
+    deps = [
+        "//reverb/cc:client",
+        "//reverb/cc:errors",
+        "//reverb/cc:sampler",
+        "//reverb/cc/platform:logging",
+        "//reverb/cc/support:tf_util",
+    ] + reverb_absl_deps(),
+)
+
 reverb_gen_op_wrapper_py(
     name = "gen_client_ops",
     out = "gen_client_ops.py",
@@ -59,4 +71,10 @@ reverb_gen_op_wrapper_py(
     name = "gen_trajectory_dataset_op",
     out = "gen_trajectory_dataset_op.py",
     kernel_lib = ":trajectory_dataset",
+)
+
+reverb_gen_op_wrapper_py(
+    name = "gen_timestep_dataset_op",
+    out = "gen_timestep_dataset_op.py",
+    kernel_lib = ":timestep_dataset",
 )
