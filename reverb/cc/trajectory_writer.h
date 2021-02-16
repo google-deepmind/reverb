@@ -93,23 +93,40 @@ class TrajectoryWriter {
       std::vector<absl::optional<std::weak_ptr<CellRef>>>* refs)
       ABSL_LOCKS_EXCLUDED(mu_);
 
+  // Same as `Append` but does not increment the episode step counter after
+  // data has been appended to chunkers. This can be used when items need to
+  // be created before all parts of the step structure is available (e.g learn
+  // from the observation to select the next action in an on policy RL agent).
+  //
+  // One or more `AppendPartial` calls can be chained together as long as the
+  // same column does not appear on more than one call. `Append` must be used to
+  // add the final part of the step. If any column appears multiple times,
+  // either in any of the `AppendPartial` calls or in the final `Append` call,
+  // then `FailedPreconditionError` is returned.
+  //
+  // TODO(b/178085755): Decide how to manage partially invalid data.
+  absl::Status AppendPartial(
+      std::vector<absl::optional<tensorflow::Tensor>> data,
+      std::vector<absl::optional<std::weak_ptr<CellRef>>>* refs)
+      ABSL_LOCKS_EXCLUDED(mu_);
+
   // Defines an item representing the data of `trajectory` and enques it for
   // insertion into `table` where it can be sampled according to `priority`.
   //
   // Before creating the item, `trajectory` is validated. A valid trajectory
   // must only use references to "live" data (i.e not yet expired due to
   // `num_keep_alive_refs`) created through `Append` calls on the same
-  // `TrajectoryWriter` object. Furthermore, all `CellRef`s within each column
-  // need to be compatible with each other. That is, they must have the same
-  // dtype and have compatible shapes. If the trajectory is invalid then
-  // `InvalidArgumentError` is returned.
+  // `TrajectoryWriter` object. Furthermore, all `CellRef`s within each
+  // column need to be compatible with each other. That is, they must have
+  // the same dtype and have compatible shapes. If the trajectory is invalid
+  // then `InvalidArgumentError` is returned.
   //
-  // Note that this method will not block and wait for the IO to complete. This
-  // means that if only `Append` and `CreateItem` are used then the caller will
-  // not be impacted by the rate limiter on the server. Furthermore, the buffer
-  // of pending items (and referenced data) could grow until the process runs
-  // out of memory. The caller must therefore use `Flush` to achieve the
-  // desired level of synchronization.
+  // Note that this method will not block and wait for the IO to complete.
+  // This means that if only `Append` and `CreateItem` are used then the
+  // caller will not be impacted by the rate limiter on the server.
+  // Furthermore, the buffer of pending items (and referenced data) could
+  // grow until the process runs out of memory. The caller must therefore
+  // use `Flush` to achieve the desired level of synchronization.
   absl::Status CreateItem(absl::string_view table, double priority,
                           absl::Span<const TrajectoryColumn> trajectory)
       ABSL_LOCKS_EXCLUDED(mu_);
@@ -159,6 +176,13 @@ class TrajectoryWriter {
     // age of the parent `Chunker`.
     std::vector<std::shared_ptr<CellRef>> refs;
   };
+
+  // See `Append` and `AppendPartial`.
+  absl::Status AppendInternal(
+      std::vector<absl::optional<tensorflow::Tensor>> data,
+      bool increment_episode_step,
+      std::vector<absl::optional<std::weak_ptr<CellRef>>>* refs)
+      ABSL_LOCKS_EXCLUDED(mu_);
 
   // Sends all but the last `ignore_last_num_items` pending items and awaits
   // confirmation. Incomplete chunks referenced by non ignored items are

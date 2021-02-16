@@ -247,6 +247,89 @@ TEST(TrajectoryWriter, AppendAcceptsPartialSteps) {
   EXPECT_FALSE(first_column_only[1].has_value());
 }
 
+TEST(TrajectoryWriter, AppendPartialRejectsMultipleUsesOfSameColumn) {
+  auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
+  EXPECT_CALL(*stub, InsertStreamRaw(_)).WillOnce(Return(new FakeStream()));
+
+  TrajectoryWriter writer(
+      stub, MakeOptions(/*max_chunk_length=*/10, /*num_keep_alive_refs=*/10));
+
+  // Append first column only.
+  StepRef first_column_only;
+  REVERB_ASSERT_OK(
+      writer.AppendPartial(Step({MakeTensor(kIntSpec)}), &first_column_only));
+
+  // Appending the second column only should be fine.
+  StepRef second_column_only;
+  REVERB_ASSERT_OK(writer.AppendPartial(
+      Step({absl::nullopt, MakeTensor(kFloatSpec)}), &second_column_only));
+
+  // Appending the first column again should not be allowed.
+  StepRef first_column_again;
+  auto status =
+      writer.AppendPartial(Step({MakeTensor(kIntSpec)}), &first_column_again);
+  EXPECT_EQ(status.code(), absl::StatusCode::kFailedPrecondition);
+  EXPECT_THAT(std::string(status.message()),
+              ::testing::HasSubstr(
+                  "Append/AppendPartial called with data containing column "
+                  "that was present in previous AppendPartial call."));
+}
+
+TEST(TrajectoryWriter, AppendRejectsColumnsProvidedInPreviousPartialCall) {
+  auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
+  EXPECT_CALL(*stub, InsertStreamRaw(_)).WillOnce(Return(new FakeStream()));
+
+  TrajectoryWriter writer(
+      stub, MakeOptions(/*max_chunk_length=*/10, /*num_keep_alive_refs=*/10));
+
+  // Append first column only.
+  StepRef first_column_only;
+  REVERB_ASSERT_OK(
+      writer.AppendPartial(Step({MakeTensor(kIntSpec)}), &first_column_only));
+
+  // Finalize the step with BOTH columns. That is both the missing column and
+  // the one that was already provided.
+  StepRef both_columns;
+  auto status = writer.Append(
+      Step({MakeTensor(kIntSpec), MakeTensor(kFloatSpec)}), &both_columns);
+  EXPECT_EQ(status.code(), absl::StatusCode::kFailedPrecondition);
+  EXPECT_THAT(std::string(status.message()),
+              ::testing::HasSubstr(
+                  "Append/AppendPartial called with data containing column "
+                  "that was present in previous AppendPartial call."));
+}
+
+TEST(TrajectoryWriter, AppendPartialDoesNotIncrementEpisodeStep) {
+  auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
+  EXPECT_CALL(*stub, InsertStreamRaw(_)).WillOnce(Return(new FakeStream()));
+
+  TrajectoryWriter writer(
+      stub, MakeOptions(/*max_chunk_length=*/10, /*num_keep_alive_refs=*/10));
+
+  // Append first column only and keep the step open.
+  StepRef first_column_only;
+  REVERB_ASSERT_OK(
+      writer.AppendPartial(Step({MakeTensor(kIntSpec)}), &first_column_only));
+
+  // Append to the second column only and close the step.
+  StepRef second_column_only;
+  REVERB_ASSERT_OK(writer.Append(Step({absl::nullopt, MakeTensor(kFloatSpec)}),
+                                 &second_column_only));
+
+  // Since the step was kept open after the first call the second call should
+  // result in the same episode step.
+  EXPECT_EQ(first_column_only[0]->lock()->episode_step(),
+            second_column_only[1]->lock()->episode_step());
+
+  // If we do another call then the episode step should have changed since the
+  // previous step was closed with the second call.
+  StepRef first_column_only_again;
+  REVERB_ASSERT_OK(
+      writer.Append(Step({MakeTensor(kIntSpec)}), &first_column_only_again));
+  EXPECT_EQ(first_column_only[0]->lock()->episode_step() + 1,
+            first_column_only_again[0]->lock()->episode_step());
+}
+
 TEST(TrajectoryWriter, ConfigureChunkerOnExistingColumn) {
   auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
   EXPECT_CALL(*stub, InsertStreamRaw(_)).WillOnce(Return(new FakeStream()));

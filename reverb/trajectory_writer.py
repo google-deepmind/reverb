@@ -67,6 +67,12 @@ class TrajectoryWriter:
     self._column_index_to_flat_structure_index: Mapping[int, int] = {}
     self._path_to_column_config = {}
 
+    # Set when `append` called with `partial_step=True`. Remains set until
+    # `append` called with `partial_step=False`. This is used to control where
+    # new data references are added to the history (i.e whether a new step
+    # should be created).
+    self._last_step_is_open = False
+
   def __enter__(self) -> 'TrajectoryWriter':
     return self
 
@@ -171,7 +177,7 @@ class TrajectoryWriter:
     else:
       self._path_to_column_config[path] = chunker_options
 
-  def append(self, data: Any):
+  def append(self, data: Any, *, partial_step: bool = False):
     """Columnwise append of data leaf nodes to internal buffers.
 
     If `data` includes fields or sub structures which haven't been present in
@@ -186,12 +192,27 @@ class TrajectoryWriter:
     references the same step in the sequence even if `b` was first observed
     after `a` had already been seen.
 
+    It is possible to create a "step" using more than one `append` call by
+    setting the `partial_step` flag. Partial steps can be used when some parts
+    of the step becomes available only as a result of inserting (and learning
+    from) trajectories that include the fields available first (e.g learn from
+    the SARS trajectory to select the next action in an on-policy agent). In the
+    final `append` call of the step, `partial_step` must be set to False.
+    Failing to "close" the partial step will result in error as the same field
+    must NOT be provided more than once in the same step.
+
     Args:
       data: The (possibly nested) structure to make available for new items to
         reference.
+      partial_step: If `True` then the step is not considered "done" with this
+        call. See above for more details. Defaults to `False`.
 
     Returns:
       References to the data structured just like provided `data`.
+
+    Raises:
+      ValueError: If the same column is provided more than once in the same
+        step.
     """
     # Unless it is the first step, check that the structure is the same.
     if self._structure is None:
@@ -221,19 +242,44 @@ class TrajectoryWriter:
     # Use our custom mapping to flatten the expanded structure into columns.
     flat_column_data = self._flatten(expanded_data)
 
+    # If the last step is still open then verify that already populated columns
+    # are None in the new `data`.
+    if self._last_step_is_open:
+      for i, (column, column_data) in enumerate(
+          zip(self._column_history, flat_column_data)):
+        if column_data is None or column.can_set_last:
+          continue
+
+        raise ValueError(
+            f'Field {self._get_path_for_column_index(i)} has already been set '
+            f'in the active step by previous (partial) append call and thus '
+            f'must be omitted or set to None but got: {column_data}')
+
     # Flatten the data and pass it to the C++ writer for column wise append. In
     # all columns where data is provided (i.e not None) will return a reference
     # to the data (`pybind.WeakCellRef`) which is used to define trajectories
     # for `create_item`. The columns which did not receive a value (i.e None)
     # will return None.
-    flat_column_data_references = self._writer.Append(flat_column_data)
+    if partial_step:
+      flat_column_data_references = self._writer.AppendPartial(flat_column_data)
+    else:
+      flat_column_data_references = self._writer.Append(flat_column_data)
 
     # Append references to respective columns. Note that we use the expanded
     # structure in order to populate the columns missing from the data with
     # None.
     for column, data_reference in zip(self._column_history,
                                       flat_column_data_references):
-      column.append(data_reference)
+      # If the last step is still open (i.e `partial_step` was set) then we
+      # populate that step instead of creating a new one.
+      if not self._last_step_is_open:
+        column.append(data_reference)
+      elif data_reference is not None:
+        column.set_last(data_reference)
+
+    # Save the flag so the next `append` call either populates the same step
+    # or begins a new step.
+    self._last_step_is_open = partial_step
 
     # Unpack the column data into the expanded structure.
     expanded_structured_data_references = self._unflatten(
@@ -370,6 +416,10 @@ class TrajectoryWriter:
     ]
     return tree.unflatten_as(self._structure, reordered_flat_data)
 
+  def _get_path_for_column_index(self, column_index):
+    i = self._column_index_to_flat_structure_index[column_index]
+    return tree.flatten_with_path(self._structure)[i][0]
+
   def _update_structure(self, new_structure: Any):
     """Replace the existing structure with a superset of the current one.
 
@@ -433,6 +483,17 @@ class _ColumnHistory:
 
   def reset(self):
     self._data_references.clear()
+
+  def set_last(self, ref: pybind.WeakCellRef):
+    if not self._data_references:
+      raise RuntimeError('set_last called on empty history column')
+    if self._data_references[-1] is not None:
+      raise RuntimeError('set_last called on already set cell')
+    self._data_references[-1] = ref
+
+  @property
+  def can_set_last(self) -> bool:
+    return self._data_references and self._data_references[-1] is None
 
   def __len__(self) -> int:
     return len(self._data_references)

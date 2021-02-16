@@ -179,6 +179,20 @@ TrajectoryWriter::~TrajectoryWriter() {
 absl::Status TrajectoryWriter::Append(
     std::vector<absl::optional<tensorflow::Tensor>> data,
     std::vector<absl::optional<std::weak_ptr<CellRef>>>* refs) {
+  return AppendInternal(std::move(data), /*increment_episode_step=*/true, refs);
+}
+
+absl::Status TrajectoryWriter::AppendPartial(
+    std::vector<absl::optional<tensorflow::Tensor>> data,
+    std::vector<absl::optional<std::weak_ptr<CellRef>>>* refs) {
+  return AppendInternal(std::move(data), /*increment_episode_step=*/false,
+                        refs);
+}
+
+absl::Status TrajectoryWriter::AppendInternal(
+    std::vector<absl::optional<tensorflow::Tensor>> data,
+    bool increment_episode_step,
+    std::vector<absl::optional<std::weak_ptr<CellRef>>>* refs) {
   CellRef::EpisodeInfo episode_info;
   {
     absl::MutexLock lock(&mu_);
@@ -212,18 +226,27 @@ absl::Status TrajectoryWriter::Append(
     }
 
     std::weak_ptr<CellRef> ref;
-    REVERB_RETURN_IF_ERROR(
-        chunkers_[i]->Append(std::move(data[i].value()), episode_info, &ref));
+    auto status =
+        chunkers_[i]->Append(std::move(data[i].value()), episode_info, &ref);
+    if (absl::IsFailedPrecondition(status)) {
+      return absl::FailedPreconditionError(
+          "Append/AppendPartial called with data containing column that was "
+          "present in previous AppendPartial call.");
+    }
+    REVERB_RETURN_IF_ERROR(status);
     refs->push_back(std::move(ref));
   }
 
   absl::MutexLock lock(&mu_);
 
-  // Sanity check that `Append` or `EndEpisode` wasn't called concurrently.
+  // Sanity check that `Append`, `AppendPartial` or `EndEpisode` wasn't called
+  // concurrently.
   REVERB_CHECK_EQ(episode_info.episode_id, episode_id_);
   REVERB_CHECK_EQ(episode_info.step, episode_step_);
 
-  episode_step_++;
+  if (increment_episode_step) {
+    episode_step_++;
+  }
 
   // Wake up stream worker in case it was blocked on items referencing
   // incomplete chunks

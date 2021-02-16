@@ -45,6 +45,8 @@ class TrajectoryWriterTest(parameterized.TestCase):
     self.cpp_writer_mock = mock.Mock()
     self.cpp_writer_mock.Append.side_effect = \
         lambda x: [FakeWeakCellRef(y) if y else None for y in x]
+    self.cpp_writer_mock.AppendPartial.side_effect = \
+        lambda x: [FakeWeakCellRef(y) if y else None for y in x]
 
     self.writer = trajectory_writer.TrajectoryWriter(self.cpp_writer_mock)
 
@@ -106,6 +108,56 @@ class TrajectoryWriterTest(parameterized.TestCase):
     data = {'x': 1, 'y': 2}
     self.writer.append(data)
     self.cpp_writer_mock.Append.assert_called_with(tree.flatten(data))
+
+  def test_partial_append_appends_to_the_same_step(self):
+    # Create a first step and keep it open.
+    self.writer.append({'x': 1, 'z': 2}, partial_step=True)
+    first = tree.map_structure(extract_data, self.writer.history)
+    self.assertDictEqual(first, {'x': [1], 'z': [2]})
+
+    # Append to the same step and keep it open.
+    self.writer.append({'y': 4}, partial_step=True)
+    second = tree.map_structure(extract_data, self.writer.history)
+    self.assertDictEqual(second, {
+        'x': [1],
+        'z': [2],
+        'y': [4],
+    })
+
+    # Append to the same step and close it.
+    self.writer.append({'w': 5})
+    third = tree.map_structure(extract_data, self.writer.history)
+    self.assertDictEqual(third, {
+        'x': [1],
+        'z': [2],
+        'y': [4],
+        'w': [5],
+    })
+
+    # Append to a new step.
+    self.writer.append({'w': 6})
+    forth = tree.map_structure(extract_data, self.writer.history)
+    self.assertDictEqual(forth, {
+        'x': [1, None],
+        'z': [2, None],
+        'y': [4, None],
+        'w': [5, 6],
+    })
+
+  def test_columns_must_not_appear_more_than_once_in_the_same_step(self):
+    # Create a first step and keep it open.
+    self.writer.append({'x': 1, 'z': 2}, partial_step=True)
+
+    # Add another unseen column alongside an existing column with a None value.
+    self.writer.append({'x': None, 'y': 3}, partial_step=True)
+
+    # Provide a value for a field that has already been set in this step.
+    with self.assertRaisesRegex(
+        ValueError,
+        r'Field \(\'x\',\) has already been set in the active step by previous '
+        r'\(partial\) append call and thus must be omitted or set to None but '
+        r'got: 4'):
+      self.writer.append({'x': 4})
 
   def test_create_item_checks_type_of_leaves(self):
     first = self.writer.append({'x': 3, 'y': 2})
@@ -256,7 +308,6 @@ class TrajectoryColumnTest(absltest.TestCase):
     for i in range(1, 10):
       column = trajectory_writer.TrajectoryColumn([FakeWeakCellRef(1)] * i)
       self.assertLen(column, i)
-
 
 if __name__ == '__main__':
   absltest.main()

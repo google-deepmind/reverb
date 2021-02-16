@@ -831,6 +831,26 @@ PYBIND11_MODULE(libpybind, m) {
             return weak_refs;
           })
       .def(
+          "AppendPartial",
+          [](TrajectoryWriter *writer,
+             std::vector<absl::optional<tensorflow::Tensor>> data) {
+            std::vector<absl::optional<std::weak_ptr<CellRef>>> refs;
+            MaybeRaiseFromStatus(writer->AppendPartial(std::move(data), &refs));
+
+            std::vector<absl::optional<std::shared_ptr<WeakCellRef>>> weak_refs(
+                refs.size());
+            for (int i = 0; i < refs.size(); i++) {
+              if (refs[i].has_value()) {
+                weak_refs[i] =
+                    std::make_shared<WeakCellRef>(std::move(refs[i].value()));
+              } else {
+                weak_refs[i] = absl::nullopt;
+              }
+            }
+
+            return weak_refs;
+          })
+      .def(
           "CreateItem",
           [](TrajectoryWriter *writer, const std::string &table,
              double priority,
