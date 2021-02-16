@@ -90,16 +90,19 @@ tensorflow::Tensor MakeRandomTensor(
 
 std::shared_ptr<Chunker> MakeChunker(internal::TensorSpec spec,
                                      int max_chunk_length,
-                                     int num_keep_alive_refs) {
-  return std::make_shared<Chunker>(std::move(spec),
-                                   std::make_shared<ConstantChunkerOptions>(
-                                       max_chunk_length, num_keep_alive_refs));
+                                     int num_keep_alive_refs,
+                                     bool delta_encode = false) {
+  return std::make_shared<Chunker>(
+      std::move(spec),
+      std::make_shared<ConstantChunkerOptions>(
+          max_chunk_length, num_keep_alive_refs, delta_encode));
 }
 
 class MockChunkerOptions : public ChunkerOptions {
  public:
   MOCK_METHOD(int, GetMaxChunkLength, (), (const override));
   MOCK_METHOD(int, GetNumKeepAliveRefs, (), (const override));
+  MOCK_METHOD(bool, GetDeltaEncode, (), (const override));
   MOCK_METHOD(void, OnItemFinalized,
               (const PrioritizedItem& item,
                absl::Span<const std::shared_ptr<CellRef>> refs),
@@ -140,32 +143,35 @@ TEST(CellRef, GetDataFromChunkerBuffer) {
 }
 
 TEST(CellRef, GetDataFromChunk) {
-  internal::TensorSpec spec = {"0", tensorflow::DT_FLOAT, {3, 3}};
-  auto chunker = MakeChunker(spec,
-                             /*max_chunk_length=*/2,
-                             /*num_keep_alive_refs=*/2);
+  for (bool delta_encode : {true, false}) {
+    internal::TensorSpec spec = {"0", tensorflow::DT_FLOAT, {3, 3}};
+    auto chunker =
+        MakeChunker(spec,
+                    /*max_chunk_length=*/2,
+                    /*num_keep_alive_refs=*/2, /*delta_encode=*/delta_encode);
 
-  // Take two steps to finalize the chunk.
-  std::weak_ptr<CellRef> first;
-  auto first_want = MakeConstantTensor<tensorflow::DT_FLOAT>({3, 3}, 1);
-  REVERB_ASSERT_OK(chunker->Append(first_want, {1, 0}, &first));
+    // Take two steps to finalize the chunk.
+    std::weak_ptr<CellRef> first;
+    auto first_want = MakeConstantTensor<tensorflow::DT_FLOAT>({3, 3}, 1);
+    REVERB_ASSERT_OK(chunker->Append(first_want, {1, 0}, &first));
 
-  std::weak_ptr<CellRef> second;
-  auto second_want = MakeConstantTensor<tensorflow::DT_FLOAT>({3, 3}, 2);
-  REVERB_ASSERT_OK(chunker->Append(second_want, {1, 1}, &second));
+    std::weak_ptr<CellRef> second;
+    auto second_want = MakeConstantTensor<tensorflow::DT_FLOAT>({3, 3}, 2);
+    REVERB_ASSERT_OK(chunker->Append(second_want, {1, 1}, &second));
 
-  // Both steps should be finalized.
-  EXPECT_TRUE(first.lock()->IsReady());
-  EXPECT_TRUE(second.lock()->IsReady());
+    // Both steps should be finalized.
+    EXPECT_TRUE(first.lock()->IsReady());
+    EXPECT_TRUE(second.lock()->IsReady());
 
-  // Check that the data is correct when reading it back from the chunk.
-  tensorflow::Tensor first_got;
-  REVERB_ASSERT_OK(first.lock()->GetData(&first_got));
-  test::ExpectTensorEqual<float>(first_got, first_want);
+    // Check that the data is correct when reading it back from the chunk.
+    tensorflow::Tensor first_got;
+    REVERB_ASSERT_OK(first.lock()->GetData(&first_got));
+    test::ExpectTensorEqual<float>(first_got, first_want);
 
-  tensorflow::Tensor second_got;
-  REVERB_ASSERT_OK(second.lock()->GetData(&second_got));
-  test::ExpectTensorEqual<float>(second_got, second_want);
+    tensorflow::Tensor second_got;
+    REVERB_ASSERT_OK(second.lock()->GetData(&second_got));
+    test::ExpectTensorEqual<float>(second_got, second_want);
+  }
 }
 
 TEST(Chunker, AppendValidatesSpecDtype) {
@@ -618,6 +624,18 @@ TEST(Chunker, ApplyConfigRejectsInvalidOptions) {
     EXPECT_EQ(chunker->ApplyConfig(options).code(),
               absl::StatusCode::kInvalidArgument);
   }
+}
+
+TEST(Chunker, DeltaEncodeIsRespected) {
+  auto chunker = MakeChunker(kIntSpec, /*max_chunk_length=*/2,
+                             /*num_keep_alive_refs=*/2,
+                             /*delta_encode=*/true);
+
+  std::weak_ptr<CellRef> step;
+  REVERB_ASSERT_OK(chunker->Append(MakeTensor(kIntSpec),
+                                   {/*episode_id=*/1, /*step=*/0}, &step));
+  REVERB_ASSERT_OK(chunker->Flush());
+  EXPECT_TRUE(step.lock()->GetChunk()->delta_encoded());
 }
 
 TEST(ValidateChunkerOptions, Valid) {

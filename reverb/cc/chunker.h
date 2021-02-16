@@ -197,16 +197,21 @@ class ChunkerOptions {
   // can no longer be referenced by new trajectories.
   virtual int GetNumKeepAliveRefs() const = 0;
 
-  // Called by parent `Chunker` once an item is ready to be sent to the server.
+  // Get current recommendation of whether delta encoding should be used.
+  virtual bool GetDeltaEncode() const = 0;
+
+  // Called by parent `Chunker` once an item is ready to be sent to the
+  // server.
   //
-  // Implementations can extract performance features from these calls and use
-  // it for to select the responses of future `GetMaxChunkLength` and
+  // Implementations can extract performance features from these calls and
+  // use it for to select the responses of future `GetMaxChunkLength` and
   // `GetNumKeepAliveRefs` calls.
   //
   // `item` is the table item scheduled for insertion. The `flat_trajectory`
-  //   field in particular is likely to be of interest for selecting good chunk
-  //   lengths.
-  // `refs` are the `CellRef` created by the parent `Chunker` and referenced by
+  //   field in particular is likely to be of interest for selecting good
+  //   chunk lengths.
+  // `refs` are the `CellRef` created by the parent `Chunker` and referenced
+  // by
   //   `item`.
   //
   virtual void OnItemFinalized(
@@ -224,11 +229,14 @@ class ChunkerOptions {
 // `OnItemFinalized` is a noop.
 class ConstantChunkerOptions : public ChunkerOptions {
  public:
-  ConstantChunkerOptions(int max_chunk_length, int num_keep_alive_refs);
+  ConstantChunkerOptions(int max_chunk_length, int num_keep_alive_refs,
+                         bool delta_encode = false);
 
   int GetMaxChunkLength() const override;
 
   int GetNumKeepAliveRefs() const override;
+
+  bool GetDeltaEncode() const override;
 
   void OnItemFinalized(
       const PrioritizedItem& item,
@@ -239,6 +247,7 @@ class ConstantChunkerOptions : public ChunkerOptions {
  private:
   int max_chunk_length_;
   int num_keep_alive_refs_;
+  bool delta_encode_;
 };
 
 // Automatically tunes the `max_chunk_length` value within the range [1,
@@ -284,8 +293,10 @@ class AutoTunedChunkerOptions : public ChunkerOptions {
   // score is ignored and the content of the buffers dropped.
   static constexpr auto kMaxChunkLengthError = 0.25;
 
+  // TODO(b/180278134): Remove delta_encode argument once it is auto selected.
   explicit AutoTunedChunkerOptions(int num_keep_alive_ref,
-                                   double throughput_weight = 1.0);
+                                   double throughput_weight = 1.0,
+                                   bool delta_encode = false);
 
   // Returns the recommendation of the maximum chunk length.
   int GetMaxChunkLength() const override;
@@ -293,8 +304,12 @@ class AutoTunedChunkerOptions : public ChunkerOptions {
   // Returns the (constant) size of the reference buffer.
   int GetNumKeepAliveRefs() const override;
 
-  // Calculates performance statistics for the item and the chunks it reference
-  // and uses thse to (potentially) update the result of `GetMaxChunkLength`.
+  // Returns the (constant) delta encoding setting.
+  bool GetDeltaEncode() const override;
+
+  // Calculates performance statistics for the item and the chunks it
+  // reference and uses thse to (potentially) update the result of
+  // `GetMaxChunkLength`.
   void OnItemFinalized(
       const PrioritizedItem& item,
       absl::Span<const std::shared_ptr<CellRef>> refs) override;
@@ -319,6 +334,9 @@ class AutoTunedChunkerOptions : public ChunkerOptions {
 
   // The maximum number of CellRef to keep alive. This value is NOT tuned.
   int num_keep_alive_refs_;
+
+  // Whethr delta encoding should be used. This value is NOT tuned.
+  bool delta_encode_;
 
   // Weight to multiply the score contribution from `items_` with. A higher
   // value results in more emphasise on the amount of data sent per item (i.e

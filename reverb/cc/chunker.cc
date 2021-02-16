@@ -190,6 +190,12 @@ absl::Status Chunker::FlushLocked() {
   tensorflow::Tensor batched;
   REVERB_RETURN_IF_ERROR(
       FromTensorflowStatus(tensorflow::tensor::Concat(buffer_, &batched)));
+
+  if (options_->GetDeltaEncode()) {
+    batched = DeltaEncode(batched, /*encode=*/true);
+    chunk.set_delta_encoded(true);
+  }
+
   CompressTensorAsProto(batched, chunk.mutable_data()->add_tensors());
 
   // Set the sequence range of the chunk.
@@ -335,9 +341,11 @@ absl::Status ValidateChunkerOptions(const ChunkerOptions* options) {
 }
 
 ConstantChunkerOptions::ConstantChunkerOptions(int max_chunk_length,
-                                               int num_keep_alive_refs)
+                                               int num_keep_alive_refs,
+                                               bool delta_encode)
     : max_chunk_length_(max_chunk_length),
-      num_keep_alive_refs_(num_keep_alive_refs) {}
+      num_keep_alive_refs_(num_keep_alive_refs),
+      delta_encode_(delta_encode) {}
 
 int ConstantChunkerOptions::GetMaxChunkLength() const {
   return max_chunk_length_;
@@ -346,6 +354,8 @@ int ConstantChunkerOptions::GetMaxChunkLength() const {
 int ConstantChunkerOptions::GetNumKeepAliveRefs() const {
   return num_keep_alive_refs_;
 }
+
+bool ConstantChunkerOptions::GetDeltaEncode() const { return delta_encode_; }
 
 void ConstantChunkerOptions::OnItemFinalized(
     const PrioritizedItem& item,
@@ -357,8 +367,10 @@ std::shared_ptr<ChunkerOptions> ConstantChunkerOptions::Clone() const {
 }
 
 AutoTunedChunkerOptions::AutoTunedChunkerOptions(int num_keep_alive_refs,
-                                                 double throughput_weight)
+                                                 double throughput_weight,
+                                                 bool delta_encode)
     : num_keep_alive_refs_(num_keep_alive_refs),
+      delta_encode_(delta_encode),
       throughput_weight_(throughput_weight),
       max_chunk_length_(1),
       prev_score_(Score{-1, -1}) {}
@@ -371,6 +383,8 @@ int AutoTunedChunkerOptions::GetMaxChunkLength() const {
 int AutoTunedChunkerOptions::GetNumKeepAliveRefs() const {
   return num_keep_alive_refs_;
 }
+
+bool AutoTunedChunkerOptions::GetDeltaEncode() const { return delta_encode_; }
 
 void AutoTunedChunkerOptions::PushItem(
     absl::Span<const std::shared_ptr<CellRef>> refs) {
