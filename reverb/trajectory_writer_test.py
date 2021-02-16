@@ -73,12 +73,22 @@ class TrajectoryWriterTest(parameterized.TestCase):
         'y': [None, 4],
     })
 
-    self.writer.append({'y': 5})
+    self.writer.append({'w': 5})
     third = tree.map_structure(extract_data, self.writer.history)
     self.assertDictEqual(third, {
         'x': [1, None, None],
         'z': [2, 3, None],
-        'y': [None, 4, 5],
+        'y': [None, 4, None],
+        'w': [None, None, 5],
+    })
+
+    self.writer.append({'x': 6, 'w': 7})
+    forth = tree.map_structure(extract_data, self.writer.history)
+    self.assertDictEqual(forth, {
+        'x': [1, None, None, 6],
+        'z': [2, 3, None, None],
+        'y': [None, 4, None, None],
+        'w': [None, None, 5, 7],
     })
 
   def test_append_returns_same_structure_as_data(self):

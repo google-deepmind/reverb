@@ -118,11 +118,7 @@ class TrajectoryWriter:
       raise RuntimeError(
           'history cannot be accessed before `append` is called at least once.')
 
-    reordered_flat_history = [
-        self._column_history[self._column_index_to_flat_structure_index[i]]
-        for i in range(len(self._column_history))
-    ]
-    return tree.unflatten_as(self._structure, reordered_flat_history)
+    return self._unflatten(self._column_history)
 
   @property
   def episode_steps(self):
@@ -410,7 +406,7 @@ class TrajectoryWriter:
     # Recalculate the reverse mapping, i.e column index to index within the
     # flatten structure.
     self._column_index_to_flat_structure_index = {
-        self._path_to_column_index[path]: i
+        i: self._path_to_column_index[path]
         for i, (path, _) in enumerate(tree.flatten_with_path(new_structure))
     }
 
