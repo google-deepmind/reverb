@@ -23,6 +23,7 @@ from absl.testing import parameterized
 import numpy as np
 from reverb import client as client_lib
 from reverb import pybind
+from reverb import server as server_lib
 from reverb import trajectory_writer
 import tree
 
@@ -261,13 +262,23 @@ class TrajectoryWriterTest(parameterized.TestCase):
 
 class TrajectoryColumnTest(absltest.TestCase):
 
+  @classmethod
+  def setUpClass(cls):
+    super().setUpClass()
+    cls._server = server_lib.Server([server_lib.Table.queue('queue', 100)])
+
+  def setUp(self):
+    super().setUp()
+    self.client = client_lib.Client(f'localhost:{self._server.port}')
+
+  @classmethod
+  def tearDownClass(cls):
+    super().tearDownClass()
+    cls._server.stop()
+
   def test_numpy(self):
-    # No data will ever be sent to the server so it doesn't matter that we use
-    # an invalid address.
-    client = client_lib.Client('localhost:1234')
-    writer = client._trajectory_writer(  # pylint: disable=protected-access
-        num_keep_alive_refs=10,
-        get_signature_timeout_ms=None)
+    writer = self.client._trajectory_writer(  # pylint: disable=protected-access
+        num_keep_alive_refs=10)
 
     for i in range(10):
       writer.append({'a': i, 'b': np.ones([3, 3], np.float) * i})
@@ -280,12 +291,8 @@ class TrajectoryColumnTest(absltest.TestCase):
           np.stack([np.ones([3, 3], np.float) * x for x in range(i + 1)]))
 
   def test_numpy_squeeze(self):
-    # No data will ever be sent to the server so it doesn't matter that we use
-    # an invalid address.
-    client = client_lib.Client('localhost:1234')
-    writer = client._trajectory_writer(  # pylint: disable=protected-access
-        num_keep_alive_refs=10,
-        get_signature_timeout_ms=None)
+    writer = self.client._trajectory_writer(  # pylint: disable=protected-access
+        num_keep_alive_refs=10)
 
     for i in range(10):
       writer.append({'a': i})

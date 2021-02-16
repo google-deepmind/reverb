@@ -305,6 +305,7 @@ reverb_py_test(
     deps = [
         ":client",
         ":pybind",
+        ":server",
         ":trajectory_writer",
     ],
 )
