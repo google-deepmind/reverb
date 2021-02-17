@@ -290,10 +290,10 @@ class ClientTest(absltest.TestCase):
 
   def test_validates_trajectory_writer_config(self):
     with self.assertRaises(ValueError):
-      self.client._trajectory_writer(0)
+      self.client.trajectory_writer(0)
 
     with self.assertRaises(ValueError):
-      self.client._trajectory_writer(-1)
+      self.client.trajectory_writer(-1)
 
 
 if __name__ == '__main__':

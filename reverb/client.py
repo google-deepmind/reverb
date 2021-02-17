@@ -536,10 +536,10 @@ class Client:
     """
     return self._client.Checkpoint()
 
-  def _trajectory_writer(self,
-                         num_keep_alive_refs: int,
-                         *,
-                         get_signature_timeout_ms: Optional[int] = 3000):
+  def trajectory_writer(self,
+                        num_keep_alive_refs: int,
+                        *,
+                        get_signature_timeout_ms: Optional[int] = 3000):
     """Constructs a new `TrajectoryWriter`.
 
     Note: The documentation is minimal as this is just a draft proposal to give
@@ -547,8 +547,6 @@ class Client:
 
     Note: The chunk length is auto tuned by default. Use
       `TrajectoryWriter.configure` to override this behaviour.
-
-    TODO(b/177308010): Make method public once API is stable.
 
     TODO(b/179978457): Add documentation and examples.
 

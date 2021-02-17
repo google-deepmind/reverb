@@ -71,7 +71,7 @@ class TrajectoryDatasetTest(tf.test.TestCase, parameterized.TestCase):
     cls._server.stop()
 
   def _populate_replay(self):
-    with self._client._trajectory_writer(1) as writer:  # pylint: disable=protected-access
+    with self._client.trajectory_writer(1) as writer:
       for _ in range(10):
         writer.append([np.ones([3, 3], np.float32), 3])
         writer.create_item(TABLE, 1.0, {
@@ -194,7 +194,7 @@ class TrajectoryDatasetTest(tf.test.TestCase, parameterized.TestCase):
             data=SHAPES))
 
   def test_sample_variable_length_trajectory(self):
-    with self._client._trajectory_writer(10) as writer:  # pylint: disable=protected-access
+    with self._client.trajectory_writer(10) as writer:
       for i in range(10):
         writer.append([np.ones([3, 3], np.int32) * i])
         writer.create_item(TABLE, 1.0, {

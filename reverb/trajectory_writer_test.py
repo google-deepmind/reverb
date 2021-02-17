@@ -277,8 +277,7 @@ class TrajectoryColumnTest(absltest.TestCase):
     cls._server.stop()
 
   def test_numpy(self):
-    writer = self.client._trajectory_writer(  # pylint: disable=protected-access
-        num_keep_alive_refs=10)
+    writer = self.client.trajectory_writer(num_keep_alive_refs=10)
 
     for i in range(10):
       writer.append({'a': i, 'b': np.ones([3, 3], np.float) * i})
@@ -291,8 +290,7 @@ class TrajectoryColumnTest(absltest.TestCase):
           np.stack([np.ones([3, 3], np.float) * x for x in range(i + 1)]))
 
   def test_numpy_squeeze(self):
-    writer = self.client._trajectory_writer(  # pylint: disable=protected-access
-        num_keep_alive_refs=10)
+    writer = self.client.trajectory_writer(num_keep_alive_refs=10)
 
     for i in range(10):
       writer.append({'a': i})
