@@ -52,9 +52,13 @@ class FakeInsertStream
     : public grpc::ServerReaderWriterInterface<InsertStreamResponse,
                                                InsertStreamRequest> {
  public:
-  void AddChunk(int64_t key) {
+  void AddChunk(uint64_t key) { AddChunks({key}); }
+
+  void AddChunks(const std::vector<uint64_t>& keys) {
     InsertStreamRequest request;
-    request.mutable_chunk()->set_chunk_key(key);
+    for (uint64_t key : keys) {
+      request.add_chunks()->set_chunk_key(key);
+    }
     read_buffer_.push_back(std::move(request));
   }
 
@@ -189,8 +193,7 @@ TEST(ReverbServiceImplTest, SampleAfterInsertWorks) {
   std::unique_ptr<ReverbServiceImpl> service = MakeService(10);
 
   FakeInsertStream stream;
-  stream.AddChunk(1);
-  stream.AddChunk(2);
+  stream.AddChunks({1, 2});
   stream.AddChunk(3);
   PrioritizedItem item = stream.AddItem("dist", {2, 3});
   ASSERT_TRUE(service->InsertStreamInternal(nullptr, &stream).ok());
@@ -236,6 +239,16 @@ TEST(ReverbServiceImplTest, InsertSameChunkTwiceWorks) {
   FakeInsertStream stream;
   stream.AddChunk(1);
   stream.AddChunk(1);
+  REVERB_EXPECT_OK(service->InsertStreamInternal(&context, &stream));
+}
+
+TEST(ReverbServiceImplTest, InsertSameChunkInMultiChunkMessageWorks) {
+  std::unique_ptr<ReverbServiceImpl> service = MakeService(10);
+  grpc::ServerContext context;
+
+  FakeInsertStream stream;
+  stream.AddChunk(1);
+  stream.AddChunks({1, 2});
   REVERB_EXPECT_OK(service->InsertStreamInternal(&context, &stream));
 }
 

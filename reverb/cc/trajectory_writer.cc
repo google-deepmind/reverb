@@ -70,15 +70,48 @@ std::vector<FlatTrajectory::ChunkSlice> MergeAdjacent(
   return slices;
 }
 
-bool SendChunk(grpc::ClientReaderWriterInterface<InsertStreamRequest,
-                                                 InsertStreamResponse>* stream,
-               const CellRef& ref) {
-  REVERB_CHECK(ref.IsReady());
-
+bool SendNotAlreadySentChunks(
+    grpc::ClientReaderWriterInterface<InsertStreamRequest,
+                                      InsertStreamResponse>* stream,
+    internal::flat_hash_set<uint64_t>* streamed_chunk_keys,
+    absl::Span<const std::shared_ptr<CellRef>> refs) {
   InsertStreamRequest request;
-  request.set_allocated_chunk(const_cast<ChunkData*>(ref.GetChunk().get()));
-  auto release_chunk =
-      internal::MakeCleanup([&request] { request.release_chunk(); });
+  auto release_chunk = internal::MakeCleanup([&request] {
+    while (!request.chunks().empty()) {
+      request.mutable_chunks()->ReleaseLast();
+    }
+  });
+
+  // Send referenced chunks which haven't already been sent.
+  for (const auto& ref : refs) {
+    if (!ref->IsReady() || streamed_chunk_keys->contains(ref->chunk_key())) {
+      continue;
+    }
+
+    request.mutable_chunks()->AddAllocated(
+        const_cast<ChunkData*>(ref->GetChunk().get()));
+    streamed_chunk_keys->insert(ref->chunk_key());
+
+    // If the message has grown beyond the cutoff point then we send it.
+    if (request.ByteSizeLong() >= TrajectoryWriter::kMaxRequestSizeBytes) {
+      grpc::WriteOptions options;
+      options.set_no_compression();
+      if (!stream->Write(request, options)) {
+        return false;
+      }
+
+      // There (might) still be chunks which can be transmitted so clear the
+      // request and continue with the remaining references.
+      while (!request.chunks().empty()) {
+        request.mutable_chunks()->ReleaseLast();
+      }
+    }
+  }
+
+  // If none of the unsent chunks are ready yet then there is nothing we can do.
+  if (request.chunks().empty()) {
+    return true;
+  }
 
   grpc::WriteOptions options;
   options.set_no_compression();
@@ -480,15 +513,11 @@ absl::Status TrajectoryWriter::RunStreamWorker() {
       return FromGrpcStatus(stream->Finish());
     }
 
-    // Send referenced chunks which haven't already been sent.
-    for (const auto& ref : item_and_refs.refs) {
-      if (!ref->IsReady() || streamed_chunk_keys.contains(ref->chunk_key())) {
-        continue;
-      }
-      if (!SendChunk(stream.get(), *ref)) {
-        return FromGrpcStatus(stream->Finish());
-      }
-      streamed_chunk_keys.insert(ref->chunk_key());
+    // Send referenced chunks which haven't already been sent. This call also
+    // inserts the new chunk keys into `streamed_chunk_keys`.
+    if (!SendNotAlreadySentChunks(stream.get(), &streamed_chunk_keys,
+                                  item_and_refs.refs)) {
+      return FromGrpcStatus(stream->Finish());
     }
 
     {

@@ -48,6 +48,11 @@ class TrajectoryColumn;
 // TODO(b/178096736): Write high level API documentation with examples.
 class TrajectoryWriter {
  public:
+  // Multiple `ChunkData` can be sent with the same `InsertStreamRequest`. If
+  // the size of the message exceeds this value then the request is sent and the
+  // remaining chunks are sent with other messages.
+  static constexpr int64_t kMaxRequestSizeBytes = 40 * 1024 * 1024;  // 40MB.
+
   struct Options {
     std::shared_ptr<ChunkerOptions> chunker_options;
 

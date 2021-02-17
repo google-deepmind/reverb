@@ -470,15 +470,15 @@ bool Writer::WritePendingData() {
   }
 
   std::vector<uint64_t> keep_chunk_keys;
-  for (const auto& chunk : chunks_) {
+  for (auto& chunk : chunks_) {
     if (item_chunk_keys.contains(chunk.chunk_key()) &&
         !streamed_chunk_keys_.contains(chunk.chunk_key())) {
       InsertStreamRequest request;
-      request.set_allocated_chunk(const_cast<ChunkData*>(&chunk));
+      request.mutable_chunks()->AddAllocated(&chunk);
       grpc::WriteOptions options;
       options.set_no_compression();
       bool ok = stream_->Write(request, options);
-      request.release_chunk();
+      request.mutable_chunks()->ReleaseLast();
       if (!ok) return false;
       streamed_chunk_keys_.insert(chunk.chunk_key());
     }

@@ -92,7 +92,7 @@ tensorflow::StructuredValue MakeBoundedTensorSpecSignature(
   return signature;
 }
 
-MATCHER(IsChunk, "") { return arg.has_chunk(); }
+MATCHER(IsChunk, "") { return arg.chunks_size() == 1; }
 
 MATCHER_P4(IsItemWithRangeAndPriorityAndTable, offset, length, priority, table,
            "") {
@@ -285,8 +285,8 @@ TEST(WriterTest, OnlySendsChunksWhichAreUsedByItems) {
               IsItemWithRangeAndPriorityAndTable(1, 3, 1.0, "dist"));
   EXPECT_THAT(
       internal::GetChunkKeys(requests[2].item().item().flat_trajectory()),
-      ElementsAre(requests[0].chunk().chunk_key(),
-                  requests[1].chunk().chunk_key()));
+      ElementsAre(requests[0].chunks(0).chunk_key(),
+                  requests[1].chunks(0).chunk_key()));
 }
 
 TEST(WriterTest, DoesNotSendAlreadySentChunks) {
@@ -301,7 +301,7 @@ TEST(WriterTest, DoesNotSendAlreadySentChunks) {
   ASSERT_THAT(requests, SizeIs(2));
 
   EXPECT_THAT(requests[0], IsChunk());
-  auto first_chunk_key = requests[0].chunk().chunk_key();
+  auto first_chunk_key = requests[0].chunks(0).chunk_key();
 
   EXPECT_THAT(requests[1],
               IsItemWithRangeAndPriorityAndTable(1, 1, 1.5, "dist"));
@@ -316,7 +316,7 @@ TEST(WriterTest, DoesNotSendAlreadySentChunks) {
 
   ASSERT_THAT(requests, SizeIs(2));
   EXPECT_THAT(requests[0], IsChunk());
-  auto second_chunk_key = requests[0].chunk().chunk_key();
+  auto second_chunk_key = requests[0].chunks(0).chunk_key();
 
   EXPECT_THAT(requests[1],
               IsItemWithRangeAndPriorityAndTable(1, 3, 1.3, "dist"));
@@ -343,7 +343,7 @@ TEST(WriterTest, SendsPendingDataOnClose) {
               IsItemWithRangeAndPriorityAndTable(0, 1, 1.0, "dist"));
   EXPECT_THAT(
       internal::GetChunkKeys(requests[1].item().item().flat_trajectory()),
-      ElementsAre(requests[0].chunk().chunk_key()));
+      ElementsAre(requests[0].chunks(0).chunk_key()));
 }
 
 TEST(WriterTest, FailsIfMethodsCalledAfterClose) {
@@ -377,7 +377,7 @@ TEST(WriterTest, RetriesOnTransientError) {
               IsItemWithRangeAndPriorityAndTable(1, 1, 1.0, "dist"));
   EXPECT_THAT(
       internal::GetChunkKeys(requests[2].item().item().flat_trajectory()),
-      ElementsAre(requests[0].chunk().chunk_key()));
+      ElementsAre(requests[0].chunks(0).chunk_key()));
 }
 
 TEST(WriterTest, DoesNotRetryOnNonTransientError) {
@@ -435,8 +435,8 @@ TEST(WriterTest, ResendsOnlyTheChunksTheRemainingItemsNeedWithNewStream) {
   ASSERT_THAT(requests, SizeIs(6));
   EXPECT_THAT(requests[0], IsChunk());
   EXPECT_THAT(requests[1], IsChunk());
-  auto first_chunk_key = requests[0].chunk().chunk_key();
-  auto second_chunk_key = requests[1].chunk().chunk_key();
+  auto first_chunk_key = requests[0].chunks(0).chunk_key();
+  auto second_chunk_key = requests[1].chunks(0).chunk_key();
 
   EXPECT_THAT(requests[2],
               IsItemWithRangeAndPriorityAndTable(0, 3, 1.0, "dist"));
@@ -470,7 +470,7 @@ TEST(WriterTest, TellsServerToKeepStreamedItemsStillInClient) {
 
   ASSERT_THAT(requests, SizeIs(2));
   EXPECT_THAT(requests[0], IsChunk());
-  auto first_chunk_key = requests[0].chunk().chunk_key();
+  auto first_chunk_key = requests[0].chunks(0).chunk_key();
 
   EXPECT_THAT(requests[1],
               IsItemWithRangeAndPriorityAndTable(1, 1, 1.0, "dist"));
@@ -488,7 +488,7 @@ TEST(WriterTest, TellsServerToKeepStreamedItemsStillInClient) {
 
   ASSERT_THAT(requests, SizeIs(2));
   EXPECT_THAT(requests[0], IsChunk());
-  auto third_chunk_key = requests[0].chunk().chunk_key();
+  auto third_chunk_key = requests[0].chunks(0).chunk_key();
 
   EXPECT_THAT(requests[1],
               IsItemWithRangeAndPriorityAndTable(1, 1, 1.0, "dist"));
@@ -504,7 +504,7 @@ TEST(WriterTest, TellsServerToKeepStreamedItemsStillInClient) {
 
   ASSERT_THAT(requests, SizeIs(2));
   EXPECT_THAT(requests[0], IsChunk());
-  auto forth_chunk_key = requests[0].chunk().chunk_key();
+  auto forth_chunk_key = requests[0].chunks(0).chunk_key();
 
   EXPECT_THAT(requests[1],
               IsItemWithRangeAndPriorityAndTable(1, 1, 1.0, "dist"));
@@ -597,15 +597,15 @@ TEST(WriterTest, SequenceRangeIsSetOnChunks) {
   EXPECT_THAT(
       requests,
       ElementsAre(
-          Partially(testing::EqualsProto("chunk: { sequence_range: { start: 0 "
+          Partially(testing::EqualsProto("chunks: { sequence_range: { start: 0 "
                                          "end: 1 } delta_encoded: false }")),
-          Partially(testing::EqualsProto("chunk: { sequence_range: { start: 2 "
+          Partially(testing::EqualsProto("chunks: { sequence_range: { start: 2 "
                                          "end: 3 } delta_encoded: false }")),
           IsItemWithRangeAndPriorityAndTable(0, 3, 1.0, "dist")));
 
-  EXPECT_NE(requests[0].chunk().sequence_range().episode_id(), 0);
-  EXPECT_EQ(requests[0].chunk().sequence_range().episode_id(),
-            requests[1].chunk().sequence_range().episode_id());
+  EXPECT_NE(requests[0].chunks(0).sequence_range().episode_id(), 0);
+  EXPECT_EQ(requests[0].chunks(0).sequence_range().episode_id(),
+            requests[1].chunks(0).sequence_range().episode_id());
 }
 
 TEST(WriterTest, DeltaEncode) {
@@ -623,9 +623,9 @@ TEST(WriterTest, DeltaEncode) {
   EXPECT_THAT(
       requests,
       ElementsAre(
-          Partially(testing::EqualsProto("chunk: { sequence_range: { start: 0 "
+          Partially(testing::EqualsProto("chunks: { sequence_range: { start: 0 "
                                          "end: 1 } delta_encoded: true }")),
-          Partially(testing::EqualsProto("chunk: { sequence_range: { start: 2 "
+          Partially(testing::EqualsProto("chunks: { sequence_range: { start: 2 "
                                          "end: 3 } delta_encoded: true }")),
           IsItemWithRangeAndPriorityAndTable(0, 3, 1.0, "dist")));
 }
@@ -663,10 +663,10 @@ TEST(WriterTest, MultiChunkItemsAreCorrect) {
   EXPECT_THAT(
       requests,
       ElementsAre(
-          Partially(testing::EqualsProto("chunk: { sequence_range: { start: 0 "
+          Partially(testing::EqualsProto("chunks: { sequence_range: { start: 0 "
                                          "end: 2 } delta_encoded: false }")),
           IsItemWithRangeAndPriorityAndTable(0, 2, 1.0, "dist"),
-          Partially(testing::EqualsProto("chunk: { sequence_range: { start: 3 "
+          Partially(testing::EqualsProto("chunks: { sequence_range: { start: 3 "
                                          "end: 4 } delta_encoded: false }")),
           IsItemWithRangeAndPriorityAndTable(2, 2, 1.0, "dist"),
           IsItemWithRangeAndPriorityAndTable(1, 1, 1.0, "dist")));

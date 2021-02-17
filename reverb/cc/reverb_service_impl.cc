@@ -161,16 +161,18 @@ grpc::Status ReverbServiceImpl::InsertStreamInternal(
 
   InsertStreamRequest request;
   while (queue.Pop(&request)) {
-    if (request.has_chunk()) {
-      ChunkStore::Key key = request.chunk().chunk_key();
-      std::shared_ptr<ChunkStore::Chunk> chunk =
-          chunk_store_.Insert(std::move(*request.mutable_chunk()));
-      if (!chunk) {
+    for (auto& chunk : *request.mutable_chunks()) {
+      ChunkStore::Key key = chunk.chunk_key();
+      std::shared_ptr<ChunkStore::Chunk> chunk_sp =
+          chunk_store_.Insert(std::move(chunk));
+      if (chunk_sp == nullptr) {
         return grpc::Status(grpc::StatusCode::CANCELLED,
                             "Service has been closed");
       }
-      chunks[key] = std::move(chunk);
-    } else if (request.has_item()) {
+      chunks[key] = std::move(chunk_sp);
+    }
+
+    if (request.has_item()) {
       Table::Item item;
 
       auto push_or = [&chunks, &item](ChunkStore::Key key) -> grpc::Status {

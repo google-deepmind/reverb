@@ -14,6 +14,7 @@
 
 #include "reverb/cc/trajectory_writer.h"
 
+#include <limits>
 #include <memory>
 #include <string>
 
@@ -24,6 +25,8 @@
 #include "gtest/gtest.h"
 #include "absl/base/thread_annotations.h"
 #include "absl/memory/memory.h"
+#include "absl/random/distributions.h"
+#include "absl/random/random.h"
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
@@ -66,7 +69,9 @@ using StepRef = ::std::vector<::absl::optional<::std::weak_ptr<CellRef>>>;
 const auto kIntSpec = internal::TensorSpec{"0", tensorflow::DT_INT32, {1}};
 const auto kFloatSpec = internal::TensorSpec{"0", tensorflow::DT_FLOAT, {1}};
 
-MATCHER(IsChunk, "") { return arg.has_chunk(); }
+MATCHER(IsChunk, "") { return arg.chunks_size() == 1; }
+
+MATCHER_P(HasNumChunks, size, "") { return arg.chunks_size() == size; }
 
 MATCHER(IsItem, "") { return arg.item().send_confirmation(); }
 
@@ -85,13 +90,29 @@ inline tensorflow::Tensor MakeTensor(const internal::TensorSpec& spec) {
 
   for (int i = 0; i < tensor.NumElements(); i++) {
     if (spec.dtype == tensorflow::DT_FLOAT) {
-      tensor.flat<float>().data()[i] = i;
+      tensor.flat<float>()(i) = i;
     } else if (spec.dtype == tensorflow::DT_INT32) {
-      tensor.flat<int32_t>().data()[i] = i;
+      tensor.flat<int32_t>()(i) = i;
     } else if (spec.dtype == tensorflow::DT_DOUBLE) {
-      tensor.flat<double>().data()[i] = i;
+      tensor.flat<double>()(i) = i;
     } else {
-      REVERB_CHECK(false) << "Unexpeted dtype";
+      REVERB_LOG(REVERB_FATAL) << "Unexpeted dtype";
+    }
+  }
+
+  return tensor;
+}
+
+inline tensorflow::Tensor MakeRandomTensor(const internal::TensorSpec& spec) {
+  auto tensor = MakeTensor(spec);
+
+  absl::BitGen bit_gen;
+  for (int i = 0; i < tensor.NumElements(); i++) {
+    if (spec.dtype == tensorflow::DT_INT32) {
+      tensor.flat<int32_t>()(i) =
+          absl::Uniform<int32_t>(bit_gen, 0, std::numeric_limits<int32_t>::max());
+    } else {
+      REVERB_LOG(REVERB_FATAL) << "Unexpeted dtype";
     }
   }
 
@@ -752,6 +773,60 @@ TEST(TrajectoryWriter, FlushCanIgnorePendingItems) {
   // The chunk of the first item is finalized while the other is not.
   EXPECT_TRUE(first[0]->lock()->IsReady());
   EXPECT_FALSE(first[1]->lock()->IsReady());
+}
+
+TEST(TrajectoryWriter, MultipleChunksAreSentInSameMessage) {
+  auto* stream = new FakeStream();
+  auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
+  EXPECT_CALL(*stub, InsertStreamRaw(_)).WillOnce(Return(stream));
+
+  TrajectoryWriter writer(
+      stub, MakeOptions(/*max_chunk_length=*/1, /*num_keep_alive_refs=*/1));
+
+  // Take a step with two columns.
+  StepRef first;
+  REVERB_ASSERT_OK(writer.Append(
+      Step({MakeTensor(kIntSpec), MakeTensor(kIntSpec)}), &first));
+
+  // Create an item referencing both columns. This will trigger the chunks for
+  // both columns to be sent.
+  REVERB_ASSERT_OK(
+      writer.CreateItem("table", 1.0, MakeTrajectory({{first[0], first[1]}})));
+  REVERB_ASSERT_OK(writer.Flush());
+
+  // Check that both chunks were sent in the same message.
+  EXPECT_THAT(stream->requests(), ElementsAre(HasNumChunks(2), IsItem()));
+}
+
+TEST(TrajectoryWriter, MultipleRequestsSentWhenChunksLarge) {
+  auto* stream = new FakeStream();
+  auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
+  EXPECT_CALL(*stub, InsertStreamRaw(_)).WillOnce(Return(stream));
+
+  TrajectoryWriter writer(
+      stub, MakeOptions(/*max_chunk_length=*/1, /*num_keep_alive_refs=*/1));
+
+  // Take a step with three columns with really large random tensors. These do
+  // not compress well which means that the ChunkData will be really large.
+  internal::TensorSpec spec = {"0", tensorflow::DT_INT32, {8, 1024, 1024}};
+  StepRef first;
+  REVERB_ASSERT_OK(writer.Append(Step({
+                                     MakeRandomTensor(spec),
+                                     MakeRandomTensor(spec),
+                                     MakeRandomTensor(spec),
+                                 }),
+                                 &first));
+
+  // Create an item referencing both columns. This will trigger the chunks for
+  // both columns to be sent.
+  REVERB_ASSERT_OK(writer.CreateItem(
+      "table", 1.0, MakeTrajectory({{first[0], first[1], first[2]}})));
+  REVERB_ASSERT_OK(writer.Flush());
+
+  // Each `ChunkData` should be ~32MB so the first two chunks should be grouped
+  // together into a single message and the last one should be sent on its own.
+  EXPECT_THAT(stream->requests(),
+              ElementsAre(HasNumChunks(2), HasNumChunks(1), IsItem()));
 }
 
 TEST(TrajectoryWriter, CreateItemRejectsExpiredCellRefs) {
