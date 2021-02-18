@@ -93,13 +93,25 @@ client.insert([0, 1], priorities={'my_table': 1.0})
 An item can also reference multiple data elements:
 
 ```python
-# Creates three data elements ([2, 2] , [3, 3], and [4, 4]) and a single item
-# `[[2, 2], [3, 3], [4, 4]]` that references all three of them.
-with client.writer(max_sequence_length=3) as writer:
-  writer.append([2, 2])
-  writer.append([3, 3])
-  writer.append([4, 4])
-  writer.create_item('my_table', num_timesteps=3, priority=1.0)
+
+# Appends three data elements and inserts a single items which references all
+# of them as {'a': [2, 3, 4], 'b': [12, 13, 14]}.
+with client.trajectory_writer(num_keep_alive_refs=3) as writer:
+  writer.append({'a': 2, 'b': 12})
+  writer.append({'a': 3, 'b': 13})
+  writer.append({'a': 4, 'b': 14})
+
+  # Create an item referencing all the data. 
+  writer.create_item(
+      table='my_table',
+      priority=1.0,
+      trajectory={
+          'a': writer.history['a'][:],
+          'b': writer.history['b'][:],
+      })
+
+  # Block until the item has been inserted and confirmed by the server.
+  writer.flush()
 ```
 
 The items we have added to Reverb can be read by sampling them:
