@@ -45,10 +45,9 @@ from reverb.server import Table
 
 from reverb.tf_client import TFClient
 
+from reverb.timestep_dataset import TimestepDataset
 
-# TODO(b/177308010): Make method public once API is stable.
-from reverb.timestep_dataset import TimestepDataset as _TimestepDataset
-from reverb.trajectory_dataset import TrajectoryDataset as _TrajectoryDataset
+from reverb.trajectory_dataset import TrajectoryDataset
 
 from reverb.trajectory_writer import TrajectoryColumn
 from reverb.trajectory_writer import TrajectoryWriter
