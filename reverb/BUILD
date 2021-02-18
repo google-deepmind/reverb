@@ -134,6 +134,7 @@ reverb_pytype_library(
     srcs = ["dataset.py"],
     srcs_version = "PY3",
     strict_deps = True,
+    visibility = [":__subpackages__"],
     deps = [
         ":client",
         ":replay_sample",
@@ -146,6 +147,7 @@ reverb_pytype_library(
     srcs = ["trajectory_dataset.py"],
     srcs_version = "PY3",
     strict_deps = True,
+    visibility = [":__subpackages__"],
     deps = [
         ":client",
         ":replay_sample",
@@ -158,6 +160,7 @@ reverb_pytype_library(
     srcs = ["timestep_dataset.py"],
     srcs_version = "PY3",
     strict_deps = True,
+    visibility = [":__subpackages__"],
     deps = [
         ":client",
         ":replay_sample",
