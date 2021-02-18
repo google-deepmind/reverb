@@ -55,6 +55,14 @@ class TrajectoryWriterTest(parameterized.TestCase):
     with self.assertRaises(RuntimeError):
       _ = self.writer.history
 
+  def test_history_contains_references_when_data_flat(self):
+    self.writer.append(1)
+    self.writer.append(2)
+    self.writer.append(3)
+
+    history = tree.map_structure(extract_data, self.writer.history)
+    self.assertListEqual(history, [1, 2, 3])
+
   def test_history_contains_structured_references(self):
     self.writer.append({'x': 1, 'y': 100})
     self.writer.append({'x': 2, 'y': 101})

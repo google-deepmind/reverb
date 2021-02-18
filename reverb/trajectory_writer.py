@@ -120,7 +120,7 @@ class TrajectoryWriter:
     Raises:
       RuntimeError: If `append` hasn't been called at least once before.
     """
-    if self._structure is None:
+    if not self._column_history:
       raise RuntimeError(
           'history cannot be accessed before `append` is called at least once.')
 
