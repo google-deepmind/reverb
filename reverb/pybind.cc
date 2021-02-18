@@ -891,12 +891,15 @@ PYBIND11_MODULE(libpybind, m) {
              MaybeRaiseFromStatus(status);
            })
       .def("EndEpisode",
-           [](TrajectoryWriter *writer, bool clear_buffers, int timeout_ms) {
+           [](TrajectoryWriter *writer, bool clear_buffers,
+              absl::optional<int> timeout_ms) {
              absl::Status status;
              {
                py::gil_scoped_release g;
-               status = writer->EndEpisode(clear_buffers,
-                                           absl::Milliseconds(timeout_ms));
+               status = writer->EndEpisode(
+                   clear_buffers, timeout_ms.has_value()
+                                      ? absl::Milliseconds(timeout_ms.value())
+                                      : absl::InfiniteDuration());
              }
              MaybeRaiseFromStatus(status);
            })
