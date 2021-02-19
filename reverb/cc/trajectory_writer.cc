@@ -22,6 +22,8 @@
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
+#include "absl/synchronization/mutex.h"
+#include "absl/time/time.h"
 #include "absl/types/span.h"
 #include "reverb/cc/chunker.h"
 #include "reverb/cc/platform/hash_set.h"
@@ -419,13 +421,17 @@ void TrajectoryWriter::Close() {
   stream_worker_ = nullptr;
 }
 
-std::unique_ptr<TrajectoryWriter::InsertStream>
-TrajectoryWriter::SetContextAndCreateStream() {
+absl::Status TrajectoryWriter::SetContextAndCreateStream(
+    std::unique_ptr<TrajectoryWriter::InsertStream>* stream) {
   absl::MutexLock lock(&mu_);
-  REVERB_CHECK(unrecoverable_status_.ok());
+  REVERB_RETURN_IF_ERROR(unrecoverable_status_);
+  if (closed_) {
+    return absl::CancelledError("TrajectoryWriter::Close has been called.");
+  }
   context_ = absl::make_unique<grpc::ClientContext>();
   context_->set_wait_for_ready(false);
-  return stub_->InsertStream(context_.get());
+  *stream = stub_->InsertStream(context_.get());
+  return absl::OkStatus();
 }
 
 bool TrajectoryWriter::GetNextPendingItem(
@@ -488,7 +494,8 @@ internal::flat_hash_set<uint64_t> TrajectoryWriter::GetKeepKeys(
 }
 
 absl::Status TrajectoryWriter::RunStreamWorker() {
-  auto stream = SetContextAndCreateStream();
+  std::unique_ptr<InsertStream> stream;
+  REVERB_RETURN_IF_ERROR(SetContextAndCreateStream(&stream));
 
   auto reader = internal::StartThread("TrajectoryWriter_ReaderWorker", [&] {
     InsertStreamResponse response;

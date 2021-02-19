@@ -206,8 +206,9 @@ class TrajectoryWriter {
   // by `worker_thread_`.
   absl::Status RunStreamWorker();
 
-  // Sets `context_` and opens a gRPC InsertStream to the server.
-  std::unique_ptr<InsertStream> SetContextAndCreateStream()
+  // Sets `context_` and opens a gRPC InsertStream to the server iff the writer
+  // has not yet been closed.
+  absl::Status SetContextAndCreateStream(std::unique_ptr<InsertStream>* stream)
       ABSL_LOCKS_EXCLUDED(mu_);
 
   // Blocks until `write_queue_` is non-empty then copies the front element into

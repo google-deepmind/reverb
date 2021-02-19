@@ -60,8 +60,13 @@ namespace {
 using ::grpc::testing::MockClientReaderWriter;
 using ::testing::_;
 using ::testing::ElementsAre;
+using ::testing::Invoke;
 using ::testing::Return;
+using ::testing::ReturnNew;
 using ::testing::UnorderedElementsAre;
+
+using MockStream =
+    MockClientReaderWriter<InsertStreamRequest, InsertStreamResponse>;
 
 using Step = ::std::vector<::absl::optional<::tensorflow::Tensor>>;
 using StepRef = ::std::vector<::absl::optional<::std::weak_ptr<CellRef>>>;
@@ -133,8 +138,7 @@ std::vector<TrajectoryColumn> MakeTrajectory(
   return columns;
 }
 
-class FakeStream
-    : public MockClientReaderWriter<InsertStreamRequest, InsertStreamResponse> {
+class FakeStream : public MockStream {
  public:
   FakeStream()
       : requests_(std::make_shared<std::vector<InsertStreamRequest>>()),
@@ -205,8 +209,7 @@ inline TrajectoryWriter::Options MakeOptions(int max_chunk_length,
 TEST(TrajectoryWriter, AppendValidatesDtype) {
   auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
   EXPECT_CALL(*stub, InsertStreamRaw(_))
-      .WillOnce(Return(new MockClientReaderWriter<InsertStreamRequest,
-                                                  InsertStreamResponse>()));
+      .WillRepeatedly(ReturnNew<MockStream>());
 
   TrajectoryWriter writer(
       stub, MakeOptions(/*max_chunk_length=*/10, /*num_keep_alive_refs=*/10));
@@ -229,7 +232,8 @@ TEST(TrajectoryWriter, AppendValidatesDtype) {
 
 TEST(TrajectoryWriter, AppendValidatesShapes) {
   auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
-  EXPECT_CALL(*stub, InsertStreamRaw(_)).WillOnce(Return(new FakeStream()));
+  EXPECT_CALL(*stub, InsertStreamRaw(_))
+      .WillRepeatedly(ReturnNew<FakeStream>());
 
   TrajectoryWriter writer(
       stub, MakeOptions(/*max_chunk_length=*/10, /*num_keep_alive_refs=*/10));
@@ -251,7 +255,8 @@ TEST(TrajectoryWriter, AppendValidatesShapes) {
 
 TEST(TrajectoryWriter, AppendAcceptsPartialSteps) {
   auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
-  EXPECT_CALL(*stub, InsertStreamRaw(_)).WillOnce(Return(new FakeStream()));
+  EXPECT_CALL(*stub, InsertStreamRaw(_))
+      .WillRepeatedly(ReturnNew<FakeStream>());
 
   TrajectoryWriter writer(
       stub, MakeOptions(/*max_chunk_length=*/10, /*num_keep_alive_refs=*/10));
@@ -270,7 +275,8 @@ TEST(TrajectoryWriter, AppendAcceptsPartialSteps) {
 
 TEST(TrajectoryWriter, AppendPartialRejectsMultipleUsesOfSameColumn) {
   auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
-  EXPECT_CALL(*stub, InsertStreamRaw(_)).WillOnce(Return(new FakeStream()));
+  EXPECT_CALL(*stub, InsertStreamRaw(_))
+      .WillRepeatedly(ReturnNew<FakeStream>());
 
   TrajectoryWriter writer(
       stub, MakeOptions(/*max_chunk_length=*/10, /*num_keep_alive_refs=*/10));
@@ -298,7 +304,8 @@ TEST(TrajectoryWriter, AppendPartialRejectsMultipleUsesOfSameColumn) {
 
 TEST(TrajectoryWriter, AppendRejectsColumnsProvidedInPreviousPartialCall) {
   auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
-  EXPECT_CALL(*stub, InsertStreamRaw(_)).WillOnce(Return(new FakeStream()));
+  EXPECT_CALL(*stub, InsertStreamRaw(_))
+      .WillRepeatedly(ReturnNew<FakeStream>());
 
   TrajectoryWriter writer(
       stub, MakeOptions(/*max_chunk_length=*/10, /*num_keep_alive_refs=*/10));
@@ -322,7 +329,8 @@ TEST(TrajectoryWriter, AppendRejectsColumnsProvidedInPreviousPartialCall) {
 
 TEST(TrajectoryWriter, AppendPartialDoesNotIncrementEpisodeStep) {
   auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
-  EXPECT_CALL(*stub, InsertStreamRaw(_)).WillOnce(Return(new FakeStream()));
+  EXPECT_CALL(*stub, InsertStreamRaw(_))
+      .WillRepeatedly(ReturnNew<FakeStream>());
 
   TrajectoryWriter writer(
       stub, MakeOptions(/*max_chunk_length=*/10, /*num_keep_alive_refs=*/10));
@@ -353,7 +361,8 @@ TEST(TrajectoryWriter, AppendPartialDoesNotIncrementEpisodeStep) {
 
 TEST(TrajectoryWriter, ConfigureChunkerOnExistingColumn) {
   auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
-  EXPECT_CALL(*stub, InsertStreamRaw(_)).WillOnce(Return(new FakeStream()));
+  EXPECT_CALL(*stub, InsertStreamRaw(_))
+      .WillRepeatedly(ReturnNew<FakeStream>());
 
   TrajectoryWriter writer(
       stub, MakeOptions(/*max_chunk_length=*/1, /*num_keep_alive_refs=*/1));
@@ -385,7 +394,8 @@ TEST(TrajectoryWriter, ConfigureChunkerOnExistingColumn) {
 
 TEST(TrajectoryWriter, ConfigureChunkerOnFutureColumn) {
   auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
-  EXPECT_CALL(*stub, InsertStreamRaw(_)).WillOnce(Return(new FakeStream()));
+  EXPECT_CALL(*stub, InsertStreamRaw(_))
+      .WillRepeatedly(ReturnNew<FakeStream>());
 
   TrajectoryWriter writer(
       stub, MakeOptions(/*max_chunk_length=*/1, /*num_keep_alive_refs=*/1));
@@ -429,11 +439,12 @@ TEST(TrajectoryWriter, ConfigureChunkerOnFutureColumn) {
 }
 
 TEST(TrajectoryWriter, NoDataIsSentIfNoItemsCreated) {
-  auto* stream = new FakeStream();
-  EXPECT_CALL(*stream, Write(_, _)).Times(0);
-
   auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
-  EXPECT_CALL(*stub, InsertStreamRaw(_)).WillOnce(Return(stream));
+  EXPECT_CALL(*stub, InsertStreamRaw(_)).WillRepeatedly(Invoke([](auto) {
+    auto* stream = new FakeStream();
+    EXPECT_CALL(*stream, Write(_, _)).Times(0);
+    return stream;
+  }));
 
   TrajectoryWriter writer(
       stub, MakeOptions(/*max_chunk_length=*/1, /*num_keep_alive_refs=*/1));
@@ -552,9 +563,8 @@ TEST(TrajectoryWriter, ChunkersNotifiedWhenAllChunksDone) {
     absl::BlockingCounter* counter_;
   };
 
-  auto* stream = new FakeStream();
   auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
-  EXPECT_CALL(*stub, InsertStreamRaw(_)).WillOnce(Return(stream));
+  EXPECT_CALL(*stub, InsertStreamRaw(_)).WillOnce(ReturnNew<FakeStream>());
 
   absl::BlockingCounter counter(2);
   TrajectoryWriter writer(stub,
@@ -633,8 +643,7 @@ TEST(TrajectoryWriter, DestructorFlushesPendingItems) {
 }
 
 TEST(TrajectoryWriter, RetriesOnTransientError) {
-  auto* fail_stream =
-      new MockClientReaderWriter<InsertStreamRequest, InsertStreamResponse>();
+  auto* fail_stream = new MockStream();
   EXPECT_CALL(*fail_stream, Write(IsChunk(), _)).WillOnce(Return(true));
   EXPECT_CALL(*fail_stream, Write(IsItem(), _)).WillOnce(Return(false));
   EXPECT_CALL(*fail_stream, Read(_)).WillOnce(Return(false));
@@ -667,8 +676,7 @@ TEST(TrajectoryWriter, RetriesOnTransientError) {
 }
 
 TEST(TrajectoryWriter, StopsOnNonTransientError) {
-  auto* fail_stream =
-      new MockClientReaderWriter<InsertStreamRequest, InsertStreamResponse>();
+  auto* fail_stream = new MockStream();
   EXPECT_CALL(*fail_stream, Write(IsChunk(), _)).WillOnce(Return(true));
   EXPECT_CALL(*fail_stream, Write(IsItem(), _)).WillOnce(Return(false));
   EXPECT_CALL(*fail_stream, Read(_)).WillOnce(Return(false));
@@ -708,10 +716,9 @@ TEST(TrajectoryWriter, StopsOnNonTransientError) {
 
 TEST(TrajectoryWriter, FlushReturnsIfTimeoutExpired) {
   absl::Notification write_block;
-  auto* stream =
-      new MockClientReaderWriter<InsertStreamRequest, InsertStreamResponse>();
+  auto* stream = new MockStream();
   EXPECT_CALL(*stream, Write(_, _))
-      .WillOnce(::testing::Invoke([&](auto, auto) {
+      .WillOnce(Invoke([&](auto, auto) {
         write_block.WaitForNotification();
         return true;
       }))
@@ -831,7 +838,8 @@ TEST(TrajectoryWriter, MultipleRequestsSentWhenChunksLarge) {
 
 TEST(TrajectoryWriter, CreateItemRejectsExpiredCellRefs) {
   auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
-  EXPECT_CALL(*stub, InsertStreamRaw(_)).WillOnce(Return(new FakeStream()));
+  EXPECT_CALL(*stub, InsertStreamRaw(_))
+      .WillRepeatedly(ReturnNew<FakeStream>());
 
   TrajectoryWriter writer(
       stub, MakeOptions(/*max_chunk_length=*/1, /*num_keep_alive_refs=*/1));
@@ -921,9 +929,9 @@ TEST(TrajectoryWriter, KeepKeysOnlyIncludesLiveChunks) {
 }
 
 TEST(TrajectoryWriter, CreateItemValidatesTrajectoryDtype) {
-  auto* stream = new FakeStream();
   auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
-  EXPECT_CALL(*stub, InsertStreamRaw(_)).WillOnce(Return(stream));
+  EXPECT_CALL(*stub, InsertStreamRaw(_))
+      .WillRepeatedly(ReturnNew<FakeStream>());
 
   TrajectoryWriter writer(
       stub, MakeOptions(/*max_chunk_length=*/1, /*num_keep_alive_refs=*/2));
@@ -945,9 +953,9 @@ TEST(TrajectoryWriter, CreateItemValidatesTrajectoryDtype) {
 }
 
 TEST(TrajectoryWriter, CreateItemValidatesTrajectoryShapes) {
-  auto* stream = new FakeStream();
   auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
-  EXPECT_CALL(*stub, InsertStreamRaw(_)).WillOnce(Return(stream));
+  EXPECT_CALL(*stub, InsertStreamRaw(_))
+      .WillRepeatedly(ReturnNew<FakeStream>());
 
   TrajectoryWriter writer(
       stub, MakeOptions(/*max_chunk_length=*/1, /*num_keep_alive_refs=*/2));
@@ -974,9 +982,9 @@ TEST(TrajectoryWriter, CreateItemValidatesTrajectoryShapes) {
 }
 
 TEST(TrajectoryWriter, CreateItemValidatesTrajectoryNotEmpty) {
-  auto* stream = new FakeStream();
   auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
-  EXPECT_CALL(*stub, InsertStreamRaw(_)).WillOnce(Return(stream));
+  EXPECT_CALL(*stub, InsertStreamRaw(_))
+      .WillRepeatedly(ReturnNew<FakeStream>());
 
   TrajectoryWriter writer(
       stub, MakeOptions(/*max_chunk_length=*/1, /*num_keep_alive_refs=*/1));
@@ -999,9 +1007,9 @@ TEST(TrajectoryWriter, CreateItemValidatesTrajectoryNotEmpty) {
 }
 
 TEST(TrajectoryWriter, CreateItemValidatesSqueezedColumns) {
-  auto* stream = new FakeStream();
   auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
-  EXPECT_CALL(*stub, InsertStreamRaw(_)).WillOnce(Return(stream));
+  EXPECT_CALL(*stub, InsertStreamRaw(_))
+      .WillRepeatedly(ReturnNew<FakeStream>());
 
   TrajectoryWriter writer(
       stub, MakeOptions(/*max_chunk_length=*/1, /*num_keep_alive_refs=*/1));
@@ -1023,9 +1031,9 @@ TEST(TrajectoryWriter, CreateItemValidatesSqueezedColumns) {
 class TrajectoryWriterSignatureValidationTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    auto* stream = new FakeStream();
     auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
-    EXPECT_CALL(*stub, InsertStreamRaw(_)).WillOnce(Return(stream));
+    EXPECT_CALL(*stub, InsertStreamRaw(_))
+        .WillRepeatedly(ReturnNew<FakeStream>());
 
     TrajectoryWriter::Options options = {
         .chunker_options = std::make_shared<ConstantChunkerOptions>(1, 1),
@@ -1199,9 +1207,9 @@ TEST_F(TrajectoryWriterSignatureValidationTest,
 }
 
 TEST(TrajectoryWriter, EndEpisodeCanClearBuffers) {
-  auto* stream = new FakeStream();
   auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
-  EXPECT_CALL(*stub, InsertStreamRaw(_)).WillOnce(Return(stream));
+  EXPECT_CALL(*stub, InsertStreamRaw(_))
+      .WillRepeatedly(ReturnNew<FakeStream>());
 
   TrajectoryWriter writer(
       stub, MakeOptions(/*max_chunk_length=*/2, /*num_keep_alive_refs=*/2));
@@ -1220,9 +1228,9 @@ TEST(TrajectoryWriter, EndEpisodeCanClearBuffers) {
 }
 
 TEST(TrajectoryWriter, EndEpisodeFinalizesChunksEvenIfNoItemReferenceIt) {
-  auto* stream = new FakeStream();
   auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
-  EXPECT_CALL(*stub, InsertStreamRaw(_)).WillOnce(Return(stream));
+  EXPECT_CALL(*stub, InsertStreamRaw(_))
+      .WillRepeatedly(ReturnNew<FakeStream>());
 
   TrajectoryWriter writer(
       stub, MakeOptions(/*max_chunk_length=*/2, /*num_keep_alive_refs=*/2));
@@ -1243,9 +1251,9 @@ TEST(TrajectoryWriter, EndEpisodeFinalizesChunksEvenIfNoItemReferenceIt) {
 }
 
 TEST(TrajectoryWriter, EndEpisodeResetsEpisodeKeyAndStep) {
-  auto* stream = new FakeStream();
   auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
-  EXPECT_CALL(*stub, InsertStreamRaw(_)).WillOnce(Return(stream));
+  EXPECT_CALL(*stub, InsertStreamRaw(_))
+      .WillRepeatedly(ReturnNew<FakeStream>());
 
   TrajectoryWriter writer(
       stub, MakeOptions(/*max_chunk_length=*/1, /*num_keep_alive_refs=*/2));
@@ -1268,10 +1276,9 @@ TEST(TrajectoryWriter, EndEpisodeResetsEpisodeKeyAndStep) {
 
 TEST(TrajectoryWriter, EndEpisodeReturnsIfTimeoutExpired) {
   absl::Notification write_block;
-  auto* stream =
-      new MockClientReaderWriter<InsertStreamRequest, InsertStreamResponse>();
+  auto* stream = new MockStream();
   EXPECT_CALL(*stream, Write(_, _))
-      .WillOnce(::testing::Invoke([&](auto, auto) {
+      .WillOnce(Invoke([&](auto, auto) {
         write_block.WaitForNotification();
         return true;
       }))
