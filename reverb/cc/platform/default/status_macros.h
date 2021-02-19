@@ -15,6 +15,7 @@
 #ifndef REVERB_CC_PLATFORM_DEFAULT_STATUS_H_
 #define REVERB_CC_PLATFORM_DEFAULT_STATUS_H_
 
+// IWYU pragma: private
 #include "absl/status/status.h"
 #include "reverb/cc/platform/default/status_builder.h"
 

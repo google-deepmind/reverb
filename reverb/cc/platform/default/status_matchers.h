@@ -15,6 +15,7 @@
 #ifndef REVERB_CC_PLATFORM_DEFAULT_STATUS_MATCHERS_H_
 #define REVERB_CC_PLATFORM_DEFAULT_STATUS_MATCHERS_H_
 
+// IWYU pragma: private
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "absl/status/status.h"
