@@ -171,18 +171,23 @@ tensorflow::Tensor MakeConstantTensor(
 }
 
 SampleStreamResponse MakeResponse(int item_length, bool delta_encode = false,
-                                  int offset = 0, int data_length = 0) {
+                                  int offset = 0, int data_length = 0,
+                                  bool squeeze = false) {
+  REVERB_CHECK(!squeeze || item_length == 1);
+
   if (data_length == 0) {
     data_length = item_length;
   }
   REVERB_CHECK_LE(item_length + offset, data_length);
 
   SampleStreamResponse response;
-  auto* slice = response.mutable_info()
-                    ->mutable_item()
-                    ->mutable_flat_trajectory()
-                    ->add_columns()
-                    ->add_chunk_slices();
+  auto* column = response.mutable_info()
+                     ->mutable_item()
+                     ->mutable_flat_trajectory()
+                     ->add_columns();
+  column->set_squeeze(squeeze);
+
+  auto* slice = column->add_chunk_slices();
   slice->set_length(item_length);
   slice->set_offset(offset);
 
@@ -259,7 +264,8 @@ TableItem MakeItem(uint64_t key, double priority,
 
 void InsertItem(Table* table, uint64_t key, double priority,
                 std::vector<int> sequence_lengths, int32_t offset = 0,
-                int32_t length = 0) {
+                int32_t length = 0, bool squeeze = false) {
+  REVERB_CHECK(!squeeze || length == 1);
   if (length == 0) {
     length =
         std::accumulate(sequence_lengths.begin(), sequence_lengths.end(), 0) -
@@ -274,8 +280,9 @@ void InsertItem(Table* table, uint64_t key, double priority,
     step_index += sequence_lengths[i];
   }
 
-  REVERB_EXPECT_OK(
-      table->InsertOrAssign(MakeItem(key, priority, ranges, offset, length)));
+  auto item = MakeItem(key, priority, ranges, offset, length);
+  item.item.mutable_flat_trajectory()->mutable_columns(0)->set_squeeze(squeeze);
+  REVERB_EXPECT_OK(table->InsertOrAssign(std::move(item)));
 }
 
 TEST(SampleTest, IsComposedOfTimesteps) {
@@ -509,6 +516,75 @@ TEST(LocalSamplerTest, GetNextSampleTrimsSequence) {
 
   ExpectTensorEqual<tensorflow::uint64>(start_and_end_trimmed[4],
                                         start_and_end_trimmer_want);
+}
+
+TEST(GrpcSamplerTest, GetNextTrajectorySqueezesColumnsIfSet) {
+  auto stub = MakeGoodStub({
+      MakeResponse(
+          /*item_length=*/1,
+          /*delta_encode=*/false,
+          /*offset=*/1,
+          /*data_length=*/4,
+          /*squeeze=*/true),
+      MakeResponse(
+          /*item_length=*/1,
+          /*delta_encode=*/false,
+          /*offset=*/1,
+          /*data_length=*/4,
+          /*squeeze=*/false),
+  });
+  Sampler sampler(stub, "table", {3, 1});
+
+  std::vector<tensorflow::Tensor> squeezed;
+  REVERB_EXPECT_OK(sampler.GetNextTrajectory(&squeezed));
+  ASSERT_THAT(squeezed,
+              SizeIs(5));  // ID, probability, table size, priority, data.
+  ExpectTensorEqual<tensorflow::uint64>(
+      squeezed[4], tensorflow::tensor::DeepCopy(MakeTensor(4).SubSlice(1)));
+
+  std::vector<tensorflow::Tensor> not_squeezed;
+  REVERB_EXPECT_OK(sampler.GetNextTrajectory(&not_squeezed));
+  ASSERT_THAT(not_squeezed,
+              SizeIs(5));  // ID, probability, table size, priority, data.
+  ExpectTensorEqual<tensorflow::uint64>(
+      not_squeezed[4], tensorflow::tensor::DeepCopy(MakeTensor(4).Slice(1, 2)));
+}
+
+TEST(LocalSamplerTest, GetNextTrajectorySqueezesColumnsIfSet) {
+  auto table = MakeTable();
+  InsertItem(
+      /*table=*/table.get(),
+      /*key=*/1,
+      /*priority=*/1.0,
+      /*sequence_lengths=*/{5},
+      /*offset=*/2,
+      /*length=*/1,
+      /*squeeze=*/true);
+
+  InsertItem(
+      /*table=*/table.get(),
+      /*key=*/2,
+      /*priority=*/1.0,
+      /*sequence_lengths=*/{5},
+      /*offset=*/2,
+      /*length=*/1,
+      /*squeeze=*/false);
+
+  Sampler sampler(table, {2});
+
+  std::vector<tensorflow::Tensor> squeezed;
+  REVERB_EXPECT_OK(sampler.GetNextTrajectory(&squeezed));
+  ASSERT_THAT(squeezed,
+              SizeIs(5));  // ID, probability, table size, priority, data.
+  ExpectTensorEqual<tensorflow::uint64>(
+      squeezed[4], tensorflow::tensor::DeepCopy(MakeTensor(4).SubSlice(2)));
+
+  std::vector<tensorflow::Tensor> not_squeezed;
+  REVERB_EXPECT_OK(sampler.GetNextTrajectory(&not_squeezed));
+  ASSERT_THAT(not_squeezed,
+              SizeIs(5));  // ID, probability, table size, priority, data.
+  ExpectTensorEqual<tensorflow::uint64>(
+      not_squeezed[4], tensorflow::tensor::DeepCopy(MakeTensor(4).Slice(2, 3)));
 }
 
 TEST(LocalSamplerTest, RespectsMaxInFlightItems) {

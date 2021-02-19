@@ -104,6 +104,7 @@ absl::Status AsSample(std::vector<SampleStreamResponse> responses,
   std::vector<bool> squeeze_columns(columns.size());
 
   for (int i = 0; i < columns.size(); i++) {
+    squeeze_columns[i] = columns[i].squeeze();
     for (const auto& slice : columns[i].chunk_slices()) {
       auto it = chunks.find(slice.chunk_key());
       if (it == chunks.end()) {
