@@ -257,6 +257,7 @@ reverb_cc_library(
         "//reverb/cc/platform:hash_map",
         "//reverb/cc/platform:hash_set",
         "//reverb/cc/platform:logging",
+        "//reverb/cc/support:key_generators",
         "//reverb/cc/platform:status_macros",
         "//reverb/cc/platform:thread",
         "//reverb/cc/support:cleanup",
@@ -296,6 +297,7 @@ reverb_cc_library(
         "//reverb/cc/platform:logging",
         "//reverb/cc/platform:status_macros",
         "//reverb/cc/support:tf_util",
+        "//reverb/cc/support:key_generators",
         "//reverb/cc/support:trajectory_util",
     ] + reverb_tf_deps() + reverb_absl_deps(),
 )

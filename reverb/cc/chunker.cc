@@ -21,8 +21,6 @@
 #include <utility>
 #include <vector>
 
-#include "absl/random/distributions.h"
-#include "absl/random/random.h"
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 #include "absl/synchronization/mutex.h"
@@ -40,13 +38,6 @@
 namespace deepmind {
 namespace reverb {
 namespace {
-
-// TODO(b/178091431): Move this into the classes and potentially make it
-// injectable so it can be overidden in tests.
-uint64_t NewKey() {
-  absl::BitGen gen;
-  return absl::Uniform<uint64_t>(gen, 0, std::numeric_limits<uint64_t>::max());
-}
 
 int GetLength(const ChunkData& chunk) {
   return chunk.data().tensors(0).tensor_shape().dim(0).size();
@@ -98,7 +89,9 @@ absl::Status CellRef::GetData(tensorflow::Tensor* out) const {
 
 Chunker::Chunker(internal::TensorSpec spec,
                  std::shared_ptr<ChunkerOptions> options)
-    : spec_(std::move(spec)), options_(std::move(options)) {
+    : spec_(std::move(spec)),
+      options_(std::move(options)),
+      key_generator_(absl::make_unique<internal::UniformKeyGenerator>()) {
   REVERB_CHECK_GE(options_->GetNumKeepAliveRefs(),
                   options_->GetMaxChunkLength());
   Reset();
@@ -229,7 +222,7 @@ absl::Status Chunker::FlushLocked() {
   }
 
   buffer_.clear();
-  next_chunk_key_ = NewKey();
+  next_chunk_key_ = key_generator_->Generate();
   offset_ = 0;
 
   return absl::OkStatus();
@@ -240,7 +233,7 @@ void Chunker::Reset() {
   buffer_.clear();
   buffer_.reserve(options_->GetMaxChunkLength());
   offset_ = 0;
-  next_chunk_key_ = NewKey();
+  next_chunk_key_ = key_generator_->Generate();
   active_refs_.clear();
 }
 

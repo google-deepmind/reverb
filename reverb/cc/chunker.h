@@ -26,6 +26,7 @@
 #include "absl/types/span.h"
 #include "reverb/cc/platform/hash_map.h"
 #include "reverb/cc/schema.pb.h"
+#include "reverb/cc/support/key_generators.h"
 #include "reverb/cc/support/signature.h"
 #include "tensorflow/core/framework/tensor.h"
 
@@ -173,6 +174,9 @@ class Chunker : public std::enable_shared_from_this<Chunker> {
 
   // Key of the chunk that will be constructed from `buffer_`.
   uint64_t next_chunk_key_ ABSL_GUARDED_BY(mu_);
+
+  // Used to generate chunk keys.
+  std::unique_ptr<internal::KeyGenerator> key_generator_;
 
   // Circular buffer of `CellRef`s that can be referenced in by new items.
   // When the size exceeds `num_keep_alive_refs_` then the oldest item is

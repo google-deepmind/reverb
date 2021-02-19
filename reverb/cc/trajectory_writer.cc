@@ -19,8 +19,6 @@
 #include <vector>
 
 #include "grpcpp/impl/codegen/sync_stream.h"
-#include "absl/random/distributions.h"
-#include "absl/random/random.h"
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
@@ -34,19 +32,13 @@
 #include "reverb/cc/schema.pb.h"
 #include "reverb/cc/support/cleanup.h"
 #include "reverb/cc/support/grpc_util.h"
+#include "reverb/cc/support/key_generators.h"
 #include "reverb/cc/support/trajectory_util.h"
 #include "tensorflow/core/framework/types.h"
 
 namespace deepmind {
 namespace reverb {
 namespace {
-
-// TODO(b/178091431): Move this into the classes and potentially make it
-// injectable so it can be overidden in tests.
-uint64_t NewKey() {
-  absl::BitGen gen;
-  return absl::Uniform<uint64_t>(gen, 0, std::numeric_limits<uint64_t>::max());
-}
 
 std::vector<FlatTrajectory::ChunkSlice> MergeAdjacent(
     const std::vector<std::weak_ptr<CellRef>>& refs) {
@@ -169,7 +161,8 @@ TrajectoryWriter::TrajectoryWriter(
     const Options& options)
     : stub_(std::move(stub)),
       options_(options),
-      episode_id_(NewKey()),
+      key_generator_(absl::make_unique<internal::UniformKeyGenerator>()),
+      episode_id_(key_generator_->Generate()),
       episode_step_(0),
       closed_(false),
       stream_worker_(
@@ -317,7 +310,7 @@ absl::Status TrajectoryWriter::CreateItem(
     }
   }
 
-  item_and_refs.item.set_key(NewKey());
+  item_and_refs.item.set_key(key_generator_->Generate());
   item_and_refs.item.set_table(table.data(), table.size());
   item_and_refs.item.set_priority(priority);
 
@@ -652,7 +645,7 @@ absl::Status TrajectoryWriter::EndEpisode(bool clear_buffers,
     }
   }
 
-  episode_id_ = NewKey();
+  episode_id_ = key_generator_->Generate();
   episode_step_ = 0;
   return absl::OkStatus();
 }

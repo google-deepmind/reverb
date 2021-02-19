@@ -168,3 +168,9 @@ reverb_cc_test(
         "//reverb/cc/platform:status_matchers",
     ] + reverb_tf_deps(),
 )
+
+reverb_cc_library(
+    name = "key_generators",
+    hdrs = ["key_generators.h"],
+    deps = reverb_absl_deps(),
+)

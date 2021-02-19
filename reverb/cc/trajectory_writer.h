@@ -33,6 +33,7 @@
 #include "reverb/cc/reverb_service.grpc.pb.h"
 #include "reverb/cc/reverb_service.pb.h"
 #include "reverb/cc/schema.pb.h"
+#include "reverb/cc/support/key_generators.h"
 #include "reverb/cc/support/signature.h"
 #include "tensorflow/core/framework/tensor.h"
 
@@ -241,6 +242,9 @@ class TrajectoryWriter {
 
   // Configuration options.
   Options options_;
+
+  // Used to generates keys for episode and item IDs.
+  std::unique_ptr<internal::KeyGenerator> key_generator_;
 
   // Override of default options for yet to be constructed chunkers.
   internal::flat_hash_map<int, std::shared_ptr<ChunkerOptions>>
