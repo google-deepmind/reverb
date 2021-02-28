@@ -38,7 +38,6 @@ Shamelessly taken from TensorFlow:
 """
 import argparse
 import os
-import platform
 import subprocess
 import sys
 
@@ -71,7 +70,7 @@ def main():
   setup_python(environ_cp)
 
   write_to_bazelrc('')
-  if platform.system() == 'Darwin':
+  if sys.platform == 'darwin':
     write_to_bazelrc('# https://github.com/googleapis/google-cloud-cpp-spanner/issues/1003')
     write_to_bazelrc('build --copt=-DGRPC_BAZEL_BUILD')
   else:

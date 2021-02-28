@@ -88,40 +88,27 @@ for python_version in $PYTHON_VERSIONS; do
     bazel clean
   fi
 
+  if [ "$python_version" = "3.6" ]; then
+    ABI=cp36
+  elif [ "$python_version" = "3.7" ]; then
+    ABI=cp37
+  elif [ "$python_version" = "3.8" ]; then
+    ABI=cp38
+  else
+    echo "Error unknown --python. Only [3.6|3.7|3.8]"
+    exit 1
+  fi
+
+  export PYTHON_BIN_PATH=`which python${python_version}`
+  export PYTHON_LIB_PATH=`${PYTHON_BIN_PATH} -c 'import site; print(site.getsitepackages()[0])'`
+
   if [ "$(uname)" = "Darwin" ]; then
-    if [ "$python_version" = "3.6" ]; then
-      export PYTHON_BIN_PATH=python3.6
-    elif [ "$python_version" = "3.7" ]; then
-      export PYTHON_BIN_PATH=python3.7
-      ABI=cp37
-    elif [ "$python_version" = "3.8" ]; then
-      export PYTHON_BIN_PATH=python3.8
-      ABI=cp38
-    else
-      echo "Error unknown --python. Only [3.6|3.7|3.8]"
-      exit
-    fi
-
-    export PYTHON_LIB_PATH=`$PYTHON_BIN_PATH -c 'import site; print("\\n".join(site.getsitepackages()))'`
-
     bazel_config=""
     version=`sw_vers -productVersion | sed 's/\./_/g' | cut -d"_" -f1,2`
-    PLATFORM="macosx_${version}_x86_64"
+    PLATFORM="macosx_${version}_"`uname -m`
   else
-    if [ "$python_version" = "3.6" ]; then
-      export PYTHON_BIN_PATH=/usr/bin/python3.6 && export PYTHON_LIB_PATH=/usr/local/lib/python3.6/dist-packages
-    elif [ "$python_version" = "3.7" ]; then
-      export PYTHON_BIN_PATH=/usr/local/bin/python3.7 && export PYTHON_LIB_PATH=/usr/local/lib/python3.7/dist-packages
-      ABI=cp37
-    elif [ "$python_version" = "3.8" ]; then
-      export PYTHON_BIN_PATH=/usr/bin/python3.8 && export PYTHON_LIB_PATH=/usr/local/lib/python3.8/dist-packages
-      ABI=cp38
-    else
-      echo "Error unknown --python. Only [3.6|3.7|3.8]"
-      exit
-    fi
-
     bazel_config="--config=manylinux2010"
+    bazel_config=""
     PLATFORM="manylinux2010_x86_64"
   fi
 
