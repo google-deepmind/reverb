@@ -107,14 +107,15 @@ for python_version in $PYTHON_VERSIONS; do
     exit 1
 
   export PYTHON_BIN_PATH=`which python${python_version}`
-  export PYTHON_LIB_PATH=`$PYTHON_BIN_PATH -c 'import site; print("\\n".join(site.getsitepackages()))'`
+  export PYTHON_LIB_PATH=`${PYTHON_BIN_PATH} -c 'import site; print(site.getsitepackages()[0])'`
 
   if [ "$(uname)" = "Darwin" ]; then
     bazel_config=""
     version=`sw_vers -productVersion | sed 's/\./_/g' | cut -d"_" -f1,2`
-    PLATFORM="macosx_${version}_x86_64"
+    PLATFORM="macosx_${version}_"`uname -m`
   else
     bazel_config="--config=manylinux2010"
+    bazel_config=""
     PLATFORM="manylinux2010_x86_64"
   fi
 
