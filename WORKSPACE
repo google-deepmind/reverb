@@ -5,7 +5,7 @@ workspace(name = "reverb")
 #     3011004 => "3.11.4"
 #  2. Calculate the sha256 of the binary:
 #     PROTOC_VERSION="3.11.4"
-#     curl -L "https://github.com/protocolbuffers/protobuf/releases/download/v${PROTOC_VERSION}/protoc-${PROTOC_VERSION}-linux-x86_64.zip" | sha256
+#     curl -L "https://github.com/protocolbuffers/protobuf/releases/download/v${PROTOC_VERSION}/protoc-${PROTOC_VERSION}-linux-x86_64.zip" | sha256sum
 #  3. Update the two variables below.
 #
 # Alternatively, run bazel with the environment var "REVERB_PROTOC_VERSION"
@@ -13,8 +13,8 @@ workspace(name = "reverb")
 #
 # *WARNING* If using the REVERB_PROTOC_VERSION environment variable, sha256
 # checking is disabled.  Use at your own risk.
-PROTOC_VERSION = "3.9.0"
-PROTOC_SHA256 = "15e395b648a1a6dda8fd66868824a396e9d3e89bc2c8648e3b9ab9801bea5d55"
+PROTOC_VERSION = "3.11.0"
+PROTOC_SHA256 = "43dbd9200006152559de2fb9370dbbaac4e711a317a61ba9c1107bb84a27a213"
 
 load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
 

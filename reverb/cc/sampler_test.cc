@@ -507,7 +507,7 @@ TEST(LocalSamplerTest, GetNextSampleTrimsSequence) {
               SizeIs(5));  // ID, probability, table size, priority, data.
 
   tensorflow::Tensor start_and_end_trimmer_want;
-  EXPECT_OK(FromTensorflowStatus(tensorflow::tensor::Concat(
+  REVERB_EXPECT_OK(FromTensorflowStatus(tensorflow::tensor::Concat(
       {
           tensorflow::tensor::DeepCopy(MakeTensor(2).Slice(1, 2)),
           tensorflow::tensor::DeepCopy(MakeTensor(3).Slice(0, 1)),

@@ -1076,21 +1076,21 @@ class TrajectoryWriterSignatureValidationTest : public ::testing::Test {
 };
 
 TEST_F(TrajectoryWriterSignatureValidationTest, Valid) {
-  EXPECT_OK(writer_->CreateItem("table", 1.0,
-                                MakeTrajectory({
-                                    {step_[0], step_[0]},
-                                    {step_[1]},
-                                    {step_[1]},
-                                })));
+  REVERB_EXPECT_OK(writer_->CreateItem("table", 1.0,
+                                       MakeTrajectory({
+                                           {step_[0], step_[0]},
+                                           {step_[1]},
+                                           {step_[1]},
+                                       })));
 
   // Third column length is undefined so two rows should be just as valid as
   // one.
-  EXPECT_OK(writer_->CreateItem("table", 1.0,
-                                MakeTrajectory({
-                                    {step_[0], step_[0]},
-                                    {step_[1]},
-                                    {step_[1], step_[1]},
-                                })));
+  REVERB_EXPECT_OK(writer_->CreateItem("table", 1.0,
+                                       MakeTrajectory({
+                                           {step_[0], step_[0]},
+                                           {step_[1]},
+                                           {step_[1], step_[1]},
+                                       })));
 }
 
 TEST_F(TrajectoryWriterSignatureValidationTest, WrongNumColumns) {
