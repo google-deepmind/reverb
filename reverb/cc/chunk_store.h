@@ -40,12 +40,35 @@ namespace reverb {
 // key for the mapping and wrap the ChunkData with in a thin class which
 // provides a read-only accessor to the ChunkData.
 //
+//          +-----------+
+//          |           |     shared_ptr
+//          | ChunkData |<---------------------+
+//          |           |                      |
+//          +-----------+                      |
+//                ^                            |
+//                | shared_ptr                 |
+//                |                            |
+//         +--------------+              +----------+            +----------+
+//         |              |   weak_ptr   |          | shared_ptr |          |
+//         |  ChunkStore  |------------->|  Chunk   |<-----------|  Caller  |
+//         |              |              |          |            |          |
+//         +--------------+              +----------+            +----------+
+//
+// Data insertion is handled as follows:
+//
+//   1. Provided ChunkData is moved into a shared_ptr.
+//   2. The data ptr is saved in an internal map and used to construct a
+//      Chunk (heap allocated as a shared_ptr).
+//   3. A weak_ptr is constructed from the shared_ptr of the Chunk and saved
+//      in an internal map.
+//   4. The shared_ptr of the Chunk is returned to the caller.
+//
 // Each Chunk is reference counted individually. When its reference count drops
 // to zero, the Chunk is destroyed and subsequent calls to Get() will no longer
-// return that Chunk. Please note that this container only holds a weak pointer
-// to a Chunk, and thus does not count towards the reference count. For this
-// reason, Insert() returns a shared pointer, as otherwise the Chunk would be
-// destroyed right away.
+// return that Chunk. Please note that ChunkStore only holds a weak pointer to a
+// Chunk, and thus does not count towards the reference count. For this reason,
+// Insert() returns a shared pointer, as otherwise the Chunk would be destroyed
+// right away.
 //
 // All public methods are thread safe.
 class ChunkStore {
