@@ -51,17 +51,6 @@ inline std::string Int32Str() {
   return tensorflow::DataTypeString(tensorflow::DT_INT32);
 }
 
-inline tensorflow::Tensor MakeTensor(const internal::TensorSpec& spec) {
-  if (spec.shape.dims() < 1) {
-    return tensorflow::Tensor(spec.dtype, {});
-  }
-
-  tensorflow::TensorShape shape;
-  REVERB_CHECK(spec.shape.AsTensorShape(&shape));
-  tensorflow::Tensor tensor(spec.dtype, shape);
-  return tensor;
-}
-
 template <tensorflow::DataType dtype>
 tensorflow::Tensor MakeConstantTensor(
     const tensorflow::TensorShape& shape,
@@ -72,6 +61,14 @@ tensorflow::Tensor MakeConstantTensor(
         value;
   }
   return tensor;
+}
+
+template <tensorflow::DataType dtype>
+tensorflow::Tensor MakeZeroTensor(const internal::TensorSpec& spec) {
+  REVERB_CHECK(tensorflow::kRealNumberTypes.Contains(spec.dtype));
+  tensorflow::TensorShape shape;
+  REVERB_CHECK(spec.shape.AsTensorShape(&shape));
+  return MakeConstantTensor<dtype>(shape, 0);
 }
 
 template <tensorflow::DataType dtype>
@@ -114,7 +111,8 @@ TEST(CellRef, IsReady) {
   auto chunker = MakeChunker(kIntSpec, 2, 5);
 
   std::weak_ptr<CellRef> ref;
-  REVERB_ASSERT_OK(chunker->Append(MakeTensor(kIntSpec), {1, 0}, &ref));
+  REVERB_ASSERT_OK(chunker->Append(
+      MakeZeroTensor<tensorflow::DT_INT32>(kIntSpec), {1, 0}, &ref));
 
   // Chunk is not finalized yet.
   EXPECT_FALSE(ref.lock()->IsReady());
@@ -179,7 +177,8 @@ TEST(Chunker, AppendValidatesSpecDtype) {
                              /*num_keep_alive_refs=*/5);
 
   std::weak_ptr<CellRef> ref;
-  auto status = chunker->Append(MakeTensor(kFloatSpec), {1, 0}, &ref);
+  auto status = chunker->Append(
+      MakeZeroTensor<tensorflow::DT_FLOAT>(kFloatSpec), {1, 0}, &ref);
 
   EXPECT_EQ(status.code(), absl::StatusCode::kInvalidArgument);
   EXPECT_THAT(std::string(status.message()),
@@ -194,9 +193,10 @@ TEST(Chunker, AppendValidatesSpecShape) {
                              /*num_keep_alive_refs=*/5);
 
   std::weak_ptr<CellRef> ref;
-  auto status = chunker->Append(
-      MakeTensor(internal::TensorSpec{kIntSpec.name, kIntSpec.dtype, {2}}),
-      {/*episode_id=*/1, /*step=*/0}, &ref);
+  auto status =
+      chunker->Append(MakeZeroTensor<tensorflow::DT_INT32>(internal::TensorSpec{
+                          kIntSpec.name, kIntSpec.dtype, {2}}),
+                      {/*episode_id=*/1, /*step=*/0}, &ref);
 
   EXPECT_EQ(status.code(), absl::StatusCode::kInvalidArgument);
   EXPECT_THAT(std::string(status.message()),
@@ -211,14 +211,16 @@ TEST(Chunker, AppendFlushesOnMaxChunkLength) {
 
   // Buffer is not full after first step.
   std::weak_ptr<CellRef> first;
-  REVERB_ASSERT_OK(chunker->Append(MakeTensor(kIntSpec),
-                                   {/*episode_id=*/1, /*step=*/0}, &first));
+  REVERB_ASSERT_OK(
+      chunker->Append(MakeZeroTensor<tensorflow::DT_INT32>(kIntSpec),
+                      {/*episode_id=*/1, /*step=*/0}, &first));
   EXPECT_FALSE(first.lock()->IsReady());
 
   // Second step should trigger flushing of buffer.
   std::weak_ptr<CellRef> second;
-  REVERB_ASSERT_OK(chunker->Append(MakeTensor(kIntSpec),
-                                   {/*episode_id=*/1, /*step=*/1}, &second));
+  REVERB_ASSERT_OK(
+      chunker->Append(MakeZeroTensor<tensorflow::DT_INT32>(kIntSpec),
+                      {/*episode_id=*/1, /*step=*/1}, &second));
   EXPECT_TRUE(first.lock()->IsReady());
   EXPECT_TRUE(second.lock()->IsReady());
 }
@@ -227,8 +229,9 @@ TEST(Chunker, Flush) {
   auto chunker = MakeChunker(kIntSpec, /*max_chunk_length=*/2,
                              /*num_keep_alive_refs=*/5);
   std::weak_ptr<CellRef> ref;
-  REVERB_ASSERT_OK(chunker->Append(MakeTensor(kIntSpec),
-                                   {/*episode_id=*/1, /*step=*/0}, &ref));
+  REVERB_ASSERT_OK(
+      chunker->Append(MakeZeroTensor<tensorflow::DT_INT32>(kIntSpec),
+                      {/*episode_id=*/1, /*step=*/0}, &ref));
   EXPECT_FALSE(ref.lock()->IsReady());
   REVERB_ASSERT_OK(chunker->Flush());
   EXPECT_TRUE(ref.lock()->IsReady());
@@ -240,17 +243,20 @@ TEST(Chunker, ChunkHasBatchDim) {
 
   // Add two data items to trigger the finalization.
   std::weak_ptr<CellRef> ref;
-  REVERB_ASSERT_OK(chunker->Append(MakeTensor(kIntSpec),
-                                   {/*episode_id=*/1, /*step=*/0}, &ref));
-  REVERB_ASSERT_OK(chunker->Append(MakeTensor(kIntSpec),
-                                   {/*episode_id=*/1, /*step=*/1}, &ref));
+  REVERB_ASSERT_OK(
+      chunker->Append(MakeZeroTensor<tensorflow::DT_INT32>(kIntSpec),
+                      {/*episode_id=*/1, /*step=*/0}, &ref));
+  REVERB_ASSERT_OK(
+      chunker->Append(MakeZeroTensor<tensorflow::DT_INT32>(kIntSpec),
+                      {/*episode_id=*/1, /*step=*/1}, &ref));
   ASSERT_TRUE(ref.lock()->IsReady());
   EXPECT_THAT(ref.lock()->GetChunk()->data().tensors(0).tensor_shape(),
               testing::EqualsProto("dim { size: 2} dim { size: 1}"));
 
   // The batch dim is added even if it only contains a single step.
-  REVERB_ASSERT_OK(chunker->Append(MakeTensor(kIntSpec),
-                                   {/*episode_id=*/1, /*step=*/0}, &ref));
+  REVERB_ASSERT_OK(
+      chunker->Append(MakeZeroTensor<tensorflow::DT_INT32>(kIntSpec),
+                      {/*episode_id=*/1, /*step=*/0}, &ref));
   REVERB_ASSERT_OK(chunker->Flush());
   ASSERT_TRUE(ref.lock()->IsReady());
   EXPECT_THAT(ref.lock()->GetChunk()->data().tensors(0).tensor_shape(),
@@ -262,26 +268,30 @@ TEST(Chunker, DeletesRefsWhenMageAgeExceeded) {
                              /*num_keep_alive_refs=*/3);
 
   std::weak_ptr<CellRef> first;
-  REVERB_ASSERT_OK(chunker->Append(MakeTensor(kIntSpec),
-                                   {/*episode_id=*/1, /*step=*/0}, &first));
+  REVERB_ASSERT_OK(
+      chunker->Append(MakeZeroTensor<tensorflow::DT_INT32>(kIntSpec),
+                      {/*episode_id=*/1, /*step=*/0}, &first));
   EXPECT_FALSE(first.expired());
 
   std::weak_ptr<CellRef> second;
-  REVERB_ASSERT_OK(chunker->Append(MakeTensor(kIntSpec),
-                                   {/*episode_id=*/1, /*step=*/1}, &second));
+  REVERB_ASSERT_OK(
+      chunker->Append(MakeZeroTensor<tensorflow::DT_INT32>(kIntSpec),
+                      {/*episode_id=*/1, /*step=*/1}, &second));
   EXPECT_FALSE(first.expired());
   EXPECT_FALSE(second.expired());
 
   std::weak_ptr<CellRef> third;
-  REVERB_ASSERT_OK(chunker->Append(MakeTensor(kIntSpec),
-                                   {/*episode_id=*/1, /*step=*/2}, &third));
+  REVERB_ASSERT_OK(
+      chunker->Append(MakeZeroTensor<tensorflow::DT_INT32>(kIntSpec),
+                      {/*episode_id=*/1, /*step=*/2}, &third));
   EXPECT_FALSE(first.expired());
   EXPECT_FALSE(second.expired());
   EXPECT_FALSE(third.expired());
 
   std::weak_ptr<CellRef> fourth;
-  REVERB_ASSERT_OK(chunker->Append(MakeTensor(kIntSpec),
-                                   {/*episode_id=*/1, /*step=*/3}, &fourth));
+  REVERB_ASSERT_OK(
+      chunker->Append(MakeZeroTensor<tensorflow::DT_INT32>(kIntSpec),
+                      {/*episode_id=*/1, /*step=*/3}, &fourth));
   EXPECT_TRUE(first.expired());
   EXPECT_FALSE(second.expired());
   EXPECT_FALSE(third.expired());
@@ -293,30 +303,34 @@ TEST(Chunker, GetKeepKeys) {
                              /*num_keep_alive_refs=*/2);
 
   std::weak_ptr<CellRef> first;
-  REVERB_ASSERT_OK(chunker->Append(MakeTensor(kIntSpec),
-                                   {/*episode_id=*/1, /*step=*/0}, &first));
+  REVERB_ASSERT_OK(
+      chunker->Append(MakeZeroTensor<tensorflow::DT_INT32>(kIntSpec),
+                      {/*episode_id=*/1, /*step=*/0}, &first));
   EXPECT_THAT(chunker->GetKeepKeys(), ElementsAre(first.lock()->chunk_key()));
 
   // The second ref will belong to the same chunk.
   std::weak_ptr<CellRef> second;
-  REVERB_ASSERT_OK(chunker->Append(MakeTensor(kIntSpec),
-                                   {/*episode_id=*/1, /*step=*/1}, &second));
+  REVERB_ASSERT_OK(
+      chunker->Append(MakeZeroTensor<tensorflow::DT_INT32>(kIntSpec),
+                      {/*episode_id=*/1, /*step=*/1}, &second));
   EXPECT_THAT(chunker->GetKeepKeys(), ElementsAre(first.lock()->chunk_key()));
 
   // The third ref will belong to a new chunk. The first ref is now expired but
   // since the second ref belong to the same chunk we expect the chunker to tell
   // us to keep both chunks around.
   std::weak_ptr<CellRef> third;
-  REVERB_ASSERT_OK(chunker->Append(MakeTensor(kIntSpec),
-                                   {/*episode_id=*/1, /*step=*/2}, &third));
+  REVERB_ASSERT_OK(
+      chunker->Append(MakeZeroTensor<tensorflow::DT_INT32>(kIntSpec),
+                      {/*episode_id=*/1, /*step=*/2}, &third));
   EXPECT_THAT(chunker->GetKeepKeys(), ElementsAre(second.lock()->chunk_key(),
                                                   third.lock()->chunk_key()));
 
   // Adding a fourth value results in the second one expiring. The only chunk
   // which should be kept thus is the one referenced by the third and fourth.
   std::weak_ptr<CellRef> fourth;
-  REVERB_ASSERT_OK(chunker->Append(MakeTensor(kIntSpec),
-                                   {/*episode_id=*/1, /*step=*/3}, &fourth));
+  REVERB_ASSERT_OK(
+      chunker->Append(MakeZeroTensor<tensorflow::DT_INT32>(kIntSpec),
+                      {/*episode_id=*/1, /*step=*/3}, &fourth));
   EXPECT_THAT(chunker->GetKeepKeys(), ElementsAre(third.lock()->chunk_key()));
 }
 
@@ -325,11 +339,13 @@ TEST(Chunker, ResetClearsRefs) {
                              /*num_keep_alive_refs=*/2);
 
   std::weak_ptr<CellRef> first;
-  REVERB_ASSERT_OK(chunker->Append(MakeTensor(kIntSpec),
-                                   {/*episode_id=*/1, /*step=*/0}, &first));
+  REVERB_ASSERT_OK(
+      chunker->Append(MakeZeroTensor<tensorflow::DT_INT32>(kIntSpec),
+                      {/*episode_id=*/1, /*step=*/0}, &first));
   std::weak_ptr<CellRef> second;
-  REVERB_ASSERT_OK(chunker->Append(MakeTensor(kIntSpec),
-                                   {/*episode_id=*/1, /*step=*/1}, &second));
+  REVERB_ASSERT_OK(
+      chunker->Append(MakeZeroTensor<tensorflow::DT_INT32>(kIntSpec),
+                      {/*episode_id=*/1, /*step=*/1}, &second));
 
   // Before resetting both references are alive.
   EXPECT_FALSE(first.expired());
@@ -346,8 +362,9 @@ TEST(Chunker, ResetRefreshesChunkKey) {
                              /*num_keep_alive_refs=*/2);
 
   std::weak_ptr<CellRef> first;
-  REVERB_ASSERT_OK(chunker->Append(MakeTensor(kIntSpec),
-                                   {/*episode_id=*/1, /*step=*/0}, &first));
+  REVERB_ASSERT_OK(
+      chunker->Append(MakeZeroTensor<tensorflow::DT_INT32>(kIntSpec),
+                      {/*episode_id=*/1, /*step=*/0}, &first));
 
   // Extract key since the `CellRef` will expire when we reset the
   // `Chunker`.
@@ -359,8 +376,9 @@ TEST(Chunker, ResetRefreshesChunkKey) {
   // `max_chunk_length` hasn't been reached we would expect the second step to
   // be part of the same chunk if `Reset` wasn't called in between.
   std::weak_ptr<CellRef> second;
-  REVERB_ASSERT_OK(chunker->Append(MakeTensor(kIntSpec),
-                                   {/*episode_id=*/1, /*step=*/1}, &second));
+  REVERB_ASSERT_OK(
+      chunker->Append(MakeZeroTensor<tensorflow::DT_INT32>(kIntSpec),
+                      {/*episode_id=*/1, /*step=*/1}, &second));
 
   EXPECT_NE(second.lock()->chunk_key(), first_chunk_key);
 }
@@ -370,8 +388,9 @@ TEST(Chunker, ResetRefreshesOffset) {
                              /*num_keep_alive_refs=*/2);
 
   std::weak_ptr<CellRef> first;
-  REVERB_ASSERT_OK(chunker->Append(MakeTensor(kIntSpec),
-                                   {/*episode_id=*/1, /*step=*/0}, &first));
+  REVERB_ASSERT_OK(
+      chunker->Append(MakeZeroTensor<tensorflow::DT_INT32>(kIntSpec),
+                      {/*episode_id=*/1, /*step=*/0}, &first));
 
   chunker->Reset();
 
@@ -379,8 +398,9 @@ TEST(Chunker, ResetRefreshesOffset) {
   // `max_chunk_length` hasn't been reached we would expect the second step to
   // be part of the same chunk if `Reset` wasn't called in between.
   std::weak_ptr<CellRef> second;
-  REVERB_ASSERT_OK(chunker->Append(MakeTensor(kIntSpec),
-                                   {/*episode_id=*/1, /*step=*/1}, &second));
+  REVERB_ASSERT_OK(
+      chunker->Append(MakeZeroTensor<tensorflow::DT_INT32>(kIntSpec),
+                      {/*episode_id=*/1, /*step=*/1}, &second));
 
   EXPECT_EQ(second.lock()->offset(), 0);
 }
@@ -391,10 +411,11 @@ TEST(Chunker, AppendRequiresSameEpisode) {
 
   // Add two steps referencing two different episodes.
   std::weak_ptr<CellRef> first;
-  REVERB_ASSERT_OK(chunker->Append(MakeTensor(kIntSpec),
-                                   {/*episode_id=*/1, /*step=*/0}, &first));
+  REVERB_ASSERT_OK(
+      chunker->Append(MakeZeroTensor<tensorflow::DT_INT32>(kIntSpec),
+                      {/*episode_id=*/1, /*step=*/0}, &first));
   std::weak_ptr<CellRef> second;
-  auto status = chunker->Append(MakeTensor(kIntSpec),
+  auto status = chunker->Append(MakeZeroTensor<tensorflow::DT_INT32>(kIntSpec),
                                 {/*episode_id=*/2, /*step=*/0}, &second);
 
   EXPECT_EQ(status.code(), absl::StatusCode::kFailedPrecondition);
@@ -410,13 +431,15 @@ TEST(Chunker, AppendRequiresEpisodeStepIncreases) {
 
   // Add two steps referencing two different episodes.
   std::weak_ptr<CellRef> first;
-  REVERB_ASSERT_OK(chunker->Append(MakeTensor(kIntSpec),
-                                   {/*episode_id=*/1, /*step=*/5}, &first));
+  REVERB_ASSERT_OK(
+      chunker->Append(MakeZeroTensor<tensorflow::DT_INT32>(kIntSpec),
+                      {/*episode_id=*/1, /*step=*/5}, &first));
 
   // Same step index.
   std::weak_ptr<CellRef> eq;
-  auto eq_status = chunker->Append(MakeTensor(kIntSpec),
-                                   {/*episode_id=*/1, /*step=*/5}, &eq);
+  auto eq_status =
+      chunker->Append(MakeZeroTensor<tensorflow::DT_INT32>(kIntSpec),
+                      {/*episode_id=*/1, /*step=*/5}, &eq);
 
   EXPECT_EQ(eq_status.code(), absl::StatusCode::kFailedPrecondition);
   EXPECT_THAT(
@@ -426,8 +449,9 @@ TEST(Chunker, AppendRequiresEpisodeStepIncreases) {
 
   // Smaller step index.
   std::weak_ptr<CellRef> lt;
-  auto lt_status = chunker->Append(MakeTensor(kIntSpec),
-                                   {/*episode_id=*/1, /*step=*/3}, &lt);
+  auto lt_status =
+      chunker->Append(MakeZeroTensor<tensorflow::DT_INT32>(kIntSpec),
+                      {/*episode_id=*/1, /*step=*/3}, &lt);
 
   EXPECT_EQ(lt_status.code(), absl::StatusCode::kFailedPrecondition);
   EXPECT_THAT(
@@ -443,8 +467,9 @@ TEST(Chunker, NonSparseEpisodeRange) {
   // Append five consecutive steps.
   std::weak_ptr<CellRef> step;
   for (int i = 0; i < 5; i++) {
-    REVERB_ASSERT_OK(chunker->Append(MakeTensor(kIntSpec),
-                                     {/*episode_id=*/1, /*step=*/i}, &step));
+    REVERB_ASSERT_OK(
+        chunker->Append(MakeConstantTensor<tensorflow::DT_INT32>({1}, 0),
+                        {/*episode_id=*/1, /*step=*/i}, &step));
   }
 
   // Check that the range is non sparse.
@@ -461,8 +486,9 @@ TEST(Chunker, SparseEpisodeRange) {
   // Append five steps with a stride of 2.
   std::weak_ptr<CellRef> step;
   for (int i = 0; i < 5; i++) {
-    REVERB_ASSERT_OK(chunker->Append(
-        MakeTensor(kIntSpec), {/*episode_id=*/33, /*step=*/i * 2}, &step));
+    REVERB_ASSERT_OK(
+        chunker->Append(MakeZeroTensor<tensorflow::DT_INT32>(kIntSpec),
+                        {/*episode_id=*/33, /*step=*/i * 2}, &step));
   }
 
   // Check that the range is non sparse.
@@ -484,8 +510,9 @@ TEST(Chunker, ApplyConfigChangesMaxChunkLength) {
 
   // Appending should now result in chunks being created with each step.
   std::weak_ptr<CellRef> step;
-  REVERB_ASSERT_OK(chunker->Append(MakeTensor(kIntSpec),
-                                   {/*episode_id=*/1, /*step=*/0}, &step));
+  REVERB_ASSERT_OK(
+      chunker->Append(MakeZeroTensor<tensorflow::DT_INT32>(kIntSpec),
+                      {/*episode_id=*/1, /*step=*/0}, &step));
   ASSERT_FALSE(step.expired());
   ASSERT_TRUE(step.lock()->IsReady());
   EXPECT_THAT(step.lock()->GetChunk()->sequence_range(),
@@ -503,19 +530,22 @@ TEST(Chunker, ApplyConfigChangesNumKeepAliveRefs) {
 
   // The last two steps should now be alive instead of only the last one.
   std::weak_ptr<CellRef> first;
-  REVERB_ASSERT_OK(chunker->Append(MakeTensor(kIntSpec),
-                                   {/*episode_id=*/1, /*step=*/0}, &first));
+  REVERB_ASSERT_OK(
+      chunker->Append(MakeZeroTensor<tensorflow::DT_INT32>(kIntSpec),
+                      {/*episode_id=*/1, /*step=*/0}, &first));
   ASSERT_FALSE(first.expired());
 
   std::weak_ptr<CellRef> second;
-  REVERB_ASSERT_OK(chunker->Append(MakeTensor(kIntSpec),
-                                   {/*episode_id=*/1, /*step=*/1}, &second));
+  REVERB_ASSERT_OK(
+      chunker->Append(MakeZeroTensor<tensorflow::DT_INT32>(kIntSpec),
+                      {/*episode_id=*/1, /*step=*/1}, &second));
   ASSERT_FALSE(first.expired());
   ASSERT_FALSE(second.expired());
 
   std::weak_ptr<CellRef> third;
-  REVERB_ASSERT_OK(chunker->Append(MakeTensor(kIntSpec),
-                                   {/*episode_id=*/1, /*step=*/2}, &third));
+  REVERB_ASSERT_OK(
+      chunker->Append(MakeZeroTensor<tensorflow::DT_INT32>(kIntSpec),
+                      {/*episode_id=*/1, /*step=*/2}, &third));
   ASSERT_TRUE(first.expired());
   ASSERT_FALSE(second.expired());
   ASSERT_FALSE(third.expired());
@@ -527,8 +557,9 @@ TEST(Chunker, ApplyConfigRequireBufferToBeEmpty) {
 
   // Append a step which is not finalized since max_chunk_length is 2.
   std::weak_ptr<CellRef> step;
-  REVERB_ASSERT_OK(chunker->Append(MakeTensor(kIntSpec),
-                                   {/*episode_id=*/1, /*step=*/0}, &step));
+  REVERB_ASSERT_OK(
+      chunker->Append(MakeZeroTensor<tensorflow::DT_INT32>(kIntSpec),
+                      {/*episode_id=*/1, /*step=*/0}, &step));
 
   auto status = chunker->ApplyConfig(std::make_shared<ConstantChunkerOptions>(
       /*max_chunk_length=*/1, /*num_keep_alive_refs=*/5));
@@ -557,8 +588,9 @@ TEST(Chunker, OnItemFinalizedIsNoopIfNoRefsCreatedByChunker) {
 
   // Take a step with one of the chunkers.
   std::weak_ptr<CellRef> step;
-  REVERB_ASSERT_OK(chunker_a->Append(MakeTensor(kIntSpec),
-                                     {/*episode_id=*/1, /*step=*/0}, &step));
+  REVERB_ASSERT_OK(
+      chunker_a->Append(MakeZeroTensor<tensorflow::DT_INT32>(kIntSpec),
+                        {/*episode_id=*/1, /*step=*/0}, &step));
 
   // The call should be ignored by the other chunker since none of the refs
   // came from it.
@@ -582,11 +614,13 @@ TEST(Chunker, OnItemFinalizedFiltersRefsAndForwardsToOptions) {
 
   // Take a step with both chunkers.
   std::weak_ptr<CellRef> ref_a;
-  REVERB_ASSERT_OK(chunker_a->Append(MakeTensor(kIntSpec),
-                                     {/*episode_id=*/1, /*step=*/0}, &ref_a));
+  REVERB_ASSERT_OK(
+      chunker_a->Append(MakeZeroTensor<tensorflow::DT_INT32>(kIntSpec),
+                        {/*episode_id=*/1, /*step=*/0}, &ref_a));
   std::weak_ptr<CellRef> ref_b;
-  REVERB_ASSERT_OK(chunker_b->Append(MakeTensor(kIntSpec),
-                                     {/*episode_id=*/1, /*step=*/0}, &ref_b));
+  REVERB_ASSERT_OK(
+      chunker_b->Append(MakeZeroTensor<tensorflow::DT_INT32>(kIntSpec),
+                        {/*episode_id=*/1, /*step=*/0}, &ref_b));
 
   // The call should filter down the refs to only include the refs created by
   // the chunker.
@@ -632,8 +666,9 @@ TEST(Chunker, DeltaEncodeIsRespected) {
                              /*delta_encode=*/true);
 
   std::weak_ptr<CellRef> step;
-  REVERB_ASSERT_OK(chunker->Append(MakeTensor(kIntSpec),
-                                   {/*episode_id=*/1, /*step=*/0}, &step));
+  REVERB_ASSERT_OK(
+      chunker->Append(MakeZeroTensor<tensorflow::DT_INT32>(kIntSpec),
+                      {/*episode_id=*/1, /*step=*/0}, &step));
   REVERB_ASSERT_OK(chunker->Flush());
   EXPECT_TRUE(step.lock()->GetChunk()->delta_encoded());
 }
