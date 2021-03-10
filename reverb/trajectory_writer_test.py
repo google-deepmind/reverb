@@ -15,7 +15,6 @@
 """Tests for reverb.trajectory_writer."""
 
 from typing import Optional
-
 from unittest import mock
 
 from absl.testing import absltest
@@ -101,6 +100,15 @@ class TrajectoryWriterTest(parameterized.TestCase):
         'y': [None, 4, None, None],
         'w': [None, None, 5, 7],
     })
+
+  @parameterized.named_parameters(
+      ('tuple', (0,), (0, 1)),
+      ('dict', {'x': 0}, {'x': 0, 'y': 1}),
+      ('list', [0], [0, 1]),
+  )
+  def test_append_with_more_fields(self, first_step_data, second_step_data):
+    self.writer.append(first_step_data)
+    self.writer.append(second_step_data)
 
   def test_append_returns_same_structure_as_data(self):
     first_step_data = {'x': 1, 'y': 2}

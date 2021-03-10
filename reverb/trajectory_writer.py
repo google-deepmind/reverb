@@ -20,8 +20,8 @@ test these features.
 """
 
 import datetime
-
-from typing import Any, List, Iterator, Mapping, Optional, Sequence, Tuple, Union
+import itertools
+from typing import Any, Iterator, List, Mapping, Optional, Sequence, Tuple, Union
 
 import numpy as np
 from reverb import errors
@@ -611,7 +611,8 @@ def _tree_union(a, b):
   if _is_named_tuple(a):
     return type(a)(**_tree_union(a._asdict(), b._asdict()))
   if isinstance(a, (List, Tuple)):
-    return type(a)(_tree_union(aa, bb) for aa, bb in zip(a, b))
+    return type(a)(
+        _tree_union(aa, bb) for aa, bb in itertools.zip_longest(a, b))
 
   merged = {**a}
 
