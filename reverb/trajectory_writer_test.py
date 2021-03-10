@@ -44,9 +44,9 @@ class TrajectoryWriterTest(parameterized.TestCase):
 
     self.cpp_writer_mock = mock.Mock()
     self.cpp_writer_mock.Append.side_effect = \
-        lambda x: [FakeWeakCellRef(y) if y else None for y in x]
+        lambda x: [FakeWeakCellRef(y) if y is not None else None for y in x]
     self.cpp_writer_mock.AppendPartial.side_effect = \
-        lambda x: [FakeWeakCellRef(y) if y else None for y in x]
+        lambda x: [FakeWeakCellRef(y) if y is not None else None for y in x]
 
     self.writer = trajectory_writer.TrajectoryWriter(self.cpp_writer_mock)
 
@@ -55,12 +55,12 @@ class TrajectoryWriterTest(parameterized.TestCase):
       _ = self.writer.history
 
   def test_history_contains_references_when_data_flat(self):
+    self.writer.append(0)
     self.writer.append(1)
     self.writer.append(2)
-    self.writer.append(3)
 
     history = tree.map_structure(extract_data, self.writer.history)
-    self.assertListEqual(history, [1, 2, 3])
+    self.assertListEqual(history, [0, 1, 2])
 
   def test_history_contains_structured_references(self):
     self.writer.append({'x': 1, 'y': 100})
