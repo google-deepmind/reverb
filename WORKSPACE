@@ -13,8 +13,8 @@ workspace(name = "reverb")
 #
 # *WARNING* If using the REVERB_PROTOC_VERSION environment variable, sha256
 # checking is disabled.  Use at your own risk.
-PROTOC_VERSION = "3.11.0"
-PROTOC_SHA256 = "43dbd9200006152559de2fb9370dbbaac4e711a317a61ba9c1107bb84a27a213"
+PROTOC_VERSION = "3.9.0"
+PROTOC_SHA256 = "15e395b648a1a6dda8fd66868824a396e9d3e89bc2c8648e3b9ab9801bea5d55"
 
 load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
 
