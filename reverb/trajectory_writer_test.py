@@ -34,7 +34,7 @@ class FakeWeakCellRef:
 
 
 def extract_data(column: trajectory_writer._ColumnHistory):
-  return [ref.data if ref else None for ref in column[:]]
+  return [ref.data if ref else None for ref in column]
 
 
 class TrajectoryWriterTest(parameterized.TestCase):
@@ -329,6 +329,13 @@ class TrajectoryColumnTest(absltest.TestCase):
     for i in range(1, 10):
       column = trajectory_writer.TrajectoryColumn([FakeWeakCellRef(1)] * i)
       self.assertLen(column, i)
+
+  def test_none_raises(self):
+    with self.assertRaisesRegex(ValueError, r'cannot contain any None'):
+      trajectory_writer.TrajectoryColumn([None])
+
+    with self.assertRaisesRegex(ValueError, r'cannot contain any None'):
+      trajectory_writer.TrajectoryColumn([FakeWeakCellRef(1), None])
 
 if __name__ == '__main__':
   absltest.main()

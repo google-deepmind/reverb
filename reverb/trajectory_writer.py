@@ -441,8 +441,9 @@ class TrajectoryWriter:
       new_structure: The new structure to use. Must be a superset of the
         previous structure.
     """
+    new_structure_with_path_flat = tree.flatten_with_path(new_structure)
     # Evolve the mapping from structure path to column index.
-    for path, _ in tree.flatten_with_path(new_structure):
+    for path, _ in new_structure_with_path_flat:
       if path not in self._path_to_column_index:
         self._path_to_column_index[path] = len(self._path_to_column_index)
 
@@ -457,7 +458,7 @@ class TrajectoryWriter:
     # flatten structure.
     self._column_index_to_flat_structure_index = {
         i: self._path_to_column_index[path]
-        for i, (path, _) in enumerate(tree.flatten_with_path(new_structure))
+        for i, (path, _) in enumerate(new_structure_with_path_flat)
     }
 
     # New columns are always added to the back so all we need to do expand the
@@ -466,7 +467,10 @@ class TrajectoryWriter:
     # we init the new fields with None for all steps up until this.
     history_length = len(self._column_history[0]) if self._column_history else 0
     while len(self._column_history) < len(tree.flatten(new_structure)):
-      self._column_history.append(_ColumnHistory(history_length))
+      column_index = len(self._column_history)
+      self._column_history.append(
+          _ColumnHistory(new_structure_with_path_flat[column_index][0],
+                         history_length))
 
     # With the mapping and history updated the structure can be set.
     self._structure = new_structure
@@ -475,8 +479,20 @@ class TrajectoryWriter:
 class _ColumnHistory:
   """Utility class for making construction of `TrajectoryColumn`s easy."""
 
-  def __init__(self, history_padding: int = 0):
-    self._data_references = [None] * history_padding
+  def __init__(self,
+               path: Tuple[Union[str, int], ...],
+               history_padding: int = 0):
+    """Constructor for _ColumnHistory.
+
+    Args:
+      path: A Tuple of strings and ints that represents which leaf-node this
+        column represents in TrajectoryWriter._structure.
+      history_padding: The number of Nones used to forward-pad the column's
+        history.
+    """
+    self._path = path
+    self._data_references: Sequence[Optional[pybind.WeakCellRef]] = (
+        [None] * history_padding)
 
   def append(self, ref: Optional[pybind.WeakCellRef]):
     self._data_references.append(ref)
@@ -498,17 +514,25 @@ class _ColumnHistory:
   def __len__(self) -> int:
     return len(self._data_references)
 
-  def __iter__(self) -> Iterator[pybind.WeakCellRef]:
+  def __iter__(self) -> Iterator[Optional[pybind.WeakCellRef]]:
     return iter(self._data_references)
 
   def __getitem__(self, val) -> 'TrajectoryColumn':
+    path = self._path + (val,)
     if isinstance(val, int):
-      return TrajectoryColumn([self._data_references[val]], squeeze=True)
+      return TrajectoryColumn([self._data_references[val]],
+                              squeeze=True,
+                              path=path)
     elif isinstance(val, slice):
-      return TrajectoryColumn(self._data_references[val])
+      return TrajectoryColumn(
+          self._data_references[val], path=path)
     else:
       raise TypeError(
           f'_ColumnHistory indices must be integers, not {type(val)}')
+
+  def __str__(self):
+    name = f'{self.__class__.__module__}.{self.__class__.__name__}'
+    return f'{name}(path={self._path}, refs={self._data_references})'
 
 
 class TrajectoryColumn:
@@ -516,11 +540,17 @@ class TrajectoryColumn:
 
   def __init__(self,
                data_references: Sequence[pybind.WeakCellRef],
-               squeeze: bool = False):
+               *,
+               squeeze: bool = False,
+               path: Tuple[Union[str, int, slice], ...] = None):
     if squeeze and len(data_references) != 1:
       raise ValueError(
           f'Columns must contain exactly one data reference when squeeze set, '
           f'got {len(data_references)}')
+    if any(ref is None for ref in data_references):
+      raise ValueError('TrajectoryColumns cannot contain any None data '
+                       f'references, got {data_references} for '
+                       f'TrajectoryColumn at path {path}')
 
     self._data_references = tuple(data_references)
     self.is_squeezed = squeeze
