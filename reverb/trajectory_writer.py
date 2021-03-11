@@ -370,9 +370,9 @@ class TrajectoryWriter:
     try:
       self._writer.Flush(block_until_num_items, timeout_ms)
     except RuntimeError as e:
-      if 'Deadline Exceeded' in str(e) and timeout_ms is not None:
+      if 'Timeout exceeded' in str(e) and timeout_ms is not None:
         raise errors.DeadlineExceededError(
-            f'ServerInfo call did not complete within provided timeout of '
+            f'Flush call did not complete within provided timeout of '
             f'{datetime.timedelta(milliseconds=timeout_ms)}')
       raise
 
