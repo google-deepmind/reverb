@@ -844,6 +844,29 @@ TEST(TableTest, InsertOrAssignOfItemWithChunkLengthMissmatch) {
                            "of chunks referenced in item's trajectory (1)."));
 }
 
+TEST(TableTest, InsertOrAssignCanTimeout) {
+  Table table(
+      /*name=*/"table",
+      /*sampler=*/absl::make_unique<UniformSelector>(),
+      /*remover=*/absl::make_unique<FifoSelector>(),
+      /*max_size=*/5,
+      /*max_times_sampled=*/1,
+      /*rate_limiter=*/
+      std::make_shared<RateLimiter>(
+          /*samples_per_insert=*/1.0,
+          /*min_size_to_sample=*/1,
+          /*min_diff=*/-1,
+          /*max_diff=*/1));
+
+  // The first item should be inserted without blockage.
+  REVERB_EXPECT_OK(table.InsertOrAssign(MakeItem(1, 1)));
+
+  // The second item should not be allowed without first sampling and thus the
+  // call should time timeout.
+  EXPECT_EQ(table.InsertOrAssign(MakeItem(2, 1), absl::Milliseconds(50)).code(),
+            absl::StatusCode::kDeadlineExceeded);
+}
+
 }  // namespace
 }  // namespace reverb
 }  // namespace deepmind

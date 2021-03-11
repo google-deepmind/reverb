@@ -135,7 +135,12 @@ class Table {
   // that we insert the new item that exceeds the capacity BEFORE we run the
   // remover. This means that the newly inserted item could be deleted right
   // away.
-  absl::Status InsertOrAssign(Item item);
+  //
+  // The timeout is forwarded to the rate limiter. If the right to insert cannot
+  // be acquired before the timeout is exceeded the `DeadlineExceededError` is
+  // returned and no action is taken.
+  absl::Status InsertOrAssign(
+      Item item, absl::Duration timeout = absl::InfiniteDuration());
 
   // Inserts an item without consulting or modifying the RateLimiter about the
   // operation.

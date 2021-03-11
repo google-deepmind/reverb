@@ -128,7 +128,7 @@ std::vector<Table::Item> Table::Copy(size_t count) const {
   return items;
 }
 
-absl::Status Table::InsertOrAssign(Item item) {
+absl::Status Table::InsertOrAssign(Item item, absl::Duration timeout) {
   REVERB_RETURN_IF_ERROR(CheckItemValidity(item));
 
   auto key = item.item.key();
@@ -148,7 +148,7 @@ absl::Status Table::InsertOrAssign(Item item) {
     // Wait for the insert to be staged. While waiting the lock is released but
     // once it returns the lock is acquired again. While waiting for the right
     // to insert the operation might have transformed into an update.
-    REVERB_RETURN_IF_ERROR(rate_limiter_->AwaitCanInsert(&mu_));
+    REVERB_RETURN_IF_ERROR(rate_limiter_->AwaitCanInsert(&mu_, timeout));
 
     if (data_.contains(key)) {
       // If the insert was transformed into an update while waiting we need to
