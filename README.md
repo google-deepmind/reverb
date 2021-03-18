@@ -331,16 +331,17 @@ for details on the implementation of checkpointing in Reverb.
 
 ## Citation
 
-If you use this code, please cite it as:
+If you use this code, please cite the
+[Reverb paper](https://arxiv.org/abs/2102.04736) as
 
 ```
-@software{Reverb,
-  title = {{Reverb}: An efficient data storage and transport system for ML research},
-  author = "{Albin Cassirer, Gabriel Barth-Maron, Thibault Sottiaux, Manuel Kroiss, Eugene Brevdo}",
-  howpublished = {\url{https://github.com/deepmind/reverb}},
-  url = "https://github.com/deepmind/reverb",
-  year = 2020,
-  note = "[Online; accessed 01-June-2020]"
+@misc{cassirer2021reverb,
+      title={Reverb: A Framework For Experience Replay},
+      author={Albin Cassirer, Gabriel Barth-Maron, Eugene Brevdo, Sabela Ramos, Toby Boyd, Thibault Sottiaux, Manuel Kroiss},
+      year={2021},
+      eprint={2102.04736},
+      archivePrefix={arXiv},
+      primaryClass={cs.LG}
 }
 ```
 
