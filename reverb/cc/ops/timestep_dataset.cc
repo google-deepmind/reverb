@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "tensorflow/core/framework/dataset.h"
-
 #include "absl/strings/match.h"
 #include "reverb/cc/client.h"
 #include "reverb/cc/errors.h"
@@ -21,6 +19,7 @@
 #include "reverb/cc/sampler.h"
 #include "reverb/cc/support/tf_util.h"
 #include "tensorflow/core/framework/common_shape_fns.h"
+#include "tensorflow/core/framework/dataset.h"
 #include "tensorflow/core/framework/op.h"
 #include "tensorflow/core/framework/op_kernel.h"
 #include "tensorflow/core/framework/tensor_shape.h"
@@ -158,8 +157,7 @@ class ReverbTimestepDatasetOp : public tensorflow::data::DatasetOpKernel {
       return absl::make_unique<Iterator>(
           tensorflow::data::DatasetIterator<Dataset>::Params{
               this, absl::StrCat(prefix, "::ReverbTimestepDataset")},
-          client_.get(), table_, sampler_options_, dtypes_,
-          shapes_);
+          client_.get(), table_, sampler_options_, dtypes_, shapes_);
     }
 
     const tensorflow::DataTypeVector& output_dtypes() const override {
@@ -177,6 +175,12 @@ class ReverbTimestepDatasetOp : public tensorflow::data::DatasetOpKernel {
 
     tensorflow::Status CheckExternalState() const override {
       return FailedPrecondition(DebugString(), " depends on external state.");
+    }
+
+    tensorflow::Status InputDatasets(
+        std::vector<const DatasetBase*>* inputs) const override {
+      inputs->clear();
+      return tensorflow::Status::OK();
     }
 
    protected:

@@ -213,6 +213,12 @@ class ReverbDatasetOp : public tensorflow::data::DatasetOpKernel {
       return "ReverbDatasetOp::Dataset";
     }
 
+    tensorflow::Status InputDatasets(
+        std::vector<const DatasetBase*>* inputs) const override {
+      inputs->clear();
+      return tensorflow::Status::OK();
+    }
+
     tensorflow::Status CheckExternalState() const override {
       return FailedPrecondition(DebugString(), " depends on external state.");
     }
