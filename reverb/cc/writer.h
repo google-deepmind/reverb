@@ -75,9 +75,6 @@ class Writer {
   absl::Status CreateItem(const std::string& table, int num_timesteps,
                           double priority);
 
-  // TODO(b/154929199): There should probably be a method for ending an episode
-  // even if you don't want to close the stream.
-
   // Creates a new batch from the content of `buffer_` and writes all
   // `pending_items_` and closes the stream_. The object must be abandoned after
   // calling this method. Iff `max_items_in_flight_` is set then call blocks
