@@ -37,6 +37,7 @@
 #include "reverb/cc/selectors/lifo.h"
 #include "reverb/cc/selectors/prioritized.h"
 #include "reverb/cc/selectors/uniform.h"
+#include "reverb/cc/support/tf_util.h"
 #include "reverb/cc/table.h"
 #include "reverb/cc/table_extensions/interface.h"
 #include "reverb/cc/trajectory_writer.h"
@@ -198,9 +199,9 @@ tensorflow::Status StringTensorToPyArray(const tensorflow::Tensor &tensor,
   return tensorflow::Status::OK();
 }
 
-tensorflow::Status GetPyDescrFromTensor(const tensorflow::Tensor &tensor,
-                                        PyArray_Descr **out_descr) {
-  switch (tensor.dtype()) {
+tensorflow::Status GetPyDescrFromDataType(tensorflow::DataType dtype,
+                                          PyArray_Descr **out_descr) {
+  switch (dtype) {
 #define TF_TO_PY_ARRAY_TYPE_CASE(TF_DTYPE, PY_ARRAY_TYPE) \
   case TF_DTYPE:                                          \
     *out_descr = PyArray_DescrFromType(PY_ARRAY_TYPE);    \
@@ -226,10 +227,15 @@ tensorflow::Status GetPyDescrFromTensor(const tensorflow::Tensor &tensor,
 
     default:
       return tensorflow::errors::Internal(
-          "Unsupported tf type: ", tensorflow::DataType_Name(tensor.dtype()));
+          "Unsupported tf type: ", tensorflow::DataType_Name(dtype));
   }
 
   return tensorflow::Status::OK();
+}
+
+tensorflow::Status GetPyDescrFromTensor(const tensorflow::Tensor &tensor,
+                                        PyArray_Descr **out_descr) {
+  return GetPyDescrFromDataType(tensor.dtype(), out_descr);
 }
 
 tensorflow::Status GetTensorDtypeFromPyArray(
@@ -764,25 +770,83 @@ PYBIND11_MODULE(libpybind, m) {
 
   py::class_<WeakCellRef, std::shared_ptr<WeakCellRef>>(m, "WeakCellRef")
       .def_property_readonly("expired", &WeakCellRef::expired)
-      .def("numpy", [](WeakCellRef *ref) -> tensorflow::Tensor {
-        tensorflow::Tensor tensor;
+      .def("numpy",
+           [](WeakCellRef *ref) -> tensorflow::Tensor {
+             tensorflow::Tensor tensor;
 
-        auto sp = ref->ref().lock();
-        if (!sp) {
-          MaybeRaiseFromStatus(absl::FailedPreconditionError(
-              "Cannot access data from expired WeakCellRef"));
-          return tensor;
-        }
+             auto sp = ref->ref().lock();
+             if (!sp) {
+               MaybeRaiseFromStatus(absl::FailedPreconditionError(
+                   "Cannot access data from expired WeakCellRef"));
+               return tensor;
+             }
 
-        absl::Status status;
-        {
-          py::gil_scoped_release g;
-          auto status = sp->GetData(&tensor);
-        }
-        MaybeRaiseFromStatus(status);
+             absl::Status status;
+             {
+               py::gil_scoped_release g;
+               status = sp->GetData(&tensor);
+             }
+             MaybeRaiseFromStatus(status);
 
-        return tensor;
-      });
+             return tensor;
+           })
+      .def_property_readonly(
+          "shape",
+          [](WeakCellRef *ref) -> std::vector<absl::optional<int>> {
+            std::vector<absl::optional<int>> out_shape;
+
+            auto sp = ref->ref().lock();
+            if (!sp) {
+              MaybeRaiseFromStatus(absl::FailedPreconditionError(
+                  "Cannot access data from expired WeakCellRef"));
+              return out_shape;
+            }
+
+            absl::Status status;
+            {
+              py::gil_scoped_release g;
+              internal::TensorSpec spec;
+              status = sp->GetSpec(&spec);
+              out_shape.reserve(spec.shape.dims());
+              for (auto dim : spec.shape.dim_sizes()) {
+                // Replace -1 with absl::nullopt because the Python API uses
+                // None instead of -1 to represent unknown dimensions.
+                out_shape.push_back(dim == -1 ? absl::nullopt
+                                              : absl::make_optional(dim));
+              }
+            }
+            MaybeRaiseFromStatus(status);
+
+            return out_shape;
+          })
+      .def_property_readonly(
+          "dtype", [](WeakCellRef *ref) -> py::dtype {
+            auto sp = ref->ref().lock();
+            if (!sp) {
+              MaybeRaiseFromStatus(absl::FailedPreconditionError(
+                  "Cannot access data from expired WeakCellRef"));
+            }
+
+            absl::Status status;
+            py::dtype dtype;
+            {
+              py::gil_scoped_release g;
+              internal::TensorSpec spec;
+              status = sp->GetSpec(&spec);
+
+              if (status.ok()) {
+                PyArray_Descr *descr = nullptr;
+                status = FromTensorflowStatus(
+                    GetPyDescrFromDataType(spec.dtype, &descr));
+                if (status.ok()) {
+                  dtype = py::reinterpret_steal<py::dtype>(
+                      reinterpret_cast<PyObject *>(descr));
+                }
+              }
+            }
+            MaybeRaiseFromStatus(status);
+            return dtype;
+          });
 
   py::class_<ChunkerOptions, std::shared_ptr<ChunkerOptions>>(m,
                                                               "ChunkerOptions");

@@ -99,6 +99,7 @@ reverb_pybind_extension(
     visibility = [":__subpackages__"],
     deps = [
         "//reverb/cc:chunker",
+        "//reverb/cc/support:tf_util",
         "//reverb/cc:client",
         "//reverb/cc:sampler",
         "//reverb/cc:table",

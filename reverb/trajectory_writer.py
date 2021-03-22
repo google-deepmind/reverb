@@ -571,6 +571,14 @@ class TrajectoryColumn:
           f'TrajectoryColumn indices must be integers or slices, '
           f'not {type(val)}')
 
+  @property
+  def shape(self) -> Tuple[Optional[int], ...]:
+    return (len(self._data_references), *self._data_references[0].shape)
+
+  @property
+  def dtype(self) -> np.dtype:
+    return self._data_references[0].dtype
+
   def numpy(self) -> np.ndarray:
     """Gets and stacks all the referenced data.
 

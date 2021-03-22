@@ -32,6 +32,14 @@ class FakeWeakCellRef:
   def __init__(self, data):
     self.data = data
 
+  @property
+  def shape(self):
+    return np.asarray(self.data).shape
+
+  @property
+  def dtype(self):
+    return np.asarray(self.data).dtype
+
 
 def extract_data(column: trajectory_writer._ColumnHistory):
   return [ref.data if ref else None for ref in column]
@@ -276,7 +284,7 @@ class TrajectoryWriterTest(parameterized.TestCase):
       self.writer.end_episode()
 
 
-class TrajectoryColumnTest(absltest.TestCase):
+class TrajectoryColumnTest(parameterized.TestCase):
 
   @classmethod
   def setUpClass(cls):
@@ -336,6 +344,47 @@ class TrajectoryColumnTest(absltest.TestCase):
 
     with self.assertRaisesRegex(ValueError, r'cannot contain any None'):
       trajectory_writer.TrajectoryColumn([FakeWeakCellRef(1), None])
+
+  @parameterized.named_parameters(
+      ('int', 0),
+      ('float', 1.0),
+      ('bool', True),
+      ('np ()', np.empty(())),
+      ('np (1)', np.empty((1))),
+      ('np (1, 1)', np.empty((1, 1))),
+      ('np (3, 4, 2)', np.empty((3, 4, 2))),
+  )
+  def test_shape(self, data):
+    expected_shape = np.asarray(data).shape
+    for i in range(1, 10):
+      column = trajectory_writer.TrajectoryColumn([FakeWeakCellRef(data)] * i)
+      self.assertEqual(column.shape, (i, *expected_shape))
+
+  @parameterized.named_parameters(
+      ('int', 0),
+      ('float', 1.0),
+      ('bool', True),
+      ('np_float16', np.empty(shape=(), dtype=np.float16)),
+      ('np_float32', np.empty(shape=(), dtype=np.float32)),
+      ('np_float64', np.empty(shape=(), dtype=np.float64)),
+      ('np_int8', np.empty(shape=(), dtype=np.int8)),
+      ('np_int16', np.empty(shape=(), dtype=np.int16)),
+      ('np_int32', np.empty(shape=(), dtype=np.int32)),
+      ('np_int64', np.empty(shape=(), dtype=np.int64)),
+      ('np_uint8', np.empty(shape=(), dtype=np.uint8)),
+      ('np_uint16', np.empty(shape=(), dtype=np.uint16)),
+      ('np_uint32', np.empty(shape=(), dtype=np.uint32)),
+      ('np_uint64', np.empty(shape=(), dtype=np.uint64)),
+      ('np_complex64', np.empty(shape=(), dtype=np.complex64)),
+      ('np_complex128', np.empty(shape=(), dtype=np.complex128)),
+      ('np_bool', np.empty(shape=(), dtype=np.bool)),
+      ('np_object', np.empty(shape=(), dtype=np.object)),
+  )
+  def test_dtype(self, data):
+    expected_dtype = np.asarray(data).dtype
+    column = trajectory_writer.TrajectoryColumn([FakeWeakCellRef(data)])
+    self.assertEqual(column.dtype, expected_dtype)
+
 
 if __name__ == '__main__':
   absltest.main()

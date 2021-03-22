@@ -87,6 +87,16 @@ absl::Status CellRef::GetData(tensorflow::Tensor* out) const {
   return chunker_sp->CopyDataForCell(this, out);
 }
 
+absl::Status CellRef::GetSpec(internal::TensorSpec* spec) const {
+  auto chunker_sp = chunker_.lock();
+  if (!chunker_sp) {
+    return absl::InternalError(
+        "Chunk not finalized and parent Chunker destroyed.");
+  }
+  *spec = chunker_sp->spec();
+  return absl::OkStatus();
+}
+
 Chunker::Chunker(internal::TensorSpec spec,
                  std::shared_ptr<ChunkerOptions> options)
     : spec_(std::move(spec)),

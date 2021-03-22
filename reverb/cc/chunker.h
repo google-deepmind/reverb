@@ -76,6 +76,12 @@ class CellRef {
   // `Chunker`.
   absl::Status GetData(tensorflow::Tensor* out) const;
 
+  // Gets the internal::TensorSpec for the referenced data. This provides a
+  // description of the referenced data's dtype and shape information. This
+  // will raise an error if the Chunk is not finalized and the parent Chunker
+  // has been destroyed.
+  absl::Status GetSpec(internal::TensorSpec* spec) const;
+
  private:
   friend Chunker;
 
