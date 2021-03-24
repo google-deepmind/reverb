@@ -21,6 +21,7 @@
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
+#include "absl/flags/flag.h"
 #include "absl/memory/memory.h"
 #include "absl/synchronization/notification.h"
 #include "absl/types/optional.h"
