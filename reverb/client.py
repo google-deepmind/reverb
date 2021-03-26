@@ -1,4 +1,3 @@
-# Lint as: python3
 # Copyright 2019 DeepMind Technologies Limited.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -13,65 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Replay client Python interface.
+"""Implementation of the Python client for Reverb.
 
-The `Client` is used primarily for feeding the ReverbService with new data.
-The preferred method is to use the `Writer` as it allows for the most
-flexibility.
-
-Consider an example where we wish to generate all possible connected sequences
-of length 5 based on a single actor.
-
-```python
-
-    client = Client(...)
-    env = ....  # Construct the environment
-    policy = ....  # Construct the agent's policy
-
-    for episode in range(NUM_EPISODES):
-      timestep = env.reset()
-      step_within_episode = 0
-      with client.writer(max_sequence_length=5) as writer:
-        while not timestep.last():
-          action = policy(timestep)
-          new_timestep = env.step(action)
-
-          # Add the observation of the state the agent when doing action, the
-          # action it took and the reward it received.
-          writer.append(
-              (timestep.observation, action, new_timestep.reward))
-
-          timestep = new_timestep
-          step_within_episode += 1
-
-          if step_within_episode >= 5:
-            writer.create_item(
-                table='my_distribution',
-                num_timesteps=5,
-                priority=calc_priority(...))
-
-        # Add an item for the sequence terminating in the final stage.
-        if steps_within_episode >= 5:
-          writer.create_item(
-              table='my_distribution',
-              num_timesteps=5,
-              priority=calc_priority(...))
-
-```
-
-If you do not want overlapping sequences but instead want to insert complete
-trajectories then the `insert`-method should be used.
-
-```python
-
-    client = Client(...)
-
-    trajectory_generator = ...
-    for trajectory in trajectory_generator:
-      client.insert(trajectory, {'my_distribution': calc_priority(trajectory)})
-
-```
-
+`Client` is used to connect and interact with a Reverb server. The client
+exposes direct methods for both inserting (i.e `insert`) and sampling (i.e
+`sample`) but users should prefer to use `TrajectoryWriter` and
+`TrajectoryDataset` directly whenever possible.
 """
 
 from typing import Any, Dict, Generator, List, Optional
@@ -322,6 +268,9 @@ class Client:
              max_in_flight_items: Optional[int] = 25) -> Writer:
     """Constructs a writer with a `max_sequence_length` buffer.
 
+    NOTE! This method will eventually be deprecated in favor of
+    `trajectory_writer` so please prefer to use the latter.
+
     The writer can be used to stream data of any length. `max_sequence_length`
     controls the size of the internal buffer and ensures that prioritized items
     can be created of any length <= `max_sequence_length`.
@@ -331,8 +280,8 @@ class Client:
 
     ```python
 
-        with client.writer(10) as writer:
-           ...  # Write data of any length.
+    with client.writer(10) as writer:
+       ...  # Write data of any length.
 
     ```
 
@@ -542,13 +491,11 @@ class Client:
                         get_signature_timeout_ms: Optional[int] = 3000):
     """Constructs a new `TrajectoryWriter`.
 
-    Note: The documentation is minimal as this is just a draft proposal to give
-      alpha testers something tangible to play around with.
-
     Note: The chunk length is auto tuned by default. Use
       `TrajectoryWriter.configure` to override this behaviour.
 
-    TODO(b/179978457): Add documentation and examples.
+    See `TrajectoryWriter` for more detailed documentation about the writer
+    itself.
 
     Args:
       num_keep_alive_refs: The size of the circular buffer which each column

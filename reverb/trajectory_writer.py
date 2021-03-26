@@ -12,12 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Implementation of the EXPERIMENTAL new TrajectoryWriter API.
-
-NOTE! The content of this file should be considered experimental and breaking
-changes may occur without notice. Please talk to cassirer@ if you wish to alpha
-test these features.
-"""
+"""Implementation of the TrajectoryWriter."""
 
 import datetime
 import itertools
@@ -30,12 +25,77 @@ import tree
 
 
 class TrajectoryWriter:
-  """Draft implementation of b/177308010.
+  """The TrajectoryWriter is used to write data to tables at a Reverb server.
 
-  Note: The documentation is minimal as this is just a draft proposal to give
-  alpha testers something tangible to play around with.
+  At a high level, the process of inserting trajectories can be summarized as:
 
-  TODO(b/179978457): Add documentation and examples.
+    * Structured data is appended to an internal buffer using the `append`
+      method and the caller receives a reference to each element (i.e leaf node)
+      in the original data.
+    * Compatible data referenced (i.e same dtype and compatible shapes) are
+      concatenated into `TrajectoryColumn`s which in turn are combined into a
+      trajectory and inserted into a table using the `create_item` method.
+
+  It is important to understand that the structure of the data provided to
+  `append` does NOT need to match the structure of the trajectory which the
+  sampler will receive when it samples the item. To illustrate, consider a
+  scenario were want to sample SARS (State-action-reward-state) style trajectory
+  of length 5. Furthermore, we would like a trajectory to start at every step.
+  It would look something like this:
+
+  ```python
+
+  client = Client(...)
+  env = ....  # Construct the environment
+  policy = ....  # Construct the agent's policy
+
+  with client.trajectory_writer(num_keep_alive_refs=5) as writer:
+    for episode in range(NUM_EPISODES):
+      timestep = env.reset()
+
+      # You probably have strong opinions of whether the actions should be
+      # aligned with the step it originated from or the destination. In this
+      # example we'll align it with the destination state and thus we'll start
+      # off by appending the timestep WITHOUT an action.
+      writer.append({
+          'observation': timestep.observation,
+      })
+
+      while not timestep.last():
+        # Select the action according to your policy and act it out in the
+        # environment.
+        action = policy(timestep)
+        timestep = env.step(action)
+
+        # Now we have both an action and the state it resulted in. We append
+        # both of these together to the writer. This will result in them
+        # sharing the same index in `writer.history`.
+        writer.append({
+            'observation': timestep.observation,
+            'reward': timestep.reward,
+            'action': action,
+        })
+
+        # Once we have seen at least 5 timesteps (including the first one
+        # which does not have an aligned action) then we can start inserting
+        # items that reference the last 5 timesteps and the last 4 actions.
+        if writer.episode_steps >= 5:
+          trajectory = {
+              'states': writer.history['observation'][-5:],
+              'rewards': writer.history['reward'][-4:],
+              'actions': writer.history['action'][-4:],
+          }
+          writer.create_item(
+              table='my_table',
+              priority=calc_priority(trajectory),
+              trajectory=trajectory)
+
+      # Block until all pending items have been sent to the server and
+      # inserted into 'my_table'. This also clears the buffers so history will
+      # once again be empty and `writer.episode_steps` is 0.
+      writer.end_episode()
+
+  ```
   """
 
   def __init__(self, internal_writer: pybind.TrajectoryWriter):
@@ -477,7 +537,7 @@ class TrajectoryWriter:
 
 
 class _ColumnHistory:
-  """Utility class for making construction of `TrajectoryColumn`s easy."""
+  """Utility class for building `TrajectoryColumn`s from structured history."""
 
   def __init__(self,
                path: Tuple[Union[str, int], ...],
