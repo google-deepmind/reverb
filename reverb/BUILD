@@ -95,6 +95,7 @@ reverb_pybind_extension(
     name = "pybind",
     srcs = ["pybind.cc"],
     module_name = "libpybind",
+    pytype_srcs = ["pybind.pyi"],
     srcs_version = "PY3ONLY",
     visibility = [":__subpackages__"],
     deps = [

@@ -379,7 +379,8 @@ def reverb_pybind_extension(
         licenses = None,
         compatible_with = None,
         restricted_to = None,
-        deprecation = None):
+        deprecation = None,
+        pytype_srcs = None):
     """Builds a generic Python extension module.
 
     The module can be loaded in python by performing "import ${name}.".
@@ -403,6 +404,7 @@ def reverb_pybind_extension(
       compatible_with: see bazel docs.
       restricted_to: see bazel docs.
       deprecation:  see bazel docs.
+      pytype_srcs: Unused list of pytype stub files.
     """
     if name == module_name:
         fail(

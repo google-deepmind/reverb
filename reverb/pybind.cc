@@ -484,6 +484,7 @@ struct type_caster<absl::Status> {
 }  // namespace detail
 }  // namespace pybind11
 
+// LINT.IfChange
 namespace deepmind {
 namespace reverb {
 namespace {
@@ -976,3 +977,4 @@ PYBIND11_MODULE(libpybind, m) {
 }  // namespace
 }  // namespace reverb
 }  // namespace deepmind
+// LINT.ThenChange(pybind.pyi)
