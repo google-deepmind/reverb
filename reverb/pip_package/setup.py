@@ -84,6 +84,7 @@ class SetupToolsHelper(object):
   def _get_required_packages(self):
     """Returns list of required packages."""
     required_packages = [
+        'dataclasses; python_version < "3.7.0"',  # Back-port for Python 3.6.
         'dm-tree',
         'portpicker',
     ]

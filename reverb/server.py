@@ -219,6 +219,11 @@ class Table:
   def name(self):
     return self.internal_table.name()
 
+  @property
+  def info(self) -> reverb_types.TableInfo:
+    proto_string = self.internal_table.info()
+    return reverb_types.TableInfo.from_serialized_proto(proto_string)
+
   def can_sample(self, num_samples: int) -> bool:
     """Returns True if a sample operation is permitted at the current state."""
     return self.internal_table.can_sample(num_samples)

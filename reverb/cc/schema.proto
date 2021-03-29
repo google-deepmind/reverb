@@ -140,6 +140,7 @@ message SampleInfo {
   double priority = 4;
 }
 
+// LINT.IfChange
 // Metadata about the table, including (optional) data signature.
 //
 // These fields correspond to initialization arguments of the
@@ -180,6 +181,7 @@ message TableInfo {
   // The total number of episodes thus is `num_episodes + num_deleted_episodes`.
   int64 num_deleted_episodes = 10;
 }
+// LINT.ThenChange(../py/reverb/reverb_types.py)
 
 message RateLimiterCallStats {
   // The number of calls that are currently blocked.

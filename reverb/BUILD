@@ -57,7 +57,6 @@ reverb_pytype_library(
         ":replay_sample",
         ":reverb_types",
         ":trajectory_writer",
-        "//reverb/cc:schema_py_pb2",
     ],
 )
 
@@ -220,6 +219,7 @@ reverb_py_test(
     deps = [
         ":client",
         ":item_selectors",
+        ":pybind",
         ":rate_limiters",
         ":server",
     ],

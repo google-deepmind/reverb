@@ -30,9 +30,6 @@ from reverb import reverb_types
 from reverb import trajectory_writer as trajectory_writer_lib
 import tree
 
-from reverb.cc import schema_pb2
-from tensorflow.python.saved_model import nested_structure_coder  # pylint: disable=g-direct-tensorflow-import
-
 
 class Writer:
   """Writer is used for streaming data of arbitrary length.
@@ -462,20 +459,11 @@ class Client:
             f'{timeout}s')
       raise
 
-    table_info = {}
+    table_infos = {}
     for proto_string in info_proto_strings:
-      proto = schema_pb2.TableInfo.FromString(proto_string)
-      if proto.HasField('signature'):
-        signature = nested_structure_coder.StructureCoder().decode_proto(
-            proto.signature)
-      else:
-        signature = None
-      info_dict = dict((descr.name, getattr(proto, descr.name))
-                       for descr in proto.DESCRIPTOR.fields)
-      info_dict['signature'] = signature
-      name = str(info_dict['name'])
-      table_info[name] = reverb_types.TableInfo(**info_dict)
-    return table_info
+      table_info = reverb_types.TableInfo.from_serialized_proto(proto_string)
+      table_infos[table_info.name] = table_info
+    return table_infos
 
   def checkpoint(self) -> str:
     """Triggers a checkpoint to be created.

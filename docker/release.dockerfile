@@ -57,6 +57,7 @@ RUN curl -O https://bootstrap.pypa.io/get-pip.py
 ARG pip_dependencies=' \
       absl-py \
       contextlib2 \
+      dataclasses \
       dm-tree>=0.1.5 \
       google-api-python-client \
       h5py \

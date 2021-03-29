@@ -75,6 +75,7 @@ RUN cp /usr/local/lib/bazel/bin/bazel-complete.bash /etc/bash_completion.d
 ARG pip_dependencies=' \
       contextlib2 \
       dm-tree>=0.1.5 \
+      dataclasses \
       google-api-python-client \
       h5py \
       numpy \
