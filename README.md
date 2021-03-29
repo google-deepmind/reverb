@@ -79,7 +79,7 @@ server = reverb.Server(tables=[
 Create a client to communicate with the server:
 
 ```python
-client = reverb.Client(‘localhost:8000’)
+client = reverb.Client('localhost:8000')
 print(client.server_info())
 ```
 
@@ -248,7 +248,7 @@ reverb.Table(
 )
 
 # Or use the helper classmethod `.queue`.
-reverb.Table.queue(name=’my_queue', max_size=1000)
+reverb.Table.queue(name='my_queue', max_size=1000)
 ```
 
 Examples of algorithms that make use of Queues are
