@@ -187,11 +187,16 @@ class TrajectoryWriter:
     return self._unflatten(self._column_history)
 
   @property
-  def episode_steps(self):
-    """Number of append calls since last `end_episode` call."""
+  def episode_steps(self) -> int:
+    """Number of append calls since last `end_episode` call.
+
+    This does not count partial calls to append, i.e. ones with
+    `partial_step=True`.
+    """
     if not self._column_history:
       return 0
-    return len(self._column_history[0])
+    else:
+      return len(self._column_history[0]) - int(self._last_step_is_open)
 
   def configure(self, path: Tuple[Union[int, str], ...],
                 *,

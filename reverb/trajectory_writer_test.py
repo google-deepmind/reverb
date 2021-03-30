@@ -283,6 +283,25 @@ class TrajectoryWriterTest(parameterized.TestCase):
       # Ending the episode should reset the step count to zero.
       self.writer.end_episode()
 
+  def test_episode_steps_partial_step(self):
+    for _ in range(3):
+      # Every episode, including the first, should start at zero.
+      self.assertEqual(self.writer.episode_steps, 0)
+
+      for i in range(1, 4):
+        self.writer.append({'x': 3}, partial_step=True)
+
+        # Step count should not increment on partial append calls.
+        self.assertEqual(self.writer.episode_steps, i - 1)
+
+        self.writer.append({'y': 2})
+
+        # Step count should increment after the unqualified append call.
+        self.assertEqual(self.writer.episode_steps, i)
+
+      # Ending the episode should reset the step count to zero.
+      self.writer.end_episode()
+
 
 class TrajectoryColumnTest(parameterized.TestCase):
 
