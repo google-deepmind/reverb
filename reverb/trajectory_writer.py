@@ -284,6 +284,11 @@ class TrajectoryWriter:
       self._update_structure(tree.map_structure(lambda _: None, data))
 
     try:
+      if len(tree.flatten(data)) != len(self._path_to_column_index):
+        # This is a quick check to see if the number of elements in data is
+        # the same as the number of elements in self._structure. If not then
+        # we can avoid the costly tree.assert_same_structure() check.
+        raise ValueError()
       tree.assert_same_structure(data, self._structure, True)
       expanded_data = data
     except ValueError:
