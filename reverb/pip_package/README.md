@@ -5,7 +5,7 @@
 This document covers a couple scenarios:
 
  *  <a href='#Release'>Create a Reverb release</a>
- *  <a href='#Develop'>Develop Reverb inside a docker container</a>
+ *  <a href='#Develop'>Develop Reverb inside a Docker container</a>
 
 
 While there is overlap in the uses cases, treating them as separately with
@@ -19,38 +19,52 @@ $ export REVERB_DIR=/path/to/reverb/github/repo
 <a id='Release'></a>
 ## Create a stable Reverb release
 
-These are the steps to create a Reverb release wheel using the Reverb
-release.dockerfile. This is part of the process used to create official Reverb
-releases. The other parts are creating branches, tags, and uploading to pypi.
+There are two steps for building the Reverb package.
+
+  * Build the Docker container with the version of TensorFlow to build Reverb
+    against.
+  * Execute the build and declare any specific TensorFlow dependency for the
+    pip install. The dependency is only enforced if the user uses
+    `pip install reverb[tensorflow]`.
 
 Execute from the root of the git repository. The end result will end up in
 `$REVERB_DIR/dist`.
 
 ```shell
+
+##################################
+# Creates the Docker container.
+##################################
 # Builds the container with Python 3.6, 3.7, and 3.8. Set the
-# `build-arg tensorflow_pip` to the version of Tensorflow to build against.
+# `build-arg tensorflow_pip` to the version of TensorFlow to build against.
 $ docker build --tag tensorflow:reverb_release \
   --build-arg tensorflow_pip=tensorflow==2.3.0 \
   --build-arg python_version="python3.6 python3.7 python3.8" \
   - < "$REVERB_DIR/docker/release.dockerfile"
 
-# Builds reverb for all supported versions of Python.
+#################################################
+# Builds Reverb against TensorFlow stable or rc.
+#################################################
+
+# Builds Reverb against most recent stable release of TensorFlow and
+# requires `tensorflow>=2.3.0` if using `pip install reverb[tensorflow]`.
+# Packages for Python 3.6, 3.7, and 3.8 are created.
 $ docker run --rm --mount "type=bind,src=$REVERB_DIR,dst=/tmp/reverb" \
   tensorflow:reverb_release bash oss_build.sh --clean true \
   --tf_dep_override "tensorflow>=2.3.0" --release --python "3.6 3.7 3.8"
 
-# If building Reverb against a TensorFlow RC `>=` is not effective because
-# pip does not recognize 2.4.0rc0 as greater than 2.3.0. The command below is
-# the pattern to follow.
+# Builds Reverb against an RC of TensorFlow. `>=` is not effective because
+# pip does not recognize 2.4.0rc0 as greater than 2.3.0. RC builds need to have
+# a strict dependency on the RC of TensorFlow used.
 $ docker run --rm --mount "type=bind,src=$REVERB_DIR,dst=/tmp/reverb" \
   tensorflow:reverb_release bash oss_build.sh --clean true \
   --tf_dep_override "tensorflow==2.4.0rc0" --release --python "3.6 3.7 3.8"
 ```
 
 <a id='Develop'></a>
-## Develop Reverb inside a docker container
+## Develop Reverb inside a Docker container
 
-1. Build the docker container. By default the container is setup for python 3.6.
+1. Build the Docker container. By default the container is setup for python 3.6.
    Use the `python_version` arg to configure the container with 3.7, 3.8, or
    all versions with
    `--build-arg python_version="python3.6 python3.7 python3.8"`.
@@ -63,7 +77,7 @@ $ docker run --rm --mount "type=bind,src=$REVERB_DIR,dst=/tmp/reverb" \
     - < "$REVERB_DIR/docker/dev.dockerfile"
   ```
 
-1. Run and enter the docker container.
+1. Run and enter the Docker container.
 
   ```shell
   $ docker run --rm -it \
@@ -102,8 +116,3 @@ $ docker run --rm --mount "type=bind,src=$REVERB_DIR,dst=/tmp/reverb" \
   # *.whl.
   $ $PYTHON_BIN_PATH -mpip install --upgrade /tmp/reverb_build/dist/*.whl
   ```
-
-
-
-
-
