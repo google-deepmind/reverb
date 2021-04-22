@@ -284,33 +284,16 @@ class TrajectoryWriter:
       self._update_structure(tree.map_structure(lambda _: None, data))
 
     try:
-      if len(tree.flatten(data)) != len(self._path_to_column_index):
-        # This is a quick check to see if the number of elements in data is
-        # the same as the number of elements in self._structure. If not then
-        # we can avoid the costly tree.assert_same_structure() check.
-        raise ValueError()
-      tree.assert_same_structure(data, self._structure, True)
-      expanded_data = data
-    except ValueError:
-      try:
-        # If `data` is a subset of the full spec then we can simply fill in the
-        # gaps with None.
-        expanded_data = _tree_merge_into(source=data, target=self._structure)
-      except ValueError:
-        # `data` contains fields which haven't been observed before so we need
-        # expand the spec using the union of the history and `data`.
-        self._update_structure(
-            _tree_union(self._structure,
-                        tree.map_structure(lambda x: None, data)))
+      # Use our custom mapping to flatten the expanded structure into columns.
+      flat_column_data = self._flatten(data)
+    except KeyError:
+      # `data` contains fields which haven't been observed before so we need
+      # expand the spec using the union of the history and `data`.
+      self._update_structure(
+          _tree_union(self._structure,
+                      tree.map_structure(lambda x: None, data)))
 
-        # Now that the structure has been updated to include all the fields in
-        # `data` we are able to expand `data` to the full structure. Note that
-        # if `data` is a superset of the previous history structure then this
-        # "expansion" is just a noop.
-        expanded_data = _tree_merge_into(data, self._structure)
-
-    # Use our custom mapping to flatten the expanded structure into columns.
-    flat_column_data = self._flatten(expanded_data)
+      flat_column_data = self._flatten(data)
 
     # If the last step is still open then verify that already populated columns
     # are None in the new `data`.
