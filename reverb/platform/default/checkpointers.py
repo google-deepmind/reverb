@@ -15,6 +15,8 @@
 
 """Python wrappers for building checkpointers."""
 
+from typing import Optional
+
 from reverb.platform import checkpointers_lib
 
 CheckpointerBase = checkpointers_lib.CheckpointerBase
@@ -22,5 +24,6 @@ DefaultCheckpointer = checkpointers_lib.DefaultCheckpointer
 TempDirCheckpointer = checkpointers_lib.TempDirCheckpointer
 
 
-def default_checkpointer() -> CheckpointerBase:
+def default_checkpointer(group: Optional[str] = None) -> CheckpointerBase:
+  del group
   return TempDirCheckpointer()
