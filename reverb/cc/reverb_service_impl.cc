@@ -325,14 +325,15 @@ grpc::Status ReverbServiceImpl::SampleStreamInternal(
             response.mutable_info()->set_table_size(sample.table_size);
           }
 
-          // We const cast to avoid copying the proto.
-          response.set_allocated_data(
-              const_cast<ChunkData*>(&sample.chunks[i]->data()));
-
           grpc::WriteOptions options;
           options.set_no_compression();  // Data is already compressed.
+
+          // We const cast to avoid copying the proto.
+          response.unsafe_arena_set_allocated_data(
+              const_cast<ChunkData*>(&sample.chunks[i]->data()));
           bool ok = stream->Write(response, options);
-          response.release_data();
+          response.unsafe_arena_release_data();
+
           if (!ok) {
             return Internal("Failed to write to Sample stream.");
           }
