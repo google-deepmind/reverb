@@ -70,11 +70,12 @@ bool SendNotAlreadySentChunks(
     internal::flat_hash_set<uint64_t>* streamed_chunk_keys,
     absl::Span<const std::shared_ptr<CellRef>> refs) {
   InsertStreamRequest request;
-  auto release_chunk = internal::MakeCleanup([&request] {
+  auto clean_chunks = [&request] {
     while (!request.chunks().empty()) {
-      request.mutable_chunks()->ReleaseLast();
+      request.mutable_chunks()->UnsafeArenaReleaseLast();
     }
-  });
+  };
+  auto release_chunk = internal::MakeCleanup(clean_chunks);
 
   // Send referenced chunks which haven't already been sent.
   for (const auto& ref : refs) {
@@ -82,7 +83,7 @@ bool SendNotAlreadySentChunks(
       continue;
     }
 
-    request.mutable_chunks()->AddAllocated(
+    request.mutable_chunks()->UnsafeArenaAddAllocated(
         const_cast<ChunkData*>(ref->GetChunk().get()));
     streamed_chunk_keys->insert(ref->chunk_key());
 
@@ -96,9 +97,7 @@ bool SendNotAlreadySentChunks(
 
       // There (might) still be chunks which can be transmitted so clear the
       // request and continue with the remaining references.
-      while (!request.chunks().empty()) {
-        request.mutable_chunks()->ReleaseLast();
-      }
+      clean_chunks();
     }
   }
 
@@ -455,10 +454,10 @@ bool TrajectoryWriter::SendItem(
     const internal::flat_hash_set<uint64_t>& keep_keys,
     const PrioritizedItem& item) const {
   InsertStreamRequest request;
-  request.mutable_item()->set_allocated_item(
+  request.mutable_item()->unsafe_arena_set_allocated_item(
       const_cast<PrioritizedItem*>(&item));
-  auto realease_item = internal::MakeCleanup(
-      [&request] { request.mutable_item()->release_item(); });
+  auto release_item = internal::MakeCleanup(
+      [&request] { request.mutable_item()->unsafe_arena_release_item(); });
   request.mutable_item()->set_send_confirmation(true);
   for (auto keep_key : keep_keys) {
     request.mutable_item()->add_keep_chunk_keys(keep_key);

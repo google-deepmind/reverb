@@ -4,6 +4,8 @@ package deepmind.reverb;
 
 import "reverb/cc/schema.proto";
 
+option cc_enable_arenas = true;
+
 service ReverbService {
   // Writes all in-memory data to disk. We store the tables
   // along with the chunks. On success, the path of the checkpoint is
