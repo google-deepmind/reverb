@@ -474,11 +474,13 @@ bool Writer::WritePendingData() {
     if (item_chunk_keys.contains(chunk.chunk_key()) &&
         !streamed_chunk_keys_.contains(chunk.chunk_key())) {
       InsertStreamRequest request;
-      request.mutable_chunks()->AddAllocated(&chunk);
       grpc::WriteOptions options;
       options.set_no_compression();
+
+      request.mutable_chunks()->UnsafeArenaAddAllocated(&chunk);
       bool ok = stream_->Write(request, options);
-      request.mutable_chunks()->ReleaseLast();
+      request.mutable_chunks()->UnsafeArenaReleaseLast();
+
       if (!ok) return false;
       streamed_chunk_keys_.insert(chunk.chunk_key());
     }
