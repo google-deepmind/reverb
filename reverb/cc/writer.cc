@@ -138,7 +138,11 @@ absl::Status Writer::AppendSequence(std::vector<tensorflow::Tensor> sequence) {
     std::vector<tensorflow::Tensor> step;
     step.reserve(sequence.size());
     for (const auto& column : sequence) {
-      step.push_back(column.SubSlice(i));
+      auto slice = column.SubSlice(i);
+      if (!slice.IsAligned()) {
+        slice = tensorflow::tensor::DeepCopy(slice);
+      }
+      step.push_back(std::move(slice));
     }
     REVERB_RETURN_IF_ERROR(Append(std::move(step)));
   }

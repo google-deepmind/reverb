@@ -77,6 +77,16 @@ tensorflow::Tensor InitializeTensor(T value, int64_t length) {
   return tensor;
 }
 
+template <typename T>
+tensorflow::Tensor ScalarTensor(T value) {
+  // TODO(b/186669968): Move to the Tensor(scalar_value) constructor once
+  // alignment bug is fixed.
+  tensorflow::Tensor tensor(tensorflow::DataTypeToEnum<T>::v(),
+                            tensorflow::TensorShape({}));
+  tensor.scalar<T>()() = std::move(value);
+  return tensor;
+}
+
 absl::Status AsSample(std::vector<SampleStreamResponse> responses,
                       std::unique_ptr<Sample>* sample) {
   const auto& info = responses.front().info();
@@ -697,10 +707,10 @@ std::vector<tensorflow::Tensor> Sample::GetNextTimestep() {
   // Construct the output tensors.
   std::vector<tensorflow::Tensor> result;
   result.reserve(columns_.size() + 4);
-  result.push_back(tensorflow::Tensor(key_));
-  result.push_back(tensorflow::Tensor(probability_));
-  result.push_back(tensorflow::Tensor(table_size_));
-  result.push_back(tensorflow::Tensor(priority_));
+  result.push_back(ScalarTensor(key_));
+  result.push_back(ScalarTensor(probability_));
+  result.push_back(ScalarTensor(table_size_));
+  result.push_back(ScalarTensor(priority_));
 
   for (auto& col : columns_) {
     auto slice = col.front().tensor.SubSlice(col.front().offset++);
@@ -777,10 +787,10 @@ absl::Status Sample::AsTrajectory(std::vector<tensorflow::Tensor>* data) {
 
   // Initialize the first four items with the key, probability, table size and
   // priority.
-  sequences[0] = tensorflow::Tensor(key_);
-  sequences[1] = tensorflow::Tensor(probability_);
-  sequences[2] = tensorflow::Tensor(table_size_);
-  sequences[3] = tensorflow::Tensor(priority_);
+  sequences[0] = ScalarTensor(key_);
+  sequences[1] = ScalarTensor(probability_);
+  sequences[2] = ScalarTensor(table_size_);
+  sequences[3] = ScalarTensor(priority_);
 
   // Unpack the data columns.
   REVERB_RETURN_IF_ERROR(UnpackColumns(&sequences));
