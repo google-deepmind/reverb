@@ -283,9 +283,10 @@ class TrajectoryWriter:
     if self._structure is None:
       self._update_structure(tree.map_structure(lambda _: None, data))
 
+    data_with_path_flat = tree.flatten_with_path(data)
     try:
       # Use our custom mapping to flatten the expanded structure into columns.
-      flat_column_data = self._flatten(data)
+      flat_column_data = self._reorder_like_flat_structure(data_with_path_flat)
     except KeyError:
       # `data` contains fields which haven't been observed before so we need
       # expand the spec using the union of the history and `data`.
@@ -293,7 +294,7 @@ class TrajectoryWriter:
           _tree_union(self._structure,
                       tree.map_structure(lambda x: None, data)))
 
-      flat_column_data = self._flatten(data)
+      flat_column_data = self._reorder_like_flat_structure(data_with_path_flat)
 
     # If the last step is still open then verify that already populated columns
     # are None in the new `data`.
@@ -341,7 +342,9 @@ class TrajectoryWriter:
     # Return the referenced structured in the same way as `data`. If only a
     # subset of the fields were present in the input data then only these fields
     # will exist in the output.
-    return _tree_filter(expanded_structured_data_references, data)
+    filtered_data_references_flat = _tree_filter(
+        expanded_structured_data_references, data_with_path_flat)
+    return tree.unflatten_as(data, filtered_data_references_flat)
 
   def create_item(self, table: str, priority: float, trajectory: Any):
     """Enqueue insertion of an item into `table` referencing `trajectory`.
@@ -456,9 +459,9 @@ class TrajectoryWriter:
   def close(self):
     self._writer.Close()
 
-  def _flatten(self, data):
+  def _reorder_like_flat_structure(self, data_with_path_flat):
     flat_data = [None] * len(self._path_to_column_index)
-    for path, value in tree.flatten_with_path(data):
+    for path, value in data_with_path_flat:
       flat_data[self._path_to_column_index[path]] = value
     return flat_data
 
@@ -519,7 +522,7 @@ class TrajectoryWriter:
     # `_update_structure` call.  In order to align indexing across all columns
     # we init the new fields with None for all steps up until this.
     history_length = len(self._column_history[0]) if self._column_history else 0
-    while len(self._column_history) < len(tree.flatten(new_structure)):
+    while len(self._column_history) < len(new_structure_with_path_flat):
       column_index = len(self._column_history)
       self._column_history.append(
           _ColumnHistory(new_structure_with_path_flat[column_index][0],
@@ -658,26 +661,10 @@ class TrajectoryColumn:
     return np.stack([ref.numpy() for ref in self._data_references])
 
 
-def _tree_merge_into(source, target):
-  """Update `target` with content of substructure `source`."""
-  path_to_index = {
-      path: i for i, (path, _) in enumerate(tree.flatten_with_path(target))
-  }
-
-  flat_target = tree.flatten(target)
-  for path, leaf in tree.flatten_with_path(source):
-    if path not in path_to_index:
-      raise ValueError(
-          f'Cannot expand {source} into {target} as it is not a sub structure.')
-    flat_target[path_to_index[path]] = leaf
-
-  return tree.unflatten_as(target, flat_target)
-
-
-def _tree_filter(source, filter_):
+def _tree_filter(source, filter_wih_path_flat):
   """Extract `filter_` from `source`."""
   path_to_index = {
-      path: i for i, (path, _) in enumerate(tree.flatten_with_path(filter_))
+      path: i for i, (path, _) in enumerate(filter_wih_path_flat)
   }
 
   flat_target = [None] * len(path_to_index)
@@ -685,7 +672,7 @@ def _tree_filter(source, filter_):
     if path in path_to_index:
       flat_target[path_to_index[path]] = leaf
 
-  return tree.unflatten_as(filter_, flat_target)
+  return flat_target
 
 
 def _is_named_tuple(x):
