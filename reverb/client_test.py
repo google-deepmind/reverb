@@ -256,12 +256,12 @@ class ClientTest(absltest.TestCase):
     # writers or clients.
     pool = multithreading.Pool(64)
     def _write(i):
-      writer = self.client.writer(1)
-      writer.append([i])
-      # Make sure that flush before create_item doesn't create trouble.
-      writer.flush()
-      writer.create_item(TABLE_NAME, 1, 1.0)
-      writer.flush()
+      with self.client.writer(1) as writer:
+        writer.append([i])
+        # Make sure that flush before create_item doesn't create trouble.
+        writer.flush()
+        writer.create_item(TABLE_NAME, 1, 1.0)
+        writer.flush()
 
     for _ in range(5):
       pool.map(_write, list(range(256)))
