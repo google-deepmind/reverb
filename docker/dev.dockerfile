@@ -81,6 +81,7 @@ ARG pip_dependencies=' \
       numpy \
       oauth2client \
       pandas \
+      platform \
       portpicker'
 
 
