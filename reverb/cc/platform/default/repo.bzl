@@ -103,7 +103,7 @@ def _find_python_solib_path(repo_ctx):
             .format(exec_result.stderr))
 
     if is_darwin(repo_ctx):
-        basename = "lib{}m.dylib".format(version)
+        basename = "lib{}.dylib".format(version)
         solib_dir = "/".join(exec_result.stdout.splitlines()[-1].split("/")[:-2])
     else:
         basename = "lib{}.so".format(version)

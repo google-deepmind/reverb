@@ -23,3 +23,5 @@ build --cxxopt="-DNDEBUG"
 
 # Options from ./configure
 try-import %workspace%/.reverb.bazelrc
+
+build --features=-supports_dynamic_linker

@@ -107,12 +107,12 @@ def reverb_cc_proto_library(name, srcs = [], deps = [], **kwargs):
         name = "{}_static".format(name),
         srcs = gen_srcs,
         hdrs = gen_hdrs,
-        deps = depset([dep.replace(":", ":lib") + ".so" for dep in deps] + reverb_tf_deps()),
+        deps = depset([dep.replace(":", ":libxxx") + ".so" for dep in deps] + reverb_tf_deps()),
         alwayslink = 1,
         **kwargs
     )
     native.cc_binary(
-        name = "lib{}.so".format(name),
+        name = "libxxx{}.so".format(name),
         deps = ["{}_static".format(name)],
         linkshared = 1,
         **kwargs
@@ -120,7 +120,7 @@ def reverb_cc_proto_library(name, srcs = [], deps = [], **kwargs):
     native.cc_library(
         name = name,
         hdrs = gen_hdrs,
-        srcs = ["lib{}.so".format(name)],
+        srcs = ["libxxx{}.so".format(name)],
         deps = depset(deps + reverb_tf_deps()),
         alwayslink = 1,
         **kwargs
