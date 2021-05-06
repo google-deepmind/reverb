@@ -172,7 +172,7 @@ message SampleStreamResponse {
   SampleInfo info = 1;
 
   // Followed by at least one data response.
-  ChunkData data = 2;
+  repeated ChunkData data = 2;
 
   // True if this is the last message in the sequence.
   bool end_of_sequence = 3;

@@ -192,16 +192,16 @@ SampleStreamResponse MakeResponse(int item_length, bool delta_encode = false,
   slice->set_offset(offset);
 
   auto tensor = MakeTensor(data_length);
+  auto* chunk_data = response.add_data();
   if (delta_encode) {
     tensor = DeltaEncode(tensor, true);
-    response.mutable_data()->set_delta_encoded(true);
+    chunk_data->set_delta_encoded(true);
   }
 
-  CompressTensorAsProto(tensor,
-                        response.mutable_data()->mutable_data()->add_tensors());
+  CompressTensorAsProto(tensor, chunk_data->mutable_data()->add_tensors());
 
-  response.mutable_data()->mutable_sequence_range()->set_start(0);
-  response.mutable_data()->mutable_sequence_range()->set_end(data_length);
+  chunk_data->mutable_sequence_range()->set_start(0);
+  chunk_data->mutable_sequence_range()->set_end(data_length);
 
   return response;
 }
@@ -851,7 +851,7 @@ TEST(GrpcSamplerTest, GetNextTimestepReturnsErrorIfNotDecomposible) {
 
   // Add a column of length 10 to the existing one of length 5.
   CompressTensorAsProto(MakeTensor(10),
-                        response.mutable_data()->mutable_data()->add_tensors());
+                        response.add_data()->mutable_data()->add_tensors());
   auto* slice = response.mutable_info()
                     ->mutable_item()
                     ->mutable_flat_trajectory()

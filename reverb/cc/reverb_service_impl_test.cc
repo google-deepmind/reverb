@@ -205,7 +205,7 @@ TEST(ReverbServiceImplTest, SampleAfterInsertWorks) {
 
     grpc::ServerContext context;
     ASSERT_TRUE(service->SampleStreamInternal(&context, &stream).ok());
-    ASSERT_EQ(stream.responses().size(), 2);
+    ASSERT_EQ(stream.responses().size(), 1);
 
     item.set_times_sampled(i + 1);
 
@@ -215,9 +215,10 @@ TEST(ReverbServiceImplTest, SampleAfterInsertWorks) {
     EXPECT_EQ(info.probability(), 1);
     EXPECT_EQ(info.table_size(), 1);
 
-    EXPECT_EQ(stream.responses()[0].data().chunk_key(),
+    EXPECT_EQ(stream.responses()[0].data_size(), 2);
+    EXPECT_EQ(stream.responses()[0].data(0).chunk_key(),
               item.flat_trajectory().columns(0).chunk_slices(0).chunk_key());
-    EXPECT_EQ(stream.responses()[1].data().chunk_key(),
+    EXPECT_EQ(stream.responses()[0].data(1).chunk_key(),
               item.flat_trajectory().columns(0).chunk_slices(1).chunk_key());
     EXPECT_TRUE(stream.last_options().get_no_compression());
   }

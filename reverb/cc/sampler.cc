@@ -54,8 +54,8 @@ inline bool SampleIsDone(const std::vector<SampleStreamResponse>& sample) {
 
   internal::flat_hash_set<uint64_t> received_chunks;
   for (const auto& response : sample) {
-    if (response.has_data()) {
-      received_chunks.insert(response.data().chunk_key());
+    for (const auto& chunk : response.data()) {
+      received_chunks.insert(chunk.chunk_key());
     }
   }
 
@@ -92,8 +92,10 @@ absl::Status AsSample(std::vector<SampleStreamResponse> responses,
   const auto& info = responses.front().info();
   internal::flat_hash_map<uint64_t, std::unique_ptr<ChunkData>> chunks;
   for (auto& response : responses) {
-    auto key = response.data().chunk_key();
-    chunks[key] = absl::WrapUnique<ChunkData>(response.release_data());
+    while (response.data_size() != 0) {
+      auto* chunk = response.mutable_data()->ReleaseLast();
+      chunks[chunk->chunk_key()] = absl::WrapUnique<ChunkData>(chunk);
+    }
   }
 
   // Count the number of times each chunk is referenced in the column slices.

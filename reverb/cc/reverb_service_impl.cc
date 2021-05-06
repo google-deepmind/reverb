@@ -43,6 +43,11 @@ namespace deepmind {
 namespace reverb {
 namespace {
 
+// Multiple `ChunkData` can be sent with the same `SampleStreamResponse`. If
+// the size of the message exceeds this value then the request is sent and the
+// remaining chunks are sent with other messages.
+static constexpr int64_t kMaxSampleResponseSizeBytes = 40 * 1024 * 1024;  // 40MB.
+
 inline grpc::Status TableNotFound(absl::string_view name) {
   return grpc::Status(grpc::StatusCode::NOT_FOUND,
                       absl::StrCat("Priority table ", name, " was not found"));
@@ -314,32 +319,52 @@ grpc::Status ReverbServiceImpl::SampleStreamInternal(
       count += samples.size();
 
       for (auto& sample : samples) {
-        for (int i = 0; i < sample.chunks.size(); i++) {
-          SampleStreamResponse response;
-          response.set_end_of_sequence(i + 1 == sample.chunks.size());
+        SampleStreamResponse response;
+
+        for (int chunk_idx = 0; chunk_idx < sample.chunks.size(); chunk_idx++) {
+          response.set_end_of_sequence(chunk_idx + 1 == sample.chunks.size());
 
           // Attach the info to the first message.
-          if (i == 0) {
+          if (chunk_idx == 0) {
             *response.mutable_info()->mutable_item() = sample.item;
             response.mutable_info()->set_probability(sample.probability);
             response.mutable_info()->set_table_size(sample.table_size);
           }
 
+          // We const cast to avoid copying the proto.
+          response.mutable_data()->UnsafeArenaAddAllocated(
+              const_cast<ChunkData*>(&sample.chunks[chunk_idx]->data()));
+
+          // If more chunks remain and we haven't yet reached the maximum
+          // message size then we'll continue and add (at least) one more chunk
+          // to the same response.
+          if (chunk_idx < sample.chunks.size() - 1 &&
+              response.ByteSizeLong() < kMaxSampleResponseSizeBytes) {
+            continue;
+          }
+
           grpc::WriteOptions options;
           options.set_no_compression();  // Data is already compressed.
 
-          // We const cast to avoid copying the proto.
-          response.unsafe_arena_set_allocated_data(
-              const_cast<ChunkData*>(&sample.chunks[i]->data()));
           bool ok = stream->Write(response, options);
-          response.unsafe_arena_release_data();
+
+          // Release the chunks we "borrowed" from the sample object. Failing to
+          // do so would result in the chunks being deallocated prematurely and
+          // cause nullptr errors.
+          while (response.data_size() != 0) {
+            response.mutable_data()->UnsafeArenaReleaseLast();
+          }
 
           if (!ok) {
             return Internal("Failed to write to Sample stream.");
           }
 
           // We no longer need our chunk reference, so we free it.
-          sample.chunks[i] = nullptr;
+          for (int i = 0; i < chunk_idx; i++) {
+            sample.chunks[i] = nullptr;
+          }
+
+          response.Clear();
         }
       }
     }
