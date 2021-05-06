@@ -29,6 +29,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         aria2 \
         build-essential \
         curl \
+        gdb \
         git \
         less \
         libfreetype6-dev \
