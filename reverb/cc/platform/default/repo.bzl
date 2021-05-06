@@ -111,8 +111,11 @@ def _find_python_solib_path(repo_ctx):
 
     full_path = repo_ctx.path("{}/{}".format(solib_dir, basename))
     if not full_path.exists:
-        fail("Unable to find python shared library file:\n{}/{}"
-            .format(solib_dir, basename))
+        basename = basename.replace('m.dylib', '.dylib')
+        full_path = repo_ctx.path("{}/{}".format(solib_dir, basename))
+        if not full_path.exists:
+            fail("Unable to find python shared library file:\n{}/{}"
+                .format(solib_dir, basename))
     return struct(dir = solib_dir, basename = basename)
 
 def _eigen_archive_repo_impl(repo_ctx):
