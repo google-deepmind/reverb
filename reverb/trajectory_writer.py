@@ -629,7 +629,10 @@ class TrajectoryColumn:
 
   @property
   def shape(self) -> Tuple[Optional[int], ...]:
-    return (len(self._data_references), *self._data_references[0].shape)
+    if self.is_squeezed:
+      return self._data_references[0].shape
+    else:
+      return (len(self._data_references), *self._data_references[0].shape)
 
   @property
   def dtype(self) -> np.dtype:

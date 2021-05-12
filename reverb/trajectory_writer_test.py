@@ -45,16 +45,18 @@ def extract_data(column: trajectory_writer._ColumnHistory):
   return [ref.data if ref else None for ref in column]
 
 
+def _mock_append(x):
+  return [FakeWeakCellRef(y) if y is not None else None for y in x]
+
+
 class TrajectoryWriterTest(parameterized.TestCase):
 
   def setUp(self):
     super().setUp()
 
     self.cpp_writer_mock = mock.Mock()
-    self.cpp_writer_mock.Append.side_effect = \
-        lambda x: [FakeWeakCellRef(y) if y is not None else None for y in x]
-    self.cpp_writer_mock.AppendPartial.side_effect = \
-        lambda x: [FakeWeakCellRef(y) if y is not None else None for y in x]
+    self.cpp_writer_mock.Append.side_effect = _mock_append
+    self.cpp_writer_mock.AppendPartial.side_effect = _mock_append
 
     self.writer = trajectory_writer.TrajectoryWriter(self.cpp_writer_mock)
 
@@ -378,6 +380,13 @@ class TrajectoryColumnTest(parameterized.TestCase):
     for i in range(1, 10):
       column = trajectory_writer.TrajectoryColumn([FakeWeakCellRef(data)] * i)
       self.assertEqual(column.shape, (i, *expected_shape))
+
+  def test_shape_squeezed(self):
+    expected_shape = (2, 5)
+    data = np.arange(10).reshape(*expected_shape)
+    column = trajectory_writer.TrajectoryColumn([FakeWeakCellRef(data)],
+                                                squeeze=True)
+    self.assertEqual(column.shape, expected_shape)
 
   @parameterized.named_parameters(
       ('int', 0),
