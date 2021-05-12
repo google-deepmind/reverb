@@ -93,15 +93,14 @@ client.insert([0, 1], priorities={'my_table': 1.0})
 An item can also reference multiple data elements:
 
 ```python
-
-# Appends three data elements and inserts a single items which references all
+# Appends three data elements and inserts a single item which references all
 # of them as {'a': [2, 3, 4], 'b': [12, 13, 14]}.
 with client.trajectory_writer(num_keep_alive_refs=3) as writer:
   writer.append({'a': 2, 'b': 12})
   writer.append({'a': 3, 'b': 13})
   writer.append({'a': 4, 'b': 14})
 
-  # Create an item referencing all the data. 
+  # Create an item referencing all the data.
   writer.create_item(
       table='my_table',
       priority=1.0,
@@ -148,7 +147,7 @@ represents a file.
 
 ### Tables
 
-A Reverb `Server` consists of one or more tables. A table hold items, and each
+A Reverb `Server` consists of one or more tables. A table holds items, and each
 item references one or more data elements. Tables also define sample and
 removal [selection strategies](#item-selection-strategies), a maximum item
 capacity, and a [rate limiter](#rate-limiting).
@@ -169,14 +168,13 @@ Items are automatically removed from the Table when one of two conditions are
 met:
 
 1.  Inserting a new item would cause the number of items in the Table to exceed
-    its maximum capacity.
+    its maximum capacity. Table’s removal strategy is used to determine which
+    item to remove.
 
 1.  An item has been sampled more than the maximum number of times permitted by
-    the Table’s rate limiter. Note that not all rate limiters will enforce this.
+    the Table’s rate limiter. Such item is deleted.
 
-In both cases, which item to remove is determined by the table’s removal
-strategy. As mentioned earlier, a data element is automatically removed from the
-`Server` when the number of items that references it reaches zero.
+Data elements not referenced anymore by any item are also deleted.
 
 Users have full control over how data is sampled and removed from Reverb
 tables. The behavior is primarily controlled by the
@@ -187,7 +185,7 @@ behaviors can be achieved. Some commonly used configurations include:
 
 **Uniform Experience Replay**
 
-A set of the `N=1000` most recently inserted items are maintained. By setting
+A set of `N=1000` most recently inserted items are maintained. By setting
 `sampler=reverb.selectors.Uniform()`, the probability to select an item is the
 same for all items. Due to `reverb.rate_limiters.MinSize(100)`, sampling
 requests will block until 100 items have been inserted. By setting
@@ -209,7 +207,7 @@ and [DDPG].
 
 **Prioritized Experience Replay**
 
-A set of the `N=1000` most recently inserted items. By setting
+A set of `N=1000` most recently inserted items. By setting
 `sampler=reverb.selectors.Prioritized(priority_exponent=0.8)`, the probability
 to select an item is proportional to the item's priority.
 
