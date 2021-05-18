@@ -29,7 +29,7 @@ from setuptools.dist import Distribution
 import reverb_version
 
 # Defaults if doing a release build.
-TENSORFLOW_VERSION = 'tensorflow>=2.3.0'
+TENSORFLOW_VERSION = 'tensorflow~=2.5.0'
 
 
 class BinaryDistribution(Distribution):
@@ -169,7 +169,7 @@ if __name__ == '__main__':
       type=str,
       default=None,
       help='Overrides TF version required when Reverb is installed, e.g.'
-      'tensorflow>=2.3.0')
+      'tensorflow==2.5.0')
   FLAGS, unparsed = parser.parse_known_args()
   # Go forward with only non-custom flags.
   sys.argv.clear()
