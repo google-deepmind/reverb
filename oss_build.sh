@@ -26,7 +26,7 @@ set -e
 set -o pipefail
 
 # Flags
-PYTHON_VERSIONS=3.6 # Options 3.6 (default), 3.7, 3.8
+PYTHON_VERSIONS=3.6 # Options 3.6 (default), 3.7, 3.8, 3.9
 CLEAN=false # Set to true to run bazel clean.
 OUTPUT_DIR=/tmp/reverb/dist/
 PYTHON_TESTS=true
@@ -37,7 +37,7 @@ PIP_PKG_EXTRA_ARGS="" # Extra args passed to `build_pip_package`.
 if [[ $# -lt 1 ]] ; then
   echo "Usage:"
   echo "--release [Indicates this is a release build. Otherwise nightly.]"
-  echo "--python [3.6(default)|3.7|3.8]"
+  echo "--python [3.6(default)|3.7|3.8|3.9]"
   echo "--clean  [true to run bazel clean]"
   echo "--tf_dep_override  [Required tensorflow version to pass to setup.py."
   echo "                    Examples: tensorflow==2.3.0rc0  or tensorflow>=2.3.0]"
@@ -96,8 +96,11 @@ for python_version in $PYTHON_VERSIONS; do
   elif [ "$python_version" = "3.8" ]; then
     export PYTHON_BIN_PATH=/usr/bin/python3.8 && export PYTHON_LIB_PATH=/usr/local/lib/python3.8/dist-packages
     ABI=cp38
+  elif [ "$python_version" = "3.9" ]; then
+    export PYTHON_BIN_PATH=/usr/bin/python3.9 && export PYTHON_LIB_PATH=/usr/local/lib/python3.9/dist-packages
+    ABI=cp39
   else
-    echo "Error unknown --python. Only [3.6|3.7|3.8]"
+    echo "Error unknown --python. Only [3.6|3.7|3.8|3.9]"
     exit 1
   fi
 

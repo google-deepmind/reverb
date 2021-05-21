@@ -18,7 +18,7 @@ LABEL maintainer="Reverb Team <no-reply@google.com>"
 
 # Re-declare args because the args declared before FROM can't be used in any
 # instruction after a FROM.
-ARG cpu_base_image="tensorflow/tensorflow:2.1.0-custom-op-ubuntu16"
+ARG cpu_base_image="tensorflow/tensorflow:2.2.0-custom-op-ubuntu16"
 ARG base_image=$cpu_base_image
 ARG tensorflow_pip="tf-nightly"
 ARG python_version="python3.6"
@@ -41,8 +41,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         python3.6-dev \
         python3.7-dev \
         python3.8-dev \
-        # Needed due to python3.8 apt packaging issue.
+        python3.9-dev \
+        # python >= 3.8 needs distutils for packaging.
         python3.8-distutils \
+        python3.9-distutils \
         rename \
         rsync \
         sox \
@@ -79,8 +81,9 @@ RUN rm get-pip.py
 
 # Needed until this is included in the base TF image.
 RUN ln -s "/usr/include/x86_64-linux-gnu/python3.8" "/dt7/usr/include/x86_64-linux-gnu/python3.8"
-RUN ln -s "/usr/include/x86_64-linux-gnu/python3.8" "/dt8/usr/include/x86_64-linux-gnu/ppython3.8"
-
+RUN ln -s "/usr/include/x86_64-linux-gnu/python3.8" "/dt8/usr/include/x86_64-linux-gnu/python3.8"
+RUN ln -s "/usr/include/x86_64-linux-gnu/python3.9" "/dt7/usr/include/x86_64-linux-gnu/python3.9"
+RUN ln -s "/usr/include/x86_64-linux-gnu/python3.9" "/dt8/usr/include/x86_64-linux-gnu/python3.9"
 
 WORKDIR "/tmp/reverb"
 
