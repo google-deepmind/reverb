@@ -724,11 +724,29 @@ TEST(WriterTest, WriteTimeStepsNumTensorsDontMatchSignatureError) {
   REVERB_ASSERT_OK(writer->Append(MakeTimestep(/*num_tensors=*/2)));
   auto status = writer->CreateItem("dist", 2, 1.0);
   EXPECT_EQ(status.code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_THAT(std::string(status.message()),
+              ::testing::HasSubstr(
+                  "Append for timestep offset 0 was called with 2 tensors, "
+                  "but table requires 1 tensors per entry."));
+}
+
+TEST(WriterTest, WriteTimeStepsWithoutSignatureTensorShapesNotConsistentError) {
+  std::vector<InsertStreamRequest> requests;
+  auto stub = MakeGoodStub(&requests);
+  Client client(stub);
+  std::unique_ptr<Writer> writer;
+  REVERB_EXPECT_OK(client.NewWriter(2, 6, /*delta_encoded=*/false, &writer));
+
+  REVERB_ASSERT_OK(writer->Append(
+      MakeTimestep(/*num_tensors=*/1, /*shape=*/tensorflow::TensorShape({2}))));
+  auto status = writer->Append(
+      MakeTimestep(/*num_tensors=*/1, /*shape=*/tensorflow::TensorShape({1})));
+  EXPECT_EQ(status.code(), absl::StatusCode::kInvalidArgument);
   EXPECT_THAT(
       std::string(status.message()),
       ::testing::HasSubstr(
-          "Append for timestep offset 0 was called with 2 tensors, "
-          "but table requires 1 tensors per entry."));
+          "Unable to concatenate tensors at index 0 due to mismatched shapes."
+          "  Tensor 0 has shape: [2], but tensor 1 has shape: [1]"));
 }
 
 TEST(WriterTest, WriteTimeStepsNumTensorsDontMatchBoundedSignatureError) {

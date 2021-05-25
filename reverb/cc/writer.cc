@@ -320,12 +320,11 @@ absl::Status Writer::StopItemConfirmationWorker() {
   item_confirmation_worker_thread_ = nullptr;
 
   if (num_items_in_flight_ > 0) {
-    return absl::DataLossError(
-        absl::StrCat("Item confirmation worker were stopped when ",
-                     num_items_in_flight_,
-                     " unconfirmed items (sent to server but validation "
-                     "response not yet "
-                     "received)."));
+    return absl::DataLossError(absl::StrCat(
+        "Item confirmation worker were stopped when ", num_items_in_flight_,
+        " unconfirmed items (sent to server but validation "
+        "response not yet "
+        "received)."));
   }
   num_items_in_flight_ = 0;
   return absl::OkStatus();
@@ -381,7 +380,7 @@ absl::Status Writer::Close(bool retry_on_unavailable) {
     auto status = stream_->Finish();
     if (!status.ok()) {
       REVERB_LOG(REVERB_INFO) << "Received error when closing the stream: "
-                << FormatGrpcStatus(status);
+                              << FormatGrpcStatus(status);
     }
     stream_ = nullptr;
   }
@@ -397,6 +396,13 @@ absl::Status Writer::Finish(bool retry_on_unavailable) {
     for (int j = 0; j < buffer_.size(); ++j) {
       const tensorflow::Tensor& item = buffer_[j][i];
       tensorflow::TensorShape shape = item.shape();
+      if (j > 0 && shape != buffer_[0][i].shape()) {
+        return absl::InvalidArgumentError(absl::StrCat(
+            "Unable to concatenate tensors at index ", i,
+            " due to mismatched shapes.  Tensor 0 has shape: ",
+            buffer_[0][i].shape().DebugString(), ", but tensor ", j,
+            " has shape: ", shape.DebugString()));
+      }
       shape.InsertDim(0, 1);
       // This should never fail due to dtype or shape differences, because the
       // dtype of tensors[j] is UNKNOWN and `shape` has the same number of
