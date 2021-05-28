@@ -213,7 +213,9 @@ class Client:
   Whenever possible, prefer to use TFClient (see ./tf_client.py).
   """
 
-  def __init__(self, server_address: str, client: pybind.Client = None):
+  def __init__(self,
+               server_address: str,
+               client: Optional[pybind.Client] = None):
     """Constructor of Client.
 
     Args:
@@ -404,8 +406,8 @@ class Client:
 
   def mutate_priorities(self,
                         table: str,
-                        updates: Dict[int, float] = None,
-                        deletes: List[int] = None):
+                        updates: Optional[Dict[int, float]] = None,
+                        deletes: Optional[List[int]] = None):
     """Updates and/or deletes existing items in a priority table.
 
     NOTE: Whenever possible, prefer to use `TFClient.update_priorities`

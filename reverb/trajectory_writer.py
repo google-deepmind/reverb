@@ -598,7 +598,7 @@ class TrajectoryColumn:
                data_references: Sequence[pybind.WeakCellRef],
                *,
                squeeze: bool = False,
-               path: Tuple[Union[str, int, slice], ...] = None):
+               path: Optional[Tuple[Union[str, int, slice], ...]] = None):
     if squeeze and len(data_references) != 1:
       raise ValueError(
           f'Columns must contain exactly one data reference when squeeze set, '

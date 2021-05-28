@@ -251,9 +251,9 @@ class Server:
   """
 
   def __init__(self,
-               tables: Sequence[Table] = None,
-               port: Union[int, None] = None,
-               checkpointer: checkpointers.CheckpointerBase = None):
+               tables: Optional[Sequence[Table]] = None,
+               port: Optional[Union[int, None]] = None,
+               checkpointer: Optional[checkpointers.CheckpointerBase] = None):
     """Constructor of Server serving the ReverbService.
 
     Args:
