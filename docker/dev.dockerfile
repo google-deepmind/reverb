@@ -54,7 +54,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 RUN curl -O https://bootstrap.pypa.io/get-pip.py
 
-ARG bazel_version=2.2.0
+ARG bazel_version=3.7.0
 # This is to install bazel, for development purposes.
 ENV BAZEL_VERSION ${bazel_version}
 RUN mkdir /bazel && \

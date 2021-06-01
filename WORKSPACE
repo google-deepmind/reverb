@@ -45,29 +45,38 @@ http_archive(
         """sed -i.bak 's/"python",/"python3",/g' third_party/py/python_configure.bzl""",
         """sed -i.bak 's/PYTHONHASHSEED=0/PYTHONHASHSEED=0 python3/g' bazel/cython_library.bzl""",
     ],
-    sha256 = "b956598d8cbe168b5ee717b5dafa56563eb5201a947856a6688bbeac9cac4e1f",
-    strip_prefix = "grpc-b54a5b338637f92bfcf4b0bc05e0f57a5fd8fadd",
+    sha256 = "45b5956d3c807fbf9045d946864d83013543a2474420cffaa984022428242271",
+    strip_prefix = "grpc-ce05bf557ced2d311bad8ee520f9f8088f715bd8",
     urls = [
-        "https://storage.googleapis.com/mirror.tensorflow.org/github.com/grpc/grpc/archive/b54a5b338637f92bfcf4b0bc05e0f57a5fd8fadd.tar.gz",
-        "https://github.com/grpc/grpc/archive/b54a5b338637f92bfcf4b0bc05e0f57a5fd8fadd.tar.gz",
+        "https://github.com/grpc/grpc/archive/ce05bf557ced2d311bad8ee520f9f8088f715bd8.tar.gz",
     ],
 )
+
 
 load("@com_github_grpc_grpc//bazel:grpc_deps.bzl", "grpc_deps")
 
 grpc_deps()
 
-load("@upb//bazel:repository_defs.bzl", "bazel_version_repository")
+load("@com_github_grpc_grpc//bazel:grpc_extra_deps.bzl", "grpc_extra_deps")
 
-bazel_version_repository(
-    name = "bazel_version",
+grpc_extra_deps()
+
+
+load("@upb//bazel:workspace_deps.bzl", "upb_deps")
+
+upb_deps()
+
+load(
+    "@build_bazel_rules_apple//apple:repositories.bzl",
+    "apple_rules_dependencies",
 )
-
-load("@build_bazel_rules_apple//apple:repositories.bzl", "apple_rules_dependencies")
 
 apple_rules_dependencies()
 
-load("@build_bazel_apple_support//lib:repositories.bzl", "apple_support_dependencies")
+load(
+    "@build_bazel_apple_support//lib:repositories.bzl",
+    "apple_support_dependencies",
+)
 
 apple_support_dependencies()
 ## End GRPC related deps
