@@ -49,7 +49,7 @@
 #include "reverb/cc/support/unbounded_queue.h"
 
 // TODO(b/168080187): Benchmark to find good defaults.
-ABSL_FLAG(size_t, reverb_insert_worker_num_threads, 10,
+ABSL_FLAG(size_t, reverb_insert_worker_num_threads, 32,
           "Number of threads that will run insertion tasks.");
 ABSL_FLAG(size_t, reverb_sample_worker_num_threads, 10,
           "Number of threads that will run sample tasks.");
