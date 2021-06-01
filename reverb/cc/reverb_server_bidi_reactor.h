@@ -29,9 +29,11 @@
 
 namespace deepmind {
 namespace reverb {
-
-template <class Request, class Response, class TaskInfo, class TaskWorker>
-class ReactorLock;
+#define GRPC_CALL_AND_RETURN_IF_ERROR(expr, func) \
+  if (auto status = expr; !status.ok()) {         \
+    func(status);                                 \
+    return;                                       \
+  }
 
 // Reactor implementing a bidirectional stream that inserts new tasks into
 // a queue and lets background threads run the required callbacks.
@@ -79,7 +81,7 @@ class ReverbServerBidiReactor
   // be scheduled in the TaskWorker.
   virtual bool ShouldScheduleFirstTask(const Request& request)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_);
-  // Called in IsTaskCompleted to decide if a new task should be scheduled.
+  // Called in OnTaskCompleted to decide if a new task should be scheduled.
   virtual bool ShouldScheduleAnotherTask(const TaskInfo& task_info)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_);
 
@@ -88,7 +90,7 @@ class ReverbServerBidiReactor
   virtual grpc::Status FillTaskInfo(Request* request, TaskInfo* task_info)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_);
   // Uses the information in the old_tasks_info to fill a TaskInfo object.
-  // Called in IsTaskCompleted.
+  // Called in OnTaskCompleted.
   virtual TaskInfo FillTaskInfo(const TaskInfo& old_task_info)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_);
 
@@ -136,14 +138,6 @@ class ReverbServerBidiReactor
   void OnCancel() override;
 
  private:
-  friend ReactorLock<Request, Response, TaskInfo, TaskWorker>;
-
-  // Tells whether reactor should be deleted (upon the second call of this
-  // method). One call is done by OnDone callback, second by
-  // SetReactorAsFinished (order depends on the thread timing in GRPC).
-  // Reactor has to be freed after both finish.
-  bool ShouldDeleteReactor() ABSL_EXCLUSIVE_LOCKS_REQUIRED(seq_mu_);
-
   // Finishes the reactor. It fails if any of the conditions to finish the
   // reactor doesn't hold. The conditions are:
   //   * The reactor cannot be already set as finished.
@@ -167,12 +161,11 @@ class ReverbServerBidiReactor
   // Inserts a new task in the TaskQueue.
   void InsertNewTask(TaskInfo task_info) ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_);
 
-  // Checks if task is completed and updates the reactor information in such
-  // case. Task should be retried when false is returned.
-  bool IsTaskCompleted(std::vector<Response> responses,
+  // Runs once a task is done to update the reactor information.
+  void OnTaskCompleted(std::vector<Response> responses,
                        const TaskInfo& task_info, const absl::Status& status,
-                       bool enough_queue_slots, bool already_called)
-      ABSL_LOCKS_EXCLUDED(mu_);
+                       bool enough_queue_slots)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_);
 
   // Returns true if current reads are blocked because the queue was full,
   // and it can be unblocked.
@@ -232,18 +225,13 @@ class ReverbServerBidiReactor
   // Once this is true, pending tasks will be discarded.
   bool is_cancelled_ ABSL_GUARDED_BY(mu_);
 
-  // Was ShouldDeleteReactor already called. Reusing seq_mu_ lock
-  // to not cause performance issues between different locks in the future
-  // (L1 cache flushing etc.).
-  bool should_delete_called_ ABSL_GUARDED_BY(seq_mu_) = false;
-
   // If true, the reactor is not reading and it is expecting a pending
   // task to complete and start the next Read.
   bool is_read_blocked_by_full_queue_ ABSL_GUARDED_BY(mu_);
 
   // If true, the reactor will try to start a new read in OnReadDone. Otherwise,
   // it waits until the current request is fully handled (new reads might be
-  // started in OnWriteDone or IsTaskCompleted).
+  // started in OnWriteDone or OnTaskCompleted).
   const bool allow_parallel_requests_ ABSL_GUARDED_BY(mu_);
 
 
@@ -261,50 +249,6 @@ class ReverbServerBidiReactor
   // updating other reactor values.
   int64_t last_seq_num_finished_ ABSL_GUARDED_BY(seq_mu_) = -1;
   absl::Mutex seq_mu_;
-};
-
-// ReactorLock is used for deleting Reactor after releasing a lock (deletion
-// of the Reactor is conditioned upon the state protected by the lock).
-template <class Request, class Response, class TaskInfo, class TaskWorker>
-class ABSL_SCOPED_LOCKABLE ReactorLock {
- public:
-  explicit ReactorLock(ReverbServerBidiReactor<Request, Response, TaskInfo,
-      TaskWorker> *reactor) ABSL_EXCLUSIVE_LOCK_FUNCTION(reactor->mu_)
-      : reactor_(reactor) {
-    reactor_->mu_.Lock();
-  }
-
-  ReactorLock(const ReactorLock &) = delete;  // NOLINT(runtime/mutex)
-  ReactorLock(ReactorLock&&) = delete;  // NOLINT(runtime/mutex)
-  ReactorLock& operator=(const ReactorLock&) = delete;
-  ReactorLock& operator=(ReactorLock&&) = delete;
-
-  void FinishReactor(grpc::Status status) {
-    reactor_->SetReactorAsFinished(status);
-    bool should_delete;
-    {
-      absl::MutexLock lock(&reactor_->seq_mu_);
-      should_delete = reactor_->ShouldDeleteReactor();
-      // Unlock mu_ before seq_mu_, so that in case Reactor is deleted by OnDone
-      // we don't reference Reactor after deletion.
-      reactor_->mu_.Unlock();
-    }
-    if (should_delete) {
-      delete reactor_;
-    }
-    // We already released Reactor's mu_ mutex, don't release again in the
-    // destructor.
-    reactor_ = nullptr;
-  }
-
-  ~ReactorLock() ABSL_UNLOCK_FUNCTION() {
-    if (reactor_) {
-      reactor_->mu_.Unlock();
-    }
-  }
-
- private:
-  ReverbServerBidiReactor<Request, Response, TaskInfo, TaskWorker>* reactor_;
 };
 
 /*****************************************************************************
@@ -409,7 +353,7 @@ template <class Request, class Response, class TaskInfo, class TaskWorker>
 void ReverbServerBidiReactor<Request, Response, TaskInfo,
                              TaskWorker>::OnReadDone(bool ok) {
   // Read until the client sends a HalfClose or the stream is cancelled.
-  ReactorLock<Request, Response, TaskInfo, TaskWorker> lock(this);
+  absl::MutexLock lock(&mu_);
 
   if (!ok || is_finished_) {
     // A half close has been received and thus there will be no more reads.
@@ -422,24 +366,15 @@ void ReverbServerBidiReactor<Request, Response, TaskInfo,
     // everything went according to plan and we close the reactor with a
     // successful status.
     if (ShouldFinish()) {
-      lock.FinishReactor(grpc::Status::OK);
-      return;
+      SetReactorAsFinished(grpc::Status::OK);
     }
     return;
   }
 
-  auto status = ProcessIncomingRequest(&request_);
-  if (!status.ok()) {
-    lock.FinishReactor(status);
-    return;
-  }
-
+  GRPC_CALL_AND_RETURN_IF_ERROR(ProcessIncomingRequest(&request_),
+                                SetReactorAsFinished);
   if (ShouldScheduleFirstTask(request_)) {
-    status = ScheduleFirstTask();
-    if (!status.ok()) {
-      lock.FinishReactor(status);
-      return;
-    }
+    GRPC_CALL_AND_RETURN_IF_ERROR(ScheduleFirstTask(), SetReactorAsFinished);
   }
 
   // If the Worker is almost full, the next OnRead could block
@@ -456,7 +391,7 @@ void ReverbServerBidiReactor<Request, Response, TaskInfo,
 template <class Request, class Response, class TaskInfo, class TaskWorker>
 void ReverbServerBidiReactor<Request, Response, TaskInfo,
                              TaskWorker>::OnWriteDone(bool ok) {
-  ReactorLock<Request, Response, TaskInfo, TaskWorker> lock(this);
+  absl::MutexLock lock(&mu_);
   if (is_finished_) {
     REVERB_LOG(REVERB_ERROR)
         << "OnWriteDone was called after the reactor was finished";
@@ -467,7 +402,7 @@ void ReverbServerBidiReactor<Request, Response, TaskInfo,
     auto status = grpc::Status(
         grpc::StatusCode::INTERNAL,
         "Error when sending response (the stream is being closed).");
-    lock.FinishReactor(status);
+    SetReactorAsFinished(status);
     return;
   }
   // Message was successfully sent.
@@ -496,7 +431,7 @@ void ReverbServerBidiReactor<Request, Response, TaskInfo,
   // There are no pending writes so if we are no longer reading from the
   // stream and there are no pending tasks then we are done.
   if (!still_reading_ && num_tasks_pending_completion_ == 0) {
-    lock.FinishReactor(grpc::Status::OK);
+    SetReactorAsFinished(grpc::Status::OK);
     return;
   }
 }
@@ -504,14 +439,20 @@ void ReverbServerBidiReactor<Request, Response, TaskInfo,
 template <class Request, class Response, class TaskInfo, class TaskWorker>
 void ReverbServerBidiReactor<Request, Response, TaskInfo,
                              TaskWorker>::OnDone() {
-  bool should_delete_;
+  // Wait for pending tasks to finish.
   {
-    absl::MutexLock lock(&seq_mu_);
-    should_delete_ = ShouldDeleteReactor();
+    absl::MutexLock lock(&mu_);
+    still_reading_ = false;
+    REVERB_CHECK(is_finished_);
+    // We don't wait for responses_to_send to be empty because once OnDone
+    // is called, we will not send more confirmations and OnDone is the last
+    // call made on a stream.
+    auto is_ready_for_deletion = [this]() ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_) {
+      return num_tasks_pending_completion_ == 0;
+    };
+    mu_.Await(absl::Condition(&is_ready_for_deletion));
   }
-  if (should_delete_) {
-    delete this;
-  }
+  delete this;
 }
 
 template <class Request, class Response, class TaskInfo, class TaskWorker>
@@ -520,16 +461,6 @@ void ReverbServerBidiReactor<Request, Response, TaskInfo,
   absl::MutexLock lock(&mu_);
   still_reading_ = false;
   is_cancelled_ = true;
-}
-
-template <class Request, class Response, class TaskInfo, class TaskWorker>
-bool ReverbServerBidiReactor<Request, Response, TaskInfo, TaskWorker>::
-    ShouldDeleteReactor() ABSL_EXCLUSIVE_LOCKS_REQUIRED(seq_mu_) {
-  if (!should_delete_called_) {
-    should_delete_called_ = true;
-    return false;
-  }
-  return true;
 }
 
 template <class Request, class Response, class TaskInfo, class TaskWorker>
@@ -548,14 +479,6 @@ void ReverbServerBidiReactor<Request, Response, TaskInfo, TaskWorker>::
   std::queue<Response>().swap(responses_to_send_);
   is_finished_ = true;
   grpc::ServerBidiReactor<Request, Response>::Finish(status);
-  still_reading_ = false;
-  // We don't wait for responses_to_send to be empty because once OnFinish
-  // is called, we will not send more confirmations and OnFinish is the last
-  // call made on a stream.
-  auto is_ready_for_deletion = [this]() ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_) {
-    return num_tasks_pending_completion_ == 0;
-  };
-  mu_.Await(absl::Condition(&is_ready_for_deletion));
 }
 
 template <class Request, class Response, class TaskInfo, class TaskWorker>
@@ -600,7 +523,7 @@ void ReverbServerBidiReactor<Request, Response, TaskInfo,
 
   bool queue_is_not_full = worker->Schedule(
       std::move(task_info),
-      [this, seq_num](TaskInfo task_info, absl::Status status,
+      [this, seq_num](TaskInfo task_info, const absl::Status& status,
                       bool enough_queue_slots) {
         // Block until the callback of the previous task (from this reactor)
         // has been triggered. This ensures that order within a single
@@ -614,14 +537,53 @@ void ReverbServerBidiReactor<Request, Response, TaskInfo,
           seq_mu_.Await(absl::Condition(&is_first_in_queue));
         }
         std::vector<Response> responses;
-        bool already_called = false;
-        while (!IsTaskCompleted(responses, task_info, status,
-                                enough_queue_slots, already_called)) {
-          // RunTaskAndFillResponses can block for a long time
-          // (due to the RateLimiter) so it is executed without holding
-          // any mutexes (to avoid blocking a gRPC thread).
-          status = RunTaskAndFillResponses(&responses, task_info);
-          already_called = true;
+        {
+          absl::MutexLock lock(&mu_);
+
+          // A non ok status is received if the worker is closed
+          // prematurely.
+          if (!status.ok()) {
+            OnTaskCompleted(responses, task_info, status, enough_queue_slots);
+            return;
+          }
+
+          if (is_cancelled_ || is_finished_) {
+            OnTaskCompleted(responses, task_info,
+                            absl::CancelledError("Stream has been cancelled"),
+                            enough_queue_slots);
+            return;
+          }
+        }  // Release the lock to run the task.
+
+        // Everything is good so we go ahead and run the task. This call
+        // can block for a long time (due to the RateLimiter) so we must
+        // release the reactor lock to avoid blocking a gRPC thread.
+        while (true) {
+          absl::Status task_status =
+              RunTaskAndFillResponses(&responses, task_info);
+
+          absl::MutexLock lock(&mu_);
+
+          // When the timeout is exceeded we check if the reactor has been
+          // cancelled concurrently with the attempted InsertOrAssign call.
+          // If this is the case then we replace the error with the error
+          // which is used for tasks that are popped from the queue after
+          // the flag has been set.
+          if ((absl::IsDeadlineExceeded(task_status)) &&
+              (is_cancelled_ || is_finished_)) {
+            task_status = absl::CancelledError("Stream has been cancelled");
+          }
+
+          // If the timeout has exceeded but the stream is still alive then
+          // we simply try again if retries on timeout are possible for this
+          // task.
+          if (absl::IsDeadlineExceeded(task_status) &&
+              ShouldRetryOnTimeout(task_info)) {
+            continue;
+          }
+          OnTaskCompleted(responses, task_info, task_status,
+                          enough_queue_slots);
+          break;
         }
       });
 
@@ -631,55 +593,31 @@ void ReverbServerBidiReactor<Request, Response, TaskInfo,
 }
 
 template <class Request, class Response, class TaskInfo, class TaskWorker>
-bool ReverbServerBidiReactor<Request, Response, TaskInfo, TaskWorker>::
-    IsTaskCompleted(std::vector<Response> responses, const TaskInfo& task_info,
-                    const absl::Status& status, bool enough_queue_slots,
-                    bool already_called) {
-  ReactorLock<Request, Response, TaskInfo, TaskWorker> lock(this);
-  if (!is_cancelled_ && !is_finished_) {
-    if (!already_called && status.ok()) {
-      // Not yet executed and no prior errors.
-      return false;
-    }
-    if (absl::IsDeadlineExceeded(status) && ShouldRetryOnTimeout(task_info)) {
-      // If the timeout has exceeded but the stream is still alive then
-      // we simply try again if retries on timeout are possible for this task.
-      return false;
-    }
-  }
+void ReverbServerBidiReactor<Request, Response, TaskInfo, TaskWorker>::
+    OnTaskCompleted(std::vector<Response> responses, const TaskInfo& task_info,
+                    const absl::Status& status, bool enough_queue_slots)
+        ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_) {
   num_tasks_pending_completion_--;
   {
-    absl::MutexLock seq_lock(&seq_mu_);
+    absl::MutexLock lock(&seq_mu_);
     last_seq_num_finished_++;
   }
   // In the event of an error, the reactor will still purge the queue and
-  // IsTaskCompleted will be triggered even though Finish has been called.
+  // OnTaskCompleted will be triggered even though Finish has been called.
   // When this happen we just stop early.
   if (is_finished_) {
     REVERB_LOG_IF(REVERB_WARNING, !status.ok())
         << "Ignoring error as reactor already closed with previous error. "
            "Ignored status ("
-        << task_info.DebugString() << "): " << status.ToString();
-    return true;
+        << task_info.DebugString() << "): " << status;
+    return;
   }
 
   // If the reactor was not finished and the task failed, we use it to close
   // the stream.
-  if (!status.ok() || !already_called) {
-    grpc::Status grpc_status;
-    if (status.ok() || (absl::IsDeadlineExceeded(status) && is_cancelled_)) {
-      // When the timeout is exceeded we check if the reactor has been
-      // cancelled concurrently with the attempted InsertOrAssign call.
-      // If this is the case then we replace the error with the error
-      // which is used for tasks that are popped from the queue after
-      // the flag has been set.
-      grpc_status =
-          ToGrpcStatus(absl::CancelledError("Stream has been cancelled"));
-    } else {
-      grpc_status = ToGrpcStatus(status);
-    }
-    lock.FinishReactor(grpc_status);
-    return true;
+  if (!status.ok()) {
+    SetReactorAsFinished(ToGrpcStatus(status));
+    return;
   }
   // If the queue was empty before we add new responses, we need to write the
   // first response. Afterwards, OnWriteDone will trigger the next writes
@@ -699,8 +637,8 @@ bool ReverbServerBidiReactor<Request, Response, TaskInfo, TaskWorker>::
   }
 
   if (ShouldFinish()) {
-    lock.FinishReactor(grpc::Status::OK);
-    return true;
+    SetReactorAsFinished(grpc::Status::OK);
+    return;
   }
 
   if (ShouldScheduleAnotherTask(task_info)) {
@@ -711,7 +649,6 @@ bool ReverbServerBidiReactor<Request, Response, TaskInfo, TaskWorker>::
     is_read_blocked_by_full_queue_ = false;
     grpc::ServerBidiReactor<Request, Response>::StartRead(&request_);
   }
-  return true;
 }
 
 template <class Request, class Response, class TaskInfo, class TaskWorker>
