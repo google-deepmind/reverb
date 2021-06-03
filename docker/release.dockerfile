@@ -1,14 +1,11 @@
 # Run the following commands in order:
 #
 # REVERB_DIR="/tmp/reverb"  # (change to the cloned reverb directory, e.g. "$HOME/reverb")
+#
 # docker build --tag tensorflow:reverb_release - < "$REVERB_DIR/docker/release.dockerfile"
-# docker run --rm -it -v ${REVERB_DIR}:/tmp/reverb \
-#   -v ${HOME}/.gitconfig:/home/${USER}/.gitconfig:ro \
-#   --name reverb_release tensorflow:reverb_release bash
 #
-# Test that everything worked:
-#
-# bazel test -c opt --copt=-mavx --config=manylinux2010 --test_output=errors //reverb/...
+# docker run --rm --mount "type=bind,src=$REVERB_DIR,dst=/tmp/reverb" \
+#   dtensorflow:reverb_release bash oss_build.sh --clean true
 
 ARG cpu_base_image="tensorflow/tensorflow:2.2.0-custom-op-ubuntu16"
 ARG base_image=$cpu_base_image
@@ -18,6 +15,8 @@ LABEL maintainer="Reverb Team <no-reply@google.com>"
 
 # Re-declare args because the args declared before FROM can't be used in any
 # instruction after a FROM.
+# We cannot update the TF image because it doesn't have the headers for
+# Python 3.6
 ARG cpu_base_image="tensorflow/tensorflow:2.1.0-custom-op-ubuntu16"
 ARG base_image=$cpu_base_image
 ARG tensorflow_pip="tf-nightly"
@@ -53,6 +52,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     rm -rf /var/lib/apt/lists/*
 
 RUN curl -O https://bootstrap.pypa.io/get-pip.py
+
+# Install a new version of bazel (we need this for GRPC).
+ARG bazel_version=3.7.2
+ENV BAZEL_VERSION ${bazel_version}
+
+RUN cd /bazel && \
+    curl -fSsL -O https://github.com/bazelbuild/bazel/releases/download/$BAZEL_VERSION/bazel-$BAZEL_VERSION-installer-linux-x86_64.sh && \
+    chmod +x bazel-*.sh && \
+    ./bazel-$BAZEL_VERSION-installer-linux-x86_64.sh && \
+    cd / && \
+    rm -f /bazel/bazel-$BAZEL_VERSION-installer-linux-x86_64.sh
 
 ARG pip_dependencies=' \
       absl-py \
