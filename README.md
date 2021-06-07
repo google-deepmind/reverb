@@ -335,7 +335,7 @@ If you use this code, please cite the
 ```
 @misc{cassirer2021reverb,
       title={Reverb: A Framework For Experience Replay},
-      author={Albin Cassirer, Gabriel Barth-Maron, Eugene Brevdo, Sabela Ramos, Toby Boyd, Thibault Sottiaux, Manuel Kroiss},
+      author={Albin Cassirer and Gabriel Barth-Maron and Eugene Brevdo and Sabela Ramos and Toby Boyd and Thibault Sottiaux and Manuel Kroiss},
       year={2021},
       eprint={2102.04736},
       archivePrefix={arXiv},
