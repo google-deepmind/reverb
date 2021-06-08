@@ -245,8 +245,7 @@ class ReverbTrajectoryDatasetOp : public tensorflow::data::DatasetOpKernel {
             table_(table),
             sampler_options_(sampler_options),
             dtypes_(dtypes),
-            shapes_(shapes),
-            step_within_sample_(0) {}
+            shapes_(shapes) {}
 
       tensorflow::Status Initialize(
           tensorflow::data::IteratorContext* ctx) override {
@@ -325,7 +324,6 @@ class ReverbTrajectoryDatasetOp : public tensorflow::data::DatasetOpKernel {
       const tensorflow::DataTypeVector& dtypes_;
       const std::vector<tensorflow::PartialTensorShape>& shapes_;
       std::unique_ptr<Sampler> sampler_;
-      int step_within_sample_;
     };  // Iterator.
 
     const std::string server_address_;
