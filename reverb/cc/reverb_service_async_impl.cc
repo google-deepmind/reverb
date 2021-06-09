@@ -234,7 +234,7 @@ ReverbServiceAsyncImpl::InsertStream(grpc::CallbackServerContext* context) {
       if (task_info.send_confirmation) {
         InsertStreamResponse response;
         response.set_key(task_info.item.item.key());
-        responses->push_back(response);
+        responses->push_back(std::move(response));
       }
       return absl::OkStatus();
     }
