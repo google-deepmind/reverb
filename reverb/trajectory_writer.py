@@ -554,7 +554,7 @@ class _ColumnHistory:
     self._data_references.append(ref)
 
   def reset(self):
-    self._data_references.clear()
+    self._data_references = []
 
   def set_last(self, ref: pybind.WeakCellRef):
     if not self._data_references:
