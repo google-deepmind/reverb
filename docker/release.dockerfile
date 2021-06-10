@@ -21,9 +21,10 @@ ARG cpu_base_image="tensorflow/tensorflow:2.1.0-custom-op-ubuntu16"
 ARG base_image=$cpu_base_image
 ARG tensorflow_pip="tf-nightly"
 ARG python_version="python3.6"
+ARG APT_COMMAND="apt-get -o Acquire::Retries=3 -y"
 
 # Pick up some TF dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN ${APT_COMMAND} update && ${APT_COMMAND} install -y --no-install-recommends \
         software-properties-common \
         aria2 \
         build-essential \
