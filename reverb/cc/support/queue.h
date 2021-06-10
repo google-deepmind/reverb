@@ -64,6 +64,8 @@ class Queue {
   // success, `true` is returned. If the queue is closed, `false` is returned.
   bool Push(T x) ABSL_LOCKS_EXCLUDED(mu_) {
     absl::MutexLock lock(&mu_);
+    ScopedIncrement ticket(&num_waiting_to_push_);
+
     mu_.Await(absl::Condition(
         +[](Queue* q) {
           return q->closed_ || q->last_item_pushed_ ||
@@ -101,6 +103,8 @@ class Queue {
     };
 
     absl::MutexLock lock(&mu_);
+    ScopedIncrement ticket(&num_waiting_to_pop_);
+
     if (!mu_.AwaitWithTimeout(absl::Condition(&trigger), timeout) &&
         !last_item_pushed_ && !closed_) {
       return absl::DeadlineExceededError(
@@ -152,6 +156,8 @@ class Queue {
   // returned then queue is closed.
   bool Pop(T* item) ABSL_LOCKS_EXCLUDED(mu_) {
     absl::MutexLock lock(&mu_);
+    ScopedIncrement ticket(&num_waiting_to_pop_);
+
     mu_.Await(absl::Condition(
         +[](Queue* q) { return q->closed_ || q->size_ > 0; }, this));
     if (closed_) return false;
@@ -170,8 +176,28 @@ class Queue {
     return size_;
   }
 
+  int num_waiting_to_pop() const ABSL_LOCKS_EXCLUDED(mu_) {
+    absl::ReaderMutexLock lock(&mu_);
+    return num_waiting_to_pop_;
+  }
+
+  int num_waiting_to_push() const ABSL_LOCKS_EXCLUDED(mu_) {
+    absl::ReaderMutexLock lock(&mu_);
+    return num_waiting_to_push_;
+  }
+
  private:
   mutable absl::Mutex mu_;
+
+  // Increments a counter while in scope.
+  class ScopedIncrement {
+   public:
+    ScopedIncrement(int* value) : value_(value) { ++(*value_); }
+    ~ScopedIncrement() { --(*value_); }
+
+   private:
+    int* value_;
+  };
 
   // Circular buffer. Initialized with fixed size `capacity_`.
   std::vector<T> buffer_ ABSL_GUARDED_BY(mu_);
@@ -189,6 +215,10 @@ class Queue {
   // treated the same as if `Closed()` had been called. If set and the queue is
   // empty after a pop call then `closed_` is set.
   bool last_item_pushed_ ABSL_GUARDED_BY(mu_);
+
+  // The number of threads which are currently waiting on the queue.
+  int num_waiting_to_pop_ ABSL_GUARDED_BY(mu_) = 0;
+  int num_waiting_to_push_ ABSL_GUARDED_BY(mu_) = 0;
 };
 
 }  // namespace internal

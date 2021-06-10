@@ -227,6 +227,7 @@ class GrpcSamplerWorker : public SamplerWorker {
 
     int64_t num_samples_returned = 0;
     while (num_samples_returned < num_samples) {
+      // TODO(b/190237214): Ignore timeouts when data is not being requested.
       SampleStreamRequest request;
       request.set_table(table_name_);
       request.set_num_samples(
@@ -340,14 +341,24 @@ class LocalSamplerWorker : public SamplerWorker {
 
       // If the deadline is exceeded but the "real deadline" is still in the
       // future then we are only waking up to check for cancellation.
-      if (absl::IsDeadlineExceeded(status) && absl::Now() < final_deadline) {
-        continue;
+      if (absl::IsDeadlineExceeded(status)) {
+        if (absl::Now() < final_deadline) {
+          continue;
+        }
+        if (queue->num_waiting_to_pop() < 1) {
+          // While no items requested, we reset the final_deadline and restart.
+          final_deadline = absl::Now() + rate_limiter_timeout;
+          continue;
+        }
       }
 
       // All other errors are "real" and thus should be returned to the caller.
       if (!status.ok()) {
         return {num_samples_returned, status};
       }
+
+      // We received new items, so reset the timeout deadline.
+      final_deadline = absl::Now() + rate_limiter_timeout;
 
       // Push sampled items to queue.
       for (const auto& item : items) {
@@ -639,6 +650,7 @@ void Sampler::RunWorker(SamplerWorker* worker) {
       mu_.Unlock();
       return;
     }
+
     int64_t samples_to_stream =
         std::min<int64_t>(max_samples_per_stream_, max_samples_ - requested_);
     requested_ += samples_to_stream;
