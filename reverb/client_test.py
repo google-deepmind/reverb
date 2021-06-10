@@ -29,6 +29,7 @@ from reverb import server
 import tensorflow.compat.v1 as tf
 
 TABLE_NAME = 'table'
+NO_SIGNATURE_TABLE = 'no_signature'
 
 
 class ClientTest(absltest.TestCase):
@@ -46,6 +47,7 @@ class ClientTest(absltest.TestCase):
                 rate_limiter=rate_limiters.MinSize(3),
                 signature=tf.TensorSpec(dtype=tf.int64, shape=()),
             ),
+            server.Table.queue(NO_SIGNATURE_TABLE, 10),
         ],
         port=None)
     cls.client = client.Client(f'localhost:{cls.server.port}')
@@ -169,6 +171,18 @@ class ClientTest(absltest.TestCase):
     for freq in freqs:
       self.assertAlmostEqual(freq, 0.25, delta=0.05)
 
+  def test_write_and_sample_different_shapes_and_dtypes(self):
+    trajectories = [
+        np.ones([], np.int64),
+        np.ones([2, 2], np.float32),
+        np.ones([3, 3], np.int32),
+    ]
+    for trajectory in trajectories:
+      self.client.insert(trajectory, {NO_SIGNATURE_TABLE: 1.0})
+
+    for i, [sample] in enumerate(self.client.sample(NO_SIGNATURE_TABLE, 3)):
+      np.testing.assert_array_equal(trajectories[i], sample.data[0])
+
   def test_mutate_priorities_update(self):
     self.client.insert([0], {TABLE_NAME: 1.0})
     self.client.insert([0], {TABLE_NAME: 1.0})
@@ -229,7 +243,8 @@ class ClientTest(absltest.TestCase):
     self.client.insert([0], {TABLE_NAME: 1.0})
     self.client.insert([0], {TABLE_NAME: 1.0})
     server_info = self.client.server_info()
-    self.assertLen(server_info, 1)
+    self.assertLen(server_info, 2)
+
     self.assertIn(TABLE_NAME, server_info)
     info = server_info[TABLE_NAME]
     self.assertEqual(info.current_size, 3)
@@ -237,6 +252,14 @@ class ClientTest(absltest.TestCase):
     self.assertEqual(info.sampler_options.prioritized.priority_exponent, 1)
     self.assertTrue(info.remover_options.fifo)
     self.assertEqual(info.signature, tf.TensorSpec(dtype=tf.int64, shape=()))
+
+    self.assertIn(NO_SIGNATURE_TABLE, server_info)
+    info = server_info[NO_SIGNATURE_TABLE]
+    self.assertEqual(info.current_size, 0)
+    self.assertEqual(info.max_size, 10)
+    self.assertTrue(info.sampler_options.fifo)
+    self.assertTrue(info.remover_options.fifo)
+    self.assertIsNone(info.signature)
 
   def test_server_info_timeout(self):
     # Setup a client that doesn't actually connect to anything.

@@ -300,6 +300,13 @@ absl::Status Client::NewSampler(
   return NewSampler(table, options, std::move(dtypes_and_shapes), sampler);
 }
 
+absl::Status Client::NewSamplerWithoutSignatureCheck(
+    const std::string& table, const Sampler::Options& options,
+    std::unique_ptr<Sampler>* sampler) {
+  return NewSampler(table, options, /*dtypes_and_shapes=*/absl::nullopt,
+                    sampler);
+}
+
 absl::Status Client::GetServerInfo(absl::Duration timeout,
                                    struct ServerInfo* info) {
   grpc::ClientContext context;

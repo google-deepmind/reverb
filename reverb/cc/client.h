@@ -75,6 +75,12 @@ class Client {
                           std::unique_ptr<Sampler>* sampler);
 
   // Upon successful return, `sampler` will contain an instance of
+  // Sampler which does not perform any validation of shapes and dtypes.
+  absl::Status NewSamplerWithoutSignatureCheck(
+      const std::string& table, const Sampler::Options& options,
+      std::unique_ptr<Sampler>* sampler);
+
+  // Upon successful return, `sampler` will contain an instance of
   // Sampler.
   //
   // If the table has signature metadata available on the server, then

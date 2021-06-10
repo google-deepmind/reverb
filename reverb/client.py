@@ -340,9 +340,7 @@ class Client:
   def sample(
       self,
       table: str,
-      num_samples=1,
-      validation_timeout_ms=3000
-  ) -> Generator[List[replay_sample.ReplaySample], None, None]:
+      num_samples=1) -> Generator[List[replay_sample.ReplaySample], None, None]:
     """Samples `num_samples` items from table `table` of the Server.
 
     NOTE: This method should NOT be used for real training. TFClient (see
@@ -369,10 +367,6 @@ class Client:
     Args:
       table: Name of the priority table to sample from.
       num_samples: (default to 1) The number of samples to fetch.
-      validation_timeout_ms: The number of milliesconds to wait to pull
-        signatures (if any) for `table`.  These signatures are used to validate
-        incoming samples.  Signatures are only pulled once and cached.  Default
-        wait time is 3 seconds.
 
     Yields:
       Lists of timesteps (lists of instances of `ReplaySample`).
@@ -382,8 +376,7 @@ class Client:
       length is the sampled trajectory's length.
     """
     buffer_size = 1
-    sampler = self._client.NewSampler(table, num_samples, buffer_size,
-                                      validation_timeout_ms)
+    sampler = self._client.NewSampler(table, num_samples, buffer_size)
 
     for _ in range(num_samples):
       sequence = []
