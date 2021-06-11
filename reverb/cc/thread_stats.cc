@@ -16,16 +16,23 @@
 
 #include "absl/strings/str_format.h"
 #include "absl/time/clock.h"
+#include "absl/time/time.h"
 
 namespace deepmind {
 namespace reverb {
 // Returns the id of the worker thread that was the last one that picked up a
 // new task. Returns -1 if any thread is waiting for a new task.
 int LastThreadId(const std::vector<ThreadStats>& stats) {
-  auto last_task_started = absl::InfiniteFuture();
+  auto last_task_started = absl::InfinitePast();
   int index = 0;
   for (int i = 0; i < stats.size(); i++) {
-    if (stats[i].current_task_id == stats[i].num_tasks_processed ||
+    // current_task_id is local to the thread_stats and increments every time
+    // the thread starts a new task (the initial value is -1).
+    // num_tasks_processed gets incremented once the task is done (the initial
+    // value is 0).
+    // While the thread is busy with a task, current_task_id ==
+    // num_tasks_processed,
+    if (stats[i].current_task_id < stats[i].num_tasks_processed ||
         stats[i].current_task_id == -1) {
       // The current task is already processed (or the thread did not pick any
       // task yet), so this thread is free to start a new task.)

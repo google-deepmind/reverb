@@ -468,3 +468,11 @@ reverb_cc_test(
         "//reverb/cc/testing:proto_test_util",
     ] + reverb_grpc_deps() + reverb_absl_deps() + reverb_tf_deps(),
 )
+
+reverb_cc_test(
+    name = "thread_stats_test",
+    srcs = ["thread_stats_test.cc"],
+    deps = [
+        ":thread_stats",
+    ] + reverb_absl_deps(),
+)
