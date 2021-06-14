@@ -29,6 +29,7 @@
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "reverb/cc/chunk_store.h"
+#include "reverb/cc/errors.h"
 #include "reverb/cc/platform/hash_map.h"
 #include "reverb/cc/platform/hash_set.h"
 #include "reverb/cc/platform/logging.h"
@@ -245,7 +246,16 @@ class GrpcSamplerWorker : public SamplerWorker {
         while (!SampleIsDone(responses)) {
           SampleStreamResponse response;
           if (!stream->Read(&response)) {
-            return {num_samples_returned, FromGrpcStatus(stream->Finish())};
+            auto status = FromGrpcStatus(stream->Finish());
+            if (errors::IsRateLimiterTimeout(status) &&
+                queue->num_waiting_to_pop() < 1) {
+              // The rate limiter timed out but no one is waiting for new data,
+              // so we can exit with an OkStatus and get restarted with a new
+              // stream.
+              return {num_samples_returned, absl::OkStatus()};
+            } else {
+              return {num_samples_returned, status};
+            }
           }
           responses.push_back(std::move(response));
         }
@@ -494,8 +504,8 @@ Sampler::Sampler(std::shared_ptr<Table> table, const Options& options,
 
 Sampler::~Sampler() { Close(); }
 
-absl::Status Sampler::GetNextTimestep(
-    std::vector<tensorflow::Tensor>* data, bool* end_of_sequence) {
+absl::Status Sampler::GetNextTimestep(std::vector<tensorflow::Tensor>* data,
+                                      bool* end_of_sequence) {
   REVERB_RETURN_IF_ERROR(MaybeSampleNext());
   if (!active_sample_->is_composed_of_timesteps()) {
     return absl::InvalidArgumentError(
@@ -518,8 +528,7 @@ absl::Status Sampler::GetNextTimestep(
   return absl::OkStatus();
 }
 
-absl::Status Sampler::GetNextSample(
-    std::vector<tensorflow::Tensor>* data) {
+absl::Status Sampler::GetNextSample(std::vector<tensorflow::Tensor>* data) {
   std::unique_ptr<Sample> sample;
   REVERB_RETURN_IF_ERROR(PopNextSample(&sample));
   REVERB_RETURN_IF_ERROR(sample->AsBatchedTimesteps(data));

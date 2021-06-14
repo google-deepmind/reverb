@@ -205,6 +205,7 @@ reverb_cc_library(
     hdrs = ["sampler.h"],
     deps = [
         ":chunk_store",
+        ":errors",
         ":reverb_service_cc_grpc_proto",
         ":reverb_service_cc_proto",
         ":schema_cc_proto",

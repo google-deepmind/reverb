@@ -15,6 +15,7 @@
 
 """Tests for dataset."""
 
+import socket
 import threading
 import time
 
@@ -76,13 +77,18 @@ def make_server():
   )
 
 
-class ReplayDatasetTest(tf.test.TestCase, parameterized.TestCase):
+class LocalReplayDatasetTest(tf.test.TestCase, parameterized.TestCase):
+  USE_LOCALHOST = True
 
   @classmethod
   def setUpClass(cls):
     super().setUpClass()
     cls._server = make_server()
-    cls._client = client.Client(f'localhost:{cls._server.port}')
+    if cls.USE_LOCALHOST:
+      connect_to = 'localhost'
+    else:
+      connect_to = 'dns:///{}'.format(socket.gethostname())
+    cls._client = client.Client(f'{connect_to}:{cls._server.port}')
 
   def setUp(self):
     super().setUp()
@@ -326,7 +332,6 @@ class ReplayDatasetTest(tf.test.TestCase, parameterized.TestCase):
         dtypes=(tf.float32,),
         shapes=(tf.TensorShape([3, 3]),),
         rate_limiter_timeout_ms=1000,
-        num_workers_per_iterator=1,
         max_in_flight_samples_per_worker=100)
 
     dataset_2s = reverb_dataset.ReplayDataset(
@@ -335,7 +340,6 @@ class ReplayDatasetTest(tf.test.TestCase, parameterized.TestCase):
         dtypes=(tf.float32,),
         shapes=(tf.TensorShape([3, 3]),),
         rate_limiter_timeout_ms=2000,
-        num_workers_per_iterator=1,
         max_in_flight_samples_per_worker=100)
 
     start_time = time.time()
@@ -369,7 +373,7 @@ class ReplayDatasetTest(tf.test.TestCase, parameterized.TestCase):
     self.evaluate(iterator.initializer)
 
     for _ in range(3):
-      self._populate_replay(max_items=2, sequence_length=1)
+      self._populate_replay(max_items=2)
       # Pull two items
       for _ in range(2):
         self.evaluate(dataset_0s_item)
@@ -735,6 +739,9 @@ class ReplayDatasetTest(tf.test.TestCase, parameterized.TestCase):
 
   @parameterized.parameters(1, 3, 7)
   def test_respects_flexible_batch_size(self, flexible_batch_size):
+    if not self.USE_LOCALHOST:
+      self.skipTest('TODO(b/190761815): test broken in Nonlocal case')
+
     for _ in range(10):
       self._client.insert((np.ones([3, 3], dtype=np.int32)), {'dist': 1})
 
@@ -844,6 +851,11 @@ class ReplayDatasetTest(tf.test.TestCase, parameterized.TestCase):
       thread.start()
       with self.assertRaises(tf.errors.CancelledError):
         sess.run(item)
+
+
+class NonlocalReplayDatasetTest(LocalReplayDatasetTest):
+  """Test with non-localhost connection to server."""
+  USE_LOCALHOST = False
 
 
 class FromTableSignatureTest(tf.test.TestCase):
