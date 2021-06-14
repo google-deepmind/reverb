@@ -610,7 +610,7 @@ PYBIND11_MODULE(libpybind, m) {
              MaybeRaiseFromStatus(status);
              return std::make_pair(std::move(sample), end_of_sequence);
            })
-      .def("GetNextSample",
+      .def("GetNextTrajectory",
            [](Sampler *sampler) {
              absl::Status status;
              std::vector<tensorflow::Tensor> sample;
@@ -621,7 +621,7 @@ PYBIND11_MODULE(libpybind, m) {
              // details from the status.
              {
                py::gil_scoped_release g;
-               status = sampler->GetNextSample(&sample);
+               status = sampler->GetNextTrajectory(&sample);
              }
 
              MaybeRaiseFromStatus(status);

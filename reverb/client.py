@@ -20,9 +20,10 @@ exposes direct methods for both inserting (i.e `insert`) and sampling (i.e
 `TrajectoryDataset` directly whenever possible.
 """
 
-from typing import Any, Dict, Generator, List, Optional
+from typing import Any, Dict, Generator, List, Optional, Union
 
 from absl import logging
+import numpy as np
 from reverb import errors
 from reverb import pybind
 from reverb import replay_sample
@@ -224,6 +225,7 @@ class Client:
     """
     self._server_address = server_address
     self._client = client if client else pybind.Client(server_address)
+    self._signature_cache = {}
 
   def __reduce__(self):
     return self.__class__, (self._server_address,)
@@ -340,11 +342,16 @@ class Client:
   def sample(
       self,
       table: str,
-      num_samples=1) -> Generator[List[replay_sample.ReplaySample], None, None]:
+      num_samples: int = 1,
+      *,
+      emit_timesteps: bool = True,
+      unpack_as_table_signature: bool = False,
+  ) -> Generator[Union[List[replay_sample.ReplaySample],
+                       replay_sample.ReplaySample], None, None]:
     """Samples `num_samples` items from table `table` of the Server.
 
-    NOTE: This method should NOT be used for real training. TFClient (see
-    tf_client.py) has far superior performance and should always be preferred.
+    NOTE: This method should NOT be used for real training. TrajectoryDataset
+    and TimestepDataset should always be preferred over this method.
 
     Note: If data was written using `insert` (e.g when inserting complete
     trajectories) then the returned "sequence" will be a list of length 1
@@ -356,46 +363,86 @@ class Client:
     unblock when sufficient additional items have been added to `table`.
 
     Example:
+
     ```python
+
     server = Server(..., tables=[queue("queue", ...)])
     client = Client(...)
+
     # Don't insert anything into "queue"
     generator = client.sample("queue")
     generator.next()  # Blocks until another thread/process writes to queue.
+
     ```
 
     Args:
       table: Name of the priority table to sample from.
       num_samples: (default to 1) The number of samples to fetch.
+      emit_timesteps: If True then trajectories are returned as a list of
+        `ReplaySample`, each representing a single step within the trajectory.
+      unpack_as_table_signature: If True then the sampled data is unpacked
+        according to the structure of the table signature. If the table does
+        not have a signature then flat data is returned.
 
     Yields:
-      Lists of timesteps (lists of instances of `ReplaySample`).
-      If data was inserted into the table via `insert`, then each element
-      of the generator is a length 1 list containing a `ReplaySample`.
-      If data was inserted via a writer, then each element is a list whose
-      length is the sampled trajectory's length.
+      If `emit_timesteps` is `True`:
+
+        Lists of timesteps (lists of instances of `ReplaySample`).
+        If data was inserted into the table via `insert`, then each element
+        of the generator is a length 1 list containing a `ReplaySample`.
+        If data was inserted via a writer, then each element is a list whose
+        length is the sampled trajectory's length.
+
+      If emit_timesteps is False:
+
+        An instance of `ReplaySample` where the data is unpacked according to
+        the signature of the table. If the table does not have any signature
+        then the data is flat, i.e each element is a leaf node of the full
+        trajectory.
+
+    Raises:
+      ValueError: If `emit_timestep` is True but the trajectory cannot be
+        decomposed into timesteps.
     """
     buffer_size = 1
+
+    if unpack_as_table_signature:
+      signature = self._get_signature_for_table(table)
+    else:
+      signature = None
+
+    if signature:
+      unflatten = lambda x: tree.unflatten_as(signature, x)
+    else:
+      unflatten = lambda x: x
+
     sampler = self._client.NewSampler(table, num_samples, buffer_size)
 
     for _ in range(num_samples):
-      sequence = []
-      last = False
+      sample = sampler.GetNextTrajectory()
 
-      while not last:
-        step, last = sampler.GetNextTimestep()
-        key = int(step[0])
-        probability = float(step[1])
-        table_size = int(step[2])
-        priority = float(step[3])
-        data = step[4:]
-        sequence.append(
-            replay_sample.ReplaySample(
-                info=replay_sample.SampleInfo(key, probability, table_size,
-                                              priority),
-                data=data))
+      info = replay_sample.SampleInfo(
+          key=int(sample[0]),
+          probability=float(sample[1]),
+          table_size=int(sample[2]),
+          priority=float(sample[3]))
 
-      yield sequence
+      if emit_timesteps:
+        if len(set([len(col) for col in sample[4:]])) != 1:
+          raise ValueError(
+              'Can\'t split non timestep trajectory into timesteps.')
+
+        timesteps = []
+        for i in range(sample[4].shape[0]):
+          timestep = replay_sample.ReplaySample(
+              info=info,
+              data=unflatten([np.asarray(col[i], col.dtype)
+                              for col in sample[4:]]))
+          timesteps.append(timestep)
+
+        yield timesteps
+      else:
+        yield replay_sample.ReplaySample(info, unflatten(sample[4:]))
 
   def mutate_priorities(self,
                         table: str,
@@ -458,6 +505,15 @@ class Client:
     for proto_string in info_proto_strings:
       table_info = reverb_types.TableInfo.from_serialized_proto(proto_string)
       table_infos[table_info.name] = table_info
+
+    # Populate the signature cache if this is the first time server_info is
+    # (successfully) called.
+    if not self._signature_cache:
+      self._signature_cache = {
+          table: info.signature
+          for table, info in table_infos.items()
+      }
+
     return table_infos
 
   def checkpoint(self) -> str:
@@ -508,3 +564,15 @@ class Client:
     cpp_writer = self._client.NewTrajectoryWriter(chunker_options,
                                                   get_signature_timeout_ms)
     return trajectory_writer_lib.TrajectoryWriter(cpp_writer)
+
+  def _get_signature_for_table(self, table: str):
+    if not self._signature_cache:
+      self.server_info()  # Populates the cache.
+
+    if table not in self._signature_cache:
+      raise ValueError(
+          f'Could not find table "{table}". The following tables exists: '
+          f'{", ".join(self._signature_cache.keys())}.')
+
+    return self._signature_cache[table]
+

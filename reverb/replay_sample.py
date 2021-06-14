@@ -34,10 +34,10 @@ class SampleInfo(NamedTuple):
     priority: Priority of the item at the time of sampling. A python `float` or
       `tf.float64` Tensor.
   """
-  key: Union[np.ndarray, tf.Tensor]
-  probability: Union[np.ndarray, tf.Tensor]
-  table_size: Union[np.ndarray, tf.Tensor]
-  priority: Union[np.ndarray, tf.Tensor]
+  key: Union[np.ndarray, tf.Tensor, int]
+  probability: Union[np.ndarray, tf.Tensor, float]
+  table_size: Union[np.ndarray, tf.Tensor, int]
+  priority: Union[np.ndarray, tf.Tensor, float]
 
   @classmethod
   def tf_dtypes(cls):
