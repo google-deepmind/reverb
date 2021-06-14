@@ -543,12 +543,13 @@ void ReverbServerBidiReactor<Request, Response, TaskInfo,
           // A non ok status is received if the worker is closed
           // prematurely.
           if (!status.ok()) {
-            OnTaskCompleted(responses, task_info, status, enough_queue_slots);
+            OnTaskCompleted(std::move(responses), task_info, status,
+                            enough_queue_slots);
             return;
           }
 
           if (is_cancelled_ || is_finished_) {
-            OnTaskCompleted(responses, task_info,
+            OnTaskCompleted(std::move(responses), task_info,
                             absl::CancelledError("Stream has been cancelled"),
                             enough_queue_slots);
             return;
@@ -581,7 +582,7 @@ void ReverbServerBidiReactor<Request, Response, TaskInfo,
               ShouldRetryOnTimeout(task_info)) {
             continue;
           }
-          OnTaskCompleted(responses, task_info, task_status,
+          OnTaskCompleted(std::move(responses), task_info, task_status,
                           enough_queue_slots);
           break;
         }
@@ -623,7 +624,7 @@ void ReverbServerBidiReactor<Request, Response, TaskInfo, TaskWorker>::
   // first response. Afterwards, OnWriteDone will trigger the next writes
   // automatically.
   bool should_start_sending = responses_to_send_.empty() && !responses.empty();
-  for (auto r : responses) {
+  for (auto& r : responses) {
     responses_to_send_.push(std::move(r));
   }
 
