@@ -511,13 +511,13 @@ TEST(ReverbServiceAsyncImplTest, ResetWorks) {
 
 TEST(ReverbServiceAsyncImplTest, ServerInfoWorks) {
   auto service = MakeService(10);
-  grpc::experimental::CallbackServerContext context;
+  grpc::CallbackServerContext context;
   grpc::testing::DefaultReactorTestPeer peer(&context);
 
   ServerInfoRequest server_info_request;
   ServerInfoResponse server_info_response;
 
-  grpc::experimental::ServerUnaryReactor* reactor = service->ServerInfo(
+  grpc::ServerUnaryReactor* reactor = service->ServerInfo(
       &context, &server_info_request, &server_info_response);
 
   ASSERT_EQ(reactor, peer.reactor());
@@ -556,12 +556,12 @@ TEST(ReverbServiceAsyncImplTest, ServerInfoWorks) {
 
 TEST(ReverbServiceImplTest, CheckpointCalledWithoutCheckpointer) {
   auto service = MakeService(10);
-  grpc::experimental::CallbackServerContext context;
+  grpc::CallbackServerContext context;
   grpc::testing::DefaultReactorTestPeer peer(&context);
   CheckpointRequest request;
   CheckpointResponse response;
 
-  grpc::experimental::ServerUnaryReactor* reactor =
+  grpc::ServerUnaryReactor* reactor =
       service->Checkpoint(&context, &request, &response);
 
   ASSERT_EQ(reactor, peer.reactor());
