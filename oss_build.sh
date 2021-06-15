@@ -96,6 +96,9 @@ for python_version in $PYTHON_VERSIONS; do
   elif [ "$python_version" = "3.8" ]; then
     export PYTHON_BIN_PATH=/usr/bin/python3.8 && export PYTHON_LIB_PATH=/usr/local/lib/python3.8/dist-packages
     ABI=cp38
+  elif [ "$python_version" = "3.9" ]; then
+    export PYTHON_BIN_PATH=/usr/bin/python3.9 && export PYTHON_LIB_PATH=/usr/local/lib/python3.9/dist-packages
+    ABI=cp39
   else
     echo "Error unknown --python. Only [3.6|3.7|3.8]"
     exit 1

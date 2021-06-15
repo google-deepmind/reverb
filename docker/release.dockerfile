@@ -41,8 +41,10 @@ RUN ${APT_COMMAND} update && ${APT_COMMAND} install -y --no-install-recommends \
         python3.6-dev \
         python3.7-dev \
         python3.8-dev \
+        python3.9-dev \
         # Needed due to python3.8 apt packaging issue.
         python3.8-distutils \
+        python3.9-distutils \
         rename \
         rsync \
         sox \
@@ -91,6 +93,8 @@ RUN rm get-pip.py
 # Needed until this is included in the base TF image.
 RUN ln -s "/usr/include/x86_64-linux-gnu/python3.8" "/dt7/usr/include/x86_64-linux-gnu/python3.8"
 RUN ln -s "/usr/include/x86_64-linux-gnu/python3.8" "/dt8/usr/include/x86_64-linux-gnu/ppython3.8"
+RUN ln -sf "/usr/include/x86_64-linux-gnu/python3.9" "/dt7/usr/include/x86_64-linux-gnu/python3.9"
+RUN ln -sf "/usr/include/x86_64-linux-gnu/python3.9" "/dt8/usr/include/x86_64-linux-gnu/ppython3.9"
 
 
 WORKDIR "/tmp/reverb"
