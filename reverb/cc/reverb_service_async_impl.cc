@@ -538,6 +538,8 @@ ReverbServiceAsyncImpl::SampleStream(grpc::CallbackServerContext* context) {
         const SampleTaskInfo& task_info) override {
       std::vector<Table::SampledItem> samples;
       REVERB_RETURN_IF_ERROR(SampleBatch(&samples, task_info));
+      // Each sample takes at least one response.
+      responses->reserve(responses->size() + samples.size());
       for (auto& sample : samples) {
         EnqueueSample(responses, &sample);
       }
