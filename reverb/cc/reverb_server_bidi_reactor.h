@@ -22,10 +22,10 @@
 #include "absl/base/thread_annotations.h"
 #include "absl/status/status.h"
 #include "absl/synchronization/mutex.h"
-#include "reverb/cc/task_worker.h"
 #include "reverb/cc/platform/logging.h"
 #include "reverb/cc/platform/status_macros.h"
 #include "reverb/cc/support/grpc_util.h"
+#include "reverb/cc/task_worker.h"
 
 namespace deepmind {
 namespace reverb {
@@ -38,6 +38,9 @@ namespace reverb {
 // Reactor implementing a bidirectional stream that inserts new tasks into
 // a queue and lets background threads run the required callbacks.
 // * Request and Response are the ones defined by the GRPC service.
+// * ResponseCtx is used to keep additional request context. It has to contain
+//   payload field of type Response. Using this context allows to avoid copies
+//   of immutable data.
 // * TaskInfo is a class containing information about the task. The object must
 //   include a callback that can be called by the TaskWorker.
 // * TaskWorker is a class which executes tasks in the background and includes a
@@ -50,13 +53,14 @@ namespace reverb {
 //
 // Note that writes to the stream have compression disabled. This reactor is
 // supposed to send already compressed data (or very small messages).
-template <class Request, class Response, class TaskInfo, class TaskWorker>
+template <class Request, class Response, class ResponseCtx, class TaskInfo,
+          class TaskWorker>
 class ReverbServerBidiReactor
     : public grpc::ServerBidiReactor<Request, Response> {
   static_assert(std::is_base_of<InsertTaskInfo, TaskInfo>::value ||
-                std::is_base_of<SampleTaskInfo, TaskInfo>::value ||
-                std::is_base_of<InsertWorker, TaskWorker>::value ||
-                std::is_base_of<SampleWorker, TaskWorker>::value,
+                    std::is_base_of<SampleTaskInfo, TaskInfo>::value ||
+                    std::is_base_of<InsertWorker, TaskWorker>::value ||
+                    std::is_base_of<SampleWorker, TaskWorker>::value,
                 "Unsupported class for TaskInfo or TaskWorker");
 
  public:
@@ -100,8 +104,8 @@ class ReverbServerBidiReactor
   // Runs the callback from task_info and fills the vector with responses that
   // should be sent back. This is potentially large and it's called without
   // holding the Reactor's lock. Called by the TaskWorker.
-  virtual absl::Status RunTaskAndFillResponses(std::vector<Response>* responses,
-                                               const TaskInfo& task_info);
+  virtual absl::Status RunTaskAndFillResponses(
+      std::vector<ResponseCtx>* responses, const TaskInfo& task_info);
 
   // Called when running the task to decide if it should retry the task after
   // getting a timeout. Called by the task scheduled in InsertNewTask.
@@ -162,7 +166,7 @@ class ReverbServerBidiReactor
   void InsertNewTask(TaskInfo task_info) ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_);
 
   // Runs once a task is done to update the reactor information.
-  void OnTaskCompleted(std::vector<Response> responses,
+  void OnTaskCompleted(std::vector<ResponseCtx> responses,
                        const TaskInfo& task_info, const absl::Status& status,
                        bool enough_queue_slots)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_);
@@ -201,7 +205,7 @@ class ReverbServerBidiReactor
   // order as they are pushed into the queue. Note that since strict ordering
   // is enforced through sequence numbering, the order of the responses will
   // exactly match that of the requests.
-  std::queue<Response> responses_to_send_ ABSL_GUARDED_BY(mu_);
+  std::queue<ResponseCtx> responses_to_send_ ABSL_GUARDED_BY(mu_);
 
   // The number of tasks scheduled but not yet completed. Note that even though
   // we enforce strict ordering, the reactor is allowed to run ahead and
@@ -234,7 +238,6 @@ class ReverbServerBidiReactor
   // started in OnWriteDone or OnTaskCompleted).
   const bool allow_parallel_requests_ ABSL_GUARDED_BY(mu_);
 
-
   // Sequence numbers are used to guarantee that the tasks are scheduled
   // preserving the request order. Each new task will get a sequence
   // number assigned, and won't run until all previous tasks are done.
@@ -254,8 +257,9 @@ class ReverbServerBidiReactor
 /*****************************************************************************
  * Implementation of the template                                            *
  *****************************************************************************/
-template <class Request, class Response, class TaskInfo, class TaskWorker>
-ReverbServerBidiReactor<Request, Response, TaskInfo, TaskWorker>::
+template <class Request, class Response, class ResponseCtx, class TaskInfo,
+          class TaskWorker>
+ReverbServerBidiReactor<Request, Response, ResponseCtx, TaskInfo, TaskWorker>::
     ReverbServerBidiReactor(bool allow_parallel_requests)
     : num_tasks_pending_completion_(0),
       still_reading_(true),
@@ -266,25 +270,29 @@ ReverbServerBidiReactor<Request, Response, TaskInfo, TaskWorker>::
       request_seq_num_(0),
       last_seq_num_finished_(-1) {}
 
-template <class Request, class Response, class TaskInfo, class TaskWorker>
-void ReverbServerBidiReactor<Request, Response, TaskInfo,
+template <class Request, class Response, class ResponseCtx, class TaskInfo,
+          class TaskWorker>
+void ReverbServerBidiReactor<Request, Response, ResponseCtx, TaskInfo,
                              TaskWorker>::StartRead() {
   grpc::ServerBidiReactor<Request, Response>::StartRead(&request_);
 }
 
-template <class Request, class Response, class TaskInfo, class TaskWorker>
+template <class Request, class Response, class ResponseCtx, class TaskInfo,
+          class TaskWorker>
 grpc::Status
-ReverbServerBidiReactor<Request, Response, TaskInfo,
+ReverbServerBidiReactor<Request, Response, ResponseCtx, TaskInfo,
                         TaskWorker>::ProcessIncomingRequest(Request* request)
     ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_) {
   return grpc::Status(grpc::StatusCode::UNIMPLEMENTED,
                       "ProcessingIncomingRequest is not implemented");
 }
 
-template <class Request, class Response, class TaskInfo, class TaskWorker>
-bool ReverbServerBidiReactor<Request, Response, TaskInfo, TaskWorker>::
-    ShouldScheduleFirstTask(const Request& request)
-        ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_) {
+template <class Request, class Response, class ResponseCtx, class TaskInfo,
+          class TaskWorker>
+bool ReverbServerBidiReactor<Request, Response, ResponseCtx, TaskInfo,
+                             TaskWorker>::ShouldScheduleFirstTask(const Request&
+                                                                      request)
+    ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_) {
   // Since the template cannot have pure virtual methods, we fail here to
   // force instantiations to re-define this method.
   REVERB_QCHECK(false) << "The implementation of the ReverbServerBidiReactor "
@@ -292,10 +300,12 @@ bool ReverbServerBidiReactor<Request, Response, TaskInfo, TaskWorker>::
   return false;
 }
 
-template <class Request, class Response, class TaskInfo, class TaskWorker>
-bool ReverbServerBidiReactor<Request, Response, TaskInfo, TaskWorker>::
-    ShouldScheduleAnotherTask(const TaskInfo& task_info)
-        ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_) {
+template <class Request, class Response, class ResponseCtx, class TaskInfo,
+          class TaskWorker>
+bool ReverbServerBidiReactor<
+    Request, Response, ResponseCtx, TaskInfo,
+    TaskWorker>::ShouldScheduleAnotherTask(const TaskInfo& task_info)
+    ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_) {
   // Since the template cannot have pure virtual methods, we fail here to
   // force instantiations to re-define this method.
   REVERB_QCHECK(false) << "The implementation of the ReverbServerBidiReactor "
@@ -303,18 +313,23 @@ bool ReverbServerBidiReactor<Request, Response, TaskInfo, TaskWorker>::
   return false;
 }
 
-template <class Request, class Response, class TaskInfo, class TaskWorker>
+template <class Request, class Response, class ResponseCtx, class TaskInfo,
+          class TaskWorker>
 grpc::Status
-ReverbServerBidiReactor<Request, Response, TaskInfo, TaskWorker>::FillTaskInfo(
-    Request* request, TaskInfo* task_info) ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_) {
+ReverbServerBidiReactor<Request, Response, ResponseCtx, TaskInfo,
+                        TaskWorker>::FillTaskInfo(Request* request,
+                                                  TaskInfo* task_info)
+    ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_) {
   return grpc::Status(grpc::StatusCode::UNIMPLEMENTED,
                       "FillTaskInfo is not implemented");
 }
 
-template <class Request, class Response, class TaskInfo, class TaskWorker>
-TaskInfo ReverbServerBidiReactor<Request, Response, TaskInfo, TaskWorker>::
-    FillTaskInfo(const TaskInfo& old_task_info)
-        ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_) {
+template <class Request, class Response, class ResponseCtx, class TaskInfo,
+          class TaskWorker>
+TaskInfo
+ReverbServerBidiReactor<Request, Response, ResponseCtx, TaskInfo,
+                        TaskWorker>::FillTaskInfo(const TaskInfo& old_task_info)
+    ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_) {
   // If used, this method has to be re-implemented by the implementations of
   // the template
   REVERB_QCHECK(false) << "The implementation of the ReverbServerBidiReactor "
@@ -322,35 +337,42 @@ TaskInfo ReverbServerBidiReactor<Request, Response, TaskInfo, TaskWorker>::
   return old_task_info;
 }
 
-template <class Request, class Response, class TaskInfo, class TaskWorker>
-TaskWorker*
-ReverbServerBidiReactor<Request, Response, TaskInfo, TaskWorker>::GetWorker()
+template <class Request, class Response, class ResponseCtx, class TaskInfo,
+          class TaskWorker>
+TaskWorker* ReverbServerBidiReactor<Request, Response, ResponseCtx, TaskInfo,
+                                    TaskWorker>::GetWorker()
     ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_) {
   REVERB_LOG(REVERB_ERROR) << "GetWorker is not implemented.";
   return nullptr;
 }
 
-template <class Request, class Response, class TaskInfo, class TaskWorker>
-absl::Status ReverbServerBidiReactor<Request, Response, TaskInfo, TaskWorker>::
-    RunTaskAndFillResponses(std::vector<Response>* responses,
-                            const TaskInfo& task_info) {
+template <class Request, class Response, class ResponseCtx, class TaskInfo,
+          class TaskWorker>
+absl::Status ReverbServerBidiReactor<
+    Request, Response, ResponseCtx, TaskInfo,
+    TaskWorker>::RunTaskAndFillResponses(std::vector<ResponseCtx>* responses,
+                                         const TaskInfo& task_info) {
   return absl::UnimplementedError("RunTaskAndFillResponses is not implemented");
 }
 
-template <class Request, class Response, class TaskInfo, class TaskWorker>
-bool ReverbServerBidiReactor<Request, Response, TaskInfo, TaskWorker>::
-    ShouldRetryOnTimeout(const TaskInfo& task_info) {
+template <class Request, class Response, class ResponseCtx, class TaskInfo,
+          class TaskWorker>
+bool ReverbServerBidiReactor<Request, Response, ResponseCtx, TaskInfo,
+                             TaskWorker>::ShouldRetryOnTimeout(const TaskInfo&
+                                                                   task_info) {
   return false;
 }
 
-template <class Request, class Response, class TaskInfo, class TaskWorker>
-int64_t ReverbServerBidiReactor<Request, Response, TaskInfo,
-                            TaskWorker>::NumPendingResponses() {
+template <class Request, class Response, class ResponseCtx, class TaskInfo,
+          class TaskWorker>
+int64_t ReverbServerBidiReactor<Request, Response, ResponseCtx, TaskInfo,
+                              TaskWorker>::NumPendingResponses() {
   return responses_to_send_.size();
 }
 
-template <class Request, class Response, class TaskInfo, class TaskWorker>
-void ReverbServerBidiReactor<Request, Response, TaskInfo,
+template <class Request, class Response, class ResponseCtx, class TaskInfo,
+          class TaskWorker>
+void ReverbServerBidiReactor<Request, Response, ResponseCtx, TaskInfo,
                              TaskWorker>::OnReadDone(bool ok) {
   // Read until the client sends a HalfClose or the stream is cancelled.
   absl::MutexLock lock(&mu_);
@@ -388,8 +410,9 @@ void ReverbServerBidiReactor<Request, Response, TaskInfo,
   }
 }
 
-template <class Request, class Response, class TaskInfo, class TaskWorker>
-void ReverbServerBidiReactor<Request, Response, TaskInfo,
+template <class Request, class Response, class ResponseCtx, class TaskInfo,
+          class TaskWorker>
+void ReverbServerBidiReactor<Request, Response, ResponseCtx, TaskInfo,
                              TaskWorker>::OnWriteDone(bool ok) {
   absl::MutexLock lock(&mu_);
   if (is_finished_) {
@@ -415,7 +438,7 @@ void ReverbServerBidiReactor<Request, Response, TaskInfo,
     grpc::WriteOptions options;
     options.set_no_compression();
     grpc::ServerBidiReactor<Request, Response>::StartWrite(
-        &responses_to_send_.front(), options);
+        &responses_to_send_.front().payload, options);
     return;
   }
   // If there are no more responses to send, we are in a single-request mode
@@ -436,8 +459,9 @@ void ReverbServerBidiReactor<Request, Response, TaskInfo,
   }
 }
 
-template <class Request, class Response, class TaskInfo, class TaskWorker>
-void ReverbServerBidiReactor<Request, Response, TaskInfo,
+template <class Request, class Response, class ResponseCtx, class TaskInfo,
+          class TaskWorker>
+void ReverbServerBidiReactor<Request, Response, ResponseCtx, TaskInfo,
                              TaskWorker>::OnDone() {
   // Wait for pending tasks to finish.
   {
@@ -455,18 +479,21 @@ void ReverbServerBidiReactor<Request, Response, TaskInfo,
   delete this;
 }
 
-template <class Request, class Response, class TaskInfo, class TaskWorker>
-void ReverbServerBidiReactor<Request, Response, TaskInfo,
+template <class Request, class Response, class ResponseCtx, class TaskInfo,
+          class TaskWorker>
+void ReverbServerBidiReactor<Request, Response, ResponseCtx, TaskInfo,
                              TaskWorker>::OnCancel() {
   absl::MutexLock lock(&mu_);
   still_reading_ = false;
   is_cancelled_ = true;
 }
 
-template <class Request, class Response, class TaskInfo, class TaskWorker>
-void ReverbServerBidiReactor<Request, Response, TaskInfo, TaskWorker>::
-    SetReactorAsFinished(grpc::Status status)
-        ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_) {
+template <class Request, class Response, class ResponseCtx, class TaskInfo,
+          class TaskWorker>
+void ReverbServerBidiReactor<Request, Response, ResponseCtx, TaskInfo,
+                             TaskWorker>::SetReactorAsFinished(grpc::Status
+                                                                   status)
+    ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_) {
   REVERB_CHECK(!is_finished_);
 
   // Sanity check that everything has been completed when the reactor is
@@ -476,45 +503,50 @@ void ReverbServerBidiReactor<Request, Response, TaskInfo, TaskWorker>::
       !status.ok());
 
   // Once the reactor is finished, we won't send any more responses.
-  std::queue<Response>().swap(responses_to_send_);
+  std::queue<ResponseCtx>().swap(responses_to_send_);
   is_finished_ = true;
   grpc::ServerBidiReactor<Request, Response>::Finish(status);
 }
 
-template <class Request, class Response, class TaskInfo, class TaskWorker>
-bool ReverbServerBidiReactor<Request, Response, TaskInfo,
+template <class Request, class Response, class ResponseCtx, class TaskInfo,
+          class TaskWorker>
+bool ReverbServerBidiReactor<Request, Response, ResponseCtx, TaskInfo,
                              TaskWorker>::ShouldFinish()
     ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_) {
   return responses_to_send_.empty() && num_tasks_pending_completion_ == 0 &&
          !still_reading_ && !is_finished_;
 }
 
-template <class Request, class Response, class TaskInfo, class TaskWorker>
-grpc::Status ReverbServerBidiReactor<Request, Response, TaskInfo,
+template <class Request, class Response, class ResponseCtx, class TaskInfo,
+          class TaskWorker>
+grpc::Status ReverbServerBidiReactor<Request, Response, ResponseCtx, TaskInfo,
                                      TaskWorker>::ScheduleFirstTask()
     ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_) {
   TaskInfo task_info;
-  if (auto status = FillTaskInfo(&request_, &task_info); !status.ok()){
+  if (auto status = FillTaskInfo(&request_, &task_info); !status.ok()) {
     return status;
   }
   InsertNewTask(std::move(task_info));
   return grpc::Status::OK;
 }
 
-template <class Request, class Response, class TaskInfo, class TaskWorker>
-void ReverbServerBidiReactor<Request, Response, TaskInfo, TaskWorker>::
-    ScheduleAnotherTask(const TaskInfo& task_info)
-        ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_) {
+template <class Request, class Response, class ResponseCtx, class TaskInfo,
+          class TaskWorker>
+void ReverbServerBidiReactor<Request, Response, ResponseCtx, TaskInfo,
+                             TaskWorker>::ScheduleAnotherTask(const TaskInfo&
+                                                                  task_info)
+    ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_) {
   TaskInfo new_task_info = FillTaskInfo(task_info);
   InsertNewTask(std::move(new_task_info));
 }
 
-template <class Request, class Response, class TaskInfo, class TaskWorker>
-void ReverbServerBidiReactor<Request, Response, TaskInfo,
+template <class Request, class Response, class ResponseCtx, class TaskInfo,
+          class TaskWorker>
+void ReverbServerBidiReactor<Request, Response, ResponseCtx, TaskInfo,
                              TaskWorker>::InsertNewTask(TaskInfo task_info)
     ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_) {
   TaskWorker* worker = GetWorker();
-  if (worker == nullptr){
+  if (worker == nullptr) {
     REVERB_CHECK(false) << "Task workers not initialized.";
   }
   num_tasks_pending_completion_++;
@@ -536,7 +568,7 @@ void ReverbServerBidiReactor<Request, Response, TaskInfo,
               };
           seq_mu_.Await(absl::Condition(&is_first_in_queue));
         }
-        std::vector<Response> responses;
+        std::vector<ResponseCtx> responses;
         {
           absl::MutexLock lock(&mu_);
 
@@ -593,11 +625,15 @@ void ReverbServerBidiReactor<Request, Response, TaskInfo,
   }
 }
 
-template <class Request, class Response, class TaskInfo, class TaskWorker>
-void ReverbServerBidiReactor<Request, Response, TaskInfo, TaskWorker>::
-    OnTaskCompleted(std::vector<Response> responses, const TaskInfo& task_info,
-                    const absl::Status& status, bool enough_queue_slots)
-        ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_) {
+template <class Request, class Response, class ResponseCtx, class TaskInfo,
+          class TaskWorker>
+void ReverbServerBidiReactor<
+    Request, Response, ResponseCtx, TaskInfo,
+    TaskWorker>::OnTaskCompleted(std::vector<ResponseCtx> responses,
+                                 const TaskInfo& task_info,
+                                 const absl::Status& status,
+                                 bool enough_queue_slots)
+    ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_) {
   num_tasks_pending_completion_--;
   {
     absl::MutexLock lock(&seq_mu_);
@@ -634,7 +670,7 @@ void ReverbServerBidiReactor<Request, Response, TaskInfo, TaskWorker>::
     grpc::WriteOptions options;
     options.set_no_compression();  // Data is already compressed.
     grpc::ServerBidiReactor<Request, Response>::StartWrite(
-        &responses_to_send_.front(), options);
+        &responses_to_send_.front().payload, options);
   }
 
   if (ShouldFinish()) {
@@ -652,15 +688,17 @@ void ReverbServerBidiReactor<Request, Response, TaskInfo, TaskWorker>::
   }
 }
 
-template <class Request, class Response, class TaskInfo, class TaskWorker>
-bool ReverbServerBidiReactor<Request, Response, TaskInfo,
+template <class Request, class Response, class ResponseCtx, class TaskInfo,
+          class TaskWorker>
+bool ReverbServerBidiReactor<Request, Response, ResponseCtx, TaskInfo,
                              TaskWorker>::IsCurrentRequestProcessed()
     ABSL_SHARED_LOCKS_REQUIRED(mu_) {
   return (num_tasks_pending_completion_ == 0) && (responses_to_send_.empty());
 }
 
-template <class Request, class Response, class TaskInfo, class TaskWorker>
-bool ReverbServerBidiReactor<Request, Response, TaskInfo,
+template <class Request, class Response, class ResponseCtx, class TaskInfo,
+          class TaskWorker>
+bool ReverbServerBidiReactor<Request, Response, ResponseCtx, TaskInfo,
                              TaskWorker>::IsReadyForNewRead()
     ABSL_SHARED_LOCKS_REQUIRED(mu_) {
   if (!IsReadStillPossible()) {
@@ -674,10 +712,12 @@ bool ReverbServerBidiReactor<Request, Response, TaskInfo,
   return IsCurrentRequestProcessed();
 }
 
-template <class Request, class Response, class TaskInfo, class TaskWorker>
-bool ReverbServerBidiReactor<Request, Response, TaskInfo, TaskWorker>::
-    ShouldUnblockReads(bool enough_queue_slots)
-        ABSL_SHARED_LOCKS_REQUIRED(mu_) {
+template <class Request, class Response, class ResponseCtx, class TaskInfo,
+          class TaskWorker>
+bool ReverbServerBidiReactor<
+    Request, Response, ResponseCtx, TaskInfo,
+    TaskWorker>::ShouldUnblockReads(bool enough_queue_slots)
+    ABSL_SHARED_LOCKS_REQUIRED(mu_) {
   // We can't resume reads if we were never blocked to begin with.
   if (!is_read_blocked_by_full_queue_) {
     return false;
@@ -700,8 +740,9 @@ bool ReverbServerBidiReactor<Request, Response, TaskInfo, TaskWorker>::
   return enough_queue_slots || num_tasks_pending_completion_ == 0;
 }
 
-template <class Request, class Response, class TaskInfo, class TaskWorker>
-bool ReverbServerBidiReactor<Request, Response, TaskInfo,
+template <class Request, class Response, class ResponseCtx, class TaskInfo,
+          class TaskWorker>
+bool ReverbServerBidiReactor<Request, Response, ResponseCtx, TaskInfo,
                              TaskWorker>::IsReadStillPossible()
     ABSL_SHARED_LOCKS_REQUIRED(mu_) {
   // If half close has been received or if an error has been encountered

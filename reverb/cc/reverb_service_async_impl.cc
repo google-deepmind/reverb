@@ -62,7 +62,7 @@ namespace deepmind {
 namespace reverb {
 namespace {
 
-// Multiple `ChunkData` can be sent with the same `SampleStreamResponse`. If
+// Multiple `ChunkData` can be sent with the same `SampleStreamResponseCtx`. If
 // the size of the message exceeds this value then the request is sent and the
 // remaining chunks are sent with other messages.
 static constexpr int64_t kMaxSampleResponseSizeBytes = 40 * 1024 * 1024;  // 40MB.
@@ -170,12 +170,17 @@ grpc::ServerUnaryReactor* ReverbServiceAsyncImpl::Checkpoint(
   return reactor;
 }
 
+
 grpc::ServerBidiReactor<InsertStreamRequest, InsertStreamResponse>*
 ReverbServiceAsyncImpl::InsertStream(grpc::CallbackServerContext* context) {
+  struct InsertStreamResponseCtx {
+    InsertStreamResponse payload;
+  };
+
   class InsertReactor
-      : public ReverbServerBidiReactor<InsertStreamRequest,
-                                       InsertStreamResponse, InsertTaskInfo,
-                                       InsertWorker> {
+      : public ReverbServerBidiReactor<
+            InsertStreamRequest, InsertStreamResponse, InsertStreamResponseCtx,
+            InsertTaskInfo, InsertWorker> {
    public:
     InsertReactor(ChunkStore* chunk_store, ReverbServiceAsyncImpl* server)
         : ReverbServerBidiReactor(/*allow_parallel_requests=*/true),
@@ -223,7 +228,7 @@ ReverbServiceAsyncImpl::InsertStream(grpc::CallbackServerContext* context) {
     }
 
     absl::Status RunTaskAndFillResponses(
-        std::vector<InsertStreamResponse>* responses,
+        std::vector<InsertStreamResponseCtx>* responses,
         const InsertTaskInfo& task_info) override {
       // We use a (long) timeout here to protect against potential
       // deadlocks were the stream has been closed but we are unable to
@@ -232,8 +237,8 @@ ReverbServiceAsyncImpl::InsertStream(grpc::CallbackServerContext* context) {
       REVERB_RETURN_IF_ERROR(
           task_info.table->InsertOrAssign(task_info.item, absl::Seconds(20)));
       if (task_info.send_confirmation) {
-        InsertStreamResponse response;
-        response.set_key(task_info.item.item.key());
+        InsertStreamResponseCtx response;
+        response.payload.set_key(task_info.item.item.key());
         responses->push_back(std::move(response));
       }
       return absl::OkStatus();
@@ -446,10 +451,37 @@ grpc::ServerUnaryReactor* ReverbServiceAsyncImpl::Reset(
 
 grpc::ServerBidiReactor<SampleStreamRequest, SampleStreamResponse>*
 ReverbServiceAsyncImpl::SampleStream(grpc::CallbackServerContext* context) {
+  struct SampleStreamResponseCtx {
+    SampleStreamResponseCtx(std::shared_ptr<TableItem> table_item)
+        : table_item(std::move(table_item)) {
+    }
+    SampleStreamResponseCtx(const SampleStreamResponseCtx&) = delete;
+    SampleStreamResponseCtx& operator=(const SampleStreamResponseCtx&) = delete;
+    SampleStreamResponseCtx(SampleStreamResponseCtx&& response) = default;
+    SampleStreamResponseCtx& operator=(SampleStreamResponseCtx&& response) =
+        default;
+
+    ~SampleStreamResponseCtx() {
+      // SampleStreamResponseCtx does not own immutable parts of the payload.
+      // We need to make sure not to destroy them while destructing the payload.
+      if (payload.info().has_item()) {
+        auto item = payload.mutable_info()->mutable_item();
+        item->/*unsafe_arena_*/release_inserted_at();
+        item->/*unsafe_arena_*/release_flat_trajectory();
+      }
+      while (payload.data_size() != 0) {
+        payload.mutable_data()->UnsafeArenaReleaseLast();
+      }
+    }
+
+    SampleStreamResponse payload;
+    std::shared_ptr<TableItem> table_item;
+  };
+
   class SampleReactor
-      : public ReverbServerBidiReactor<SampleStreamRequest,
-                                       SampleStreamResponse, SampleTaskInfo,
-                                       SampleWorker> {
+      : public ReverbServerBidiReactor<
+            SampleStreamRequest, SampleStreamResponse, SampleStreamResponseCtx,
+            SampleTaskInfo, SampleWorker> {
    public:
     SampleReactor(ReverbServiceAsyncImpl* server)
         : ReverbServerBidiReactor(/*allow_parallel_requests=*/false),
@@ -534,7 +566,7 @@ ReverbServiceAsyncImpl::SampleStream(grpc::CallbackServerContext* context) {
     SampleWorker* GetWorker() override { return server_->GetSampleWorker(); }
 
     absl::Status RunTaskAndFillResponses(
-        std::vector<SampleStreamResponse>* responses,
+        std::vector<SampleStreamResponseCtx>* responses,
         const SampleTaskInfo& task_info) override {
       std::vector<Table::SampledItem> samples;
       REVERB_RETURN_IF_ERROR(SampleBatch(&samples, task_info));
@@ -570,27 +602,41 @@ ReverbServiceAsyncImpl::SampleStream(grpc::CallbackServerContext* context) {
       return absl::OkStatus();
     }
 
-    void EnqueueSample(std::vector<SampleStreamResponse>* responses,
+    void EnqueueSample(std::vector<SampleStreamResponseCtx>* responses,
                        Table::SampledItem* sample) {
-      SampleStreamResponse response;
-      for (int i = 0; i < sample->chunks.size(); i++) {
-        response.set_end_of_sequence(i + 1 == sample->chunks.size());
+      SampleStreamResponseCtx response(sample->ref);
+      for (int i = 0; i < sample->ref->chunks.size(); i++) {
+        response.payload.set_end_of_sequence(i + 1 ==
+                                              sample->ref->chunks.size());
 
         // Attach the info to the first message.
         if (i == 0) {
-          *response.mutable_info()->mutable_item() = sample->item;
-          response.mutable_info()->set_probability(sample->probability);
-          response.mutable_info()->set_table_size(sample->table_size);
+          auto* item = response.payload.mutable_info()->mutable_item();
+          auto& sample_item = sample->ref->item;
+          item->set_key(sample_item.key());
+          item->set_table(sample_item.table());
+          item->set_priority(sample->priority);
+          item->set_times_sampled(sample->times_sampled);
+          // ~SampleStreamResponseCtx releases these fields from the proto
+          // upon destruction of the item.
+          item->/*unsafe_arena_*/set_allocated_inserted_at(
+              sample_item.mutable_inserted_at());
+          item->/*unsafe_arena_*/set_allocated_flat_trajectory(
+              sample_item.mutable_flat_trajectory());
+          response.payload.mutable_info()->set_probability(
+              sample->probability);
+          response.payload.mutable_info()->set_table_size(sample->table_size);
         }
 
-        *response.add_data() = std::move(sample->chunks[i]->data());
-        if (i < sample->chunks.size() - 1 &&
-            response.ByteSizeLong() < kMaxSampleResponseSizeBytes) {
+        response.payload.mutable_data()->UnsafeArenaAddAllocated(
+            const_cast<ChunkData*>(&sample->ref->chunks[i]->data()));
+
+        if (i < sample->ref->chunks.size() - 1 &&
+            response.payload.ByteSizeLong() < kMaxSampleResponseSizeBytes) {
           continue;
         }
-
         responses->push_back(std::move(response));
-        response = SampleStreamResponse();
+        response = SampleStreamResponseCtx(sample->ref);
       }
     }
     // not neeed for thread safety (only one task active, like the chunks stuff)

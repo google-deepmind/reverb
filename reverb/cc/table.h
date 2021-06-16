@@ -84,10 +84,13 @@ class Table {
   // Used as the return of Sample(). Note that this returns the probability of
   // an item instead as opposed to the raw priority value.
   struct SampledItem {
-    PrioritizedItem item;
-    std::vector<std::shared_ptr<ChunkStore::Chunk>> chunks;
+    std::shared_ptr<Item> ref;
     double probability;
     int64_t table_size;
+    // Use these values over accessing priority and times_sampled from the
+    // referenced Item, as Item might be modified in the background.
+    double priority;
+    int32_t times_sampled;
   };
 
   // Used when checkpointing to ensure that none of the chunks referenced by the
@@ -226,7 +229,7 @@ class Table {
   bool Get(Key key, Item* item) ABSL_LOCKS_EXCLUDED(mu_);
 
   // Get pointer to `data_`. Must only be called by extensions while lock held.
-  const internal::flat_hash_map<Key, Item>* RawLookup()
+  const internal::flat_hash_map<Key, std::shared_ptr<Item>>* RawLookup()
       ABSL_ASSERT_EXCLUSIVE_LOCK(mu_);
 
   // Removes all items and resets the RateLimiter to its initial state.
@@ -293,7 +296,7 @@ class Table {
   //
   // The deleted item is returned in order to allow the deallocation of the
   // underlying item to be postponed until the lock has been released.
-  absl::Status DeleteItem(Key key, Item* deleted_item)
+  absl::Status DeleteItem(Key key, std::shared_ptr<Item>* deleted_item)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_);
 
   // Distribution used for sampling.
@@ -304,7 +307,8 @@ class Table {
 
   // Bijection of key to item. Used for storing the chunks and timestep range of
   // each item.
-  internal::flat_hash_map<Key, Item> data_ ABSL_GUARDED_BY(mu_);
+  internal::flat_hash_map<Key, std::shared_ptr<Item>> data_
+      ABSL_GUARDED_BY(mu_);
 
   // Count of references from chunks referenced by items.
   internal::flat_hash_map<uint64_t, int64_t> episode_refs_ ABSL_GUARDED_BY(mu_);

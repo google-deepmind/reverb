@@ -19,6 +19,7 @@
 #include <memory>
 #include <vector>
 
+#include "google/protobuf/timestamp.pb.h"
 #include "absl/status/status.h"
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
@@ -321,24 +322,29 @@ grpc::Status ReverbServiceImpl::SampleStreamInternal(
       for (auto& sample : samples) {
         SampleStreamResponse response;
 
-        for (int chunk_idx = 0; chunk_idx < sample.chunks.size(); chunk_idx++) {
-          response.set_end_of_sequence(chunk_idx + 1 == sample.chunks.size());
+        for (int chunk_idx = 0; chunk_idx < sample.ref->chunks.size();
+             chunk_idx++) {
+          response.set_end_of_sequence(chunk_idx + 1 ==
+                                       sample.ref->chunks.size());
 
           // Attach the info to the first message.
           if (chunk_idx == 0) {
-            *response.mutable_info()->mutable_item() = sample.item;
+            auto* item = response.mutable_info()->mutable_item();
+            *item = sample.ref->item;
+            item->set_priority(sample.priority);
+            item->set_times_sampled(sample.times_sampled);
             response.mutable_info()->set_probability(sample.probability);
             response.mutable_info()->set_table_size(sample.table_size);
           }
 
           // We const cast to avoid copying the proto.
           response.mutable_data()->UnsafeArenaAddAllocated(
-              const_cast<ChunkData*>(&sample.chunks[chunk_idx]->data()));
+              const_cast<ChunkData*>(&sample.ref->chunks[chunk_idx]->data()));
 
           // If more chunks remain and we haven't yet reached the maximum
           // message size then we'll continue and add (at least) one more chunk
           // to the same response.
-          if (chunk_idx < sample.chunks.size() - 1 &&
+          if (chunk_idx < sample.ref->chunks.size() - 1 &&
               response.ByteSizeLong() < kMaxSampleResponseSizeBytes) {
             continue;
           }
@@ -357,11 +363,6 @@ grpc::Status ReverbServiceImpl::SampleStreamInternal(
 
           if (!ok) {
             return Internal("Failed to write to Sample stream.");
-          }
-
-          // We no longer need our chunk reference, so we free it.
-          for (int i = 0; i < chunk_idx; i++) {
-            sample.chunks[i] = nullptr;
           }
 
           response.Clear();

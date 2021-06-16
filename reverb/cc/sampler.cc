@@ -150,15 +150,17 @@ absl::Status AsSample(std::vector<SampleStreamResponse> responses,
 absl::Status AsSample(const Table::SampledItem& sampled_item,
                       std::unique_ptr<Sample>* sample) {
   internal::flat_hash_map<uint64_t, std::shared_ptr<ChunkStore::Chunk>> chunks(
-      sampled_item.chunks.size());
-  for (auto& chunk : sampled_item.chunks) {
+      sampled_item.ref->chunks.size());
+  for (auto& chunk : sampled_item.ref->chunks) {
     chunks[chunk->key()] = chunk;
   }
 
   std::vector<std::vector<tensorflow::Tensor>> column_chunks;
-  column_chunks.reserve(sampled_item.item.flat_trajectory().columns_size());
+  column_chunks.reserve(
+      sampled_item.ref->item.flat_trajectory().columns_size());
 
-  for (const auto& column : sampled_item.item.flat_trajectory().columns()) {
+  for (const auto& column :
+       sampled_item.ref->item.flat_trajectory().columns()) {
     std::vector<tensorflow::Tensor> unpacked_chunks;
 
     for (const auto& slice : column.chunk_slices()) {
@@ -171,13 +173,12 @@ absl::Status AsSample(const Table::SampledItem& sampled_item,
   }
 
   std::vector<bool> squeeze_columns;
-  for (const auto& col : sampled_item.item.flat_trajectory().columns()) {
+  for (const auto& col : sampled_item.ref->item.flat_trajectory().columns()) {
     squeeze_columns.push_back(col.squeeze());
   }
-
   *sample = absl::make_unique<deepmind::reverb::Sample>(
-      sampled_item.item.key(), sampled_item.probability,
-      sampled_item.table_size, sampled_item.item.priority(),
+      sampled_item.ref->item.key(), sampled_item.probability,
+      sampled_item.table_size, sampled_item.priority,
       std::move(column_chunks), std::move(squeeze_columns));
 
   return absl::OkStatus();

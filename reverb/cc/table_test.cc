@@ -54,6 +54,8 @@ using ::testing::IsEmpty;
 using ::testing::SizeIs;
 
 MATCHER_P(HasItemKey, key, "") { return arg.item.key() == key; }
+MATCHER_P(HasSampledItemKey, key, "") { return arg.ref->item.key() == key; }
+
 
 TableItem MakeItem(uint64_t key, double priority,
                    const std::vector<SequenceRange>& sequences) {
@@ -174,9 +176,9 @@ TEST(TableTest, SampleMatchesInsert) {
   Table::SampledItem sample;
   REVERB_EXPECT_OK(table->Sample(&sample));
   item.item.set_times_sampled(1);
-  sample.item.clear_inserted_at();
-  EXPECT_THAT(sample.item, testing::EqualsProto(item.item));
-  EXPECT_EQ(sample.chunks, item.chunks);
+  sample.ref->item.clear_inserted_at();
+  EXPECT_THAT(sample.ref->item, testing::EqualsProto(item.item));
+  EXPECT_EQ(sample.ref->chunks, item.chunks);
   EXPECT_EQ(sample.probability, 1);
 }
 
@@ -267,7 +269,7 @@ TEST(TableTest, UseAsQueue) {
   for (int i = 0; i < 11; i++) {
     Table::SampledItem item;
     REVERB_EXPECT_OK(queue.Sample(&item));
-    EXPECT_THAT(item, HasItemKey(i));
+    EXPECT_THAT(item, HasSampledItemKey(i));
   }
 
   EXPECT_TRUE(insert.WaitForNotificationWithTimeout(kTimeout));
@@ -524,12 +526,12 @@ TEST(TableTest, BlocksSamplesWhenSizeToSmallDueToAutoDelete) {
   // It should be fine to sample now as the table has been reached its min size.
   Table::SampledItem sample_1;
   REVERB_EXPECT_OK(table.Sample(&sample_1));
-  EXPECT_THAT(sample_1, HasItemKey(1));
+  EXPECT_THAT(sample_1, HasSampledItemKey(1));
 
   // A second sample should be fine since the table is still large enough.
   Table::SampledItem sample_2;
   REVERB_EXPECT_OK(table.Sample(&sample_2));
-  EXPECT_THAT(sample_2, HasItemKey(1));
+  EXPECT_THAT(sample_2, HasSampledItemKey(1));
 
   // Due to max_times_sampled, the table should have one item less which should
   // block more samples from proceeding.
@@ -567,7 +569,7 @@ TEST(TableTest, BlocksSamplesWhenSizeToSmallDueToExplicitDelete) {
   // It should be fine to sample now as the table has been reached its min size.
   Table::SampledItem sample_1;
   REVERB_EXPECT_OK(table.Sample(&sample_1));
-  EXPECT_THAT(sample_1, HasItemKey(1));
+  EXPECT_THAT(sample_1, HasSampledItemKey(1));
 
   // Deleting an item will make the table too small to allow samples.
   REVERB_EXPECT_OK(table.MutateItems({}, {1}));
@@ -589,7 +591,7 @@ TEST(TableTest, BlocksSamplesWhenSizeToSmallDueToExplicitDelete) {
   // And any new samples should be fine.
   Table::SampledItem sample_2;
   REVERB_EXPECT_OK(table.Sample(&sample_2));
-  EXPECT_THAT(sample_2, HasItemKey(2));
+  EXPECT_THAT(sample_2, HasSampledItemKey(2));
 }
 
 TEST(TableTest, GetExistingItem) {

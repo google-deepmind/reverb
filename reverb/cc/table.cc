@@ -123,7 +123,7 @@ std::vector<Table::Item> Table::Copy(size_t count) const {
   items.reserve(count == 0 ? data_.size() : count);
   for (auto it = data_.cbegin();
        it != data_.cend() && (count == 0 || items.size() < count); it++) {
-    items.push_back(it->second);
+    items.push_back(*it->second);
   }
   return items;
 }
@@ -136,7 +136,7 @@ absl::Status Table::InsertOrAssign(Item item, absl::Duration timeout) {
 
   // If an item is deleted as part of the insert then we keep the data alive
   // until the lock has been released.
-  Item deleted_item;
+  std::shared_ptr<Item> deleted_item;
   {
     absl::MutexLock lock(&mu_);
 
@@ -160,20 +160,20 @@ absl::Status Table::InsertOrAssign(Item item, absl::Duration timeout) {
     // Set the insertion timestamp after the lock has been acquired as this
     // represents the order it was inserted into the sampler and remover.
     EncodeAsTimestampProto(absl::Now(), item.item.mutable_inserted_at());
-    data_[key] = std::move(item);
+    data_[key] = std::make_shared<Item>(std::move(item));
 
     REVERB_RETURN_IF_ERROR(sampler_->Insert(key, priority));
     REVERB_RETURN_IF_ERROR(remover_->Insert(key, priority));
 
     auto it = data_.find(key);
     for (auto& extension : extensions_) {
-      extension->OnInsert(&mu_, it->second);
+      extension->OnInsert(&mu_, *it->second);
     }
 
     // Increment references to the episode/s the item is referencing.
     // We increment before a possible call to DeleteItem since the sampler can
     // return this key.
-    for (const auto& chunk : it->second.chunks) {
+    for (const auto& chunk : it->second->chunks) {
       ++episode_refs_[chunk->episode_id()];
     }
 
@@ -192,7 +192,7 @@ absl::Status Table::InsertOrAssign(Item item, absl::Duration timeout) {
 
 absl::Status Table::MutateItems(absl::Span<const KeyWithPriority> updates,
                                 absl::Span<const Key> deletes) {
-  std::vector<Item> deleted_items(deletes.size());
+  std::vector<std::shared_ptr<Item>> deleted_items(deletes.size());
   {
     absl::MutexLock lock(&mu_);
     for (int i = 0; i < deletes.size(); i++) {
@@ -220,7 +220,7 @@ absl::Status Table::SampleFlexibleBatch(std::vector<SampledItem>* items,
 
   // Keep references to the (potentially) deleted items alive until the lock has
   // been released.
-  std::vector<Item> deleted_items;
+  std::vector<std::shared_ptr<Item>> deleted_items;
   {
     absl::MutexLock lock(&mu_);
     for (int i = 0; i < batch_size; i++) {
@@ -241,32 +241,33 @@ absl::Status Table::SampleFlexibleBatch(std::vector<SampledItem>* items,
       timeout = absl::ZeroDuration();
 
       auto sample = sampler_->Sample();
-      Item& item = data_[sample.key];
+      std::shared_ptr<Item>& item = data_[sample.key];
 
       // Increment the sample count.
-      item.item.set_times_sampled(item.item.times_sampled() + 1);
+      item->item.set_times_sampled(item->item.times_sampled() + 1);
 
       // Copy Details of the sampled item.
       SampledItem sampled_item = {
-          .item = item.item,
-          .chunks = item.chunks,
+          .ref = item,
           .probability = sample.probability,
           .table_size = static_cast<int64_t>(data_.size()),
+          .priority = item->item.priority(),
+          .times_sampled = item->item.times_sampled(),
       };
       items->push_back(std::move(sampled_item));
 
       // Notify extensions which item was sampled.
       for (auto& extension : extensions_) {
-        extension->OnSample(&mu_, item);
+        extension->OnSample(&mu_, *item);
       }
 
       // If there is an upper bound of the number of times an item can be
       // sampled and it is now reached then delete the item before the lock is
       // released.
-      if (item.item.times_sampled() == max_times_sampled_) {
+      if (item->item.times_sampled() == max_times_sampled_) {
         deleted_items.emplace_back();
         REVERB_RETURN_IF_ERROR(
-            DeleteItem(item.item.key(), &deleted_items.back()));
+            DeleteItem(item->item.key(), &deleted_items.back()));
       }
     }
   }
@@ -308,16 +309,17 @@ void Table::Close() {
   rate_limiter_->Cancel(&mu_);
 }
 
-absl::Status Table::DeleteItem(Table::Key key, Item* deleted_item) {
+absl::Status Table::DeleteItem(Table::Key key,
+                               std::shared_ptr<Item>* deleted_item) {
   auto it = data_.find(key);
   if (it == data_.end()) return absl::OkStatus();
 
   for (auto& extension : extensions_) {
-    extension->OnDelete(&mu_, it->second);
+    extension->OnDelete(&mu_, *it->second);
   }
 
   // Decrement counts to the episodes the item is referencing.
-  for (const auto& chunk : it->second.chunks) {
+  for (const auto& chunk : it->second->chunks) {
     auto ep_it = episode_refs_.find(chunk->episode_id());
     REVERB_CHECK(ep_it != episode_refs_.end());
     if (--(ep_it->second) == 0) {
@@ -340,7 +342,7 @@ absl::Status Table::UpdateItem(
   if (it == data_.end()) {
     return absl::OkStatus();
   }
-  it->second.item.set_priority(priority);
+  it->second->item.set_priority(priority);
   REVERB_RETURN_IF_ERROR(sampler_->Update(key, priority));
   REVERB_RETURN_IF_ERROR(remover_->Update(key, priority));
 
@@ -348,7 +350,7 @@ absl::Status Table::UpdateItem(
     if (std::none_of(
             exclude.begin(), exclude.end(),
             [ext_ptr = extension.get()](auto e) { return e == ext_ptr; })) {
-      extension->OnUpdate(&mu_, it->second);
+      extension->OnUpdate(&mu_, *it->second);
     }
   }
 
@@ -397,8 +399,8 @@ Table::CheckpointAndChunks Table::Checkpoint() {
 
   absl::flat_hash_set<std::shared_ptr<ChunkStore::Chunk>> chunks;
   for (const auto& entry : data_) {
-    *checkpoint.add_items() = entry.second.item;
-    chunks.insert(entry.second.chunks.begin(), entry.second.chunks.end());
+    *checkpoint.add_items() = entry.second->item;
+    chunks.insert(entry.second->chunks.begin(), entry.second->chunks.end());
   }
 
   // Sort the items in ascending order based on their insertion time. This makes
@@ -424,12 +426,12 @@ absl::Status Table::InsertCheckpointItem(Table::Item item) {
       remover_->Insert(item.item.key(), item.item.priority()));
 
   const auto key = item.item.key();
-  auto it = data_.emplace(key, std::move(item)).first;
+  auto it = data_.emplace(key, std::make_shared<Item>(std::move(item))).first;
   for (auto& extension : extensions_) {
-    extension->OnInsert(&mu_, it->second);
+    extension->OnInsert(&mu_, *it->second);
   }
 
-  for (const auto& chunk : it->second.chunks) {
+  for (const auto& chunk : it->second->chunks) {
     ++episode_refs_[chunk->episode_id()];
   }
 
@@ -440,13 +442,14 @@ bool Table::Get(Table::Key key, Table::Item* item) {
   absl::MutexLock lock(&mu_);
   auto it = data_.find(key);
   if (it != data_.end()) {
-    *item = it->second;
+    *item = *it->second;
     return true;
   }
   return false;
 }
 
-const internal::flat_hash_map<Table::Key, Table::Item>* Table::RawLookup() {
+const internal::flat_hash_map<Table::Key, std::shared_ptr<Table::Item>>*
+Table::RawLookup() {
   mu_.AssertHeld();
   return &data_;
 }
