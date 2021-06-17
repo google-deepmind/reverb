@@ -148,16 +148,16 @@ class TrajectoryWriter:
 
     Allows recently added data references to be accesses with list indexing
     semantics. However, instead of returning the raw references, the result is
-    wrapped in a TrajectoryColumn object before being returned to the called.
+    wrapped in a TrajectoryColumn object before being returned to the caller.
 
     ```python
 
     writer = TrajectoryWriter(...)
 
     # Add three steps worth of data.
-    first = writer.append({'a': 1, 'b': 100})
-    second = writer.append({'a': 2, 'b': 200})
-    third = writer.append({'a': 3, 'b': 300})
+    writer.append({'a': 1, 'b': 100})
+    writer.append({'a': 2, 'b': 200})
+    writer.append({'a': 3, 'b': 300})
 
     # Create a trajectory using the _ColumnHistory helpers.
     from_history = {
@@ -166,15 +166,6 @@ class TrajectoryWriter:
        'last_b': writer.history['b'][-1],
     }
     writer.create_item(table='name', priority=1.0, trajectory=from_history)
-
-    # Is the same as writing.
-    explicit = {
-        'all_a': TrajectoryColumn([first['a'], second['a'], third['a']]),
-        'first_b': TrajectoryColumn([first['b']]),
-        'last_b': TrajectoryColumn([third['b']]),
-    }
-    writer.create_item(table='name', priority=1.0, trajectory=explicit)
-
     ```
 
     Raises:
@@ -272,9 +263,6 @@ class TrajectoryWriter:
       partial_step: If `True` then the step is not considered "done" with this
         call. See above for more details. Defaults to `False`.
 
-    Returns:
-      References to the data structured just like provided `data`.
-
     Raises:
       ValueError: If the same column is provided more than once in the same
         step.
@@ -309,11 +297,7 @@ class TrajectoryWriter:
             f'in the active step by previous (partial) append call and thus '
             f'must be omitted or set to None but got: {column_data}')
 
-    # Flatten the data and pass it to the C++ writer for column wise append. In
-    # all columns where data is provided (i.e not None) will return a reference
-    # to the data (`pybind.WeakCellRef`) which is used to define trajectories
-    # for `create_item`. The columns which did not receive a value (i.e None)
-    # will return None.
+    # Flatten the data and pass it to the C++ writer for column wise append.
     if partial_step:
       flat_column_data_references = self._writer.AppendPartial(flat_column_data)
     else:
@@ -334,17 +318,6 @@ class TrajectoryWriter:
     # Save the flag so the next `append` call either populates the same step
     # or begins a new step.
     self._last_step_is_open = partial_step
-
-    # Unpack the column data into the expanded structure.
-    expanded_structured_data_references = self._unflatten(
-        flat_column_data_references)
-
-    # Return the referenced structured in the same way as `data`. If only a
-    # subset of the fields were present in the input data then only these fields
-    # will exist in the output.
-    filtered_data_references_flat = _tree_filter(
-        expanded_structured_data_references, data_with_path_flat)
-    return tree.unflatten_as(data, filtered_data_references_flat)
 
   def create_item(self, table: str, priority: float, trajectory: Any):
     """Enqueue insertion of an item into `table` referencing `trajectory`.

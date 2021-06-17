@@ -40,6 +40,13 @@ class FakeWeakCellRef:
   def dtype(self):
     return np.asarray(self.data).dtype
 
+  @property
+  def expired(self):
+    return False
+
+  def numpy(self):
+    return self.data
+
 
 def extract_data(column: trajectory_writer._ColumnHistory):
   return [ref.data if ref else None for ref in column]
@@ -120,17 +127,6 @@ class TrajectoryWriterTest(parameterized.TestCase):
     self.writer.append(first_step_data)
     self.writer.append(second_step_data)
 
-  def test_append_returns_same_structure_as_data(self):
-    first_step_data = {'x': 1, 'y': 2}
-    first_step_ref = self.writer.append(first_step_data)
-    tree.assert_same_structure(first_step_data, first_step_ref)
-
-    # Check that this holds true even if the data structure changes between
-    # steps.
-    second_step_data = {'y': 2, 'z': 3}
-    second_step_ref = self.writer.append(second_step_data)
-    tree.assert_same_structure(second_step_data, second_step_ref)
-
   def test_append_forwards_flat_data_to_cpp_writer(self):
     data = {'x': 1, 'y': 2}
     self.writer.append(data)
@@ -187,8 +183,8 @@ class TrajectoryWriterTest(parameterized.TestCase):
       self.writer.append({'x': 4})
 
   def test_create_item_checks_type_of_leaves(self):
-    first = self.writer.append({'x': 3, 'y': 2})
-    second = self.writer.append({'x': 3, 'y': 2})
+    self.writer.append({'x': 3, 'y': 2})
+    self.writer.append({'x': 3, 'y': 2})
 
     # History automatically transforms data and thus should be valid.
     self.writer.create_item('table', 1.0, {
@@ -196,17 +192,11 @@ class TrajectoryWriterTest(parameterized.TestCase):
         'y': self.writer.history['y'][:],  # Two steps.
     })
 
-    # Columns can be constructed explicitly.
-    self.writer.create_item('table', 1.0, {
-        'x': trajectory_writer.TrajectoryColumn([first['x']]),
-        'y': trajectory_writer.TrajectoryColumn([first['y'], second['y']])
-    })
-
     # But all leaves must be TrajectoryColumn.
     with self.assertRaises(TypeError):
       self.writer.create_item('table', 1.0, {
-          'x': trajectory_writer.TrajectoryColumn([first['x']]),
-          'y': first['y'],
+          'x': self.writer.history['x'][0],
+          'y': self.writer.history['y'][:].numpy(),
       })
 
   def test_flush_checks_block_until_num_itmes(self):
