@@ -21,6 +21,7 @@ from absl.testing import absltest
 from absl.testing import parameterized
 import numpy as np
 from reverb import client as client_lib
+from reverb import errors
 from reverb import pybind
 from reverb import server as server_lib
 from reverb import trajectory_writer
@@ -293,6 +294,30 @@ class TrajectoryWriterTest(parameterized.TestCase):
 
       # Ending the episode should reset the step count to zero.
       self.writer.end_episode()
+
+  def test_exit_does_not_flush_on_reverb_error(self):
+    # If there are no errors then flush should be called.
+    with mock.patch.object(self.writer, 'flush') as flush_mock:
+      with self.writer:
+        pass
+
+      flush_mock.assert_called_once()
+
+    # It flush if unrelated errors are encountered
+    with mock.patch.object(self.writer, 'flush') as flush_mock:
+      with self.assertRaises(ValueError):
+        with self.writer:
+          raise ValueError('Test')
+
+      flush_mock.assert_called_once()
+
+    # But it should not flush if Reverb raises the error.
+    with mock.patch.object(self.writer, 'flush') as flush_mock:
+      with self.assertRaises(errors.ReverbError):
+        with self.writer:
+          raise errors.DeadlineExceededError('Test')
+
+      flush_mock.assert_not_called()
 
 
 class TrajectoryColumnTest(parameterized.TestCase):

@@ -136,8 +136,9 @@ class TrajectoryWriter:
   def __enter__(self) -> 'TrajectoryWriter':
     return self
 
-  def __exit__(self, *_):
-    self.flush()
+  def __exit__(self, exc_type, exc_value, exc_traceback):
+    if exc_type is None or errors.ReverbError not in exc_type.mro():
+      self.flush()
 
   def __del__(self):
     self.close()
