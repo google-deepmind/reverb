@@ -424,7 +424,14 @@ class TrajectoryWriter:
     Raises:
       DeadlineExceededError: If operation did not complete before the timeout.
     """
-    self._writer.EndEpisode(clear_buffers, timeout_ms)
+    try:
+      self._writer.EndEpisode(clear_buffers, timeout_ms)
+    except RuntimeError as e:
+      if 'Timeout exceeded' in str(e) and timeout_ms is not None:
+        raise errors.DeadlineExceededError(
+            f'End episode call did not complete within provided timeout of '
+            f'{datetime.timedelta(milliseconds=timeout_ms)}')
+      raise
 
     if clear_buffers:
       for column in self._column_history:

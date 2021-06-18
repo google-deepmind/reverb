@@ -319,6 +319,42 @@ class TrajectoryWriterTest(parameterized.TestCase):
 
       flush_mock.assert_not_called()
 
+  def test_timeout_on_flush(self):
+    server = server_lib.Server([server_lib.Table.queue('queue', 1)])
+    client = client_lib.Client(f'localhost:{server.port}')
+
+    writer = client.trajectory_writer(num_keep_alive_refs=1)
+    writer.append([1])
+
+    # There is only space for one item.
+    writer.create_item('queue', 1.0, writer.history[0][:])
+    writer.create_item('queue', 1.0, writer.history[0][:])
+
+    # Since there isn't space for both items end_episode should time out.
+    with self.assertRaises(errors.DeadlineExceededError):
+      writer.flush(timeout_ms=1)
+
+    writer.close()
+    server.stop()
+
+  def test_timeout_on_end_episode(self):
+    server = server_lib.Server([server_lib.Table.queue('queue', 1)])
+    client = client_lib.Client(f'localhost:{server.port}')
+
+    writer = client.trajectory_writer(num_keep_alive_refs=1)
+    writer.append([1])
+
+    # There is only space for one item.
+    writer.create_item('queue', 1.0, writer.history[0][:])
+    writer.create_item('queue', 1.0, writer.history[0][:])
+
+    # Since there isn't space for both items end_episode should time out.
+    with self.assertRaises(errors.DeadlineExceededError):
+      writer.end_episode(clear_buffers=False, timeout_ms=1)
+
+    writer.close()
+    server.stop()
+
 
 class TrajectoryColumnTest(parameterized.TestCase):
 
