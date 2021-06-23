@@ -79,7 +79,7 @@ class ReverbServerBidiReactor
 
   // Called in OnReadDone to validate the request and initialize reactor fields.
   virtual grpc::Status ProcessIncomingRequest(Request* request)
-      ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_);
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_) = 0;
 
   // Called in OnReadDone to decide if this request should produce a new task to
   // be scheduled in the TaskWorker.
@@ -87,25 +87,25 @@ class ReverbServerBidiReactor
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_);
   // Called in OnTaskCompleted to decide if a new task should be scheduled.
   virtual bool ShouldScheduleAnotherTask(const TaskInfo& task_info)
-      ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_);
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_) = 0;
 
   // Uses the information in the request to fill a TaskInfo object. Called in
   // OnReadDone.
   virtual grpc::Status FillTaskInfo(Request* request, TaskInfo* task_info)
-      ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_);
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_) = 0;
   // Uses the information in the old_tasks_info to fill a TaskInfo object.
   // Called in OnTaskCompleted.
   virtual TaskInfo FillTaskInfo(const TaskInfo& old_task_info)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_);
 
   // Gets the worker in order to schedule a new task.
-  virtual TaskWorker* GetWorker();
+  virtual TaskWorker* GetWorker() = 0;
 
   // Runs the callback from task_info and fills the vector with responses that
   // should be sent back. This is potentially large and it's called without
   // holding the Reactor's lock. Called by the TaskWorker.
   virtual absl::Status RunTaskAndFillResponses(
-      std::vector<ResponseCtx>* responses, const TaskInfo& task_info);
+      std::vector<ResponseCtx>* responses, const TaskInfo& task_info) = 0;
 
   // Called when running the task to decide if it should retry the task after
   // getting a timeout. Called by the task scheduled in InsertNewTask.
@@ -302,30 +302,6 @@ bool ReverbServerBidiReactor<Request, Response, ResponseCtx, TaskInfo,
 
 template <class Request, class Response, class ResponseCtx, class TaskInfo,
           class TaskWorker>
-bool ReverbServerBidiReactor<
-    Request, Response, ResponseCtx, TaskInfo,
-    TaskWorker>::ShouldScheduleAnotherTask(const TaskInfo& task_info)
-    ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_) {
-  // Since the template cannot have pure virtual methods, we fail here to
-  // force instantiations to re-define this method.
-  REVERB_QCHECK(false) << "The implementation of the ReverbServerBidiReactor "
-                          "has to override ShouldScheduleAnotherTask.";
-  return false;
-}
-
-template <class Request, class Response, class ResponseCtx, class TaskInfo,
-          class TaskWorker>
-grpc::Status
-ReverbServerBidiReactor<Request, Response, ResponseCtx, TaskInfo,
-                        TaskWorker>::FillTaskInfo(Request* request,
-                                                  TaskInfo* task_info)
-    ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_) {
-  return grpc::Status(grpc::StatusCode::UNIMPLEMENTED,
-                      "FillTaskInfo is not implemented");
-}
-
-template <class Request, class Response, class ResponseCtx, class TaskInfo,
-          class TaskWorker>
 TaskInfo
 ReverbServerBidiReactor<Request, Response, ResponseCtx, TaskInfo,
                         TaskWorker>::FillTaskInfo(const TaskInfo& old_task_info)
@@ -335,24 +311,6 @@ ReverbServerBidiReactor<Request, Response, ResponseCtx, TaskInfo,
   REVERB_QCHECK(false) << "The implementation of the ReverbServerBidiReactor "
                           "has to override FillTaskInfo.";
   return old_task_info;
-}
-
-template <class Request, class Response, class ResponseCtx, class TaskInfo,
-          class TaskWorker>
-TaskWorker* ReverbServerBidiReactor<Request, Response, ResponseCtx, TaskInfo,
-                                    TaskWorker>::GetWorker()
-    ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_) {
-  REVERB_LOG(REVERB_ERROR) << "GetWorker is not implemented.";
-  return nullptr;
-}
-
-template <class Request, class Response, class ResponseCtx, class TaskInfo,
-          class TaskWorker>
-absl::Status ReverbServerBidiReactor<
-    Request, Response, ResponseCtx, TaskInfo,
-    TaskWorker>::RunTaskAndFillResponses(std::vector<ResponseCtx>* responses,
-                                         const TaskInfo& task_info) {
-  return absl::UnimplementedError("RunTaskAndFillResponses is not implemented");
 }
 
 template <class Request, class Response, class ResponseCtx, class TaskInfo,
