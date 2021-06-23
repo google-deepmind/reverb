@@ -92,7 +92,7 @@ tensorflow::StructuredValue MakeBoundedTensorSpecSignature(
   return signature;
 }
 
-MATCHER(IsChunk, "") { return arg.chunks_size() == 1; }
+MATCHER(IsChunk, "") { return arg.chunks_size() > 0; }
 
 MATCHER_P4(IsItemWithRangeAndPriorityAndTable, offset, length, priority, table,
            "") {
@@ -278,15 +278,14 @@ TEST(WriterTest, OnlySendsChunksWhichAreUsedByItems) {
   EXPECT_THAT(requests, SizeIs(0));
 
   REVERB_ASSERT_OK(writer.CreateItem("dist", 3, 1.0));
-  ASSERT_THAT(requests, SizeIs(3));
+  ASSERT_THAT(requests, SizeIs(1));
   EXPECT_THAT(requests[0], IsChunk());
-  EXPECT_THAT(requests[1], IsChunk());
-  EXPECT_THAT(requests[2],
+  EXPECT_THAT(requests[0],
               IsItemWithRangeAndPriorityAndTable(1, 3, 1.0, "dist"));
   EXPECT_THAT(
-      internal::GetChunkKeys(requests[2].item().item().flat_trajectory()),
+      internal::GetChunkKeys(requests[0].item().item().flat_trajectory()),
       ElementsAre(requests[0].chunks(0).chunk_key(),
-                  requests[1].chunks(0).chunk_key()));
+                  requests[0].chunks(1).chunk_key()));
 }
 
 TEST(WriterTest, DoesNotSendAlreadySentChunks) {
@@ -298,15 +297,15 @@ TEST(WriterTest, DoesNotSendAlreadySentChunks) {
   REVERB_ASSERT_OK(writer.Append(MakeTimestep()));
   REVERB_ASSERT_OK(writer.CreateItem("dist", 1, 1.5));
 
-  ASSERT_THAT(requests, SizeIs(2));
+  ASSERT_THAT(requests, SizeIs(1));
 
   EXPECT_THAT(requests[0], IsChunk());
   auto first_chunk_key = requests[0].chunks(0).chunk_key();
 
-  EXPECT_THAT(requests[1],
+  EXPECT_THAT(requests[0],
               IsItemWithRangeAndPriorityAndTable(1, 1, 1.5, "dist"));
   EXPECT_THAT(
-      internal::GetChunkKeys(requests[1].item().item().flat_trajectory()),
+      internal::GetChunkKeys(requests[0].item().item().flat_trajectory()),
       ElementsAre(first_chunk_key));
 
   requests.clear();
@@ -314,14 +313,14 @@ TEST(WriterTest, DoesNotSendAlreadySentChunks) {
   REVERB_ASSERT_OK(writer.Append(MakeTimestep()));
   REVERB_ASSERT_OK(writer.CreateItem("dist", 3, 1.3));
 
-  ASSERT_THAT(requests, SizeIs(2));
+  ASSERT_THAT(requests, SizeIs(1));
   EXPECT_THAT(requests[0], IsChunk());
   auto second_chunk_key = requests[0].chunks(0).chunk_key();
 
-  EXPECT_THAT(requests[1],
+  EXPECT_THAT(requests[0],
               IsItemWithRangeAndPriorityAndTable(1, 3, 1.3, "dist"));
   EXPECT_THAT(
-      internal::GetChunkKeys(requests[1].item().item().flat_trajectory()),
+      internal::GetChunkKeys(requests[0].item().item().flat_trajectory()),
       ElementsAre(first_chunk_key, second_chunk_key));
 }
 
@@ -337,12 +336,12 @@ TEST(WriterTest, SendsPendingDataOnClose) {
   EXPECT_THAT(requests, SizeIs(0));
 
   REVERB_ASSERT_OK(writer.Close());
-  ASSERT_THAT(requests, SizeIs(2));
+  ASSERT_THAT(requests, SizeIs(1));
   EXPECT_THAT(requests[0], IsChunk());
-  EXPECT_THAT(requests[1],
+  EXPECT_THAT(requests[0],
               IsItemWithRangeAndPriorityAndTable(0, 1, 1.0, "dist"));
   EXPECT_THAT(
-      internal::GetChunkKeys(requests[1].item().item().flat_trajectory()),
+      internal::GetChunkKeys(requests[0].item().item().flat_trajectory()),
       ElementsAre(requests[0].chunks(0).chunk_key()));
 }
 
@@ -369,14 +368,14 @@ TEST(WriterTest, RetriesOnTransientError) {
   REVERB_ASSERT_OK(writer.Append(MakeTimestep()));
   REVERB_ASSERT_OK(writer.CreateItem("dist", 1, 1.0));
 
-  ASSERT_THAT(requests, SizeIs(3));
+  ASSERT_THAT(requests, SizeIs(2));
   EXPECT_THAT(requests[0], IsChunk());
   EXPECT_THAT(requests[1], IsChunk());
   EXPECT_THAT(requests[0], testing::EqualsProto(requests[1]));
-  EXPECT_THAT(requests[2],
+  EXPECT_THAT(requests[1],
               IsItemWithRangeAndPriorityAndTable(1, 1, 1.0, "dist"));
   EXPECT_THAT(
-      internal::GetChunkKeys(requests[2].item().item().flat_trajectory()),
+      internal::GetChunkKeys(requests[1].item().item().flat_trajectory()),
       ElementsAre(requests[0].chunks(0).chunk_key()));
 }
 
@@ -414,7 +413,7 @@ TEST(WriterTest, CallsCloseWhenObjectDestroyed) {
     REVERB_ASSERT_OK(writer.CreateItem("dist", 1, 1.0));
     EXPECT_THAT(requests, SizeIs(0));
   }
-  ASSERT_THAT(requests, SizeIs(2));
+  ASSERT_THAT(requests, SizeIs(1));
 }
 
 TEST(WriterTest, ResendsOnlyTheChunksTheRemainingItemsNeedWithNewStream) {
@@ -432,30 +431,30 @@ TEST(WriterTest, ResendsOnlyTheChunksTheRemainingItemsNeedWithNewStream) {
 
   REVERB_ASSERT_OK(writer.Append(MakeTimestep()));
 
-  ASSERT_THAT(requests, SizeIs(6));
+  ASSERT_THAT(requests, SizeIs(2));
   EXPECT_THAT(requests[0], IsChunk());
   EXPECT_THAT(requests[1], IsChunk());
   auto first_chunk_key = requests[0].chunks(0).chunk_key();
-  auto second_chunk_key = requests[1].chunks(0).chunk_key();
+  auto second_chunk_key = requests[0].chunks(1).chunk_key();
 
-  EXPECT_THAT(requests[2],
+  EXPECT_THAT(requests[0],
               IsItemWithRangeAndPriorityAndTable(0, 3, 1.0, "dist"));
   EXPECT_THAT(
-      internal::GetChunkKeys(requests[2].item().item().flat_trajectory()),
+      internal::GetChunkKeys(requests[0].item().item().flat_trajectory()),
       ElementsAre(first_chunk_key, second_chunk_key));
 
-  EXPECT_THAT(requests[3], IsItemWithRangeAndPriorityAndTable(
+  EXPECT_THAT(requests[1], IsItemWithRangeAndPriorityAndTable(
                                0, 1, 1.0, "dist2"));  // Failed
   EXPECT_THAT(
-      internal::GetChunkKeys(requests[3].item().item().flat_trajectory()),
+      internal::GetChunkKeys(requests[1].item().item().flat_trajectory()),
       ElementsAre(second_chunk_key));
 
   // Stream is opened and only the second chunk is sent again.
-  EXPECT_THAT(requests[4], IsChunk());
-  EXPECT_THAT(requests[5],
+  EXPECT_THAT(requests[1], IsChunk());
+  EXPECT_THAT(requests[1],
               IsItemWithRangeAndPriorityAndTable(0, 1, 1.0, "dist2"));
   EXPECT_THAT(
-      internal::GetChunkKeys(requests[5].item().item().flat_trajectory()),
+      internal::GetChunkKeys(requests[1].item().item().flat_trajectory()),
       ElementsAre(second_chunk_key));
 }
 
@@ -468,13 +467,13 @@ TEST(WriterTest, TellsServerToKeepStreamedItemsStillInClient) {
   REVERB_ASSERT_OK(writer.Append(MakeTimestep()));
   REVERB_ASSERT_OK(writer.CreateItem("dist", 1, 1.0));
 
-  ASSERT_THAT(requests, SizeIs(2));
+  ASSERT_THAT(requests, SizeIs(1));
   EXPECT_THAT(requests[0], IsChunk());
   auto first_chunk_key = requests[0].chunks(0).chunk_key();
 
-  EXPECT_THAT(requests[1],
+  EXPECT_THAT(requests[0],
               IsItemWithRangeAndPriorityAndTable(1, 1, 1.0, "dist"));
-  EXPECT_THAT(requests[1].item().keep_chunk_keys(),
+  EXPECT_THAT(requests[0].item().keep_chunk_keys(),
               ElementsAre(first_chunk_key));
 
   requests.clear();
@@ -486,13 +485,13 @@ TEST(WriterTest, TellsServerToKeepStreamedItemsStillInClient) {
   REVERB_ASSERT_OK(writer.Append(MakeTimestep()));
   REVERB_ASSERT_OK(writer.CreateItem("dist", 1, 1.0));
 
-  ASSERT_THAT(requests, SizeIs(2));
+  ASSERT_THAT(requests, SizeIs(1));
   EXPECT_THAT(requests[0], IsChunk());
   auto third_chunk_key = requests[0].chunks(0).chunk_key();
 
-  EXPECT_THAT(requests[1],
+  EXPECT_THAT(requests[0],
               IsItemWithRangeAndPriorityAndTable(1, 1, 1.0, "dist"));
-  EXPECT_THAT(requests[1].item().keep_chunk_keys(),
+  EXPECT_THAT(requests[0].item().keep_chunk_keys(),
               ElementsAre(first_chunk_key, third_chunk_key));
 
   requests.clear();
@@ -502,13 +501,13 @@ TEST(WriterTest, TellsServerToKeepStreamedItemsStillInClient) {
   REVERB_ASSERT_OK(writer.Append(MakeTimestep()));
   REVERB_ASSERT_OK(writer.CreateItem("dist", 1, 1.0));
 
-  ASSERT_THAT(requests, SizeIs(2));
+  ASSERT_THAT(requests, SizeIs(1));
   EXPECT_THAT(requests[0], IsChunk());
   auto forth_chunk_key = requests[0].chunks(0).chunk_key();
 
-  EXPECT_THAT(requests[1],
+  EXPECT_THAT(requests[0],
               IsItemWithRangeAndPriorityAndTable(1, 1, 1.0, "dist"));
-  EXPECT_THAT(requests[1].item().keep_chunk_keys(),
+  EXPECT_THAT(requests[0].item().keep_chunk_keys(),
               ElementsAre(third_chunk_key, forth_chunk_key));
 }
 
@@ -522,7 +521,7 @@ TEST(WriterTest, IgnoresCloseErrorsIfAllItemsWritten) {
   // Insert an item and make sure it is flushed to the server.
   REVERB_EXPECT_OK(writer.Append(MakeTimestep()));
   REVERB_EXPECT_OK(writer.CreateItem("dist", 1, 1.0));
-  EXPECT_THAT(requests, SizeIs(2));
+  EXPECT_THAT(requests, SizeIs(1));
 
   // Close the writer without any pending items and check that it swallows
   // the error.
@@ -532,7 +531,7 @@ TEST(WriterTest, IgnoresCloseErrorsIfAllItemsWritten) {
 TEST(WriterTest, ReturnsCloseErrorsIfAllItemsNotWritten) {
   std::vector<InsertStreamRequest> requests;
   auto stub =
-      MakeFlakyStub(&requests, /*num_success=*/1,
+      MakeFlakyStub(&requests, /*num_success=*/0,
                     /*num_fail=*/1, ToGrpcStatus(absl::InternalError("")));
   Writer writer(stub, /*chunk_length=*/2, /*max_timesteps=*/4);
 
@@ -565,20 +564,20 @@ TEST(WriterTest, FlushWritesItem) {
   EXPECT_THAT(requests, SizeIs(0));
   // Flush the item and make sure it doesn't result in an error.
   REVERB_EXPECT_OK(writer.Flush());
-  EXPECT_THAT(requests, SizeIs(2));
+  EXPECT_THAT(requests, SizeIs(1));
   EXPECT_THAT(requests[0], IsChunk());
-  EXPECT_THAT(requests[1],
+  EXPECT_THAT(requests[0],
               IsItemWithRangeAndPriorityAndTable(0, 1, 1.0, "dist"));
 
   // Repeat.
   REVERB_EXPECT_OK(writer.Append(MakeTimestep()));
-  EXPECT_THAT(requests, SizeIs(2));
+  EXPECT_THAT(requests, SizeIs(1));
   REVERB_EXPECT_OK(writer.CreateItem("dist", 1, 1.0));
-  EXPECT_THAT(requests, SizeIs(2));
+  EXPECT_THAT(requests, SizeIs(1));
   REVERB_EXPECT_OK(writer.Flush());
-  EXPECT_THAT(requests, SizeIs(4));
-  EXPECT_THAT(requests[2], IsChunk());
-  EXPECT_THAT(requests[3],
+  EXPECT_THAT(requests, SizeIs(2));
+  EXPECT_THAT(requests[1], IsChunk());
+  EXPECT_THAT(requests[1],
               IsItemWithRangeAndPriorityAndTable(0, 1, 1.0, "dist"));
 }
 
@@ -594,18 +593,17 @@ TEST(WriterTest, SequenceRangeIsSetOnChunks) {
   REVERB_EXPECT_OK(writer.CreateItem("dist", 3, 1.0));
   REVERB_EXPECT_OK(writer.Append(MakeTimestep()));
 
+  EXPECT_THAT(requests[0].chunks().Get(0),
+              Partially(testing::EqualsProto("sequence_range: { end: 1 } ")));
   EXPECT_THAT(
-      requests,
-      ElementsAre(
-          Partially(testing::EqualsProto("chunks: { sequence_range: { start: 0 "
-                                         "end: 1 } delta_encoded: false }")),
-          Partially(testing::EqualsProto("chunks: { sequence_range: { start: 2 "
-                                         "end: 3 } delta_encoded: false }")),
-          IsItemWithRangeAndPriorityAndTable(0, 3, 1.0, "dist")));
+      requests[0].chunks().Get(1),
+      Partially(testing::EqualsProto("sequence_range: { start: 2, end: 3 } ")));
+  EXPECT_THAT(requests[0],
+              IsItemWithRangeAndPriorityAndTable(0, 3, 1.0, "dist"));
 
   EXPECT_NE(requests[0].chunks(0).sequence_range().episode_id(), 0);
   EXPECT_EQ(requests[0].chunks(0).sequence_range().episode_id(),
-            requests[1].chunks(0).sequence_range().episode_id());
+            requests[0].chunks(1).sequence_range().episode_id());
 }
 
 TEST(WriterTest, DeltaEncode) {
@@ -620,14 +618,13 @@ TEST(WriterTest, DeltaEncode) {
   REVERB_EXPECT_OK(writer.CreateItem("dist", 3, 1.0));
   REVERB_EXPECT_OK(writer.Append(MakeTimestep()));
 
-  EXPECT_THAT(
-      requests,
-      ElementsAre(
-          Partially(testing::EqualsProto("chunks: { sequence_range: { start: 0 "
-                                         "end: 1 } delta_encoded: true }")),
-          Partially(testing::EqualsProto("chunks: { sequence_range: { start: 2 "
-                                         "end: 3 } delta_encoded: true }")),
-          IsItemWithRangeAndPriorityAndTable(0, 3, 1.0, "dist")));
+  EXPECT_THAT(requests[0],
+              Partially(testing::EqualsProto(
+                  "chunks: { sequence_range: { start: 0 end: 1 } "
+                  "delta_encoded: true } chunks: { sequence_range: { start: 2 "
+                  "end: 3 } delta_encoded: true }")));
+  EXPECT_THAT(requests[0],
+              IsItemWithRangeAndPriorityAndTable(0, 3, 1.0, "dist"));
 }
 
 TEST(WriterTest, MultiChunkItemsAreCorrect) {
@@ -660,25 +657,27 @@ TEST(WriterTest, MultiChunkItemsAreCorrect) {
 
   REVERB_EXPECT_OK(writer.Close());
 
-  EXPECT_THAT(
-      requests,
-      ElementsAre(
-          Partially(testing::EqualsProto("chunks: { sequence_range: { start: 0 "
-                                         "end: 2 } delta_encoded: false }")),
-          IsItemWithRangeAndPriorityAndTable(0, 2, 1.0, "dist"),
-          Partially(testing::EqualsProto("chunks: { sequence_range: { start: 3 "
-                                         "end: 4 } delta_encoded: false }")),
-          IsItemWithRangeAndPriorityAndTable(2, 2, 1.0, "dist"),
-          IsItemWithRangeAndPriorityAndTable(1, 1, 1.0, "dist")));
+  EXPECT_THAT(requests[0], Partially(testing::EqualsProto(
+                               "chunks: { sequence_range: { start: 0 "
+                               "end: 2 } delta_encoded: false }")));
+  EXPECT_THAT(requests[0],
+              IsItemWithRangeAndPriorityAndTable(0, 2, 1.0, "dist"));
+  EXPECT_THAT(requests[1], Partially(testing::EqualsProto(
+                               "chunks: { sequence_range: { start: 3 "
+                               "end: 4 } delta_encoded: false }")));
+  EXPECT_THAT(requests[1],
+              IsItemWithRangeAndPriorityAndTable(2, 2, 1.0, "dist"));
+  EXPECT_THAT(requests[2],
+              IsItemWithRangeAndPriorityAndTable(1, 1, 1.0, "dist"));
 
   EXPECT_THAT(
-      internal::GetChunkKeys(requests[1].item().item().flat_trajectory()),
+      internal::GetChunkKeys(requests[0].item().item().flat_trajectory()),
       SizeIs(1));
   EXPECT_THAT(
-      internal::GetChunkKeys(requests[3].item().item().flat_trajectory()),
+      internal::GetChunkKeys(requests[1].item().item().flat_trajectory()),
       SizeIs(2));
   EXPECT_THAT(
-      internal::GetChunkKeys(requests[4].item().item().flat_trajectory()),
+      internal::GetChunkKeys(requests[2].item().item().flat_trajectory()),
       SizeIs(1));
 }
 
@@ -694,7 +693,7 @@ TEST(WriterTest, WriteTimeStepsMatchingSignature) {
   REVERB_ASSERT_OK(writer->Append(MakeTimestep()));
   REVERB_ASSERT_OK(writer->Append(MakeTimestep()));
   REVERB_ASSERT_OK(writer->CreateItem("dist", 2, 1.0));
-  ASSERT_THAT(requests, SizeIs(2));
+  ASSERT_THAT(requests, SizeIs(1));
 }
 
 TEST(WriterTest, WriteTimeStepsMatchingBoundedSignature) {
@@ -709,7 +708,7 @@ TEST(WriterTest, WriteTimeStepsMatchingBoundedSignature) {
   REVERB_ASSERT_OK(writer->Append(MakeTimestep()));
   REVERB_ASSERT_OK(writer->Append(MakeTimestep()));
   REVERB_ASSERT_OK(writer->CreateItem("dist", 2, 1.0));
-  ASSERT_THAT(requests, SizeIs(2));
+  ASSERT_THAT(requests, SizeIs(1));
 }
 
 TEST(WriterTest, WriteTimeStepsNumTensorsDontMatchSignatureError) {

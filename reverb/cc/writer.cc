@@ -397,11 +397,11 @@ absl::Status Writer::Finish(bool retry_on_unavailable) {
       const tensorflow::Tensor& item = buffer_[j][i];
       tensorflow::TensorShape shape = item.shape();
       if (j > 0 && shape != buffer_[0][i].shape()) {
-        return absl::InvalidArgumentError(absl::StrCat(
-            "Unable to concatenate tensors at index ", i,
-            " due to mismatched shapes.  Tensor 0 has shape: ",
-            buffer_[0][i].shape().DebugString(), ", but tensor ", j,
-            " has shape: ", shape.DebugString()));
+        return absl::InvalidArgumentError(
+            absl::StrCat("Unable to concatenate tensors at index ", i,
+                         " due to mismatched shapes.  Tensor 0 has shape: ",
+                         buffer_[0][i].shape().DebugString(), ", but tensor ",
+                         j, " has shape: ", shape.DebugString()));
       }
       shape.InsertDim(0, 1);
       // This should never fail due to dtype or shape differences, because the
@@ -461,6 +461,19 @@ absl::Status Writer::WriteWithRetries(bool retry_on_unavailable) {
 }
 
 bool Writer::WritePendingData() {
+  class ArenaOwnedRequest {
+   public:
+    ~ArenaOwnedRequest() {
+      Clear();
+    }
+
+    void Clear() {
+      while (!r.chunks().empty()) {
+        r.mutable_chunks()->UnsafeArenaReleaseLast();
+      }
+    }
+    InsertStreamRequest r;
+  };
   if (!stream_) {
     streamed_chunk_keys_.clear();
     context_ = absl::make_unique<grpc::ClientContext>();
@@ -479,22 +492,27 @@ bool Writer::WritePendingData() {
     }
   }
 
+  ArenaOwnedRequest request;
+  grpc::WriteOptions options;
+  options.set_no_compression();
   std::vector<uint64_t> keep_chunk_keys;
   for (auto& chunk : chunks_) {
     if (item_chunk_keys.contains(chunk.chunk_key()) &&
         !streamed_chunk_keys_.contains(chunk.chunk_key())) {
-      InsertStreamRequest request;
-      grpc::WriteOptions options;
-      options.set_no_compression();
+      request.r.mutable_chunks()->UnsafeArenaAddAllocated(&chunk);
+      keep_chunk_keys.push_back(chunk.chunk_key());
 
-      request.mutable_chunks()->UnsafeArenaAddAllocated(&chunk);
-      bool ok = stream_->Write(request, options);
-      request.mutable_chunks()->UnsafeArenaReleaseLast();
-
-      if (!ok) return false;
-      streamed_chunk_keys_.insert(chunk.chunk_key());
-    }
-    if (streamed_chunk_keys_.contains(chunk.chunk_key())) {
+      // If the message has grown beyond the cutoff point then we send it.
+      if (request.r.ByteSizeLong() >= Writer::kMaxRequestSizeBytes) {
+        if (!stream_->Write(request.r, options)) {
+          return false;
+        }
+        for (const auto& chunk : request.r.chunks()) {
+          streamed_chunk_keys_.insert(chunk.chunk_key());
+        }
+        request.Clear();
+      }
+    } else if (streamed_chunk_keys_.contains(chunk.chunk_key())) {
       keep_chunk_keys.push_back(chunk.chunk_key());
     }
   }
@@ -503,15 +521,18 @@ bool Writer::WritePendingData() {
         !ConfirmItems(max_in_flight_items_.value() - 1)) {
       return false;
     }
-    InsertStreamRequest request;
-    *request.mutable_item()->mutable_item() = pending_items_.front();
-    *request.mutable_item()->mutable_keep_chunk_keys() = {
+    *request.r.mutable_item()->mutable_item() = pending_items_.front();
+    *request.r.mutable_item()->mutable_keep_chunk_keys() = {
         keep_chunk_keys.begin(), keep_chunk_keys.end()};
-    request.mutable_item()->set_send_confirmation(
+    request.r.mutable_item()->set_send_confirmation(
         max_in_flight_items_.has_value());
-    if (!stream_->Write(request)) return false;
+    bool ok = stream_->Write(request.r, options);
+    if (!ok) return false;
+    for (const auto& chunk : request.r.chunks()) {
+      streamed_chunk_keys_.insert(chunk.chunk_key());
+    }
     pending_items_.pop_front();
-    if (request.item().send_confirmation()) {
+    if (request.r.item().send_confirmation()) {
       absl::MutexLock lock(&mu_);
       ++num_items_in_flight_;
     }

@@ -46,6 +46,8 @@ namespace reverb {
 // None of the methods are thread safe.
 class Writer {
  public:
+  static constexpr int64_t kMaxRequestSizeBytes = 40 * 1024 * 1024;  // 40MB.
+
   // The client must not be deleted while any of its writer instances exist.
   Writer(std::shared_ptr</* grpc_gen:: */ReverbService::StubInterface> stub,
          int chunk_length, int max_timesteps, bool delta_encoded = false,
