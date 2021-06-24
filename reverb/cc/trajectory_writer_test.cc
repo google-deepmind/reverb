@@ -76,7 +76,11 @@ const auto kFloatSpec = internal::TensorSpec{"0", tensorflow::DT_FLOAT, {1}};
 
 MATCHER(IsChunk, "") { return arg.chunks_size() == 1; }
 
-MATCHER_P(HasNumChunks, size, "") { return arg.chunks_size() == size; }
+MATCHER(IsChunkAndItem, "") { return arg.chunks_size() == 1 && arg.has_item(); }
+
+MATCHER_P2(HasNumChunksAndItem, size, item, "") {
+  return arg.chunks_size() == size && arg.has_item() == item;
+}
 
 MATCHER(IsItem, "") { return arg.item().send_confirmation(); }
 
@@ -473,19 +477,19 @@ TEST(TrajectoryWriter, ItemSentStraightAwayIfChunksReady) {
   REVERB_ASSERT_OK(
       writer.CreateItem("table", 1.0, MakeTrajectory({{refs[0]}})));
 
-  stream->BlockUntilNumRequestsIs(2);
+  stream->BlockUntilNumRequestsIs(1);
 
   // Chunk is sent before item.
-  EXPECT_THAT(stream->requests(), ElementsAre(IsChunk(), IsItem()));
+  EXPECT_THAT(stream->requests(), ElementsAre(IsChunkAndItem()));
 
   // Adding a second item should result in the item being sent straight away.
   // Note that the chunk is not sent again.
   REVERB_ASSERT_OK(
       writer.CreateItem("table", 0.5, MakeTrajectory({{refs[0]}})));
 
-  stream->BlockUntilNumRequestsIs(3);
+  stream->BlockUntilNumRequestsIs(2);
 
-  EXPECT_THAT(stream->requests()[2], IsItem());
+  EXPECT_THAT(stream->requests()[1], IsItem());
 }
 
 TEST(TrajectoryWriter, ItemIsSentWhenAllChunksDone) {
@@ -508,36 +512,33 @@ TEST(TrajectoryWriter, ItemIsSentWhenAllChunksDone) {
   // No data is sent yet since the chunks are not completed.
   EXPECT_THAT(stream->requests(), ::testing::IsEmpty());
 
-  // In the second step we only write to the first column. This should trigger
-  // the transmission of the first chunk but not the item as it needs to wait
-  // for the chunk in the second column to be completed.
+  // In the second step we only write to the first column. Still there is
+  // no transmission as item is not ready yet.
   StepRef second;
   REVERB_ASSERT_OK(
       writer.Append(Step({MakeTensor(kIntSpec), absl::nullopt}), &second));
 
-  stream->BlockUntilNumRequestsIs(1);
-
-  EXPECT_THAT(stream->requests(), ElementsAre(IsChunk()));
+  EXPECT_THAT(stream->requests(), ::testing::IsEmpty());
 
   // Writing to the first column again, even if we do it twice and trigger a new
-  // chunk to be completed, should not trigger any new messages.
+  // chunk to be completed, should not trigger any messages.
   for (int i = 0; i < 2; i++) {
     StepRef refs;
     REVERB_ASSERT_OK(
         writer.Append(Step({MakeTensor(kIntSpec), absl::nullopt}), &refs));
   }
-  EXPECT_THAT(stream->requests(), ::testing::SizeIs(1));
+  EXPECT_THAT(stream->requests(), ::testing::IsEmpty());
 
   // Writing to the second column will trigger the completion of the chunk in
-  // the second column. This in turn should trigger the transmission of the new
-  // chunk and the item.
+  // the second column. This in turn should trigger the transmission of the
+  // chunks and the item.
   StepRef third;
   REVERB_ASSERT_OK(
       writer.Append(Step({absl::nullopt, MakeTensor(kIntSpec)}), &third));
 
-  stream->BlockUntilNumRequestsIs(3);
+  stream->BlockUntilNumRequestsIs(1);
 
-  EXPECT_THAT(stream->requests(), ElementsAre(IsChunk(), IsChunk(), IsItem()));
+  EXPECT_THAT(stream->requests(), ElementsAre(HasNumChunksAndItem(2, true)));
 }
 
 TEST(TrajectoryWriter, ChunkersNotifiedWhenAllChunksDone) {
@@ -613,7 +614,7 @@ TEST(TrajectoryWriter, FlushSendsPendingItems) {
   REVERB_ASSERT_OK(writer.Flush());
   EXPECT_FALSE(first[0].value().lock()->IsReady());
   EXPECT_TRUE(first[1].value().lock()->IsReady());
-  EXPECT_THAT(stream->requests(), ElementsAre(IsChunk(), IsItem()));
+  EXPECT_THAT(stream->requests(), ElementsAre(IsChunkAndItem()));
 }
 
 TEST(TrajectoryWriter, DestructorFlushesPendingItems) {
@@ -639,13 +640,13 @@ TEST(TrajectoryWriter, DestructorFlushesPendingItems) {
     EXPECT_THAT(stream->requests(), ::testing::IsEmpty());
   }
 
-  EXPECT_THAT(*requests, ElementsAre(IsChunk(), IsItem()));
+  EXPECT_THAT(*requests, ElementsAre(IsChunkAndItem()));
 }
 
 TEST(TrajectoryWriter, RetriesOnTransientError) {
   auto* fail_stream = new MockStream();
-  EXPECT_CALL(*fail_stream, Write(IsChunk(), _)).WillOnce(Return(true));
-  EXPECT_CALL(*fail_stream, Write(IsItem(), _)).WillOnce(Return(false));
+  //  EXPECT_CALL(*fail_stream, Write(IsChunk(), _)).WillOnce(Return(true));
+  EXPECT_CALL(*fail_stream, Write(IsChunkAndItem(), _)).WillOnce(Return(false));
   EXPECT_CALL(*fail_stream, Read(_)).WillOnce(Return(false));
   EXPECT_CALL(*fail_stream, Finish())
       .WillOnce(Return(grpc::Status(grpc::StatusCode::UNAVAILABLE, "")));
@@ -672,13 +673,12 @@ TEST(TrajectoryWriter, RetriesOnTransientError) {
   // stream. The writer should then proceed to resend the chunk since there is
   // no guarantee that the new stream is connected to the same server and thus
   // the data might not exist on the server.
-  EXPECT_THAT(success_stream->requests(), ElementsAre(IsChunk(), IsItem()));
+  EXPECT_THAT(success_stream->requests(), ElementsAre(IsChunkAndItem()));
 }
 
 TEST(TrajectoryWriter, StopsOnNonTransientError) {
   auto* fail_stream = new MockStream();
-  EXPECT_CALL(*fail_stream, Write(IsChunk(), _)).WillOnce(Return(true));
-  EXPECT_CALL(*fail_stream, Write(IsItem(), _)).WillOnce(Return(false));
+  EXPECT_CALL(*fail_stream, Write(IsChunkAndItem(), _)).WillOnce(Return(false));
   EXPECT_CALL(*fail_stream, Read(_)).WillOnce(Return(false));
   EXPECT_CALL(*fail_stream, Finish())
       .WillOnce(Return(grpc::Status(grpc::StatusCode::INTERNAL, "A reason")));
@@ -742,7 +742,7 @@ TEST(TrajectoryWriter, FlushReturnsIfTimeoutExpired) {
   EXPECT_THAT(
       std::string(status.message()),
       ::testing::HasSubstr("Timeout exceeded with 1 items waiting to be "
-                           "written and 0 items awaiting confirmation."));
+                           "written and 1 items awaiting confirmation."));
 
   // Unblock the writer.
   write_block.Notify();
@@ -775,7 +775,7 @@ TEST(TrajectoryWriter, FlushCanIgnorePendingItems) {
   REVERB_ASSERT_OK(writer.Flush(/*ignore_last_num_items=*/1));
 
   // Only one item sent.
-  EXPECT_THAT(stream->requests(), ElementsAre(IsChunk(), IsItem()));
+  EXPECT_THAT(stream->requests(), ElementsAre(IsChunkAndItem()));
 
   // The chunk of the first item is finalized while the other is not.
   EXPECT_TRUE(first[0]->lock()->IsReady());
@@ -802,7 +802,7 @@ TEST(TrajectoryWriter, MultipleChunksAreSentInSameMessage) {
   REVERB_ASSERT_OK(writer.Flush());
 
   // Check that both chunks were sent in the same message.
-  EXPECT_THAT(stream->requests(), ElementsAre(HasNumChunks(2), IsItem()));
+  EXPECT_THAT(stream->requests(), ElementsAre(HasNumChunksAndItem(2, true)));
 }
 
 TEST(TrajectoryWriter, MultipleRequestsSentWhenChunksLarge) {
@@ -832,8 +832,8 @@ TEST(TrajectoryWriter, MultipleRequestsSentWhenChunksLarge) {
 
   // Each `ChunkData` should be ~32MB so the first two chunks should be grouped
   // together into a single message and the last one should be sent on its own.
-  EXPECT_THAT(stream->requests(),
-              ElementsAre(HasNumChunks(2), HasNumChunks(1), IsItem()));
+  EXPECT_THAT(stream->requests(), ElementsAre(HasNumChunksAndItem(2, 0),
+                                              HasNumChunksAndItem(1, true)));
 }
 
 TEST(TrajectoryWriter, CreateItemRejectsExpiredCellRefs) {
@@ -878,8 +878,8 @@ TEST(TrajectoryWriter, KeepKeysOnlyIncludesStreamedKeys) {
 
   // Only the chunk of the first column has been used (and thus streamed). The
   // server should thus only be instructed to keep the one chunk around.
-  EXPECT_THAT(stream->requests(), UnorderedElementsAre(IsChunk(), IsItem()));
-  EXPECT_THAT(stream->requests()[1].item().keep_chunk_keys(),
+  EXPECT_THAT(stream->requests(), UnorderedElementsAre(IsChunkAndItem()));
+  EXPECT_THAT(stream->requests()[0].item().keep_chunk_keys(),
               UnorderedElementsAre(first[0].value().lock()->chunk_key()));
 }
 
@@ -1301,7 +1301,7 @@ TEST(TrajectoryWriter, EndEpisodeReturnsIfTimeoutExpired) {
   EXPECT_THAT(
       std::string(status.message()),
       ::testing::HasSubstr("Timeout exceeded with 1 items waiting to be "
-                           "written and 0 items awaiting confirmation."));
+                           "written and 1 items awaiting confirmation."));
 
   // Unblock the writer.
   write_block.Notify();

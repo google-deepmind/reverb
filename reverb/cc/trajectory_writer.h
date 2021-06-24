@@ -44,6 +44,24 @@ namespace reverb {
 
 class TrajectoryColumn;
 
+class ArenaOwnedRequest {
+ public:
+  ~ArenaOwnedRequest() {
+    Clear();
+  }
+
+  void Clear() {
+    while (!r.chunks().empty()) {
+      r.mutable_chunks()->UnsafeArenaReleaseLast();
+    }
+    if (r.has_item()) {
+      r.mutable_item()->unsafe_arena_release_item();
+      r.clear_item();
+    }
+  }
+  InsertStreamRequest r;
+};
+
 // With the exception of `Close`, none of the methods are thread safe.
 //
 // TODO(b/178096736): Write high level API documentation with examples.
@@ -222,7 +240,8 @@ class TrajectoryWriter {
   // method.
   bool SendItem(InsertStream* stream,
                 const internal::flat_hash_set<uint64_t>& keep_keys,
-                const PrioritizedItem& item) const;
+                const PrioritizedItem& item,
+                ArenaOwnedRequest* request) const;
 
   // Union of `GetChunkKeys` from all column chunkers and all the chunks
   // referenced by pending items (except for chunks only referenced by the first

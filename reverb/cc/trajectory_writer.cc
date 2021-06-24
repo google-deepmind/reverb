@@ -68,14 +68,8 @@ bool SendNotAlreadySentChunks(
     grpc::ClientReaderWriterInterface<InsertStreamRequest,
                                       InsertStreamResponse>* stream,
     internal::flat_hash_set<uint64_t>* streamed_chunk_keys,
-    absl::Span<const std::shared_ptr<CellRef>> refs) {
-  InsertStreamRequest request;
-  auto clean_chunks = [&request] {
-    while (!request.chunks().empty()) {
-      request.mutable_chunks()->UnsafeArenaReleaseLast();
-    }
-  };
-  auto release_chunk = internal::MakeCleanup(clean_chunks);
+    absl::Span<const std::shared_ptr<CellRef>> refs,
+    ArenaOwnedRequest* request) {
 
   // Send referenced chunks which haven't already been sent.
   for (const auto& ref : refs) {
@@ -83,32 +77,25 @@ bool SendNotAlreadySentChunks(
       continue;
     }
 
-    request.mutable_chunks()->UnsafeArenaAddAllocated(
+    request->r.mutable_chunks()->UnsafeArenaAddAllocated(
         const_cast<ChunkData*>(ref->GetChunk().get()));
     streamed_chunk_keys->insert(ref->chunk_key());
 
     // If the message has grown beyond the cutoff point then we send it.
-    if (request.ByteSizeLong() >= TrajectoryWriter::kMaxRequestSizeBytes) {
+    if (request->r.ByteSizeLong() >= TrajectoryWriter::kMaxRequestSizeBytes) {
       grpc::WriteOptions options;
       options.set_no_compression();
-      if (!stream->Write(request, options)) {
+      if (!stream->Write(request->r, options)) {
         return false;
       }
 
       // There (might) still be chunks which can be transmitted so clear the
       // request and continue with the remaining references.
-      clean_chunks();
+      request->Clear();
     }
   }
-
-  // If none of the unsent chunks are ready yet then there is nothing we can do.
-  if (request.chunks().empty()) {
-    return true;
-  }
-
-  grpc::WriteOptions options;
-  options.set_no_compression();
-  return stream->Write(request, options);
+  // Remaining chunks will be sent together with the Item.
+  return true;
 }
 
 bool AllReady(absl::Span<const std::shared_ptr<CellRef>> refs) {
@@ -452,17 +439,17 @@ bool TrajectoryWriter::GetNextPendingItem(
 bool TrajectoryWriter::SendItem(
     TrajectoryWriter::InsertStream* stream,
     const internal::flat_hash_set<uint64_t>& keep_keys,
-    const PrioritizedItem& item) const {
-  InsertStreamRequest request;
-  request.mutable_item()->unsafe_arena_set_allocated_item(
+    const PrioritizedItem& item,
+    ArenaOwnedRequest* request) const {
+  request->r.mutable_item()->unsafe_arena_set_allocated_item(
       const_cast<PrioritizedItem*>(&item));
-  auto release_item = internal::MakeCleanup(
-      [&request] { request.mutable_item()->unsafe_arena_release_item(); });
-  request.mutable_item()->set_send_confirmation(true);
+  request->r.mutable_item()->set_send_confirmation(true);
   for (auto keep_key : keep_keys) {
-    request.mutable_item()->add_keep_chunk_keys(keep_key);
+    request->r.mutable_item()->add_keep_chunk_keys(keep_key);
   }
-  return stream->Write(request);
+  grpc::WriteOptions options;
+  options.set_no_compression();
+  return stream->Write(request->r, options);
 }
 
 internal::flat_hash_set<uint64_t> TrajectoryWriter::GetKeepKeys(
@@ -505,6 +492,7 @@ absl::Status TrajectoryWriter::RunStreamWorker() {
   });
 
   internal::flat_hash_set<uint64_t> streamed_chunk_keys;
+  ArenaOwnedRequest request;
   while (true) {
     ItemAndRefs item_and_refs;
 
@@ -515,7 +503,7 @@ absl::Status TrajectoryWriter::RunStreamWorker() {
     // Send referenced chunks which haven't already been sent. This call also
     // inserts the new chunk keys into `streamed_chunk_keys`.
     if (!SendNotAlreadySentChunks(stream.get(), &streamed_chunk_keys,
-                                  item_and_refs.refs)) {
+                                  item_and_refs.refs, &request)) {
       return FromGrpcStatus(stream->Finish());
     }
 
@@ -548,13 +536,15 @@ absl::Status TrajectoryWriter::RunStreamWorker() {
 
     // All chunks have been written to the stream so the item can now be
     // written.
-    if (!SendItem(stream.get(), streamed_chunk_keys, item_and_refs.item)) {
+    if (!SendItem(stream.get(), streamed_chunk_keys, item_and_refs.item,
+                  &request)) {
       {
         absl::WriterMutexLock lock(&mu_);
         in_flight_items_.erase(item_and_refs.item.key());
       }
       return FromGrpcStatus(stream->Finish());
     }
+    request.Clear();
 
     // Item has been sent so we can now pop it from the queue. Note that by
     // deallocating the ItemAndRefs object we are allowing the underlying
