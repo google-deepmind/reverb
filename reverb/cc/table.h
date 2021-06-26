@@ -145,6 +145,14 @@ class Table {
   absl::Status InsertOrAssign(
       Item item, absl::Duration timeout = absl::InfiniteDuration());
 
+  // Similar to the InsertOrAssign, but insert operation is queued inside the
+  // table instead of blocking the caller. can_insert_more is set to true if
+  // further inserts can be performed right away. When can_insert_more is set
+  // to false, insert_more_callback callback will be called when further inserts
+  // are allowed.
+  absl::Status InsertOrAssignAsync(Item item, bool* can_insert_more,
+      std::weak_ptr<std::function<void()>> insert_more_callback);
+
   // Inserts an item without consulting or modifying the RateLimiter about the
   // operation.
   //
@@ -291,6 +299,12 @@ class Table {
       std::initializer_list<TableExtension*> exclude = {})
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_);
 
+  // Performs batched insertion of `pending_inserts` into the table. to_delete
+  // is filled with elements to be deleted (once table lock is not held).
+  absl::Status BatchInsertOrAssign(
+      std::vector<std::shared_ptr<Item>>* pending_inserts,
+      std::vector<std::shared_ptr<Item>>* to_delete);
+
   // Deletes the item associated with the key from `data_`, `sampler_` and
   // `remover_`. Ignores the key if it cannot be found.
   //
@@ -298,6 +312,10 @@ class Table {
   // underlying item to be postponed until the lock has been released.
   absl::Status DeleteItem(Key key, std::shared_ptr<Item>* deleted_item)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_);
+
+  // Synchronizes access to `sampler_`, `remover_`, 'rate_limiter_`,
+  // 'extensions_` and `data_`,
+  mutable absl::Mutex mu_;
 
   // Distribution used for sampling.
   std::shared_ptr<ItemSelector> sampler_ ABSL_GUARDED_BY(mu_);
@@ -338,12 +356,39 @@ class Table {
   // of insert, delete, update or reset operations.
   std::vector<std::shared_ptr<TableExtension>> extensions_ ABSL_GUARDED_BY(mu_);
 
-  // Synchronizes access to `sampler_`, `remover_`, 'rate_limiter_`,
-  // 'extensions_` and `data_`,
-  mutable absl::Mutex mu_;
-
   // Optional signature for data in the table.
   const absl::optional<tensorflow::StructuredValue> signature_;
+
+  // Worker thread which processes asynchronous insert requests to the table.
+  std::unique_ptr<internal::Thread> insert_worker_;
+
+  // Pending asynchronous insert requests to the table.
+  std::vector<std::shared_ptr<Item>> pending_inserts_
+      ABSL_GUARDED_BY(worker_mu_);
+
+  // Items collected by the worker for asynchronous deletion by the clients.
+  // This way we avoid expensive memory dealocation inside the worker.
+  std::vector<std::shared_ptr<Item>> deleted_items_ ABSL_GUARDED_BY(worker_mu_);
+
+  // Callbacks to be executed when further asynchronous insertions into the
+  // table are allowed. Callbacks are provided with asynchronous inserts
+  // and only pushed to this list if more inserts were not possible straight
+  // away.
+  std::vector<std::weak_ptr<std::function<void()>>> notify_inserts_ok_
+      ABSL_GUARDED_BY(worker_mu_);
+
+  // Whether table worker is sleeping currently (no work to do).
+  bool worker_sleeps_ ABSL_GUARDED_BY(worker_mu_) = false;
+
+  // Should worker terminate. Set to true upon table termination to stop the
+  // worker.
+  bool stop_worker_ ABSL_GUARDED_BY(worker_mu_) = false;
+
+  // Used for waking up a worker when asleep.
+  absl::CondVar wakeup_worker_ ABSL_GUARDED_BY(worker_mu_);
+
+  // Mutex to protect worker's state.
+  mutable absl::Mutex worker_mu_;
 };
 
 }  // namespace reverb

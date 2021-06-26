@@ -132,7 +132,8 @@ class ReverbServiceAsyncImpl : public /* grpc_gen:: */ReverbService::CallbackSer
 
  private:
   explicit ReverbServiceAsyncImpl(
-      std::shared_ptr<Checkpointer> checkpointer = nullptr);
+      std::shared_ptr<Checkpointer> checkpointer = nullptr,
+      bool use_workerless_insert_reactor = false);
 
   absl::Status Initialize(std::vector<std::shared_ptr<Table>> tables);
 
@@ -161,6 +162,9 @@ class ReverbServiceAsyncImpl : public /* grpc_gen:: */ReverbService::CallbackSer
   // A new id must be generated whenever a table is added, deleted, or has its
   // signature modified.
   absl::uint128 tables_state_id_;
+
+  // Should workerless insert reactor be used.
+  bool use_workerless_insert_reactor_;
 };
 
 

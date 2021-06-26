@@ -49,6 +49,10 @@ namespace {
 
 using Extensions = std::vector<std::shared_ptr<TableExtension>>;
 
+// Number of queued inserts that are allowed on the table without slowing down
+// further inserts.
+static constexpr int64_t kMaxEnqueuedInserts = 1000;
+
 inline bool IsInsertedBefore(const PrioritizedItem& a,
                              const PrioritizedItem& b) {
   return a.inserted_at().seconds() < b.inserted_at().seconds() ||
@@ -108,9 +112,60 @@ Table::Table(std::string name, std::shared_ptr<ItemSelector> sampler,
   for (auto& extension : extensions_) {
     REVERB_CHECK_OK(extension->RegisterTable(&mu_, this));
   }
+  insert_worker_ = internal::StartThread("TableWorker" + name, [&]() {
+    std::vector<std::shared_ptr<Item>> pending_inserts;
+    std::vector<std::shared_ptr<Item>> to_delete;
+    std::vector<std::weak_ptr<std::function<void()>>> notify_inserts_ok;
+    while (true) {
+      if (pending_inserts.empty()) {
+        absl::MutexLock lock(&worker_mu_);
+        // Items to be deleted are being deleted by the callers to spread the
+        // load. We could consider doing that in a dedicated thread instead.
+        if (!to_delete.empty() && deleted_items_.empty()) {
+          std::swap(to_delete, deleted_items_);
+        }
+        if (pending_inserts_.empty()) {
+          worker_sleeps_ = true;
+          if (stop_worker_) {
+            return;
+          }
+          wakeup_worker_.Wait(&worker_mu_);
+          worker_sleeps_ = false;
+          if (stop_worker_) {
+            return;
+          }
+        }
+        std::swap(pending_inserts, pending_inserts_);
+        std::swap(notify_inserts_ok, notify_inserts_ok_);
+      }
+      for (auto& notify : notify_inserts_ok) {
+        auto to_notify = notify.lock();
+        // Callback might have been destroyed in the meantime.
+        if (to_notify != nullptr) {
+          (*to_notify)();
+        }
+      }
+      notify_inserts_ok.clear();
+      auto res = BatchInsertOrAssign(&pending_inserts, &to_delete);
+      if (!res.ok()) {
+        REVERB_LOG(REVERB_ERROR) << "Insert worker encountered an error: "
+            << res.ToString() << ", pending_inserts: " << pending_inserts.size()
+            << ", to_delete: " << to_delete.size();
+        return;
+      }
+      pending_inserts.clear();
+    }
+  });
 }
 
 Table::~Table() {
+  Close();
+  {
+    absl::MutexLock lock(&worker_mu_);
+    stop_worker_ = true;
+    wakeup_worker_.Signal();
+  }
+  insert_worker_.reset();
   rate_limiter_->UnregisterTable(&mu_, this);
   for (auto& extension : extensions_) {
     extension->UnregisterTable(&mu_, this);
@@ -187,6 +242,104 @@ absl::Status Table::InsertOrAssign(Item item, absl::Duration timeout) {
     rate_limiter_->Insert(&mu_);
   }
 
+  return absl::OkStatus();
+}
+
+absl::Status Table::InsertOrAssignAsync(Item item, bool* can_insert_more,
+    std::weak_ptr<std::function<void()>> insert_more_callback) {
+  REVERB_RETURN_IF_ERROR(CheckItemValidity(item));
+
+  std::shared_ptr<Item> to_delete;
+  {
+    absl::MutexLock lock(&worker_mu_);
+    pending_inserts_.push_back(std::make_shared<Item>(std::move(item)));
+    if (worker_sleeps_) {
+      wakeup_worker_.Signal();
+    }
+    if (!deleted_items_.empty()) {
+      to_delete = std::move(deleted_items_.back());
+      deleted_items_.pop_back();
+    }
+    *can_insert_more = pending_inserts_.size() < kMaxEnqueuedInserts;
+    if (!*can_insert_more) {
+      // Caller is not allowed to do any more inserts immediately.
+      // A callback is registered, so that when there is space for more
+      // requests, client is notified.
+      notify_inserts_ok_.push_back(insert_more_callback);
+    }
+  }
+  return absl::OkStatus();
+}
+
+absl::Status Table::BatchInsertOrAssign(
+    std::vector<std::shared_ptr<Item>>* pending_inserts,
+    std::vector<std::shared_ptr<Item>>* to_delete) {
+  absl::MutexLock lock(&mu_);
+  int updates = 0;
+  for (auto& item : *pending_inserts) {
+    const auto key = item->item.key();
+    const auto priority = item->item.priority();
+    if (data_.contains(key)) {
+      updates++;
+      REVERB_RETURN_IF_ERROR(UpdateItem(key, priority));
+      // Item is not added to the table, so added for deletion outside of
+      // critical section. As item references chunks as well, deletion of the
+      // item can result in freeming chunks as well (which can be expensive).
+      to_delete->push_back(std::move(item));
+      item = nullptr;
+    }
+  }
+  if (updates == pending_inserts->size()) {
+    // All operations were updates, we are done.
+    return absl::OkStatus();
+  }
+  for (auto& item : *pending_inserts) {
+    if (!item) {
+      // Item was processed as an update.
+      continue;
+    }
+    REVERB_RETURN_IF_ERROR(
+        rate_limiter_->AwaitCanInsert(&mu_, absl::InfiniteDuration()));
+    const auto key = item->item.key();
+    const auto priority = item->item.priority();
+    if (data_.contains(key)) {
+      // Item must have been added when we were sleeping on rate limiter.
+      REVERB_RETURN_IF_ERROR(UpdateItem(key, priority));
+      to_delete->push_back(std::move(item));
+      continue;
+    }
+
+    // Set the insertion timestamp after the lock has been acquired as this
+    // represents the order it was inserted into the sampler and remover.
+    EncodeAsTimestampProto(absl::Now(), item->item.mutable_inserted_at());
+    data_[key] = std::move(item);
+
+    REVERB_RETURN_IF_ERROR(sampler_->Insert(key, priority));
+    REVERB_RETURN_IF_ERROR(remover_->Insert(key, priority));
+
+    auto it = data_.find(key);
+    for (auto& extension : extensions_) {
+      extension->OnInsert(&mu_, *it->second);
+    }
+
+    // Increment references to the episode/s the item is referencing.
+    // We increment before a possible call to DeleteItem since the sampler can
+    // return this key.
+    for (const auto& chunk : it->second->chunks) {
+      ++episode_refs_[chunk->episode_id()];
+    }
+
+    // Remove an item if we exceeded `max_size_`.
+    if (data_.size() > max_size_) {
+      std::shared_ptr<Item> deleted_item;
+      REVERB_RETURN_IF_ERROR(DeleteItem(remover_->Sample().key, &deleted_item));
+      to_delete->push_back(std::move(deleted_item));
+    }
+
+    // Now that the new item has been inserted and an older item has
+    // (potentially) been removed the insert can be finalized.
+    rate_limiter_->Insert(&mu_);
+  }
   return absl::OkStatus();
 }
 
@@ -358,6 +511,15 @@ absl::Status Table::UpdateItem(
 }
 
 absl::Status Table::Reset() {
+  // Make sure worker has no more pending work.
+  {
+    auto worker_done = [this]() ABSL_EXCLUSIVE_LOCKS_REQUIRED(worker_mu_) {
+      return worker_sleeps_ && pending_inserts_.empty();
+    };
+    absl::MutexLock lock(&worker_mu_);
+    worker_mu_.Await(absl::Condition(&worker_done));
+  }
+
   absl::MutexLock lock(&mu_);
 
   for (auto& extension : extensions_) {

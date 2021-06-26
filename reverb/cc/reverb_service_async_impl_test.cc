@@ -27,11 +27,14 @@
 #include "grpcpp/test/default_reactor_test_peer.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
+#include "absl/flags/declare.h"
 #include "absl/flags/flag.h"
 #include "absl/memory/memory.h"
 #include "absl/status/status.h"
 #include "absl/synchronization/blocking_counter.h"
 #include "absl/synchronization/notification.h"
+#include "absl/time/clock.h"
+#include "absl/time/time.h"
 #include "absl/types/optional.h"
 #include "reverb/cc/platform/checkpointing.h"
 #include "reverb/cc/platform/status_macros.h"
@@ -47,9 +50,20 @@
 #include "tensorflow/core/platform/env.h"
 #include "tensorflow/core/protobuf/struct.pb.h"
 
+ABSL_FLAG(bool, disable_forwards_table_error_test, false,
+          "Should the test be disabled.");
+
+
 namespace deepmind {
 namespace reverb {
 namespace {
+
+void WaitForTableSize(Table* table, int size) {
+  for (int retry = 0; retry < 100 && size != 0; retry++) {
+    absl::SleepFor(absl::Milliseconds(1));
+  }
+  EXPECT_EQ(table->size(), size);
+}
 
 class FakeSelector : public ItemSelector {
  public:
@@ -177,6 +191,29 @@ std::unique_ptr<ReverbServiceAsyncImpl> MakeService(
 
 std::unique_ptr<ReverbServiceAsyncImpl> MakeService(int max_size) {
   return MakeService(max_size, nullptr);
+}
+
+TEST(ReverbServiceAsyncImplTest, InsertSameItemWorks) {
+  std::unique_ptr<ReverbServiceAsyncImpl> service = MakeService(10);
+  std::unique_ptr<grpc::Server> server(
+      grpc::ServerBuilder().RegisterService(service.get()).BuildAndStart());
+  /* grpc_gen:: */ReverbService::Stub stub(
+      server->InProcessChannel(grpc::ChannelArguments()));
+  grpc::ClientContext context;
+  auto insert_stream = stub.InsertStream(&context);
+  ASSERT_TRUE(insert_stream->Write(InsertMultiChunkRequest({1, 2})));
+  ASSERT_TRUE(insert_stream->Write(InsertChunkRequest(3)));
+
+  InsertStreamRequest insert_request = InsertItemRequest("dist", {2, 3});
+  ASSERT_TRUE(insert_stream->Write(insert_request));
+
+  // The same item again.
+  ASSERT_TRUE(insert_stream->Write(InsertMultiChunkRequest({1, 2})));
+  ASSERT_TRUE(insert_stream->Write(InsertChunkRequest(3)));
+  ASSERT_TRUE(insert_stream->Write(insert_request));
+  ASSERT_TRUE(insert_stream->WritesDone());
+  REVERB_EXPECT_OK(insert_stream->Finish());
+  PrioritizedItem item = insert_request.item().item();
 }
 
 TEST(ReverbServiceAsyncImplTest, SampleAfterInsertWorks) {
@@ -360,6 +397,10 @@ TEST(ReverbServiceAsyncImplTest, InsertStreamRespondsWithItemKeys) {
 }
 
 TEST(ReverbServiceAsyncImplTest, InsertStreamForwardsTableError) {
+  if (absl::GetFlag(FLAGS_disable_forwards_table_error_test)) {
+    return;
+  }
+
   std::unique_ptr<ReverbServiceAsyncImpl> service = MakeService(
       /*max_size=*/10,
       /*checkpointer=*/nullptr,
@@ -443,7 +484,7 @@ TEST(ReverbServiceAsyncImplTest, MutateDeletionWorks) {
   ASSERT_TRUE(stream->WritesDone());
   REVERB_EXPECT_OK(stream->Finish());
 
-  EXPECT_EQ(service->tables()["dist"]->size(), 1);
+  WaitForTableSize(service->tables()["dist"].get(), 1);
 
   MutatePrioritiesRequest mutate_request;
   MutatePrioritiesResponse mutate_response;
@@ -498,7 +539,7 @@ TEST(ReverbServiceAsyncImplTest, ResetWorks) {
   ASSERT_TRUE(stream->WritesDone());
   REVERB_EXPECT_OK(stream->Finish());
 
-  EXPECT_EQ(service->tables()["dist"]->size(), 1);
+  WaitForTableSize(service->tables()["dist"].get(), 1);
 
   ResetRequest reset_request;
   reset_request.set_table("dist");
@@ -592,7 +633,7 @@ TEST(ReverbServiceAsyncImplTest, CheckpointAndLoadFromCheckpoint) {
     REVERB_EXPECT_OK(stream->Finish());
   }
 
-  EXPECT_EQ(service->tables()["dist"]->size(), 1);
+  WaitForTableSize(service->tables()["dist"].get(), 1);
 
   // Checkpoint the service.
   {

@@ -34,6 +34,7 @@
 #include "reverb/cc/checkpointing/interface.h"
 #include "reverb/cc/chunk_store.h"
 #include "reverb/cc/reverb_server_bidi_reactor.h"
+#include "reverb/cc/reverb_server_table_reactor.h"
 #include "reverb/cc/platform/hash_map.h"
 #include "reverb/cc/platform/hash_set.h"
 #include "reverb/cc/platform/logging.h"
@@ -50,7 +51,8 @@
 
 // TODO(b/168080187): Benchmark to find good defaults.
 ABSL_FLAG(size_t, reverb_insert_worker_num_threads, 32,
-          "Number of threads that will run insertion tasks.");
+          "Number of threads that will run insertion tasks. When set to 0 "
+          "per-table worker approach is used instead.");
 ABSL_FLAG(size_t, reverb_sample_worker_num_threads, 32,
           "Number of threads that will run sample tasks.");
 ABSL_FLAG(size_t, reverb_insert_worker_max_queue_size_to_warn, 99000,
@@ -79,8 +81,10 @@ inline grpc::Status Internal(const std::string& message) {
 }  // namespace
 
 ReverbServiceAsyncImpl::ReverbServiceAsyncImpl(
-    std::shared_ptr<Checkpointer> checkpointer)
-    : checkpointer_(std::move(checkpointer)) {}
+    std::shared_ptr<Checkpointer> checkpointer,
+    bool use_workerless_insert_reactor)
+    : checkpointer_(std::move(checkpointer)),
+      use_workerless_insert_reactor_(use_workerless_insert_reactor) {}
 
 absl::Status ReverbServiceAsyncImpl::Create(
     std::vector<std::shared_ptr<Table>> tables,
@@ -88,7 +92,8 @@ absl::Status ReverbServiceAsyncImpl::Create(
     std::unique_ptr<ReverbServiceAsyncImpl>* service) {
   // Can't use make_unique because it can't see the Impl's private constructor.
   auto new_service = std::unique_ptr<ReverbServiceAsyncImpl>(
-      new ReverbServiceAsyncImpl(std::move(checkpointer)));
+      new ReverbServiceAsyncImpl(std::move(checkpointer),
+      absl::GetFlag(FLAGS_reverb_insert_worker_num_threads) <= 0));
   REVERB_RETURN_IF_ERROR(new_service->Initialize(std::move(tables)));
   std::swap(new_service, *service);
   return absl::OkStatus();
@@ -132,10 +137,12 @@ absl::Status ReverbServiceAsyncImpl::Initialize(
     tables_[name] = std::move(table);
   }
 
-  insert_worker_ = absl::make_unique<InsertWorker>(
-      absl::GetFlag(FLAGS_reverb_insert_worker_num_threads),
-      absl::GetFlag(FLAGS_reverb_insert_worker_max_queue_size_to_warn),
-      "InsertWorker");
+  if (!use_workerless_insert_reactor_) {
+    insert_worker_ = absl::make_unique<InsertWorker>(
+        absl::GetFlag(FLAGS_reverb_insert_worker_num_threads),
+        absl::GetFlag(FLAGS_reverb_insert_worker_max_queue_size_to_warn),
+        "InsertWorker");
+  }
   sample_worker_ = absl::make_unique<SampleWorker>(
       absl::GetFlag(FLAGS_reverb_sample_worker_num_threads), -1,
       "SampleWorker");
@@ -318,7 +325,140 @@ ReverbServiceAsyncImpl::InsertStream(grpc::CallbackServerContext* context) {
     const ReverbServiceAsyncImpl* server_;
   };
 
-  return new InsertReactor(&chunk_store_, this);
+  class WorkerlessInsertReactor : public ReverbServerTableReactor<
+      InsertStreamRequest, InsertStreamResponse> {
+   public:
+    WorkerlessInsertReactor(ChunkStore* chunk_store,
+                            ReverbServiceAsyncImpl* server)
+        : ReverbServerTableReactor(),
+          chunk_store_(chunk_store),
+          server_(server),
+          continue_inserts_(std::make_shared<std::function<void()>>([&] {
+            MaybeStartRead();
+        })) {
+      MaybeStartRead();
+    }
+
+    grpc::Status ProcessIncomingRequest(InsertStreamRequest* request) override {
+      REVERB_CHECK(!request->chunks().empty() || request->has_item());
+      if (auto status = SaveChunks(request); !status.ok()) {
+        return status;
+      }
+      if (!request->has_item()) {
+        // No item to add to the table - continue reading next requests.
+        StartRead(&request_);
+        return grpc::Status::OK;
+      }
+      Table::Item item;
+      if (auto status = GetItemWithChunks(&item, request); !status.ok()) {
+        return status;
+      }
+      ReleaseOutOfRangeChunks(request->item().keep_chunk_keys());
+      const auto& table_name = item.item.table();
+      // Check that table name is valid.
+      auto table = server_->TableByName(table_name);
+      if (table == nullptr) {
+        return TableNotFound(table_name);
+      }
+      bool can_insert;
+      const bool send_confirmation = request->item().send_confirmation();
+      const auto key = item.item.key();
+      if (auto status = table->InsertOrAssignAsync(std::move(item),
+          &can_insert, continue_inserts_); !status.ok()) {
+        return ToGrpcStatus(status);
+      }
+      if (can_insert) {
+        // Insert didn't exceed table's buffer, we can continue reading next
+        // requests.
+        StartRead(&request_);
+      }
+      if (send_confirmation) {
+        InsertStreamResponse response;
+        response.set_key(key);
+        EnqueueResponse(std::move(response));
+      }
+      return grpc::Status::OK;
+    }
+
+   private:
+    grpc::Status SaveChunks(InsertStreamRequest* request) {
+      for (auto& chunk : *request->mutable_chunks()) {
+        ChunkStore::Key key = chunk.chunk_key();
+        std::shared_ptr<ChunkStore::Chunk> chunk_sp =
+            chunk_store_->Insert(std::move(chunk));
+        if (chunk_sp == nullptr) {
+          return grpc::Status(grpc::StatusCode::CANCELLED,
+                              "Service has been closed");
+        }
+        chunks_[key] = std::move(chunk_sp);
+      }
+
+      return grpc::Status::OK;
+    }
+
+    grpc::Status GetItemWithChunks(Table::Item* item,
+                                   InsertStreamRequest* request) {
+      for (ChunkStore::Key key :
+           internal::GetChunkKeys(request->item().item().flat_trajectory())) {
+        auto it = chunks_.find(key);
+        if (it == chunks_.end()) {
+          return Internal(
+              absl::StrCat("Could not find sequence chunk ", key, "."));
+        }
+        item->chunks.push_back(it->second);
+      }
+
+      item->item = std::move(*request->mutable_item()->mutable_item());
+
+      return grpc::Status::OK;
+    }
+
+    void ReleaseOutOfRangeChunks(absl::Span<const uint64_t> keep_keys) {
+      for (auto it = chunks_.cbegin(); it != chunks_.cend();) {
+        if (std::find(keep_keys.begin(), keep_keys.end(), it->first) ==
+            keep_keys.end()) {
+          chunks_.erase(it++);
+        } else {
+          ++it;
+        }
+      }
+      REVERB_CHECK_EQ(chunks_.size(), keep_keys.size())
+          << "Kept less chunks than expected.";
+    }
+
+    // Incoming messages are handled one at a time. That is StartRead is not
+    // called until `request_` has been completely salvaged. Fields accessed
+    // only by OnRead are thus thread safe and require no additional mutex to
+    // control access.
+    //
+    // The following fields are ONLY accessed by OnRead (and subcalls):
+    //  - chunks_
+    //  - chunk_store_
+
+    // Chunks that may be referenced by items not yet received. The ChunkStore
+    // itself only maintains weak pointers to the chunk so until an item that
+    // references the chunk is created, this pointer is the only reference that
+    // stops the chunk from being deallocated.
+    internal::flat_hash_map<ChunkStore::Key, std::shared_ptr<ChunkStore::Chunk>>
+        chunks_;
+
+    // ChunkStore, only accessed during reads.
+    ChunkStore* chunk_store_;
+
+    // Used to lookup tables when inserting items.
+    const ReverbServiceAsyncImpl* server_;
+
+    // Callback called by the table when further inserts are possible. Pointer
+    // to it is registered with the table to avoid memory allocations upon
+    // registering callback.
+    std::shared_ptr<std::function<void()>> continue_inserts_;
+  };
+
+  if (use_workerless_insert_reactor_) {
+    return new WorkerlessInsertReactor(&chunk_store_, this);
+  } else {
+    return new InsertReactor(&chunk_store_, this);
+  }
 }
 
 grpc::ServerBidiReactor<InitializeConnectionRequest,
