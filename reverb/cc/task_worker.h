@@ -221,7 +221,9 @@ void TaskWorker<TaskInfo, TaskCallback>::RunWorker(
       REVERB_LOG(REVERB_WARNING)
           << " A task spent " << absl::FormatDuration(time_in_queue)
           << " in the task queue (current queue size is: " << queue_.size()
-          << ")";
+          << "). This indicates the server is too slow in processing tasks. "
+             "It could indicate that the tasks are blocked on the rate "
+             "limiter.";
     }
     {
       absl::MutexLock lock(thread_stats->mu.get());
