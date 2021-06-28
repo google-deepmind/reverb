@@ -250,6 +250,7 @@ reverb_cc_library(
     name = "trajectory_writer",
     srcs = ["trajectory_writer.cc"],
     hdrs = ["trajectory_writer.h"],
+    visibility = ["//reverb:__subpackages__"],
     deps = [
         ":reverb_service_cc_grpc_proto",
         ":reverb_service_cc_proto",
@@ -290,6 +291,7 @@ reverb_cc_library(
     name = "chunker",
     srcs = ["chunker.cc"],
     hdrs = ["chunker.h"],
+    visibility = ["//reverb:__subpackages__"],
     deps = [
         ":schema_cc_proto",
         ":tensor_compression",
