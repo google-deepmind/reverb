@@ -149,10 +149,17 @@ class FakeInsertStream
   bool Read(InsertStreamResponse* response) override {
     // If an explicit response IDs queue was provided then we block until it is
     // nonempty.
+    response->Clear();
     if (response_ids_ != nullptr) {
       uint64_t id;
+      // There should be at least one id in the response.
       CHECK(response_ids_->Pop(&id));
-      response->set_key(id);
+      response->add_keys(id);
+      // But in case of batching there might be more.
+      while (response_ids_->size() > 0) {
+        CHECK(response_ids_->Pop(&id));
+        response->add_keys(id);
+      }
       return true;
     }
 
@@ -161,7 +168,7 @@ class FakeInsertStream
     if (written_item_ids_.empty()) {
       return false;
     }
-    response->set_key(written_item_ids_.front());
+    response->add_keys(written_item_ids_.front());
     written_item_ids_.pop();
     return true;
   }
@@ -960,6 +967,29 @@ TEST(WriterTest, BlocksWhenMaxInFlighItemsReached) {
   // cancelling the stream.
   ASSERT_TRUE(response_ids->Push(2));
   ASSERT_TRUE(response_ids->Push(3));
+}
+
+TEST(WriterTest, HandlesBatchedResponses) {
+  std::vector<InsertStreamRequest> requests;
+  auto pair = MakeStubWithExplicitResponseQueue(&requests);
+  auto response_ids = std::move(pair.second);
+  Writer writer(pair.first, 1, 4, false, nullptr, 2);
+
+  ASSERT_TRUE(response_ids->Push(2));
+  ASSERT_TRUE(response_ids->Push(3));
+
+  REVERB_ASSERT_OK(writer.Append(MakeTimestep()));
+  REVERB_ASSERT_OK(writer.CreateItem("dist", 1, 1.0));
+  REVERB_ASSERT_OK(writer.Append(MakeTimestep()));
+  REVERB_ASSERT_OK(writer.CreateItem("dist", 2, 1.0));
+
+  REVERB_ASSERT_OK(writer.Append(MakeTimestep()));
+  REVERB_ASSERT_OK(writer.CreateItem("dist", 3, 1.0));
+  REVERB_ASSERT_OK(writer.Append(MakeTimestep()));
+  REVERB_ASSERT_OK(writer.CreateItem("dist", 4, 1.0));
+
+  ASSERT_TRUE(response_ids->Push(3));
+  ASSERT_TRUE(response_ids->Push(4));
 }
 
 TEST(WriterTest, AppendSequenceBehavesLikeMutlipleAppendCalls) {

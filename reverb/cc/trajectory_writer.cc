@@ -487,7 +487,9 @@ absl::Status TrajectoryWriter::RunStreamWorker() {
     InsertStreamResponse response;
     while (stream->Read(&response)) {
       absl::MutexLock lock(&mu_);
-      in_flight_items_.erase(response.key());
+      for (auto& key : response.keys()) {
+        in_flight_items_.erase(key);
+      }
     }
   });
 

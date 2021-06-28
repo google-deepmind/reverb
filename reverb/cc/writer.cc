@@ -601,7 +601,7 @@ void Writer::ItemConfirmationWorker() {
     }
     if (!stream_->Read(&response)) break;
     absl::WriterMutexLock lock(&mu_);
-    num_items_in_flight_--;
+    num_items_in_flight_ -= response.keys_size();
   }
   absl::WriterMutexLock lock(&mu_);
   item_confirmation_worker_running_ = false;

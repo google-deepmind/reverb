@@ -212,7 +212,7 @@ grpc::Status ReverbServiceImpl::InsertStreamInternal(
       // caller.
       if (request.item().send_confirmation()) {
         InsertStreamResponse response;
-        response.set_key(item_key);
+        response.add_keys(item_key);
         if (!stream->Write(response)) {
           return Internal(absl::StrCat(
               "Error when sending confirmation that item ", item_key,

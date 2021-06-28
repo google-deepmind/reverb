@@ -303,8 +303,8 @@ TEST(ReverbServiceImplTest, InsertStreamRespondsWithItemKeys) {
   stream.AddItem("dist", {1}, {}, /*send_confirmation=*/true);
   REVERB_EXPECT_OK(service->InsertStreamInternal(&context, &stream));
   EXPECT_THAT(stream.responses(), ::testing::SizeIs(2));
-  EXPECT_EQ(stream.responses()[0].key(), first_id);
-  EXPECT_EQ(stream.responses()[1].key(), first_id + 2);
+  EXPECT_EQ(stream.responses()[0].keys(0), first_id);
+  EXPECT_EQ(stream.responses()[1].keys(0), first_id + 2);
 }
 
 TEST(ReverbServiceImplTest, SampleBlocksUntilEnoughInserts) {

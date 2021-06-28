@@ -118,7 +118,7 @@ message InsertStreamRequest {
 
 message InsertStreamResponse {
   // ID of inserted/updated items.
-  uint64 key = 1;
+  repeated uint64 keys = 1;
 }
 
 message MutatePrioritiesRequest {

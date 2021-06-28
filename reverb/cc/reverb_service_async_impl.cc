@@ -245,7 +245,7 @@ ReverbServiceAsyncImpl::InsertStream(grpc::CallbackServerContext* context) {
           task_info.table->InsertOrAssign(task_info.item, absl::Seconds(20)));
       if (task_info.send_confirmation) {
         InsertStreamResponseCtx response;
-        response.payload.set_key(task_info.item.item.key());
+        response.payload.add_keys(task_info.item.item.key());
         responses->push_back(std::move(response));
       }
       return absl::OkStatus();
@@ -374,7 +374,7 @@ ReverbServiceAsyncImpl::InsertStream(grpc::CallbackServerContext* context) {
       }
       if (send_confirmation) {
         InsertStreamResponse response;
-        response.set_key(key);
+        response.add_keys(key);
         EnqueueResponse(std::move(response));
       }
       return grpc::Status::OK;

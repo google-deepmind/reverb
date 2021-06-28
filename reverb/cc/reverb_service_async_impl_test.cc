@@ -392,8 +392,8 @@ TEST(ReverbServiceAsyncImplTest, InsertStreamRespondsWithItemKeys) {
   ASSERT_TRUE(stream->Read(&responses[1]));
   ASSERT_FALSE(stream->Read(&responses[2]));
   REVERB_EXPECT_OK(stream->Finish());
-  EXPECT_EQ(responses[0].key(), first_id);
-  EXPECT_EQ(responses[1].key(), first_id + 2);
+  EXPECT_EQ(responses[0].keys(0), first_id);
+  EXPECT_EQ(responses[1].keys(0), first_id + 2);
 }
 
 TEST(ReverbServiceAsyncImplTest, InsertStreamForwardsTableError) {
