@@ -143,7 +143,7 @@ message SampleInfo {
 // These fields correspond to initialization arguments of the
 // `Table` class, unless noted otherwise.
 //
-// Next ID: 11.
+// Next ID: 12.
 message TableInfo {
   // Table's name.
   string name = 8;
@@ -177,6 +177,9 @@ message TableInfo {
   // Number of episodes once referenced by items in the table but no longer is.
   // The total number of episodes thus is `num_episodes + num_deleted_episodes`.
   int64 num_deleted_episodes = 10;
+
+  // Number of unique items sampled from the table since the last reset.
+  int64 num_unique_samples = 11;
 }
 // LINT.ThenChange(../py/reverb/reverb_types.py)
 

@@ -7,7 +7,7 @@ import "tensorflow/core/protobuf/struct.proto";
 
 // Configs for reconstructing a distribution to its initial state.
 
-// Next ID: 10.
+// Next ID: 11.
 message PriorityTableCheckpoint {
   // Name of the table.
   string table_name = 1;
@@ -40,6 +40,9 @@ message PriorityTableCheckpoint {
 
   // Optional data signature for tensors stored in the table.
   tensorflow.StructuredValue signature = 9;
+
+  // Number of unique items sampled from the table since the last reset.
+  int64 num_unique_samples = 10;
 }
 
 message RateLimiterCheckpoint {

@@ -256,10 +256,13 @@ class Table {
   // deleted.
   int64_t num_deleted_episodes() const ABSL_LOCKS_EXCLUDED(mu_);
 
-  // "Manually" set the number of deleted episodes. This is only intended to be
-  // called when reconstructing a Table from a checkpoint and will trigger death
-  // unless it is the very first interaction with the table.
+  // "Manually" set the number of deleted episodes and unique samples. This is
+  // only intended to be called when reconstructing a Table from a checkpoint
+  // and will trigger death unless it is the very first interaction with the
+  // table.
   void set_num_deleted_episodes_from_checkpoint(int64_t value)
+      ABSL_LOCKS_EXCLUDED(mu_);
+  void set_num_unique_samples_from_checkpoint(int64_t value)
       ABSL_LOCKS_EXCLUDED(mu_);
 
   const std::string& name() const;
@@ -335,6 +338,10 @@ class Table {
   // in the table but have since been removed. Is set to 0 when `Reset()`
   // called.
   int64_t num_deleted_episodes_ ABSL_GUARDED_BY(mu_);
+
+  // The total number of unique items sampled from the table since the table
+  // was created or reset most recently.
+  int64_t num_unique_samples_ ABSL_GUARDED_BY(mu_);
 
   // Maximum number of items that this container can hold. InsertOrAssign()
   // respects this limit when inserting a new item.

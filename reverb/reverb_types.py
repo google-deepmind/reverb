@@ -71,6 +71,7 @@ class TableInfo:
   current_size: int
   num_episodes: int
   num_deleted_episodes: int
+  num_unique_samples: int
   # LINT.ThenChange(../../reverb/schema.proto)
 
   @classmethod
@@ -93,4 +94,5 @@ class TableInfo:
         current_size=proto.current_size,
         num_episodes=proto.num_episodes,
         num_deleted_episodes=proto.num_deleted_episodes,
+        num_unique_samples=proto.num_unique_samples,
         )

@@ -325,6 +325,8 @@ absl::Status TFRecordCheckpointer::Load(
         /*signature=*/std::move(signature));
     table->set_num_deleted_episodes_from_checkpoint(
         checkpoint.num_deleted_episodes());
+    table->set_num_unique_samples_from_checkpoint(
+        checkpoint.num_unique_samples());
 
     for (const auto& checkpoint_item : checkpoint.items()) {
       Table::Item insert_item;

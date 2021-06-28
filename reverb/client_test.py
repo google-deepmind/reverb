@@ -255,12 +255,14 @@ class ClientTest(absltest.TestCase):
     self.client.insert([0], {TABLE_NAME: 1.0})
     self.client.insert([0], {TABLE_NAME: 1.0})
     self.client.insert([0], {TABLE_NAME: 1.0})
+    list(self.client.sample(TABLE_NAME, 1))
     server_info = self.client.server_info()
     self.assertLen(server_info, 3)
 
     self.assertIn(TABLE_NAME, server_info)
     table = server_info[TABLE_NAME]
     self.assertEqual(table.current_size, 3)
+    self.assertEqual(table.num_unique_samples, 1)
     self.assertEqual(table.max_size, 1000)
     self.assertEqual(table.sampler_options.prioritized.priority_exponent, 1)
     self.assertTrue(table.remover_options.fifo)
@@ -269,6 +271,7 @@ class ClientTest(absltest.TestCase):
     self.assertIn(NESTED_SIGNATURE_TABLE_NAME, server_info)
     queue = server_info[NESTED_SIGNATURE_TABLE_NAME]
     self.assertEqual(queue.current_size, 0)
+    self.assertEqual(queue.num_unique_samples, 0)
     self.assertEqual(queue.max_size, 10)
     self.assertTrue(queue.sampler_options.fifo)
     self.assertTrue(queue.remover_options.fifo)
@@ -277,6 +280,7 @@ class ClientTest(absltest.TestCase):
     self.assertIn(SIMPLE_QUEUE_NAME, server_info)
     info = server_info[SIMPLE_QUEUE_NAME]
     self.assertEqual(info.current_size, 0)
+    self.assertEqual(info.num_unique_samples, 0)
     self.assertEqual(info.max_size, 10)
     self.assertTrue(info.sampler_options.fifo)
     self.assertTrue(info.remover_options.fifo)

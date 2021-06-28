@@ -734,6 +734,7 @@ TEST(TableTest, Info) {
           /*min_diff=*/-1,
           /*max_diff=*/5));
   table.set_num_deleted_episodes_from_checkpoint(5);
+  table.set_num_unique_samples_from_checkpoint(2);
 
   // Insert two items (each with different episodes).
   REVERB_EXPECT_OK(table.InsertOrAssign(MakeItem(1, 1)));
@@ -769,6 +770,7 @@ TEST(TableTest, Info) {
                 current_size: 1
                 num_episodes: 1
                 num_deleted_episodes: 6
+                num_unique_samples: 3
               )pb"));
 }
 

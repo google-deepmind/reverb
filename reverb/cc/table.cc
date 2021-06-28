@@ -102,6 +102,7 @@ Table::Table(std::string name, std::shared_ptr<ItemSelector> sampler,
     : sampler_(std::move(sampler)),
       remover_(std::move(remover)),
       num_deleted_episodes_(0),
+      num_unique_samples_(0),
       max_size_(max_size),
       max_times_sampled_(max_times_sampled),
       name_(std::move(name)),
@@ -396,6 +397,11 @@ absl::Status Table::SampleFlexibleBatch(std::vector<SampledItem>* items,
       auto sample = sampler_->Sample();
       std::shared_ptr<Item>& item = data_[sample.key];
 
+      // If this is the first time the item was sampled then
+      if (item->item.times_sampled() == 0) {
+        ++num_unique_samples_;
+      }
+
       // Increment the sample count.
       item->item.set_times_sampled(item->item.times_sampled() + 1);
 
@@ -453,6 +459,7 @@ TableInfo Table::info() const {
   info.set_current_size(data_.size());
   info.set_num_episodes(episode_refs_.size());
   info.set_num_deleted_episodes(num_deleted_episodes_);
+  info.set_num_unique_samples(num_unique_samples_);
 
   return info;
 }
@@ -530,6 +537,7 @@ absl::Status Table::Reset() {
   remover_->Clear();
 
   num_deleted_episodes_ = 0;
+  num_unique_samples_ = 0;
 
   data_.clear();
 
@@ -551,6 +559,7 @@ Table::CheckpointAndChunks Table::Checkpoint() {
   absl::MutexLock lock(&mu_);
 
   checkpoint.set_num_deleted_episodes(num_deleted_episodes_);
+  checkpoint.set_num_unique_samples(num_unique_samples_);
 
   *checkpoint.mutable_sampler() = sampler_->options();
   *checkpoint.mutable_remover() = remover_->options();
@@ -683,6 +692,12 @@ void Table::set_num_deleted_episodes_from_checkpoint(int64_t value) {
   absl::MutexLock lock(&mu_);
   REVERB_CHECK(data_.empty() && num_deleted_episodes_ == 0);
   num_deleted_episodes_ = value;
+}
+
+void Table::set_num_unique_samples_from_checkpoint(int64_t value) {
+  absl::MutexLock lock(&mu_);
+  REVERB_CHECK(data_.empty() && num_unique_samples_ == 0);
+  num_unique_samples_ = value;
 }
 
 int32_t Table::DefaultFlexibleBatchSize() const {
