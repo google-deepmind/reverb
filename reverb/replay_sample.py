@@ -50,9 +50,9 @@ class ReplaySample(NamedTuple):
 
   Fields:
     info: Details about the sampled item. Instance of `SampleInfo`.
-    data: Tensors for the data. Flat list of numpy arrays for output of python
-      `Client.sample`, nested structure of Tensors for TensorFlow
-      `Client.sample`.
+    data: Tensors for the data. If the structure is available to the sampler
+      then the data will be nested. If the structure is not available then the
+      flattened structure, i.e. a list, is used.
   """
   info: SampleInfo
   data: Union[Sequence[np.ndarray], Any]
