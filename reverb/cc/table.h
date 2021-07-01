@@ -314,6 +314,11 @@ class Table {
   // Returns a summary string description.
   std::string DebugString() const;
 
+  // Make the table use table worker for executing operations. Worker will use
+  // provided executor for running operation callbacks. This method should be
+  // called before adding any data to the table.
+  void EnableTableWorker(std::shared_ptr<TaskExecutor> executor);
+
  private:
   // Updates item priority in `data_`, `samper_`, `remover_` and calls
   // `OnUpdate` on all extensions not part of `exclude`.
@@ -430,8 +435,8 @@ class Table {
   // Mutex to protect worker's state.
   mutable absl::Mutex worker_mu_;
 
-  // Executor used by table worker to run operation callbacks.
-  std::unique_ptr<TaskExecutor> callback_executor_;
+  // Executor used by the table worker to run operation callbacks.
+  std::shared_ptr<TaskExecutor> callback_executor_;
 };
 
 }  // namespace reverb

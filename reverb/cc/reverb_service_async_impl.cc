@@ -54,6 +54,8 @@ ABSL_FLAG(
     "Whether to use workerless reactors. `reverb_insert_worker_num_threads` "
     "and `reverb_sample_worker_num_threads` have no effect when this flag is "
     "set to true.");
+ABSL_FLAG(size_t, reverb_callback_executor_num_threads, 32,
+          "Number of threads in the callback executor thread pool.");
 
 // TODO(b/168080187): Benchmark to find good defaults.
 ABSL_FLAG(size_t, reverb_insert_worker_num_threads, 32,
@@ -150,6 +152,13 @@ absl::Status ReverbServiceAsyncImpl::Initialize(
     sample_worker_ = absl::make_unique<SampleWorker>(
         absl::GetFlag(FLAGS_reverb_sample_worker_num_threads), -1,
         "SampleWorker");
+  } else {
+    auto executor = std::make_shared<TaskExecutor>(
+        absl::GetFlag(FLAGS_reverb_callback_executor_num_threads),
+        "TableCallbackExecutor");
+    for (auto& table : tables_) {
+      table.second->EnableTableWorker(executor);
+    }
   }
 
   tables_state_id_ = absl::MakeUint128(absl::Uniform<uint64_t>(rnd_),

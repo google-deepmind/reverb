@@ -28,6 +28,7 @@
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 #include "absl/synchronization/mutex.h"
+#include "absl/synchronization/notification.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "absl/types/span.h"
@@ -150,9 +151,19 @@ Table::Table(std::string name, std::shared_ptr<ItemSelector> sampler,
   for (auto& extension : extensions_) {
     REVERB_CHECK_OK(extension->RegisterTable(&mu_, this));
   }
-  callback_executor_ =
-      std::make_unique<TaskExecutor>(1, "TableCallbackExecutor_" + name);
-  table_worker_ = internal::StartThread("TableWorker_" + name, [&]() {
+}
+
+Table::~Table() {
+  Close();
+  rate_limiter_->UnregisterTable(&mu_, this);
+  for (auto& extension : extensions_) {
+    extension->UnregisterTable(&mu_, this);
+  }
+}
+
+void Table::EnableTableWorker(std::shared_ptr<TaskExecutor> executor) {
+  callback_executor_ = executor;
+  table_worker_ = internal::StartThread("TableWorker_" + name_, [&]() {
     // Sampling requests that exceeded deadline and should be terminated.
     std::vector<std::unique_ptr<Table::SampleRequest>> to_terminate;
     // Status to be send to the sample requests to be terminated (changes upon
@@ -296,14 +307,6 @@ Table::Table(std::string name, std::shared_ptr<ItemSelector> sampler,
   });
 }
 
-Table::~Table() {
-  Close();
-  rate_limiter_->UnregisterTable(&mu_, this);
-  for (auto& extension : extensions_) {
-    extension->UnregisterTable(&mu_, this);
-  }
-}
-
 std::vector<Table::Item> Table::Copy(size_t count) const {
   std::vector<Item> items;
   absl::MutexLock lock(&mu_);
@@ -316,6 +319,8 @@ std::vector<Table::Item> Table::Copy(size_t count) const {
 }
 
 absl::Status Table::InsertOrAssign(Item item, absl::Duration timeout) {
+  // InsertOrAssign is not allowed when using table worker.
+  REVERB_CHECK(table_worker_ == nullptr);
   REVERB_RETURN_IF_ERROR(CheckItemValidity(item));
 
   auto key = item.item.key();
@@ -458,6 +463,14 @@ absl::Status Table::MutateItems(absl::Span<const KeyWithPriority> updates,
       REVERB_RETURN_IF_ERROR(UpdateItem(item.key(), item.priority()));
     }
   }
+  // Table worker doesn't listen on rate_limiter, so need to wake it up
+  // explicitly.
+  if (table_worker_) {
+    absl::MutexLock lock(&worker_mu_);
+    if (worker_sleeps_) {
+      wakeup_worker_.Signal();
+    }
+  }
   return absl::OkStatus();
 }
 
@@ -489,6 +502,22 @@ void Table::EnqueSampleRequest(int num_samples,
 absl::Status Table::SampleFlexibleBatch(std::vector<SampledItem>* items,
                                         int batch_size,
                                         absl::Duration timeout) {
+  if (table_worker_) {
+    absl::Status result = absl::OkStatus();
+    absl::Notification notification;
+    auto callback = std::make_shared<SamplingCallback>(
+        [&](Table::SampleRequest* sample) {
+          if (!sample->status.ok()) {
+            result = sample->status;
+          } else {
+            std::swap(*items, sample->samples);
+          }
+          notification.Notify();
+        });
+    EnqueSampleRequest(batch_size, callback, timeout);
+    notification.WaitForNotification();
+    return result;
+  }
   // Allocate memory outside of critical section.
   items->reserve(batch_size);
 
@@ -678,7 +707,7 @@ absl::Status Table::UpdateItem(
 
 absl::Status Table::Reset() {
   // Make sure worker has no more pending work.
-  {
+  if (table_worker_) {
     auto worker_done = [this]() ABSL_EXCLUSIVE_LOCKS_REQUIRED(worker_mu_) {
       return worker_sleeps_ && pending_inserts_.empty();
     };
