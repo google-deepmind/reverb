@@ -155,6 +155,13 @@ Table::Table(std::string name, std::shared_ptr<ItemSelector> sampler,
 
 Table::~Table() {
   Close();
+  {
+    absl::MutexLock lock(&worker_mu_);
+    stop_worker_ = true;
+    wakeup_worker_.Signal();
+  }
+  // Join the worker thread
+  table_worker_ = nullptr;
   rate_limiter_->UnregisterTable(&mu_, this);
   for (auto& extension : extensions_) {
     extension->UnregisterTable(&mu_, this);
@@ -280,7 +287,7 @@ void Table::EnableTableWorker(std::shared_ptr<TaskExecutor> executor) {
           // rate limiter until the worker is put to sleep again.
           rate_limited = false;
         }
-        if (!stop_worker_ && progress != last_progress) {
+        if (progress != last_progress) {
           // There was progress executing insert/sample requests,
           // so continue without handling timeouts.
           last_progress = progress;
@@ -288,8 +295,10 @@ void Table::EnableTableWorker(std::shared_ptr<TaskExecutor> executor) {
         }
         auto deadline = absl::Now();
         auto wakeup = absl::InfiniteFuture();
-        if (stop_worker_) {
-          deadline = absl::InfinitePast();
+        if (!rate_limiter_->CheckIfCancelled().ok()) {
+          // We need to terminate all in-flight operations, so collect requests
+          // with the deadline smaller than InfiniteFuture.
+          deadline = absl::InfiniteFuture();
           terminate_status =
               absl::CancelledError("RateLimiter has been cancelled");
         }
@@ -663,13 +672,6 @@ TableInfo Table::info() const {
 }
 
 void Table::Close() {
-  {
-    absl::MutexLock lock(&worker_mu_);
-    stop_worker_ = true;
-    wakeup_worker_.Signal();
-  }
-  // Join the worker thread
-  table_worker_ = nullptr;
   absl::MutexLock lock(&mu_);
   rate_limiter_->Cancel(&mu_);
 }
