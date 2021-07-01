@@ -119,6 +119,17 @@ reverb_cc_test(
 )
 
 reverb_cc_library(
+    name = "task_executor",
+    hdrs = ["task_executor.h"],
+    deps = [
+        "//reverb/cc/platform:status_macros",
+        "//reverb/cc/platform:thread",
+        "//reverb/cc/support:periodic_closure",
+        "//reverb/cc/support:unbounded_queue",
+    ] + reverb_absl_deps(),
+)
+
+reverb_cc_library(
     name = "tf_util",
     hdrs = ["tf_util.h"],
     deps = [
