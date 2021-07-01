@@ -335,6 +335,7 @@ grpc::Status ReverbServiceImpl::SampleStreamInternal(
             item->set_times_sampled(sample.times_sampled);
             response.mutable_info()->set_probability(sample.probability);
             response.mutable_info()->set_table_size(sample.table_size);
+            response.mutable_info()->set_rate_limited(sample.rate_limited);
           }
 
           // We const cast to avoid copying the proto.

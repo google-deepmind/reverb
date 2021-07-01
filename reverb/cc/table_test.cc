@@ -25,7 +25,9 @@
 #include "gtest/gtest.h"
 #include <cstdint>
 #include "absl/memory/memory.h"
+#include "absl/status/status.h"
 #include "absl/synchronization/notification.h"
+#include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "reverb/cc/checkpointing/checkpoint.pb.h"
 #include "reverb/cc/chunk_store.h"
@@ -35,6 +37,7 @@
 #include "reverb/cc/schema.pb.h"
 #include "reverb/cc/selectors/fifo.h"
 #include "reverb/cc/selectors/uniform.h"
+#include "reverb/cc/support/task_executor.h"
 #include "reverb/cc/table_extensions/interface.h"
 #include "reverb/cc/testing/proto_test_util.h"
 #include "tensorflow/core/framework/tensor_shape.h"
@@ -206,6 +209,76 @@ TEST(TableTest, MaxTimesSampledIsRespected) {
   EXPECT_EQ(table->Copy()[0].item.times_sampled(), 1);
   REVERB_ASSERT_OK(table->Sample(&item));
   EXPECT_THAT(table->Copy(), IsEmpty());
+}
+
+TEST(TableTest, SampleFlexibleBatchRequireEmptyOutputVector) {
+  auto table = MakeUniformTable("dist", 10, 2);
+
+  std::vector<Table::SampledItem> items;
+  items.emplace_back();
+
+  auto status = table->SampleFlexibleBatch(&items, 1, absl::ZeroDuration());
+  EXPECT_EQ(status.code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_THAT(
+      std::string(status.message()),
+      ::testing::HasSubstr(
+          "Table::SampleFlexibleBatch called with non-empty output vector."));
+}
+
+TEST(TableTest, SampleSetsRateLimitedIfBlocked) {
+  auto table = MakeUniformTable("table");
+
+  absl::Notification thread_started;
+  Table::SampledItem rate_limited_item;
+  auto thread = internal::StartThread("sample", [&] {
+    thread_started.Notify();
+    REVERB_ASSERT_OK(table->Sample(&rate_limited_item, kTimeout));
+  });
+
+  thread_started.WaitForNotificationWithTimeout(kTimeout);
+  absl::SleepFor(kTimeout / 2);
+  REVERB_ASSERT_OK(table->InsertOrAssign(MakeItem(1, 1)));
+  thread = nullptr;  // Join thread so sample is completed.
+  EXPECT_TRUE(rate_limited_item.rate_limited);
+
+  Table::SampledItem not_rate_limited_item;
+  REVERB_ASSERT_OK(table->Sample(&not_rate_limited_item, kTimeout));
+  EXPECT_FALSE(not_rate_limited_item.rate_limited);
+}
+
+TEST(TableTest, EnqueSampleRequestSetsRateLimitedIfBlocked) {
+  auto table = MakeUniformTable("table");
+  table->EnableTableWorker(std::make_shared<TaskExecutor>(1, "worker"));
+
+  absl::Notification first_done;
+  Table::SampledItem rate_limited_item;
+  auto first_callback =
+      std::make_shared<Table::SamplingCallback>([&](Table::SampleRequest* req) {
+        rate_limited_item = req->samples[0];
+        first_done.Notify();
+      });
+
+  table->EnqueSampleRequest(1, first_callback, kTimeout);
+  absl::SleepFor(kTimeout / 2);
+
+  bool can_insert_more;
+  REVERB_ASSERT_OK(table->InsertOrAssignAsync(
+      MakeItem(1, 1), &can_insert_more,
+      std::make_shared<std::function<void()>>([] {})));
+  ASSERT_TRUE(first_done.WaitForNotificationWithTimeout(kTimeout));
+  EXPECT_TRUE(rate_limited_item.rate_limited);
+
+  absl::Notification second_done;
+  Table::SampledItem not_rate_limited_item;
+  auto second_callback =
+      std::make_shared<Table::SamplingCallback>([&](Table::SampleRequest* req) {
+        not_rate_limited_item = req->samples[0];
+        second_done.Notify();
+      });
+
+  table->EnqueSampleRequest(1, second_callback, kTimeout);
+  ASSERT_TRUE(second_done.WaitForNotificationWithTimeout(kTimeout));
+  EXPECT_FALSE(not_rate_limited_item.rate_limited);
 }
 
 TEST(TableTest, InsertDeletesWhenOverflowing) {

@@ -51,6 +51,7 @@ reverb_cc_test(
         "//reverb/cc/checkpointing:checkpoint_cc_proto",
         "//reverb/cc/selectors:fifo",
         "//reverb/cc/selectors:uniform",
+        "//reverb/cc/support:task_executor",
         "//reverb/cc/table_extensions:interface",
         "//reverb/cc/platform:status_matchers",
         "//reverb/cc/platform:thread",

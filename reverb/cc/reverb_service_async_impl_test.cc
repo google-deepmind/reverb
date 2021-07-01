@@ -250,6 +250,7 @@ TEST(ReverbServiceAsyncImplTest, SampleAfterInsertWorks) {
     EXPECT_THAT(info.item(), testing::EqualsProto(item));
     EXPECT_EQ(info.probability(), 1);
     EXPECT_EQ(info.table_size(), 1);
+    EXPECT_FALSE(info.rate_limited());
 
     EXPECT_EQ(sample_responses[0].data_size(), 2);
     EXPECT_EQ(sample_responses[0].data(0).chunk_key(),

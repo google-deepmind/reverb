@@ -184,6 +184,8 @@ void Table::EnableTableWorker(std::shared_ptr<TaskExecutor> executor) {
     std::vector<std::unique_ptr<SampleRequest>> current_sampling;
     // Index of the next request from the `sampling_requests` to be processed.
     int current_sample = 0;
+    // Whether the next sample was rate limited.
+    bool rate_limited = false;
 
     // Progress of handling insert/sample requests. Used for detecting whether
     // worker has something to do (making progress) or should go to sleep.
@@ -228,7 +230,8 @@ void Table::EnableTableWorker(std::shared_ptr<TaskExecutor> executor) {
             auto& request = current_sampling[current_sample];
             while (rate_limiter_->MaybeCommitSample(&mu_)) {
               request->samples.emplace_back();
-              auto res = SampleInternal(&request->samples.back(), &to_delete);
+              auto res = SampleInternal(rate_limited, &request->samples.back(),
+                                        &to_delete);
               if (!res.ok()) {
                 REVERB_LOG(REVERB_ERROR)
                     << "Table worker encountered an error while sampling: "
@@ -272,6 +275,10 @@ void Table::EnableTableWorker(std::shared_ptr<TaskExecutor> executor) {
           current_sample = 0;
           current_sampling.clear();
           std::swap(current_sampling, pending_sampling_);
+
+          // We'll consider the new batch of requests to be unaffected by the
+          // rate limiter until the worker is put to sleep again.
+          rate_limited = false;
         }
         if (!stop_worker_ && progress != last_progress) {
           // There was progress executing insert/sample requests,
@@ -295,6 +302,8 @@ void Table::EnableTableWorker(std::shared_ptr<TaskExecutor> executor) {
             return;
           }
           worker_sleeps_ = true;
+          rate_limited = !current_sampling.empty() &&
+                         current_sample != current_sampling.size();
           wakeup_worker_.WaitWithDeadline(&worker_mu_, wakeup);
           worker_sleeps_ = false;
         }
@@ -484,6 +493,10 @@ absl::Status Table::Sample(SampledItem* sampled_item, absl::Duration timeout) {
 void Table::EnqueSampleRequest(int num_samples,
                                std::weak_ptr<SamplingCallback> callback,
                                absl::Duration timeout) {
+  REVERB_CHECK(table_worker_ != nullptr)
+      << "Table::EnqueueSampleRequest called without calling "
+         "Table::EnableTableWorker first.";
+
   auto request = std::make_unique<SampleRequest>();
   request->on_batch_done = std::move(callback);
   request->deadline = absl::Now() + timeout;
@@ -502,6 +515,10 @@ void Table::EnqueSampleRequest(int num_samples,
 absl::Status Table::SampleFlexibleBatch(std::vector<SampledItem>* items,
                                         int batch_size,
                                         absl::Duration timeout) {
+  if (!items->empty()) {
+    return absl::InvalidArgumentError(
+        "Table::SampleFlexibleBatch called with non-empty output vector.");
+  }
   if (table_worker_) {
     absl::Status result = absl::OkStatus();
     absl::Notification notification;
@@ -526,23 +543,19 @@ absl::Status Table::SampleFlexibleBatch(std::vector<SampledItem>* items,
   std::vector<std::shared_ptr<Item>> deleted_items;
   {
     absl::MutexLock lock(&mu_);
-    for (int i = 0; i < batch_size; i++) {
-      if (auto status = rate_limiter_->AwaitAndFinalizeSample(&mu_, timeout);
-          !status.ok()) {
-        // Deadline exceeded errors encountered after the first call means that
-        // it was not possible to proceed with another sample without awaiting
-        // changes. If this happens then we simply return the items that we
-        // sampled so far.
-        if (i != 0 && absl::IsDeadlineExceeded(status)) {
-          return absl::OkStatus();
-        }
-        return status;
-      }
 
-      // All calls but the first should return immediately if the rate limiter
-      // does not allow for another sample call to proceed.
-      timeout = absl::ZeroDuration();
+    // Check if we can start sampling straight away or if we are rate limited.
+    bool rate_limited = !rate_limiter_->MaybeCommitSample(&mu_);
 
+    // If we were unable to start sampling straight away then we wait until the
+    // rate limiter allows for at least one sample or until the timeout has
+    // expired.
+    if (rate_limited) {
+      REVERB_RETURN_IF_ERROR(
+          rate_limiter_->AwaitAndFinalizeSample(&mu_, timeout));
+    }
+
+    do {
       auto sample = sampler_->Sample();
       std::shared_ptr<Item>& item = data_[sample.key];
 
@@ -561,6 +574,7 @@ absl::Status Table::SampleFlexibleBatch(std::vector<SampledItem>* items,
           .table_size = static_cast<int64_t>(data_.size()),
           .priority = item->item.priority(),
           .times_sampled = item->item.times_sampled(),
+          .rate_limited = rate_limited,
       };
       items->push_back(std::move(sampled_item));
 
@@ -577,14 +591,16 @@ absl::Status Table::SampleFlexibleBatch(std::vector<SampledItem>* items,
         REVERB_RETURN_IF_ERROR(
             DeleteItem(item->item.key(), &deleted_items.back()));
       }
-    }
+    } while (items->size() < batch_size &&
+             rate_limiter_->MaybeCommitSample(&mu_));
   }
 
   return absl::OkStatus();
 }
 
 absl::Status Table::SampleInternal(
-    SampledItem* result, std::vector<std::shared_ptr<Item>>* to_delete) {
+    bool rate_limited, SampledItem* result,
+    std::vector<std::shared_ptr<Item>>* to_delete) {
   auto sample = sampler_->Sample();
   std::shared_ptr<Item>& item = data_[sample.key];
   // Increment the sample count.
@@ -597,6 +613,7 @@ absl::Status Table::SampleInternal(
       .table_size = static_cast<int64_t>(data_.size()),
       .priority = item->item.priority(),
       .times_sampled = item->item.times_sampled(),
+      .rate_limited = rate_limited,
   };
 
   // Notify extensions which item was sampled.

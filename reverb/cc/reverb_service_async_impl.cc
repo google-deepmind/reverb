@@ -776,6 +776,8 @@ ReverbServiceAsyncImpl::SampleStream(grpc::CallbackServerContext* context) {
           response.payload.mutable_info()->set_probability(
               sample->probability);
           response.payload.mutable_info()->set_table_size(sample->table_size);
+          response.payload.mutable_info()->set_rate_limited(
+              sample->rate_limited);
         }
 
         response.payload.mutable_data()->UnsafeArenaAddAllocated(
@@ -900,6 +902,8 @@ ReverbServiceAsyncImpl::SampleStream(grpc::CallbackServerContext* context) {
           response.payload.mutable_info()->set_probability(
               sample->probability);
           response.payload.mutable_info()->set_table_size(sample->table_size);
+          response.payload.mutable_info()->set_rate_limited(
+              sample->rate_limited);
         }
 
         response.payload.mutable_data()->UnsafeArenaAddAllocated(

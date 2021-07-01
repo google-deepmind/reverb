@@ -94,6 +94,10 @@ class Table {
     // referenced Item, as Item might be modified in the background.
     double priority;
     int32_t times_sampled;
+    // True if the sample was delayed due to rate limiting. That is, the system
+    // stopped proccessing requests even though there were outstanding sample
+    // requests to be fulfilled.
+    bool rate_limited;
   };
 
   // Represents asynchronous sampling request processed by the table worker.
@@ -328,7 +332,7 @@ class Table {
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_);
 
   // Used by the table worker to perform sampling.
-  absl::Status SampleInternal(SampledItem* result,
+  absl::Status SampleInternal(bool rate_limited, SampledItem* result,
                               std::vector<std::shared_ptr<Item>>* to_delete)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_);
 

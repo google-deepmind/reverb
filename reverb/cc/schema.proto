@@ -135,6 +135,9 @@ message SampleInfo {
 
   // Number of items in the table at the time of the sample operation.
   int64 table_size = 3;
+
+  // Whether the sample was delayed due to rate limiting of the sampler.
+  bool rate_limited = 4;
 }
 
 // LINT.IfChange
