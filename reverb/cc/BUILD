@@ -183,6 +183,7 @@ reverb_cc_library(
         "//reverb/cc/platform:logging",
         "//reverb/cc/platform:status_macros",
         "//reverb/cc/selectors:interface",
+        "//reverb/cc/support:task_executor",
         "//reverb/cc/support:trajectory_util",
         "//reverb/cc/table_extensions:interface",
     ] + reverb_absl_deps() + reverb_tf_deps(),

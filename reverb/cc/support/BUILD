@@ -120,6 +120,7 @@ reverb_cc_test(
 
 reverb_cc_library(
     name = "task_executor",
+    srcs = ["task_executor.cc"],
     hdrs = ["task_executor.h"],
     deps = [
         "//reverb/cc/platform:status_macros",

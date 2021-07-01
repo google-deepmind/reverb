@@ -95,15 +95,18 @@ inline absl::Status CheckItemValidity(const Table::Item& item) {
 
 }  // namespace
 
-// Finalize sampling request with a given status.
-void FinalizeSampleRequest(std::unique_ptr<Table::SampleRequest> request,
+void Table::FinalizeSampleRequest(std::unique_ptr<Table::SampleRequest> request,
                            absl::Status status) {
-  request->status = status;
-  auto to_notify = request->on_batch_done.lock();
-  // Callback might have been destroyed in the meantime.
-  if (to_notify != nullptr) {
-    (*to_notify)(std::move(request));
-  }
+  Table::SampleRequest* r = request.release();
+  r->status = status;
+  callback_executor_->Schedule([r] {
+    auto to_notify = r->on_batch_done.lock();
+    // Callback might have been destroyed in the meantime.
+    if (to_notify != nullptr) {
+      (*to_notify)(r);
+    }
+    delete r;
+  });
 }
 
 // For a given set of sampling requests extract the ones exceeding provided
@@ -147,7 +150,9 @@ Table::Table(std::string name, std::shared_ptr<ItemSelector> sampler,
   for (auto& extension : extensions_) {
     REVERB_CHECK_OK(extension->RegisterTable(&mu_, this));
   }
-  table_worker_ = internal::StartThread("TableWorker_" + name, [&] {
+  callback_executor_ =
+      std::make_unique<TaskExecutor>(1, "TableCallbackExecutor_" + name);
+  table_worker_ = internal::StartThread("TableWorker_" + name, [&]() {
     // Sampling requests that exceeded deadline and should be terminated.
     std::vector<std::unique_ptr<Table::SampleRequest>> to_terminate;
     // Status to be send to the sample requests to be terminated (changes upon

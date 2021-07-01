@@ -792,14 +792,13 @@ ReverbServiceAsyncImpl::SampleStream(grpc::CallbackServerContext* context) {
   class WorkerlessSampleReactor : public ReverbServerTableReactor<
       SampleStreamRequest, SampleStreamResponse, SampleStreamResponseCtx> {
    public:
-    using SamplingCallback =
-        std::function<void(std::unique_ptr<Table::SampleRequest>)>;
+    using SamplingCallback = std::function<void(Table::SampleRequest*)>;
 
     WorkerlessSampleReactor(ReverbServiceAsyncImpl* server)
         : ReverbServerTableReactor(),
           server_(server),
           sampling_done_(std::make_shared<SamplingCallback>(
-              [&](std::unique_ptr<Table::SampleRequest> sample) {
+              [&](Table::SampleRequest* sample) {
                 if (!sample->status.ok()) {
                   absl::MutexLock lock(&mu_);
                   SetReactorAsFinished(ToGrpcStatus(sample->status));

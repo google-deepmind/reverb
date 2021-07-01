@@ -35,6 +35,7 @@
 #include "reverb/cc/rate_limiter.h"
 #include "reverb/cc/schema.pb.h"
 #include "reverb/cc/selectors/interface.h"
+#include "reverb/cc/support/task_executor.h"
 #include "reverb/cc/table_extensions/interface.h"
 #include "tensorflow/core/protobuf/struct.pb.h"
 
@@ -81,7 +82,7 @@ class Table {
   struct SampleRequest;
   using Key = ItemSelector::Key;
   using Item = TableItem;
-  using SamplingCallback = std::function<void(std::unique_ptr<SampleRequest>)>;
+  using SamplingCallback = std::function<void(SampleRequest*)>;
 
   // Used as the return of Sample(). Note that this returns the probability of
   // an item instead as opposed to the raw priority value.
@@ -326,6 +327,10 @@ class Table {
                               std::vector<std::shared_ptr<Item>>* to_delete)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_);
 
+  // Finalize sampling request with a given status.
+  void FinalizeSampleRequest(std::unique_ptr<Table::SampleRequest> request,
+                             absl::Status status);
+
   // Performs batched insertion of `pending_inserts` into the table. to_delete
   // is filled with elements to be deleted (once table lock is not held).
   absl::Status InsertOrAssignInternal(
@@ -424,6 +429,9 @@ class Table {
 
   // Mutex to protect worker's state.
   mutable absl::Mutex worker_mu_;
+
+  // Executor used by table worker to run operation callbacks.
+  std::unique_ptr<TaskExecutor> callback_executor_;
 };
 
 }  // namespace reverb
