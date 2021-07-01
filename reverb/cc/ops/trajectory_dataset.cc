@@ -245,7 +245,8 @@ class ReverbTrajectoryDatasetOp : public tensorflow::data::DatasetOpKernel {
             table_(table),
             sampler_options_(sampler_options),
             dtypes_(dtypes),
-            shapes_(shapes) {}
+            shapes_(shapes),
+            rate_limited_(false) {}
 
       tensorflow::Status Initialize(
           tensorflow::data::IteratorContext* ctx) override {
@@ -284,8 +285,8 @@ class ReverbTrajectoryDatasetOp : public tensorflow::data::DatasetOpKernel {
           sampler_->Close();
         }
 
-        auto status =
-            ToTensorflowStatus(sampler_->GetNextTrajectory(out_tensors));
+        auto status = ToTensorflowStatus(
+            sampler_->GetNextTrajectory(out_tensors, &rate_limited_));
         if (registered &&
             !ctx->cancellation_manager()->DeregisterCallback(token)) {
           return Cancelled("Iterator context was cancelled");
@@ -317,6 +318,10 @@ class ReverbTrajectoryDatasetOp : public tensorflow::data::DatasetOpKernel {
         return Unimplemented("RestoreInternal is currently not supported");
       }
 
+      tensorflow::data::TraceMeMetadata GetTraceMeMetadata() const override {
+        return {{"rate_limited", rate_limited_ ? "true" : "false"}};
+      }
+
      private:
       Client* client_;
       const std::string& table_;
@@ -324,6 +329,10 @@ class ReverbTrajectoryDatasetOp : public tensorflow::data::DatasetOpKernel {
       const tensorflow::DataTypeVector& dtypes_;
       const std::vector<tensorflow::PartialTensorShape>& shapes_;
       std::unique_ptr<Sampler> sampler_;
+
+      // Whether the most recently returned sample was delayed due to rate
+      // limiting or not.
+      bool rate_limited_;
     };  // Iterator.
 
     const std::string server_address_;

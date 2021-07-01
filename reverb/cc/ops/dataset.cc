@@ -296,7 +296,8 @@ class ReverbDatasetOp : public tensorflow::data::DatasetOpKernel {
             emit_timesteps_(emit_timesteps),
             dtypes_(dtypes),
             shapes_(shapes),
-            step_within_sample_(0) {}
+            step_within_sample_(0),
+            rate_limited_(false) {}
 
       tensorflow::Status Initialize(
           tensorflow::data::IteratorContext* ctx) override {
@@ -349,8 +350,8 @@ class ReverbDatasetOp : public tensorflow::data::DatasetOpKernel {
         tensorflow::Status status;
         if (emit_timesteps_) {
           bool last_timestep = false;
-          status = ToTensorflowStatus(
-              sampler_->GetNextTimestep(out_tensors, &last_timestep));
+          status = ToTensorflowStatus(sampler_->GetNextTimestep(
+              out_tensors, &last_timestep, &rate_limited_));
 
           step_within_sample_++;
 
@@ -370,7 +371,8 @@ class ReverbDatasetOp : public tensorflow::data::DatasetOpKernel {
             step_within_sample_ = 0;
           }
         } else {
-          status = ToTensorflowStatus(sampler_->GetNextSample(out_tensors));
+          status = ToTensorflowStatus(
+              sampler_->GetNextSample(out_tensors, &rate_limited_));
         }
 
         if (registered &&
@@ -404,6 +406,10 @@ class ReverbDatasetOp : public tensorflow::data::DatasetOpKernel {
         return Unimplemented("RestoreInternal is currently not supported");
       }
 
+      tensorflow::data::TraceMeMetadata GetTraceMeMetadata() const override {
+        return {{"rate_limited", rate_limited_ ? "true" : "false"}};
+      }
+
      private:
       Client* client_;
       const std::string& table_;
@@ -414,6 +420,9 @@ class ReverbDatasetOp : public tensorflow::data::DatasetOpKernel {
       const std::vector<tensorflow::PartialTensorShape>& shapes_;
       std::unique_ptr<Sampler> sampler_;
       int step_within_sample_;
+
+      // Whether the active sample was delayed due to rate limiting.
+      bool rate_limited_;
     };  // Iterator.
 
     const std::string server_address_;

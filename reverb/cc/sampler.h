@@ -54,7 +54,7 @@ inline absl::Duration Int64MillisToNonnegativeDuration(int64_t milliseconds) {
 class Sample {
  public:
   Sample(tensorflow::uint64 key, double probability,
-         tensorflow::int64 table_size, double priority,
+         tensorflow::int64 table_size, double priority, bool rate_limited,
          std::vector<std::vector<tensorflow::Tensor>> column_chunks,
          std::vector<bool> squeeze_columns);
 
@@ -94,6 +94,9 @@ class Sample {
   // Returns true if the sample can be decomposed into timesteps.
   ABSL_MUST_USE_RESULT bool is_composed_of_timesteps() const;
 
+  // Whether the sample was delayed due to rate limiting or not.
+  bool rate_limited() const;
+
  private:
   // Concatenates content of column `i` into `data[i+4]`, i.e ofset by info
   // columns.
@@ -101,13 +104,19 @@ class Sample {
 
   // The key of the replay item this time step was sampled from.
   tensorflow::uint64 key_;
+
   // The probability of the replay item this time step was sampled from.
   double probability_;
+
   // The size of the replay table this time step was sampled from at the time
   // of sampling.
   tensorflow::int64 table_size_;
+
   // Priority of the replay item this time step was sampled from.
   double priority_;
+
+  // Whether the sample was delayed due to rate limiting or not.
+  bool rate_limited_;
 
   // Total number of time steps in this sample. Only set when
   // `is_timestep_sample()` is true.
@@ -290,7 +299,8 @@ class Sampler {
   // Blocks until a timestep has been retrieved or until a non transient error
   // is encountered or `Close` has been called.
   absl::Status GetNextTimestep(std::vector<tensorflow::Tensor>* data,
-                               bool* end_of_sequence);
+                               bool* end_of_sequence,
+                               bool* rate_limited = nullptr);
 
   // Blocks until a complete (timestep sequence) sample has been retrieved or
   // until a non transient error is encountered or `Close` has been called.
@@ -301,7 +311,8 @@ class Sampler {
   // results column wise.
   //
   // TODO(b/179118872): Remove this method and just use GetNextTrajectory.
-  absl::Status GetNextSample(std::vector<tensorflow::Tensor>* data);
+  absl::Status GetNextSample(std::vector<tensorflow::Tensor>* data,
+                             bool* rate_limited = nullptr);
 
   // Blocks until a complete sample has been retrieved or until a non transient
   // error is encountered or `Close` has been called.
@@ -313,7 +324,8 @@ class Sampler {
   //
   // TODO(b/179118872): Rename this to GetNextSample once the existing method
   //   has been deleted.
-  absl::Status GetNextTrajectory(std::vector<tensorflow::Tensor>* data);
+  absl::Status GetNextTrajectory(std::vector<tensorflow::Tensor>* data,
+                                 bool* rate_limited = nullptr);
 
   // Cancels all workers and joins their threads. Any blocking or future call
   // to `GetNextTimestep` or `GetNextSample` will return CancelledError without

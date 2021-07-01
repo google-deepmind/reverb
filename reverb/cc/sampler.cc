@@ -139,10 +139,10 @@ absl::Status AsSample(std::vector<SampleStreamResponse> responses,
     }
   }
 
-  *sample = absl::make_unique<Sample>(info.item().key(), info.probability(),
-                                      info.table_size(), info.item().priority(),
-                                      std::move(column_chunks),
-                                      std::move(squeeze_columns));
+  *sample = absl::make_unique<Sample>(
+      info.item().key(), info.probability(), info.table_size(),
+      info.item().priority(), info.rate_limited(), std::move(column_chunks),
+      std::move(squeeze_columns));
 
   return absl::OkStatus();
 }
@@ -178,7 +178,7 @@ absl::Status AsSample(const Table::SampledItem& sampled_item,
   }
   *sample = absl::make_unique<deepmind::reverb::Sample>(
       sampled_item.ref->item.key(), sampled_item.probability,
-      sampled_item.table_size, sampled_item.priority,
+      sampled_item.table_size, sampled_item.priority, sampled_item.rate_limited,
       std::move(column_chunks), std::move(squeeze_columns));
 
   return absl::OkStatus();
@@ -506,11 +506,16 @@ Sampler::Sampler(std::shared_ptr<Table> table, const Options& options,
 Sampler::~Sampler() { Close(); }
 
 absl::Status Sampler::GetNextTimestep(std::vector<tensorflow::Tensor>* data,
-                                      bool* end_of_sequence) {
+                                      bool* end_of_sequence,
+                                      bool* rate_limited) {
   REVERB_RETURN_IF_ERROR(MaybeSampleNext());
   if (!active_sample_->is_composed_of_timesteps()) {
     return absl::InvalidArgumentError(
         "Sampled trajectory cannot be decomposed into timesteps.");
+  }
+
+  if (rate_limited != nullptr) {
+    *rate_limited = active_sample_->rate_limited();
   }
 
   *data = active_sample_->GetNextTimestep();
@@ -529,24 +534,34 @@ absl::Status Sampler::GetNextTimestep(std::vector<tensorflow::Tensor>* data,
   return absl::OkStatus();
 }
 
-absl::Status Sampler::GetNextSample(std::vector<tensorflow::Tensor>* data) {
+absl::Status Sampler::GetNextSample(std::vector<tensorflow::Tensor>* data,
+                                    bool* rate_limited) {
   std::unique_ptr<Sample> sample;
   REVERB_RETURN_IF_ERROR(PopNextSample(&sample));
   REVERB_RETURN_IF_ERROR(sample->AsBatchedTimesteps(data));
   REVERB_RETURN_IF_ERROR(
       ValidateAgainstOutputSpec(*data, ValidationMode::kBatchedTimestep));
 
+  if (rate_limited != nullptr) {
+    *rate_limited = sample->rate_limited();
+  }
+
   absl::WriterMutexLock lock(&mu_);
   if (++returned_ == max_samples_) samples_.Close();
   return absl::OkStatus();
 }
 
-absl::Status Sampler::GetNextTrajectory(std::vector<tensorflow::Tensor>* data) {
+absl::Status Sampler::GetNextTrajectory(std::vector<tensorflow::Tensor>* data,
+                                        bool* rate_limited) {
   std::unique_ptr<Sample> sample;
   REVERB_RETURN_IF_ERROR(PopNextSample(&sample));
   REVERB_RETURN_IF_ERROR(sample->AsTrajectory(data));
   REVERB_RETURN_IF_ERROR(
       ValidateAgainstOutputSpec(*data, ValidationMode::kTrajectory));
+
+  if (rate_limited != nullptr) {
+    *rate_limited = sample->rate_limited();
+  }
 
   absl::WriterMutexLock lock(&mu_);
   if (++returned_ == max_samples_) samples_.Close();
@@ -688,13 +703,14 @@ void Sampler::RunWorker(SamplerWorker* worker) {
 }
 
 Sample::Sample(tensorflow::uint64 key, double probability,
-               tensorflow::int64 table_size, double priority,
+               tensorflow::int64 table_size, double priority, bool rate_limited,
                std::vector<std::vector<tensorflow::Tensor>> column_chunks,
                std::vector<bool> squeeze_columns)
     : key_(key),
       probability_(probability),
       table_size_(table_size),
       priority_(priority),
+      rate_limited_(rate_limited),
       num_timesteps_(-1),
       squeeze_columns_(std::move(squeeze_columns)),
       next_timestep_called_(false) {
@@ -774,6 +790,8 @@ bool Sample::is_composed_of_timesteps() const {
   }
   return true;
 }
+
+bool Sample::rate_limited() const { return rate_limited_; }
 
 absl::Status Sample::AsBatchedTimesteps(std::vector<tensorflow::Tensor>* data) {
   if (next_timestep_called_) {
