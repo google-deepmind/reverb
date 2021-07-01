@@ -133,7 +133,7 @@ class ReverbServiceAsyncImpl : public /* grpc_gen:: */ReverbService::CallbackSer
  private:
   explicit ReverbServiceAsyncImpl(
       std::shared_ptr<Checkpointer> checkpointer = nullptr,
-      bool use_workerless_insert_reactor = false);
+      bool use_workerless_reactors = false);
 
   absl::Status Initialize(std::vector<std::shared_ptr<Table>> tables);
 
@@ -163,8 +163,8 @@ class ReverbServiceAsyncImpl : public /* grpc_gen:: */ReverbService::CallbackSer
   // signature modified.
   absl::uint128 tables_state_id_;
 
-  // Should workerless insert reactor be used.
-  bool use_workerless_insert_reactor_;
+  // Should workerless insert and sample reactors be used.
+  const bool use_workerless_reactors_;
 };
 
 

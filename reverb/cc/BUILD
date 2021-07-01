@@ -488,7 +488,7 @@ reverb_cc_test(
     name = "reverb_service_async_impl_test_table_reactor",
     srcs = ["reverb_service_async_impl_test.cc"],
     args = [
-        "--reverb_insert_worker_num_threads=0",
+        "--reverb_use_workerless_reactors",
         "--disable_forwards_table_error_test",
     ],
     deps = [

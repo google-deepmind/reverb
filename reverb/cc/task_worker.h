@@ -45,7 +45,7 @@ struct SampleTaskInfo {
   absl::Duration timeout;        // Timeout used when running the callback.
   std::shared_ptr<Table> table;  // Table to sample from.
   int32_t flexible_batch_size;     // Batch size for sampling.
-  int32_t samples_fetched_for_active_request;  // Number of samples fetched before
+  int32_t fetched_samples;  // Number of samples fetched before
                                              // this task.
   int32_t requested_samples;  // Number of total samples requested.
   bool retry_on_timeout;    // If it should retry the callback on timeout.
@@ -53,7 +53,11 @@ struct SampleTaskInfo {
     return absl::StrFormat(
         "SampleTask{table: %s, requested_samples: %d, samples_fetched_so_far: "
         "%d}",
-        table->name(), requested_samples, samples_fetched_for_active_request);
+        table->name(), requested_samples, fetched_samples);
+  }
+  int NextSampleSize() const {
+    return std::min<int>(flexible_batch_size,
+                         requested_samples - fetched_samples);
   }
 };
 

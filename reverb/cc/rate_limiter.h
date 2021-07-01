@@ -104,6 +104,11 @@ class RateLimiter {
   bool CanSample(absl::Mutex* mu, int num_samples) const
       ABSL_SHARED_LOCKS_REQUIRED(mu);
 
+  // Returns true iff the current state allows for an item to be sampled.
+  // When returning true it increases sampling counter and the caller
+  // is supposed to perform a single item sampling.
+  bool MaybeCommitSample(absl::Mutex* mu) ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu);
+
   // Returns true iff the current state would allow for `num_inserts` to be
   // inserted. Dies if `num_inserts` is < 1.
   bool CanInsert(absl::Mutex* mu, int num_inserts) const

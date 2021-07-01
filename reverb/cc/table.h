@@ -78,8 +78,10 @@ struct TableItem {
 //
 class Table {
  public:
+  struct SampleRequest;
   using Key = ItemSelector::Key;
   using Item = TableItem;
+  using SamplingCallback = std::function<void(std::unique_ptr<SampleRequest>)>;
 
   // Used as the return of Sample(). Note that this returns the probability of
   // an item instead as opposed to the raw priority value.
@@ -91,6 +93,14 @@ class Table {
     // referenced Item, as Item might be modified in the background.
     double priority;
     int32_t times_sampled;
+  };
+
+  // Represents asynchronous sampling request processed by the table worker.
+  struct SampleRequest {
+    std::vector<SampledItem> samples;
+    absl::Time deadline;
+    absl::Status status;
+    std::weak_ptr<SamplingCallback> on_batch_done;
   };
 
   // Used when checkpointing to ensure that none of the chunks referenced by the
@@ -175,6 +185,15 @@ class Table {
   // `timeout`, instead of sampling a `DeadlineExceeded` status is returned.
   absl::Status Sample(SampledItem* item,
                       absl::Duration timeout = kDefaultTimeout);
+
+  // Enques an asynchronous sampling performed by the table worker.
+  // All queued sampling operations are a subject to the table's sampling
+  // strategy defined by the `rate_limiter_`. Sampled element which has reached
+  // `max_times_sampled_` are deleted from the table, so it cannot be
+  // sampled again.
+  void EnqueSampleRequest(
+      int num_samples,
+      std::weak_ptr<SamplingCallback> callback, absl::Duration timeout);
 
   // Attempts to sample up to `batch_size` items (without releasing the lock).
   //
@@ -302,11 +321,16 @@ class Table {
       std::initializer_list<TableExtension*> exclude = {})
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_);
 
+  // Used by the table worker to perform sampling.
+  absl::Status SampleInternal(SampledItem* result,
+                              std::vector<std::shared_ptr<Item>>* to_delete)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_);
+
   // Performs batched insertion of `pending_inserts` into the table. to_delete
   // is filled with elements to be deleted (once table lock is not held).
-  absl::Status BatchInsertOrAssign(
-      std::vector<std::shared_ptr<Item>>* pending_inserts,
-      std::vector<std::shared_ptr<Item>>* to_delete);
+  absl::Status InsertOrAssignInternal(
+      std::shared_ptr<Item> item, std::vector<std::shared_ptr<Item>>* to_delete)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_);
 
   // Deletes the item associated with the key from `data_`, `sampler_` and
   // `remover_`. Ignores the key if it cannot be found.
@@ -366,11 +390,15 @@ class Table {
   // Optional signature for data in the table.
   const absl::optional<tensorflow::StructuredValue> signature_;
 
-  // Worker thread which processes asynchronous insert requests to the table.
-  std::unique_ptr<internal::Thread> insert_worker_;
+  // Worker thread which processes asynchronous insert and sample requests.
+  std::unique_ptr<internal::Thread> table_worker_;
 
   // Pending asynchronous insert requests to the table.
   std::vector<std::shared_ptr<Item>> pending_inserts_
+      ABSL_GUARDED_BY(worker_mu_);
+
+  // Pending sample requests to the table (not yet picked up by the worker).
+  std::vector<std::unique_ptr<SampleRequest>> pending_sampling_
       ABSL_GUARDED_BY(worker_mu_);
 
   // Items collected by the worker for asynchronous deletion by the clients.

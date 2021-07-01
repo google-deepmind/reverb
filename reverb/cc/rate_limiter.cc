@@ -156,6 +156,18 @@ bool RateLimiter::CanSample(absl::Mutex*, int num_samples) const {
   return diff >= min_diff_;
 }
 
+bool RateLimiter::MaybeCommitSample(absl::Mutex* mu) {
+  if (!CanSample(mu, 1)) {
+    return false;
+  }
+  // Create and complete the event to register that the sample was completed
+  // without any rate limiting.
+  sample_stats_.CreateEvent(mu);
+  samples_++;
+  MaybeSignalCondVars(mu);
+  return true;
+}
+
 bool RateLimiter::CanInsert(absl::Mutex*, int num_inserts) const {
   REVERB_CHECK_GT(num_inserts, 0);
   // Until the min size is reached inserts are free to progress.

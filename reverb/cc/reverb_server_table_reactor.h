@@ -41,7 +41,7 @@ namespace reverb {
 //
 // Note that writes to the stream have compression disabled. This reactor is
 // supposed to send already compressed data (or very small messages).
-template <class Request, class Response>
+template <class Request, class Response, class ResponseCtx>
 class ReverbServerTableReactor
     : public grpc::ServerBidiReactor<Request, Response> {
 
@@ -75,7 +75,7 @@ class ReverbServerTableReactor
 
   // Adds another response to be sent. Can be called anytime, but there is no
   // guarantee the response will actually get sent (due to errors for instance).
-  void EnqueueResponse(Response response);
+  void EnqueueResponse(ResponseCtx response);
 
   // Finishes the reactor. It fails if any of the conditions to finish the
   // reactor doesn't hold. The conditions are:
@@ -106,7 +106,7 @@ class ReverbServerTableReactor
   absl::Mutex mu_;
 
   // Queued responses to be sent to the client.
-  std::queue<Response> responses_to_send_ ABSL_GUARDED_BY(mu_);
+  std::queue<ResponseCtx> responses_to_send_ ABSL_GUARDED_BY(mu_);
 
   // When false, it means that the client has notified that it is not writing
   // anymore, or that the stream has been finished/cancelled.
@@ -124,9 +124,9 @@ class ReverbServerTableReactor
 /*****************************************************************************
  * Implementation of the template                                            *
  *****************************************************************************/
-template <class Request, class Response>
-void ReverbServerTableReactor<Request, Response>::EnqueueResponse(
-    Response response) {
+template <class Request, class Response, class ResponseCtx>
+void ReverbServerTableReactor<Request, Response, ResponseCtx>::EnqueueResponse(
+    ResponseCtx response) {
   bool start_send = responses_to_send_.empty();
   responses_to_send_.push(std::move(response));
   if (start_send) {
@@ -134,19 +134,21 @@ void ReverbServerTableReactor<Request, Response>::EnqueueResponse(
   }
 }
 
-template <class Request, class Response>
-void ReverbServerTableReactor<Request, Response>::MaybeSendNextResponse() {
-  if (responses_to_send_.empty()) {
+template <class Request, class Response, class ResponseCtx>
+void ReverbServerTableReactor<Request, Response,
+                              ResponseCtx>::MaybeSendNextResponse() {
+  if (responses_to_send_.empty() || is_finished_) {
     return;
   }
   grpc::WriteOptions options;
   options.set_no_compression();
   grpc::ServerBidiReactor<Request, Response>::StartWrite(
-      &responses_to_send_.front(), options);
+      &responses_to_send_.front().payload, options);
 }
 
-template <class Request, class Response>
-void ReverbServerTableReactor<Request, Response>::OnReadDone(bool ok) {
+template <class Request, class Response, class ResponseCtx>
+void ReverbServerTableReactor<Request, Response, ResponseCtx>::OnReadDone(
+    bool ok) {
   // Read until the client sends a HalfClose or the stream is cancelled.
   absl::MutexLock lock(&mu_);
 
@@ -170,8 +172,9 @@ void ReverbServerTableReactor<Request, Response>::OnReadDone(bool ok) {
                                 SetReactorAsFinished);
 }
 
-template <class Request, class Response>
-void ReverbServerTableReactor<Request, Response>::OnWriteDone(bool ok) {
+template <class Request, class Response, class ResponseCtx>
+void ReverbServerTableReactor<Request, Response, ResponseCtx>::OnWriteDone(
+    bool ok) {
   absl::MutexLock lock(&mu_);
   if (is_finished_) {
     REVERB_LOG(REVERB_ERROR)
@@ -198,8 +201,8 @@ void ReverbServerTableReactor<Request, Response>::OnWriteDone(bool ok) {
   MaybeSendNextResponse();
 }
 
-template <class Request, class Response>
-void ReverbServerTableReactor<Request, Response>::OnDone() {
+template <class Request, class Response, class ResponseCtx>
+void ReverbServerTableReactor<Request, Response, ResponseCtx>::OnDone() {
   {
     absl::MutexLock lock(&mu_);
     still_reading_ = false;
@@ -208,24 +211,25 @@ void ReverbServerTableReactor<Request, Response>::OnDone() {
   delete this;
 }
 
-template <class Request, class Response>
-void ReverbServerTableReactor<Request, Response>::OnCancel() {
+template <class Request, class Response, class ResponseCtx>
+void ReverbServerTableReactor<Request, Response, ResponseCtx>::OnCancel() {
   absl::MutexLock lock(&mu_);
   still_reading_ = false;
   is_cancelled_ = true;
 }
 
-template <class Request, class Response>
-void ReverbServerTableReactor<Request, Response>::MaybeStartRead() {
+template <class Request, class Response, class ResponseCtx>
+void ReverbServerTableReactor<Request, Response,
+                              ResponseCtx>::MaybeStartRead() {
   absl::MutexLock lock(&mu_);
   if (still_reading_ && !is_cancelled_ && !is_finished_) {
     grpc::ServerBidiReactor<Request, Response>::StartRead(&request_);
   }
 }
 
-template <class Request, class Response>
-void ReverbServerTableReactor<Request, Response>::SetReactorAsFinished(
-    grpc::Status status)
+template <class Request, class Response, class ResponseCtx>
+void ReverbServerTableReactor<
+    Request, Response, ResponseCtx>::SetReactorAsFinished(grpc::Status status)
     ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_) {
   REVERB_CHECK(!is_finished_);
 
@@ -234,13 +238,13 @@ void ReverbServerTableReactor<Request, Response>::SetReactorAsFinished(
   REVERB_CHECK(responses_to_send_.empty() || !status.ok());
 
   // Once the reactor is finished, we won't send any more responses.
-  std::queue<Response>().swap(responses_to_send_);
+  std::queue<ResponseCtx>().swap(responses_to_send_);
   is_finished_ = true;
   grpc::ServerBidiReactor<Request, Response>::Finish(status);
 }
 
-template <class Request, class Response>
-bool ReverbServerTableReactor<Request, Response>::ShouldFinish()
+template <class Request, class Response, class ResponseCtx>
+bool ReverbServerTableReactor<Request, Response, ResponseCtx>::ShouldFinish()
     ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_) {
   return responses_to_send_.empty() && !still_reading_ && !is_finished_;
 }

@@ -15,6 +15,7 @@
 #include "reverb/cc/rate_limiter.h"
 
 #include <memory>
+#include <string>
 #include <vector>
 
 #include "gmock/gmock.h"
@@ -214,6 +215,28 @@ TEST(RateLimiterTest, CanSample) {
   EXPECT_TRUE(limiter->CanSample(&mu, 1));   // diff = 0.
   EXPECT_TRUE(limiter->CanSample(&mu, 2));   // diff = -1.0.
   EXPECT_FALSE(limiter->CanSample(&mu, 3));  // diff = -2.0.
+}
+
+TEST(RateLimiterTest, MaybeCommitSample) {
+  auto limiter =
+      std::make_shared<RateLimiter>(/*samples_per_insert=*/1.0,
+                                    /*min_size_to_sample=*/1, /*min_diff=*/-1.0,
+                                    /*max_diff=*/1.0);
+  auto table = MakeTable("table", limiter);
+  absl::Mutex mu;
+  absl::WriterMutexLock lock(&mu);
+
+  // Min size should not have been reached so no samples should be allowed.
+  EXPECT_FALSE(limiter->MaybeCommitSample(&mu));
+
+  // Insert a single item.
+  REVERB_EXPECT_OK(limiter->AwaitCanInsert(&mu, kTimeout));
+  limiter->Insert(&mu);
+
+  // It should now be possible to sample at most two items.
+  EXPECT_TRUE(limiter->MaybeCommitSample(&mu));   // diff = 0.
+  EXPECT_TRUE(limiter->MaybeCommitSample(&mu));   // diff = -1.0.
+  EXPECT_FALSE(limiter->MaybeCommitSample(&mu));  // diff = -2.0.
 }
 
 TEST(RateLimiterTest, CanInsert) {

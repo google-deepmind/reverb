@@ -49,10 +49,15 @@
 #include "reverb/cc/support/uint128.h"
 #include "reverb/cc/support/unbounded_queue.h"
 
+ABSL_FLAG(
+    bool, reverb_use_workerless_reactors, false,
+    "Whether to use workerless reactors. `reverb_insert_worker_num_threads` "
+    "and `reverb_sample_worker_num_threads` have no effect when this flag is "
+    "set to true.");
+
 // TODO(b/168080187): Benchmark to find good defaults.
 ABSL_FLAG(size_t, reverb_insert_worker_num_threads, 32,
-          "Number of threads that will run insertion tasks. When set to 0 "
-          "per-table worker approach is used instead.");
+          "Number of threads that will run insertion tasks.");
 ABSL_FLAG(size_t, reverb_sample_worker_num_threads, 32,
           "Number of threads that will run sample tasks.");
 ABSL_FLAG(size_t, reverb_insert_worker_max_queue_size_to_warn, 99000,
@@ -82,9 +87,9 @@ inline grpc::Status Internal(const std::string& message) {
 
 ReverbServiceAsyncImpl::ReverbServiceAsyncImpl(
     std::shared_ptr<Checkpointer> checkpointer,
-    bool use_workerless_insert_reactor)
+    bool use_workerless_reactors)
     : checkpointer_(std::move(checkpointer)),
-      use_workerless_insert_reactor_(use_workerless_insert_reactor) {}
+      use_workerless_reactors_(use_workerless_reactors) {}
 
 absl::Status ReverbServiceAsyncImpl::Create(
     std::vector<std::shared_ptr<Table>> tables,
@@ -93,7 +98,7 @@ absl::Status ReverbServiceAsyncImpl::Create(
   // Can't use make_unique because it can't see the Impl's private constructor.
   auto new_service = std::unique_ptr<ReverbServiceAsyncImpl>(
       new ReverbServiceAsyncImpl(std::move(checkpointer),
-      absl::GetFlag(FLAGS_reverb_insert_worker_num_threads) <= 0));
+      absl::GetFlag(FLAGS_reverb_use_workerless_reactors)));
   REVERB_RETURN_IF_ERROR(new_service->Initialize(std::move(tables)));
   std::swap(new_service, *service);
   return absl::OkStatus();
@@ -137,15 +142,15 @@ absl::Status ReverbServiceAsyncImpl::Initialize(
     tables_[name] = std::move(table);
   }
 
-  if (!use_workerless_insert_reactor_) {
+  if (!use_workerless_reactors_) {
     insert_worker_ = absl::make_unique<InsertWorker>(
         absl::GetFlag(FLAGS_reverb_insert_worker_num_threads),
         absl::GetFlag(FLAGS_reverb_insert_worker_max_queue_size_to_warn),
         "InsertWorker");
+    sample_worker_ = absl::make_unique<SampleWorker>(
+        absl::GetFlag(FLAGS_reverb_sample_worker_num_threads), -1,
+        "SampleWorker");
   }
-  sample_worker_ = absl::make_unique<SampleWorker>(
-      absl::GetFlag(FLAGS_reverb_sample_worker_num_threads), -1,
-      "SampleWorker");
 
   tables_state_id_ = absl::MakeUint128(absl::Uniform<uint64_t>(rnd_),
                                        absl::Uniform<uint64_t>(rnd_));
@@ -326,7 +331,7 @@ ReverbServiceAsyncImpl::InsertStream(grpc::CallbackServerContext* context) {
   };
 
   class WorkerlessInsertReactor : public ReverbServerTableReactor<
-      InsertStreamRequest, InsertStreamResponse> {
+      InsertStreamRequest, InsertStreamResponse, InsertStreamResponseCtx> {
    public:
     WorkerlessInsertReactor(ChunkStore* chunk_store,
                             ReverbServiceAsyncImpl* server)
@@ -373,8 +378,8 @@ ReverbServiceAsyncImpl::InsertStream(grpc::CallbackServerContext* context) {
         StartRead(&request_);
       }
       if (send_confirmation) {
-        InsertStreamResponse response;
-        response.add_keys(key);
+        InsertStreamResponseCtx response;
+        response.payload.add_keys(key);
         EnqueueResponse(std::move(response));
       }
       return grpc::Status::OK;
@@ -454,7 +459,7 @@ ReverbServiceAsyncImpl::InsertStream(grpc::CallbackServerContext* context) {
     std::shared_ptr<std::function<void()>> continue_inserts_;
   };
 
-  if (use_workerless_insert_reactor_) {
+  if (use_workerless_reactors_) {
     return new WorkerlessInsertReactor(&chunk_store_, this);
   } else {
     return new InsertReactor(&chunk_store_, this);
@@ -635,7 +640,7 @@ ReverbServiceAsyncImpl::SampleStream(grpc::CallbackServerContext* context) {
             grpc::StatusCode::INTERNAL,
             "Starting a new Sample when the previous one was not completed.");
       }
-      samples_fetched_for_active_request_ = 0;
+      fetched_samples_ = 0;
       if (request->num_samples() <= 0) {
         return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT,
                             absl::StrCat("`num_samples` must be > 0 (got",
@@ -658,8 +663,8 @@ ReverbServiceAsyncImpl::SampleStream(grpc::CallbackServerContext* context) {
     }
 
     bool ShouldScheduleAnotherTask(const SampleTaskInfo& task_info) override {
-      if (samples_fetched_for_active_request_ ==
-          task_info.requested_samples) {  // It's time to process a new request.
+      if (fetched_samples_ == task_info.requested_samples) {
+        // It's time to process a new request.
         return false;
       }
       return true;
@@ -686,7 +691,7 @@ ReverbServiceAsyncImpl::SampleStream(grpc::CallbackServerContext* context) {
           request->flexible_batch_size() == Sampler::kAutoSelectValue
               ? task_info->table->DefaultFlexibleBatchSize()
               : request->flexible_batch_size();
-      task_info->samples_fetched_for_active_request = 0;
+      task_info->fetched_samples = 0;
       task_info->requested_samples = request->num_samples();
       return grpc::Status::OK;
     }
@@ -696,8 +701,7 @@ ReverbServiceAsyncImpl::SampleStream(grpc::CallbackServerContext* context) {
         .timeout = old_task_info.timeout,
         .table = old_task_info.table,
         .flexible_batch_size = old_task_info.flexible_batch_size,
-        .samples_fetched_for_active_request =
-            samples_fetched_for_active_request_,
+        .fetched_samples = fetched_samples_,
         .requested_samples = old_task_info.requested_samples,
         .retry_on_timeout = old_task_info.retry_on_timeout,
       };
@@ -729,16 +733,13 @@ ReverbServiceAsyncImpl::SampleStream(grpc::CallbackServerContext* context) {
    private:
     absl::Status SampleBatch(std::vector<Table::SampledItem>* samples,
                              const SampleTaskInfo& task_info) {
-      int32_t max_batch_size =
-          std::min<int32_t>(task_info.flexible_batch_size,
-                          task_info.requested_samples -
-                              task_info.samples_fetched_for_active_request);
+      const int32_t max_batch_size = task_info.NextSampleSize();
       if (auto status = task_info.table->SampleFlexibleBatch(
               samples, max_batch_size, task_info.timeout);
           !status.ok()) {
         return status;
       }
-      samples_fetched_for_active_request_ += samples->size();
+      fetched_samples_ += samples->size();
       return absl::OkStatus();
     }
 
@@ -780,10 +781,154 @@ ReverbServiceAsyncImpl::SampleStream(grpc::CallbackServerContext* context) {
       }
     }
     // not neeed for thread safety (only one task active, like the chunks stuff)
-    int samples_fetched_for_active_request_;
+    int fetched_samples_;
     ReverbServiceAsyncImpl* server_;
   };
-  return new SampleReactor(this);
+
+  // How often to check whether callback execution finished before deleting
+  // reactor.
+  static constexpr absl::Duration kCallbackWaitTime = absl::Milliseconds(1);
+
+  class WorkerlessSampleReactor : public ReverbServerTableReactor<
+      SampleStreamRequest, SampleStreamResponse, SampleStreamResponseCtx> {
+   public:
+    using SamplingCallback =
+        std::function<void(std::unique_ptr<Table::SampleRequest>)>;
+
+    WorkerlessSampleReactor(ReverbServiceAsyncImpl* server)
+        : ReverbServerTableReactor(),
+          server_(server),
+          sampling_done_(std::make_shared<SamplingCallback>(
+              [&](std::unique_ptr<Table::SampleRequest> sample) {
+                if (!sample->status.ok()) {
+                  absl::MutexLock lock(&mu_);
+                  SetReactorAsFinished(ToGrpcStatus(sample->status));
+                  return;
+                }
+                task_info_.fetched_samples += sample->samples.size();
+                for (auto& sample : sample->samples) {
+                  ProcessSample(&sample);
+                }
+                const int next_batch_size = task_info_.NextSampleSize();
+                if (next_batch_size == 0) {
+                  // Current request is finalized, ask for another one.
+                  MaybeStartRead();
+                } else {
+                  task_info_.table->EnqueSampleRequest(next_batch_size,
+                      sampling_done_, task_info_.timeout);
+                }
+              })) {
+      MaybeStartRead();
+    }
+
+    ~WorkerlessSampleReactor() {
+      // As callback references Reactor's memory make sure it can't be executed
+      // anymore.
+      std::weak_ptr<SamplingCallback> weak_ptr = sampling_done_;
+      sampling_done_.reset();
+      while (weak_ptr.lock()) {
+        absl::SleepFor(kCallbackWaitTime);
+      }
+    }
+
+    grpc::Status ProcessIncomingRequest(SampleStreamRequest* request) override {
+      if (request->num_samples() <= 0) {
+        return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT,
+                            absl::StrCat("`num_samples` must be > 0 (got",
+                                         request->num_samples(), ")."));
+      }
+      if (request->flexible_batch_size() <= 0 &&
+          request->flexible_batch_size() != Sampler::kAutoSelectValue) {
+        return grpc::Status(
+            grpc::StatusCode::INVALID_ARGUMENT,
+            absl::StrCat("`flexible_batch_size` must be > 0 or ",
+                         Sampler::kAutoSelectValue, " (for auto tuning). Got",
+                         request->flexible_batch_size(), "."));
+      }
+      if (request->has_rate_limiter_timeout() &&
+          request->rate_limiter_timeout().milliseconds() > 0) {
+        task_info_.timeout =
+            absl::Milliseconds(request->rate_limiter_timeout().milliseconds());
+      } else {
+        task_info_.timeout = absl::InfiniteDuration();
+      }
+
+      task_info_.table = server_->TableByName(request->table());
+      if (task_info_.table == nullptr) {
+        return TableNotFound(request->table());
+      }
+      task_info_.flexible_batch_size =
+          request->flexible_batch_size() == Sampler::kAutoSelectValue
+              ? task_info_.table->DefaultFlexibleBatchSize()
+              : request->flexible_batch_size();
+      task_info_.fetched_samples = 0;
+      task_info_.requested_samples = request->num_samples();
+      task_info_.table->EnqueSampleRequest(task_info_.NextSampleSize(),
+          sampling_done_, task_info_.timeout);
+      return grpc::Status::OK;
+    }
+
+   private:
+    void ProcessSample(Table::SampledItem* sample) {
+      SampleStreamResponseCtx response(sample->ref);
+      for (int i = 0; i < sample->ref->chunks.size(); i++) {
+        response.payload.set_end_of_sequence(i + 1 ==
+                                              sample->ref->chunks.size());
+
+        // Attach the info to the first message.
+        if (i == 0) {
+          auto* item = response.payload.mutable_info()->mutable_item();
+          auto& sample_item = sample->ref->item;
+          item->set_key(sample_item.key());
+          item->set_table(sample_item.table());
+          item->set_priority(sample->priority);
+          item->set_times_sampled(sample->times_sampled);
+          // ~SampleStreamResponseCtx releases these fields from the proto
+          // upon destruction of the item.
+          item->/*unsafe_arena_*/set_allocated_inserted_at(
+              sample_item.mutable_inserted_at());
+          item->/*unsafe_arena_*/set_allocated_flat_trajectory(
+              sample_item.mutable_flat_trajectory());
+          response.payload.mutable_info()->set_probability(
+              sample->probability);
+          response.payload.mutable_info()->set_table_size(sample->table_size);
+        }
+
+        response.payload.mutable_data()->UnsafeArenaAddAllocated(
+            const_cast<ChunkData*>(&sample->ref->chunks[i]->data()));
+
+        if (i < sample->ref->chunks.size() - 1 &&
+            response.payload.ByteSizeLong() < kMaxSampleResponseSizeBytes) {
+          // Response doesn't exceed the size limit yet, so append mode chunks.
+          continue;
+        }
+        // Response exceeds the size limit, so enqueue it for sending to the
+        // client and start constructing a new message referencing sampled item.
+        // It will contain remaining chunks of the item which didn't fit into
+        // the current response.
+        {
+          absl::MutexLock lock(&mu_);
+          EnqueueResponse(std::move(response));
+        }
+        response = SampleStreamResponseCtx(sample->ref);
+      }
+    }
+
+    // Used to lookup tables when inserting items.
+    const ReverbServiceAsyncImpl* server_;
+
+    // Context of the current sample request.
+    SampleTaskInfo task_info_;
+
+    // Callback called by the table worker when current sampling batch is done.
+    std::shared_ptr<SamplingCallback> sampling_done_;
+  };
+
+  if (use_workerless_reactors_) {
+    return new WorkerlessSampleReactor(this);
+  } else {
+    return new SampleReactor(this);
+  }
 }
 
 std::shared_ptr<Table> ReverbServiceAsyncImpl::TableByName(
