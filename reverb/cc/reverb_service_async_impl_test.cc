@@ -50,10 +50,6 @@
 #include "tensorflow/core/platform/env.h"
 #include "tensorflow/core/protobuf/struct.pb.h"
 
-ABSL_FLAG(bool, disable_forwards_table_error_test, false,
-          "Should the test be disabled.");
-
-
 namespace deepmind {
 namespace reverb {
 namespace {
@@ -395,44 +391,6 @@ TEST(ReverbServiceAsyncImplTest, InsertStreamRespondsWithItemKeys) {
   REVERB_EXPECT_OK(stream->Finish());
   EXPECT_EQ(responses[0].keys(0), first_id);
   EXPECT_EQ(responses[1].keys(0), first_id + 2);
-}
-
-TEST(ReverbServiceAsyncImplTest, InsertStreamForwardsTableError) {
-  if (absl::GetFlag(FLAGS_disable_forwards_table_error_test)) {
-    return;
-  }
-
-  std::unique_ptr<ReverbServiceAsyncImpl> service = MakeService(
-      /*max_size=*/10,
-      /*checkpointer=*/nullptr,
-      /*tables=*/
-      {std::make_shared<Table>(
-          /*name=*/"fail_table",
-          /*sampler=*/
-          absl::make_unique<FakeSelector>(std::queue<absl::Status>({
-              absl::PermissionDeniedError("first"),
-              absl::InternalError("second"),
-          })),
-          /*remover=*/absl::make_unique<FifoSelector>(),
-          /*max_size=*/10,
-          /*max_times_sampled=*/0,
-          /*rate_limiter=*/MakeLimiter())});
-  std::unique_ptr<grpc::Server> server(
-      grpc::ServerBuilder().RegisterService(service.get()).BuildAndStart());
-  /* grpc_gen:: */ReverbService::Stub stub(
-      server->InProcessChannel(grpc::ChannelArguments()));
-
-  grpc::ClientContext context;
-  auto stream = stub.InsertStream(&context);
-  ASSERT_TRUE(stream->Write(InsertChunkRequest(1)));
-  // This will trigger an error.
-  ASSERT_TRUE(stream->Write(InsertItemRequest("fail_table", {1}, {1})));
-  // This will be ignored.
-  stream->Write(InsertItemRequest("fail_table", {1}, {1}));
-
-  // The first error should be returned.
-  auto status = stream->Finish();
-  EXPECT_EQ(status.error_code(), grpc::StatusCode::PERMISSION_DENIED);
 }
 
 TEST(ReverbServiceAsyncImplTest, SampleBlocksUntilEnoughInserts) {

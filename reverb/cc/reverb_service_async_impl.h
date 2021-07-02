@@ -132,16 +132,12 @@ class ReverbServiceAsyncImpl : public /* grpc_gen:: */ReverbService::CallbackSer
 
  private:
   explicit ReverbServiceAsyncImpl(
-      std::shared_ptr<Checkpointer> checkpointer = nullptr,
-      bool use_workerless_reactors = false);
+      std::shared_ptr<Checkpointer> checkpointer = nullptr);
 
   absl::Status Initialize(std::vector<std::shared_ptr<Table>> tables);
 
   // Lookups the table for a given name. Returns nullptr if not found.
   std::shared_ptr<Table> TableByName(absl::string_view name) const;
-
-  InsertWorker* GetInsertWorker() const;
-  SampleWorker* GetSampleWorker() const;
 
   // Checkpointer used to restore state in the constructor and to save data
   // when `Checkpoint` is called. Note that if `checkpointer_` is nullptr then
@@ -153,18 +149,12 @@ class ReverbServiceAsyncImpl : public /* grpc_gen:: */ReverbService::CallbackSer
 
   // Priority tables. Must be destroyed after `chunk_store_`.
   internal::flat_hash_map<std::string, std::shared_ptr<Table>> tables_;
-  // Worker that runs InsertCallbacks.
-  std::unique_ptr<InsertWorker> insert_worker_;
-  std::unique_ptr<SampleWorker> sample_worker_;
 
   absl::BitGen rnd_;
 
   // A new id must be generated whenever a table is added, deleted, or has its
   // signature modified.
   absl::uint128 tables_state_id_;
-
-  // Should workerless insert and sample reactors be used.
-  const bool use_workerless_reactors_;
 };
 
 
