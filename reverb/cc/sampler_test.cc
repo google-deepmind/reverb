@@ -67,8 +67,7 @@ class FakeStream
 
   bool Read(SampleStreamResponse* response) override {
     if (!responses_.empty() && status_.ok()) {
-      *response->mutable_data() = responses_.front().data();
-      *response->mutable_info() = responses_.front().info();
+      *response = responses_.front();
       responses_.erase(responses_.begin());
       return true;
     }
@@ -181,6 +180,7 @@ SampleStreamResponse MakeResponse(int item_length, bool delta_encode = false,
   REVERB_CHECK_LE(item_length + offset, data_length);
 
   SampleStreamResponse response;
+  response.set_end_of_sequence(true);
   auto* column = response.mutable_info()
                      ->mutable_item()
                      ->mutable_flat_trajectory()

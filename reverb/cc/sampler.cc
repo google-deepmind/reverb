@@ -50,25 +50,6 @@ namespace deepmind {
 namespace reverb {
 namespace {
 
-inline bool SampleIsDone(const std::vector<SampleStreamResponse>& sample) {
-  if (sample.empty()) return false;
-
-  internal::flat_hash_set<uint64_t> received_chunks;
-  for (const auto& response : sample) {
-    for (const auto& chunk : response.data()) {
-      received_chunks.insert(chunk.chunk_key());
-    }
-  }
-
-  for (uint64_t key :
-       internal::GetChunkKeys(sample.front().info().item().flat_trajectory())) {
-    if (!received_chunks.contains(key)) {
-      return false;
-    }
-  }
-  return true;
-}
-
 template <typename T>
 tensorflow::Tensor InitializeTensor(T value, int64_t length) {
   tensorflow::Tensor tensor(tensorflow::DataTypeToEnum<T>::v(),
@@ -242,35 +223,35 @@ class GrpcSamplerWorker : public SamplerWorker {
         return {num_samples_returned, FromGrpcStatus(stream->Finish())};
       }
 
-      for (int64_t i = 0; i < request.num_samples(); i++) {
+      for (int64_t sampled = 0; sampled < request.num_samples();) {
         std::vector<SampleStreamResponse> responses;
-        while (!SampleIsDone(responses)) {
-          SampleStreamResponse response;
-          if (!stream->Read(&response)) {
-            auto status = FromGrpcStatus(stream->Finish());
-            if (errors::IsRateLimiterTimeout(status) &&
-                queue->num_waiting_to_pop() < 1) {
-              // The rate limiter timed out but no one is waiting for new data,
-              // so we can exit with an OkStatus and get restarted with a new
-              // stream.
-              return {num_samples_returned, absl::OkStatus()};
-            } else {
-              return {num_samples_returned, status};
-            }
+        SampleStreamResponse response;
+        if (!stream->Read(&response)) {
+          auto status = FromGrpcStatus(stream->Finish());
+          if (errors::IsRateLimiterTimeout(status) &&
+              queue->num_waiting_to_pop() < 1) {
+            // The rate limiter timed out but no one is waiting for new data,
+            // so we can exit with an OkStatus and get restarted with a new
+            // stream.
+            return {num_samples_returned, absl::OkStatus()};
+          } else {
+            return {num_samples_returned, status};
           }
-          responses.push_back(std::move(response));
         }
-
-        std::unique_ptr<Sample> sample;
-        auto status = AsSample(std::move(responses), &sample);
-        if (!status.ok()) {
-          return {num_samples_returned, status};
+        responses.push_back(std::move(response));
+        if (responses.back().end_of_sequence()) {
+          std::unique_ptr<Sample> sample;
+          auto status = AsSample(std::move(responses), &sample);
+          if (!status.ok()) {
+            return {num_samples_returned, status};
+          }
+          if (!queue->Push(std::move(sample))) {
+            return {num_samples_returned,
+                    absl::CancelledError("`Close` called on Sampler")};
+          }
+          ++num_samples_returned;
+          ++sampled;
         }
-        if (!queue->Push(std::move(sample))) {
-          return {num_samples_returned,
-                  absl::CancelledError("`Close` called on Sampler")};
-        }
-        ++num_samples_returned;
       }
     }
 
