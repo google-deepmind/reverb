@@ -239,7 +239,7 @@ calls are blocked until there is at least one item.
 reverb.Table(
     name='my_queue',
     sampler=reverb.selectors.Fifo(),
-    removers=reverb.selectors.Fifo(),
+    remover=reverb.selectors.Fifo(),
     max_size=1000,
     max_times_sampled=1,
     rate_limiter=reverb.rate_limiters.Queue(size=1000),
