@@ -228,15 +228,14 @@ TEST(TableTest, SampleFlexibleBatchRequireEmptyOutputVector) {
 TEST(TableTest, SampleSetsRateLimitedIfBlocked) {
   auto table = MakeUniformTable("table");
 
-  absl::Notification thread_started;
   Table::SampledItem rate_limited_item;
   auto thread = internal::StartThread("sample", [&] {
-    thread_started.Notify();
     REVERB_ASSERT_OK(table->Sample(&rate_limited_item, kTimeout));
   });
 
-  thread_started.WaitForNotificationWithTimeout(kTimeout);
-  absl::SleepFor(kTimeout / 2);
+  while (table->info().rate_limiter_info().sample_stats().pending() == 0) {
+    absl::SleepFor(absl::Milliseconds(1));
+  }
   REVERB_ASSERT_OK(table->InsertOrAssign(MakeItem(1, 1)));
   thread = nullptr;  // Join thread so sample is completed.
   EXPECT_TRUE(rate_limited_item.rate_limited);
@@ -259,13 +258,20 @@ TEST(TableTest, EnqueSampleRequestSetsRateLimitedIfBlocked) {
       });
 
   table->EnqueSampleRequest(1, first_callback, kTimeout);
-  absl::SleepFor(kTimeout / 2);
+
+  // Wait until the worker has picked up the request and gone back to since it
+  // was unable to do anything.
+  while (table->num_pending_async_sample_requests() ||
+         !table->worker_is_sleeping()) {
+    absl::SleepFor(absl::Milliseconds(1));
+  }
 
   bool can_insert_more;
   REVERB_ASSERT_OK(table->InsertOrAssignAsync(
       MakeItem(1, 1), &can_insert_more,
       std::make_shared<std::function<void(const absl::Status&)>>(
           [](absl::Status) {})));
+  ASSERT_TRUE(can_insert_more);
   ASSERT_TRUE(first_done.WaitForNotificationWithTimeout(kTimeout));
   EXPECT_TRUE(rate_limited_item.rate_limited);
 

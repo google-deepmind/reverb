@@ -105,7 +105,7 @@ absl::Status RateLimiter::AwaitCanInsert(absl::Mutex* mu,
       }
     }
   }
-  REVERB_RETURN_IF_ERROR(CheckIfCancelled());
+  REVERB_RETURN_IF_ERROR(CheckIfCancelled(mu));
   return absl::OkStatus();
 }
 
@@ -140,7 +140,7 @@ absl::Status RateLimiter::AwaitAndFinalizeSample(absl::Mutex* mu,
     }
   }
 
-  REVERB_RETURN_IF_ERROR(CheckIfCancelled());
+  REVERB_RETURN_IF_ERROR(CheckIfCancelled(mu));
 
   samples_++;
   MaybeSignalCondVars(mu);
@@ -198,7 +198,7 @@ RateLimiterCheckpoint RateLimiter::CheckpointReader(absl::Mutex*) const {
   return checkpoint;
 }
 
-absl::Status RateLimiter::CheckIfCancelled() const {
+absl::Status RateLimiter::CheckIfCancelled(absl::Mutex*) const {
   if (!cancelled_) return absl::OkStatus();
   return absl::CancelledError("RateLimiter has been cancelled");
 }

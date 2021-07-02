@@ -290,18 +290,22 @@ void Table::EnableTableWorker(std::shared_ptr<TaskExecutor> executor) {
         }
         auto deadline = absl::Now();
         auto wakeup = absl::InfiniteFuture();
-        if (!rate_limiter_->CheckIfCancelled().ok()) {
-          // We need to terminate all in-flight operations, so collect requests
-          // with the deadline smaller than InfiniteFuture.
-          deadline = absl::InfiniteFuture();
-          sampling_status =
-              absl::CancelledError("RateLimiter has been cancelled");
-          insert_status =
-              absl::CancelledError("RateLimiter has been cancelled");
-          if (notify_inserts_ok.empty() && !notify_inserts_ok_.empty()) {
-            std::swap(notify_inserts_ok, notify_inserts_ok_);
+        {
+          absl::MutexLock table_lock(&mu_);
+          if (!rate_limiter_->CheckIfCancelled(&mu_).ok()) {
+            // We need to terminate all in-flight operations, so collect
+            // requests with the deadline smaller than InfiniteFuture.
+            deadline = absl::InfiniteFuture();
+            sampling_status =
+                absl::CancelledError("RateLimiter has been cancelled");
+            insert_status =
+                absl::CancelledError("RateLimiter has been cancelled");
+            if (notify_inserts_ok.empty() && !notify_inserts_ok_.empty()) {
+              std::swap(notify_inserts_ok, notify_inserts_ok_);
+            }
           }
         }
+
         GetExpiredRequests(deadline, &current_sampling, &to_terminate,
                            &wakeup);
         GetExpiredRequests(deadline, &pending_sampling_, &to_terminate,
@@ -968,6 +972,16 @@ std::string Table::DebugString() const {
   }
   absl::StrAppend(&str, ")");
   return str;
+}
+
+bool Table::worker_is_sleeping() const {
+  absl::MutexLock lock(&worker_mu_);
+  return worker_sleeps_;
+}
+
+int Table::num_pending_async_sample_requests() const {
+  absl::MutexLock lock(&worker_mu_);
+  return pending_sampling_.size();
 }
 
 }  // namespace reverb

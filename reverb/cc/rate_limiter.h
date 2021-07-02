@@ -146,7 +146,8 @@ class RateLimiter {
   void MaybeSignalCondVars(absl::Mutex* mu) ABSL_SHARED_LOCKS_REQUIRED(mu);
 
   // Returns Cancelled-status if `Cancel` have been called.
-  absl::Status CheckIfCancelled() const;
+  absl::Status CheckIfCancelled(absl::Mutex* mu) const
+      ABSL_SHARED_LOCKS_REQUIRED(mu);
 
   // Pointer to the table. We expect this to be available (if set), since it's
   // set by a Table calling RegisterTable(this) after it stores a shared_ptr to

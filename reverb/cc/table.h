@@ -326,12 +326,19 @@ class Table {
   // called before adding any data to the table.
   void EnableTableWorker(std::shared_ptr<TaskExecutor> executor);
 
+  // Check whether the worker is currently sleeping. This method is only exposed
+  // for testing purposes.
+  bool worker_is_sleeping() const ABSL_LOCKS_EXCLUDED(worker_mu_);
+
+  // Get the number of sample requests which hasn't been picked up by the worker
+  // yet. This method is only exposed for testing purposes.
+  int num_pending_async_sample_requests() const ABSL_LOCKS_EXCLUDED(worker_mu_);
+
  private:
   // Updates item priority in `data_`, `samper_`, `remover_` and calls
   // `OnUpdate` on all extensions not part of `exclude`.
-  absl::Status UpdateItem(
-      Key key, double priority,
-      std::initializer_list<TableExtension*> exclude = {})
+  absl::Status UpdateItem(Key key, double priority,
+                          std::initializer_list<TableExtension*> exclude = {})
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_);
 
   // Used by the table worker to perform sampling.
@@ -440,7 +447,7 @@ class Table {
   absl::CondVar wakeup_worker_ ABSL_GUARDED_BY(worker_mu_);
 
   // Mutex to protect worker's state.
-  mutable absl::Mutex worker_mu_;
+  mutable absl::Mutex worker_mu_ ABSL_ACQUIRED_BEFORE(mu_);
 
   // Executor used by the table worker to run operation callbacks.
   std::shared_ptr<TaskExecutor> callback_executor_;
