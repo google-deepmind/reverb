@@ -183,7 +183,8 @@ ReverbServiceAsyncImpl::InsertStream(grpc::CallbackServerContext* context) {
       MaybeStartRead();
     }
 
-    grpc::Status ProcessIncomingRequest(InsertStreamRequest* request) override {
+    grpc::Status ProcessIncomingRequest(InsertStreamRequest* request) override
+        ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_) {
       REVERB_CHECK(!request->chunks().empty() || request->has_item());
       if (auto status = SaveChunks(request); !status.ok()) {
         return status;
@@ -217,9 +218,15 @@ ReverbServiceAsyncImpl::InsertStream(grpc::CallbackServerContext* context) {
         StartRead(&request_);
       }
       if (send_confirmation) {
-        InsertStreamResponseCtx response;
-        response.payload.add_keys(key);
-        EnqueueResponse(std::move(response));
+        // The first element is the one in flight, modify not yet in flight
+        // response if possible.
+        if (responses_to_send_.size() > 1) {
+          responses_to_send_.back().payload.add_keys(key);
+        } else {
+          InsertStreamResponseCtx response;
+          response.payload.add_keys(key);
+          EnqueueResponse(std::move(response));
+        }
       }
       return grpc::Status::OK;
     }
@@ -503,7 +510,8 @@ ReverbServiceAsyncImpl::SampleStream(grpc::CallbackServerContext* context) {
       }
     }
 
-    grpc::Status ProcessIncomingRequest(SampleStreamRequest* request) override {
+    grpc::Status ProcessIncomingRequest(SampleStreamRequest* request) override
+        ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_) {
       if (request->num_samples() <= 0) {
         return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT,
                             absl::StrCat("`num_samples` must be > 0 (got",
