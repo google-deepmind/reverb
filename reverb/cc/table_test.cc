@@ -264,7 +264,8 @@ TEST(TableTest, EnqueSampleRequestSetsRateLimitedIfBlocked) {
   bool can_insert_more;
   REVERB_ASSERT_OK(table->InsertOrAssignAsync(
       MakeItem(1, 1), &can_insert_more,
-      std::make_shared<std::function<void()>>([] {})));
+      std::make_shared<std::function<void(const absl::Status&)>>(
+          [](absl::Status) {})));
   ASSERT_TRUE(first_done.WaitForNotificationWithTimeout(kTimeout));
   EXPECT_TRUE(rate_limited_item.rate_limited);
 

@@ -173,16 +173,20 @@ void Table::EnableTableWorker(std::shared_ptr<TaskExecutor> executor) {
   table_worker_ = internal::StartThread("TableWorker_" + name_, [&]() {
     // Sampling requests that exceeded deadline and should be terminated.
     std::vector<std::unique_ptr<Table::SampleRequest>> to_terminate;
-    // Status to be send to the sample requests to be terminated (changes upon
-    // table shutdown).
-    absl::Status terminate_status = errors::RateLimiterTimeout();
+    // Status to be send to the already timed out sample requests (changes upon
+    // table shutdown to distinguish between timeout and table shutdown).
+    absl::Status sampling_status = errors::RateLimiterTimeout();
+    // Status to be send to the inserters once there is more place to insert
+    // (changes upon table shutdown).
+    absl::Status insert_status = absl::OkStatus();
     // Collection of items removed from the table (by either insert or sample
     // operations) which are waiting for cleanup. Cleanup is done outside of
     // time-critical table worker.
     std::vector<std::shared_ptr<Item>> to_delete;
     // Collection of callbacks for insert operations waiting for more space in
     // the table.
-    std::vector<std::weak_ptr<std::function<void()>>> notify_inserts_ok;
+    std::vector<std::weak_ptr<std::function<void(const absl::Status&)>>>
+        notify_inserts_ok;
     // Collection of items waiting to the added to the table.
     std::vector<std::shared_ptr<Item>> current_inserts;
     // Index of the next item in the `pending_inserts` to be processed.
@@ -199,15 +203,6 @@ void Table::EnableTableWorker(std::shared_ptr<TaskExecutor> executor) {
     int64_t progress = 0;
     int64_t last_progress = 0;
     while (true) {
-      // Notify clients waiting to insert
-      for (auto& notify : notify_inserts_ok) {
-        auto to_notify = notify.lock();
-        // Callback might have been destroyed in the meantime.
-        if (to_notify != nullptr) {
-          (*to_notify)();
-        }
-      }
-      notify_inserts_ok.clear();
       {
         absl::MutexLock lock(&mu_);
         // Tracks whether while loop below makes progress.
@@ -299,14 +294,19 @@ void Table::EnableTableWorker(std::shared_ptr<TaskExecutor> executor) {
           // We need to terminate all in-flight operations, so collect requests
           // with the deadline smaller than InfiniteFuture.
           deadline = absl::InfiniteFuture();
-          terminate_status =
+          sampling_status =
               absl::CancelledError("RateLimiter has been cancelled");
+          insert_status =
+              absl::CancelledError("RateLimiter has been cancelled");
+          if (notify_inserts_ok.empty() && !notify_inserts_ok_.empty()) {
+            std::swap(notify_inserts_ok, notify_inserts_ok_);
+          }
         }
         GetExpiredRequests(deadline, &current_sampling, &to_terminate,
                            &wakeup);
         GetExpiredRequests(deadline, &pending_sampling_, &to_terminate,
                            &wakeup);
-        if (to_terminate.empty()) {
+        if (to_terminate.empty() && notify_inserts_ok.empty()) {
           if (stop_worker_) {
             return;
           }
@@ -317,10 +317,20 @@ void Table::EnableTableWorker(std::shared_ptr<TaskExecutor> executor) {
           worker_sleeps_ = false;
         }
       }
+      // Notify sample requests which exceeded deadline.
       for (auto& sample : to_terminate) {
-        FinalizeSampleRequest(std::move(sample), terminate_status);
+        FinalizeSampleRequest(std::move(sample), sampling_status);
       }
       to_terminate.clear();
+      // Notify clients waiting to insert
+      for (auto& notify : notify_inserts_ok) {
+        auto to_notify = notify.lock();
+        // Callback might have been destroyed in the meantime.
+        if (to_notify != nullptr) {
+          (*to_notify)(insert_status);
+        }
+      }
+      notify_inserts_ok.clear();
     }
   });
 }
@@ -400,8 +410,10 @@ absl::Status Table::InsertOrAssign(Item item, absl::Duration timeout) {
   return absl::OkStatus();
 }
 
-absl::Status Table::InsertOrAssignAsync(Item item, bool* can_insert_more,
-    std::weak_ptr<std::function<void()>> insert_more_callback) {
+absl::Status Table::InsertOrAssignAsync(
+    Item item, bool* can_insert_more,
+    std::weak_ptr<std::function<void(const absl::Status&)>>
+        insert_more_callback) {
   REVERB_RETURN_IF_ERROR(CheckItemValidity(item));
 
   std::shared_ptr<Item> to_delete;

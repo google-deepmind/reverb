@@ -177,9 +177,16 @@ ReverbServiceAsyncImpl::InsertStream(grpc::CallbackServerContext* context) {
         : ReverbServerTableReactor(),
           chunk_store_(chunk_store),
           server_(server),
-          continue_inserts_(std::make_shared<std::function<void()>>([&] {
-            MaybeStartRead();
-        })) {
+          continue_inserts_(
+              std::make_shared<std::function<void(const absl::Status&)>>(
+                  [&](const absl::Status& status) {
+                    if (!status.ok()) {
+                      absl::MutexLock lock(&mu_);
+                      SetReactorAsFinished(ToGrpcStatus(status));
+                      return;
+                    }
+                    MaybeStartRead();
+                  })) {
       MaybeStartRead();
     }
 
@@ -302,7 +309,7 @@ ReverbServiceAsyncImpl::InsertStream(grpc::CallbackServerContext* context) {
     // Callback called by the table when further inserts are possible. Pointer
     // to it is registered with the table to avoid memory allocations upon
     // registering callback.
-    std::shared_ptr<std::function<void()>> continue_inserts_;
+    std::shared_ptr<std::function<void(const absl::Status&)>> continue_inserts_;
   };
 
   return new WorkerlessInsertReactor(&chunk_store_, this);

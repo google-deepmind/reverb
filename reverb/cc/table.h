@@ -164,9 +164,12 @@ class Table {
   // table instead of blocking the caller. can_insert_more is set to true if
   // further inserts can be performed right away. When can_insert_more is set
   // to false, insert_more_callback callback will be called when further inserts
-  // are allowed.
-  absl::Status InsertOrAssignAsync(Item item, bool* can_insert_more,
-      std::weak_ptr<std::function<void()>> insert_more_callback);
+  // are allowed (with OK status), or with an error in case system is being
+  // terminated.
+  absl::Status InsertOrAssignAsync(
+      Item item, bool* can_insert_more,
+      std::weak_ptr<std::function<void(const absl::Status&)>>
+          insert_more_callback);
 
   // Inserts an item without consulting or modifying the RateLimiter about the
   // operation.
@@ -423,8 +426,8 @@ class Table {
   // table are allowed. Callbacks are provided with asynchronous inserts
   // and only pushed to this list if more inserts were not possible straight
   // away.
-  std::vector<std::weak_ptr<std::function<void()>>> notify_inserts_ok_
-      ABSL_GUARDED_BY(worker_mu_);
+  std::vector<std::weak_ptr<std::function<void(const absl::Status&)>>>
+      notify_inserts_ok_ ABSL_GUARDED_BY(worker_mu_);
 
   // Whether table worker is sleeping currently (no work to do).
   bool worker_sleeps_ ABSL_GUARDED_BY(worker_mu_) = false;
