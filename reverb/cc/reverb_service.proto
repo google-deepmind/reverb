@@ -168,14 +168,20 @@ message SampleStreamRequest {
 }
 
 message SampleStreamResponse {
-  // First response item in the stream is info about the sample.
-  SampleInfo info = 1;
+  message SampleEntry {
 
-  // Followed by at least one data response.
-  repeated ChunkData data = 2;
+    // First response item in the stream is info about the sample.
+    SampleInfo info = 1;
 
-  // True if this is the last message in the sequence.
-  bool end_of_sequence = 3;
+    // Followed by at least one data response.
+    repeated ChunkData data = 2;
+
+    // True if this is the last message in the sequence.
+    bool end_of_sequence = 3;
+  }
+
+  // Batch of sample entries.
+  repeated SampleEntry entries = 1;
 }
 
 message ResetRequest {

@@ -227,12 +227,12 @@ ReverbServiceAsyncImpl::InsertStream(grpc::CallbackServerContext* context) {
       if (send_confirmation) {
         // The first element is the one in flight, modify not yet in flight
         // response if possible.
-        if (responses_to_send_.size() > 1) {
-          responses_to_send_.back().payload.add_keys(key);
-        } else {
-          InsertStreamResponseCtx response;
-          response.payload.add_keys(key);
-          EnqueueResponse(std::move(response));
+        if (responses_to_send_.size() < 2) {
+          responses_to_send_.emplace();
+        }
+        responses_to_send_.back().payload.add_keys(key);
+        if (responses_to_send_.size() == 1) {
+          MaybeSendNextResponse();
         }
       }
       return grpc::Status::OK;
@@ -446,9 +446,7 @@ grpc::ServerUnaryReactor* ReverbServiceAsyncImpl::Reset(
 grpc::ServerBidiReactor<SampleStreamRequest, SampleStreamResponse>*
 ReverbServiceAsyncImpl::SampleStream(grpc::CallbackServerContext* context) {
   struct SampleStreamResponseCtx {
-    SampleStreamResponseCtx(std::shared_ptr<TableItem> table_item)
-        : table_item(std::move(table_item)) {
-    }
+    SampleStreamResponseCtx() {}
     SampleStreamResponseCtx(const SampleStreamResponseCtx&) = delete;
     SampleStreamResponseCtx& operator=(const SampleStreamResponseCtx&) = delete;
     SampleStreamResponseCtx(SampleStreamResponseCtx&& response) = default;
@@ -458,18 +456,24 @@ ReverbServiceAsyncImpl::SampleStream(grpc::CallbackServerContext* context) {
     ~SampleStreamResponseCtx() {
       // SampleStreamResponseCtx does not own immutable parts of the payload.
       // We need to make sure not to destroy them while destructing the payload.
-      if (payload.info().has_item()) {
-        auto item = payload.mutable_info()->mutable_item();
-        item->/*unsafe_arena_*/release_inserted_at();
-        item->/*unsafe_arena_*/release_flat_trajectory();
-      }
-      while (payload.data_size() != 0) {
-        payload.mutable_data()->UnsafeArenaReleaseLast();
+      for (auto& entry : *payload.mutable_entries()) {
+        if (entry.info().has_item()) {
+          auto* item = entry.mutable_info()->mutable_item();
+          item->/*unsafe_arena_*/release_inserted_at();
+          item->/*unsafe_arena_*/release_flat_trajectory();
+        }
+        while (entry.data_size() != 0) {
+          entry.mutable_data()->UnsafeArenaReleaseLast();
+        }
       }
     }
 
+    void AddTableItem(std::shared_ptr<TableItem> item) {
+      table_items.push_back(std::move(item));
+    }
+
     SampleStreamResponse payload;
-    std::shared_ptr<TableItem> table_item;
+    std::vector<std::shared_ptr<TableItem>> table_items;
   };
 
   // How often to check whether callback execution finished before deleting
@@ -486,14 +490,20 @@ ReverbServiceAsyncImpl::SampleStream(grpc::CallbackServerContext* context) {
           server_(server),
           sampling_done_(std::make_shared<SamplingCallback>(
               [&](Table::SampleRequest* sample) {
-                if (!sample->status.ok()) {
+                {
                   absl::MutexLock lock(&mu_);
-                  SetReactorAsFinished(ToGrpcStatus(sample->status));
-                  return;
-                }
-                task_info_.fetched_samples += sample->samples.size();
-                for (auto& sample : sample->samples) {
-                  ProcessSample(&sample);
+                  if (!sample->status.ok()) {
+                    SetReactorAsFinished(ToGrpcStatus(sample->status));
+                    return;
+                  }
+                  task_info_.fetched_samples += sample->samples.size();
+                  bool already_writing = !responses_to_send_.empty();
+                  for (Table::SampledItem& sample : sample->samples) {
+                    ProcessSample(&sample, already_writing);
+                  }
+                  if (!already_writing) {
+                    MaybeSendNextResponse();
+                  }
                 }
                 const int next_batch_size = task_info_.NextSampleSize();
                 if (next_batch_size == 0) {
@@ -556,15 +566,23 @@ ReverbServiceAsyncImpl::SampleStream(grpc::CallbackServerContext* context) {
     }
 
    private:
-    void ProcessSample(Table::SampledItem* sample) {
-      SampleStreamResponseCtx response(sample->ref);
+    void ProcessSample(Table::SampledItem* sample, bool write_in_flight)
+        ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_) {
+      if (responses_to_send_.empty() ||
+          (responses_to_send_.size() == 1 && write_in_flight) ||
+          current_response_size_ > kMaxSampleResponseSizeBytes) {
+        // We need a new response as there is no previous one / is already in
+        // flight or too big.
+        responses_to_send_.emplace();
+        current_response_size_ = 0;
+      }
+      SampleStreamResponseCtx* response = &responses_to_send_.back();
+      auto* entry = response->payload.add_entries();
       for (int i = 0; i < sample->ref->chunks.size(); i++) {
-        response.payload.set_end_of_sequence(i + 1 ==
-                                              sample->ref->chunks.size());
-
+        entry->set_end_of_sequence(i + 1 == sample->ref->chunks.size());
         // Attach the info to the first message.
         if (i == 0) {
-          auto* item = response.payload.mutable_info()->mutable_item();
+          auto* item = entry->mutable_info()->mutable_item();
           auto& sample_item = sample->ref->item;
           item->set_key(sample_item.key());
           item->set_table(sample_item.table());
@@ -576,31 +594,26 @@ ReverbServiceAsyncImpl::SampleStream(grpc::CallbackServerContext* context) {
               sample_item.mutable_inserted_at());
           item->/*unsafe_arena_*/set_allocated_flat_trajectory(
               sample_item.mutable_flat_trajectory());
-          response.payload.mutable_info()->set_probability(
-              sample->probability);
-          response.payload.mutable_info()->set_table_size(sample->table_size);
-          response.payload.mutable_info()->set_rate_limited(
-              sample->rate_limited);
+          entry->mutable_info()->set_probability(sample->probability);
+          entry->mutable_info()->set_table_size(sample->table_size);
+          entry->mutable_info()->set_rate_limited(sample->rate_limited);
         }
-
-        response.payload.mutable_data()->UnsafeArenaAddAllocated(
-            const_cast<ChunkData*>(&sample->ref->chunks[i]->data()));
-
+        ChunkData* chunk =
+            const_cast<ChunkData*>(&sample->ref->chunks[i]->data());
+        current_response_size_ += chunk->ByteSizeLong();
+        entry->mutable_data()->UnsafeArenaAddAllocated(chunk);
         if (i < sample->ref->chunks.size() - 1 &&
-            response.payload.ByteSizeLong() < kMaxSampleResponseSizeBytes) {
-          // Response doesn't exceed the size limit yet, so append mode chunks.
-          continue;
+            current_response_size_ > kMaxSampleResponseSizeBytes) {
+          // Current response is too big, start a new one.
+          responses_to_send_.emplace();
+          current_response_size_ = 0;
+          response = &responses_to_send_.back();
+          entry = response->payload.add_entries();
         }
-        // Response exceeds the size limit, so enqueue it for sending to the
-        // client and start constructing a new message referencing sampled item.
-        // It will contain remaining chunks of the item which didn't fit into
-        // the current response.
-        {
-          absl::MutexLock lock(&mu_);
-          EnqueueResponse(std::move(response));
-        }
-        response = SampleStreamResponseCtx(sample->ref);
       }
+      // Reference sample only in the last response containing it, so it is
+      // released when fully sent to the client.
+      response->AddTableItem(sample->ref);
     }
 
     // Used to lookup tables when inserting items.
@@ -611,6 +624,9 @@ ReverbServiceAsyncImpl::SampleStream(grpc::CallbackServerContext* context) {
 
     // Callback called by the table worker when current sampling batch is done.
     std::shared_ptr<SamplingCallback> sampling_done_;
+
+    // Size of the response currently being constructed.
+    int64_t current_response_size_;
   };
 
   return new WorkerlessSampleReactor(this);

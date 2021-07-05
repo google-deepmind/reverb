@@ -180,8 +180,7 @@ SampleStreamResponse MakeResponse(int item_length, bool delta_encode = false,
   REVERB_CHECK_LE(item_length + offset, data_length);
 
   SampleStreamResponse response;
-  response.set_end_of_sequence(true);
-  auto* column = response.mutable_info()
+  auto* column = response.add_entries()->mutable_info()
                      ->mutable_item()
                      ->mutable_flat_trajectory()
                      ->add_columns();
@@ -192,7 +191,8 @@ SampleStreamResponse MakeResponse(int item_length, bool delta_encode = false,
   slice->set_offset(offset);
 
   auto tensor = MakeTensor(data_length);
-  auto* chunk_data = response.add_data();
+  auto* chunk_data = response.mutable_entries(0)->add_data();
+  response.mutable_entries(0)->set_end_of_sequence(true);
   if (delta_encode) {
     tensor = DeltaEncode(tensor, true);
     chunk_data->set_delta_encoded(true);
@@ -381,8 +381,10 @@ TEST(LocalSamplerTest, SetsEndOfSequence) {
 TEST(GrpcSamplerTest, GetNextSampleReturnsPriority) {
   std::vector<SampleStreamResponse> responses = {MakeResponse(5),
                                                  MakeResponse(3)};
-  responses[0].mutable_info()->mutable_item()->set_priority(100.0);
-  responses[1].mutable_info()->mutable_item()->set_priority(101.0);
+  responses[0].mutable_entries(0)->mutable_info()->mutable_item()->set_priority(
+      100.0);
+  responses[1].mutable_entries(0)->mutable_info()->mutable_item()->set_priority(
+      101.0);
   auto stub = MakeGoodStub(responses);
   Sampler sampler(stub, "table", {2, 1});
 
@@ -864,16 +866,17 @@ TEST(LocalSamplerTest, GetNextTimestepReturnsErrorIfMaximumSamplesExceeded) {
 
 TEST(GrpcSamplerTest, GetNextTimestepReturnsErrorIfNotDecomposible) {
   auto response = MakeResponse(5);
+  auto* entry = response.mutable_entries(0);
 
   // Add a column of length 10 to the existing one of length 5.
   CompressTensorAsProto(MakeTensor(10),
-                        response.add_data()->mutable_data()->add_tensors());
-  auto* slice = response.mutable_info()
+                        entry->add_data()->mutable_data()->add_tensors());
+  auto* slice = entry->mutable_info()
                     ->mutable_item()
                     ->mutable_flat_trajectory()
                     ->add_columns()
                     ->add_chunk_slices();
-  *slice = response.info().item().flat_trajectory().columns(0).chunk_slices(0);
+  *slice = entry->info().item().flat_trajectory().columns(0).chunk_slices(0);
   slice->set_index(1);
   slice->set_length(10);
 

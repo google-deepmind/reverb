@@ -69,7 +69,7 @@ tensorflow::Tensor ScalarTensor(T value) {
   return tensor;
 }
 
-absl::Status AsSample(std::vector<SampleStreamResponse> responses,
+absl::Status AsSample(std::vector<SampleStreamResponse::SampleEntry> responses,
                       std::unique_ptr<Sample>* sample) {
   const auto& info = responses.front().info();
   internal::flat_hash_map<uint64_t, std::unique_ptr<ChunkData>> chunks;
@@ -223,8 +223,8 @@ class GrpcSamplerWorker : public SamplerWorker {
         return {num_samples_returned, FromGrpcStatus(stream->Finish())};
       }
 
+      std::vector<SampleStreamResponse::SampleEntry> parts_of_next_sample;
       for (int64_t sampled = 0; sampled < request.num_samples();) {
-        std::vector<SampleStreamResponse> responses;
         SampleStreamResponse response;
         if (!stream->Read(&response)) {
           auto status = FromGrpcStatus(stream->Finish());
@@ -238,10 +238,19 @@ class GrpcSamplerWorker : public SamplerWorker {
             return {num_samples_returned, status};
           }
         }
-        responses.push_back(std::move(response));
-        if (responses.back().end_of_sequence()) {
+        for (auto& entry : response.entries()) {
+          parts_of_next_sample.push_back(std::move(entry));
+          // Continue grabbing entries until the current sample is complete.
+          if (!parts_of_next_sample.back().end_of_sequence()) {
+            continue;
+          }
+
+          // We have received everything we need to unpack the next sample so
+          // let's push it to the queue. We don't expect AsSample to ever fail
+          // but it will be closed if the Sampler has been closed.
           std::unique_ptr<Sample> sample;
-          auto status = AsSample(std::move(responses), &sample);
+          auto status = AsSample(std::move(parts_of_next_sample), &sample);
+          parts_of_next_sample.clear();
           if (!status.ok()) {
             return {num_samples_returned, status};
           }
@@ -249,9 +258,18 @@ class GrpcSamplerWorker : public SamplerWorker {
             return {num_samples_returned,
                     absl::CancelledError("`Close` called on Sampler")};
           }
+          // The sample was successfully received from the stream and pushed to
+          // the queue. There might still be more samples, or partial samples,
+          // in the same SampleStreamResponse so we'll continue reading the
+          // remaining entries into the next sample.
           ++num_samples_returned;
           ++sampled;
         }
+      }
+      if (!parts_of_next_sample.empty()) {
+        return {num_samples_returned,
+                absl::InternalError(
+                    "Streamed responses included unattributed SampleEntry.")};
       }
     }
 

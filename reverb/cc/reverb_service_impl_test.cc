@@ -209,17 +209,17 @@ TEST(ReverbServiceImplTest, SampleAfterInsertWorks) {
 
     item.set_times_sampled(i + 1);
 
-    SampleInfo info = stream.responses()[0].info();
+    SampleInfo info = stream.responses()[0].entries(0).info();
     info.mutable_item()->clear_inserted_at();
     EXPECT_THAT(info.item(), testing::EqualsProto(item));
     EXPECT_EQ(info.probability(), 1);
     EXPECT_EQ(info.table_size(), 1);
     EXPECT_FALSE(info.rate_limited());
 
-    EXPECT_EQ(stream.responses()[0].data_size(), 2);
-    EXPECT_EQ(stream.responses()[0].data(0).chunk_key(),
+    EXPECT_EQ(stream.responses()[0].entries(0).data_size(), 2);
+    EXPECT_EQ(stream.responses()[0].entries(0).data(0).chunk_key(),
               item.flat_trajectory().columns(0).chunk_slices(0).chunk_key());
-    EXPECT_EQ(stream.responses()[0].data(1).chunk_key(),
+    EXPECT_EQ(stream.responses()[0].entries(0).data(1).chunk_key(),
               item.flat_trajectory().columns(0).chunk_slices(1).chunk_key());
     EXPECT_TRUE(stream.last_options().get_no_compression());
   }

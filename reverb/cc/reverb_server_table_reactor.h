@@ -73,10 +73,6 @@ class ReverbServerTableReactor
   // Schedules another read if possible. Should be called after OnReadDone.
   void MaybeStartRead();
 
-  // Adds another response to be sent. Can be called anytime, but there is no
-  // guarantee the response will actually get sent (due to errors for instance).
-  void EnqueueResponse(ResponseCtx response);
-
   // Finishes the reactor. It fails if any of the conditions to finish the
   // reactor doesn't hold. The conditions are:
   //   * The reactor cannot be already set as finished.
@@ -90,7 +86,6 @@ class ReverbServerTableReactor
   // * There are no pending tasks.
   bool ShouldFinish() ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_);
 
- private:
   // Starts sending another queued response to the client (if available).
   void MaybeSendNextResponse() ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_);
 
@@ -124,16 +119,6 @@ class ReverbServerTableReactor
 /*****************************************************************************
  * Implementation of the template                                            *
  *****************************************************************************/
-template <class Request, class Response, class ResponseCtx>
-void ReverbServerTableReactor<Request, Response, ResponseCtx>::EnqueueResponse(
-    ResponseCtx response) {
-  bool start_send = responses_to_send_.empty();
-  responses_to_send_.push(std::move(response));
-  if (start_send) {
-    MaybeSendNextResponse();
-  }
-}
-
 template <class Request, class Response, class ResponseCtx>
 void ReverbServerTableReactor<Request, Response,
                               ResponseCtx>::MaybeSendNextResponse() {

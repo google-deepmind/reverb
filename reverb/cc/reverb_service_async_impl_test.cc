@@ -144,11 +144,12 @@ InsertStreamRequest InsertItemRequest(
   return request;
 }
 
-SampleStreamRequest SampleRequest(absl::string_view table, int num_samples) {
+SampleStreamRequest SampleRequest(absl::string_view table, int num_samples,
+                                  int flexible_batch_size = -1) {
   SampleStreamRequest request;
   request.set_table(table.data(), table.size());
   request.set_num_samples(num_samples);
-  request.set_flexible_batch_size(-1);
+  request.set_flexible_batch_size(flexible_batch_size);
 
   return request;
 }
@@ -232,26 +233,34 @@ TEST(ReverbServiceAsyncImplTest, SampleAfterInsertWorks) {
   for (int i = 0; i < 5; i++) {
     grpc::ClientContext sample_context;
     auto sample_stream = stub.SampleStream(&sample_context);
-    SampleStreamRequest sample_request = SampleRequest("dist", 1);
-    SampleStreamResponse sample_responses[2];
+    SampleStreamRequest sample_request = SampleRequest("dist", 2, 2);
+    SampleStreamResponse sample_response;
+    SampleStreamResponse sample_response2;
     sample_stream->Write(sample_request);
     sample_stream->WritesDone();
-    ASSERT_TRUE(sample_stream->Read(&sample_responses[0]));
-    ASSERT_FALSE(sample_stream->Read(&sample_responses[1]));
+    ASSERT_TRUE(sample_stream->Read(&sample_response));
+    ASSERT_FALSE(sample_stream->Read(&sample_response2));
     REVERB_EXPECT_OK(sample_stream->Finish());
-    item.set_times_sampled(i + 1);
+    item.set_times_sampled(2*i + 2);
 
-    SampleInfo info = sample_responses[0].info();
+    sample_response.mutable_entries(0)
+        ->mutable_info()
+        ->mutable_item()
+        ->set_times_sampled(2 * i + 2);
+    EXPECT_THAT(sample_response.entries(0),
+                testing::EqualsProto(sample_response.entries(1)));
+    SampleInfo info = sample_response.entries(0).info();
+
     info.mutable_item()->clear_inserted_at();
     EXPECT_THAT(info.item(), testing::EqualsProto(item));
     EXPECT_EQ(info.probability(), 1);
     EXPECT_EQ(info.table_size(), 1);
     EXPECT_FALSE(info.rate_limited());
 
-    EXPECT_EQ(sample_responses[0].data_size(), 2);
-    EXPECT_EQ(sample_responses[0].data(0).chunk_key(),
+    EXPECT_EQ(sample_response.entries(0).data_size(), 2);
+    EXPECT_EQ(sample_response.entries(0).data(0).chunk_key(),
               item.flat_trajectory().columns(0).chunk_slices(0).chunk_key());
-    EXPECT_EQ(sample_responses[0].data(1).chunk_key(),
+    EXPECT_EQ(sample_response.entries(0).data(1).chunk_key(),
               item.flat_trajectory().columns(0).chunk_slices(1).chunk_key());
   }
 }

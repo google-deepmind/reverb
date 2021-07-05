@@ -321,32 +321,33 @@ grpc::Status ReverbServiceImpl::SampleStreamInternal(
 
       for (auto& sample : samples) {
         SampleStreamResponse response;
+        auto* entry = response.add_entries();
 
         for (int chunk_idx = 0; chunk_idx < sample.ref->chunks.size();
              chunk_idx++) {
-          response.set_end_of_sequence(chunk_idx + 1 ==
+          entry->set_end_of_sequence(chunk_idx + 1 ==
                                        sample.ref->chunks.size());
 
           // Attach the info to the first message.
           if (chunk_idx == 0) {
-            auto* item = response.mutable_info()->mutable_item();
+            auto* item = entry->mutable_info()->mutable_item();
             *item = sample.ref->item;
             item->set_priority(sample.priority);
             item->set_times_sampled(sample.times_sampled);
-            response.mutable_info()->set_probability(sample.probability);
-            response.mutable_info()->set_table_size(sample.table_size);
-            response.mutable_info()->set_rate_limited(sample.rate_limited);
+            entry->mutable_info()->set_probability(sample.probability);
+            entry->mutable_info()->set_table_size(sample.table_size);
+            entry->mutable_info()->set_rate_limited(sample.rate_limited);
           }
 
           // We const cast to avoid copying the proto.
-          response.mutable_data()->UnsafeArenaAddAllocated(
+          entry->mutable_data()->UnsafeArenaAddAllocated(
               const_cast<ChunkData*>(&sample.ref->chunks[chunk_idx]->data()));
 
           // If more chunks remain and we haven't yet reached the maximum
           // message size then we'll continue and add (at least) one more chunk
           // to the same response.
           if (chunk_idx < sample.ref->chunks.size() - 1 &&
-              response.ByteSizeLong() < kMaxSampleResponseSizeBytes) {
+              entry->ByteSizeLong() < kMaxSampleResponseSizeBytes) {
             continue;
           }
 
@@ -358,8 +359,8 @@ grpc::Status ReverbServiceImpl::SampleStreamInternal(
           // Release the chunks we "borrowed" from the sample object. Failing to
           // do so would result in the chunks being deallocated prematurely and
           // cause nullptr errors.
-          while (response.data_size() != 0) {
-            response.mutable_data()->UnsafeArenaReleaseLast();
+          while (entry->data_size() != 0) {
+            entry->mutable_data()->UnsafeArenaReleaseLast();
           }
 
           if (!ok) {
@@ -367,6 +368,7 @@ grpc::Status ReverbServiceImpl::SampleStreamInternal(
           }
 
           response.Clear();
+          entry = response.add_entries();
         }
       }
     }
