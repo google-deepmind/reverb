@@ -38,7 +38,7 @@ Execute from the root of the git repository. The end result will end up in
 # Builds the container with Python 3.6, 3.7, and 3.8. Set the
 # `build-arg tensorflow_pip` to the version of TensorFlow to build against.
 $ docker build --tag tensorflow:reverb_release \
-  --build-arg tensorflow_pip=tensorflow==2.3.0 \
+  --build-arg tensorflow_pip=tensorflow==2.5.0 \
   --build-arg python_version="python3.6 python3.7 python3.8" \
   - < "$REVERB_DIR/docker/release.dockerfile"
 
@@ -51,7 +51,7 @@ $ docker build --tag tensorflow:reverb_release \
 # Packages for Python 3.6, 3.7, and 3.8 are created.
 $ docker run --rm --mount "type=bind,src=$REVERB_DIR,dst=/tmp/reverb" \
   tensorflow:reverb_release bash oss_build.sh --clean true \
-  --tf_dep_override "tensorflow>=2.3.0" --release --python "3.6 3.7 3.8"
+  --tf_dep_override "tensorflow>=2.5.0" --release --python "3.6 3.7 3.8"
 
 # Builds Reverb against an RC of TensorFlow. `>=` is not effective because
 # pip does not recognize 2.4.0rc0 as greater than 2.3.0. RC builds need to have
