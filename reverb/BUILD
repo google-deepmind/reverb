@@ -307,9 +307,6 @@ reverb_py_test(
     name = "trajectory_writer_test",
     srcs = ["trajectory_writer_test.py"],
     python_version = "PY3",
-    tags = [
-        "nomsan",  # TODO(b/191360207): Remove this once the fix has been rolled out to Python stable.
-    ],
     deps = [
         ":client",
         ":errors",
