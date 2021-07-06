@@ -123,6 +123,39 @@ TEST(ChunkStoreTest, ConcurrentCalls) {
   EXPECT_EQ(count, 1000);
 }
 
+TEST(ChunkTest, Length) {
+  ChunkData data;
+  data.mutable_sequence_range()->set_start(5);
+  data.mutable_sequence_range()->set_end(10);
+  EXPECT_EQ(ChunkStore::Chunk(data).num_rows(), 6);
+  data.mutable_sequence_range()->set_end(5);
+  EXPECT_EQ(ChunkStore::Chunk(data).num_rows(), 1);
+}
+
+TEST(ChunkTest, NumColumns) {
+  ChunkData data;
+  for (int i = 0; i < 5; i++) {
+    EXPECT_EQ(ChunkStore::Chunk(data).num_columns(), i);
+    data.mutable_data()->add_tensors();
+  }
+}
+
+TEST(ChunkTest, Key) {
+  for (int i = 0; i < 5; i++) {
+    ChunkData data;
+    data.set_chunk_key(i);
+    EXPECT_EQ(ChunkStore::Chunk(data).key(), i);
+  }
+}
+
+TEST(ChunkTest, EpisodeId) {
+  for (int i = 0; i < 5; i++) {
+    ChunkData data;
+    data.mutable_sequence_range()->set_episode_id(i);
+    EXPECT_EQ(ChunkStore::Chunk(data).episode_id(), i);
+  }
+}
+
 }  // namespace
 }  // namespace reverb
 }  // namespace deepmind

@@ -20,10 +20,9 @@
 #include "grpcpp/impl/codegen/status.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
+#include "absl/status/status.h"
 #include "reverb/cc/platform/net.h"
-#include "tensorflow/core/lib/core/errors.h"
-#include "tensorflow/core/lib/core/status.h"
-#include "tensorflow/core/lib/core/status_test_util.h"
+#include "reverb/cc/platform/status_matchers.h"
 
 namespace deepmind {
 namespace reverb {
@@ -32,8 +31,9 @@ namespace {
 TEST(ServerTest, StartServer) {
   int port = internal::PickUnusedPortOrDie();
   std::unique_ptr<Server> server;
-  TF_EXPECT_OK(StartServer(/*tables=*/{},
-                           /*port=*/port, /*checkpointer=*/nullptr, &server));
+  REVERB_EXPECT_OK(StartServer(/*tables=*/{},
+                               /*port=*/port, /*checkpointer=*/nullptr,
+                               &server));
 }
 
 TEST(ServerTest, ErrorOnUnavailablePort) {
@@ -41,8 +41,8 @@ TEST(ServerTest, ErrorOnUnavailablePort) {
   std::unique_ptr<Server> server;
   auto status = StartServer(/*tables=*/{},
                             /*port=*/-1, /*checkpointer=*/nullptr, &server);
-  EXPECT_EQ(status.code(), tensorflow::error::INVALID_ARGUMENT);
-  EXPECT_THAT(status.error_message(),
+  EXPECT_EQ(status.code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_THAT(std::string(status.message()),
               ::testing::HasSubstr("Failed to BuildAndStart gRPC server"));
 }
 

@@ -18,9 +18,10 @@
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
+#include "absl/status/status.h"
 #include "reverb/cc/schema.pb.h"
+#include "reverb/cc/platform/status_matchers.h"
 #include "reverb/cc/testing/proto_test_util.h"
-#include "tensorflow/core/lib/core/status_test_util.h"
 
 namespace deepmind {
 namespace reverb {
@@ -30,20 +31,20 @@ TEST(UniformSelectorTest, ReturnValueSantiyChecks) {
   UniformSelector uniform;
 
   // Non existent keys cannot be deleted or updated.
-  EXPECT_EQ(uniform.Delete(123).code(), tensorflow::error::INVALID_ARGUMENT);
-  EXPECT_EQ(uniform.Update(123, 4).code(), tensorflow::error::INVALID_ARGUMENT);
+  EXPECT_EQ(uniform.Delete(123).code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_EQ(uniform.Update(123, 4).code(), absl::StatusCode::kInvalidArgument);
 
   // Keys cannot be inserted twice.
-  TF_EXPECT_OK(uniform.Insert(123, 4));
-  EXPECT_EQ(uniform.Insert(123, 4).code(), tensorflow::error::INVALID_ARGUMENT);
+  REVERB_EXPECT_OK(uniform.Insert(123, 4));
+  EXPECT_EQ(uniform.Insert(123, 4).code(), absl::StatusCode::kInvalidArgument);
 
   // Existing keys can be updated and sampled.
-  TF_EXPECT_OK(uniform.Update(123, 5));
+  REVERB_EXPECT_OK(uniform.Update(123, 5));
   EXPECT_EQ(uniform.Sample().key, 123);
 
   // Existing keys cannot be deleted twice.
-  TF_EXPECT_OK(uniform.Delete(123));
-  EXPECT_EQ(uniform.Delete(123).code(), tensorflow::error::INVALID_ARGUMENT);
+  REVERB_EXPECT_OK(uniform.Delete(123));
+  EXPECT_EQ(uniform.Delete(123).code(), absl::StatusCode::kInvalidArgument);
 }
 
 TEST(UniformSelectorTest, MatchesUniformSelector) {
@@ -53,7 +54,7 @@ TEST(UniformSelectorTest, MatchesUniformSelector) {
 
   UniformSelector uniform;
   for (int i = 0; i < kItems; i++) {
-    TF_EXPECT_OK(uniform.Insert(i, 0));
+    REVERB_EXPECT_OK(uniform.Insert(i, 0));
   }
   std::vector<int64_t> counts(kItems);
   for (int i = 0; i < kSamples; i++) {
@@ -76,7 +77,7 @@ TEST(UniformSelectorTest, Options) {
 TEST(UniformDeathTest, ClearThenSample) {
   UniformSelector uniform;
   for (int i = 0; i < 100; i++) {
-    TF_EXPECT_OK(uniform.Insert(i, i));
+    REVERB_EXPECT_OK(uniform.Insert(i, i));
   }
   uniform.Sample();
   uniform.Clear();

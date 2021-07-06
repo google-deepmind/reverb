@@ -18,37 +18,33 @@
 #include "reverb/cc/platform/logging.h"
 #include "reverb/cc/schema.pb.h"
 #include "reverb/cc/selectors/interface.h"
-#include "tensorflow/core/lib/core/errors.h"
-#include "tensorflow/core/lib/core/status.h"
 
 namespace deepmind {
 namespace reverb {
 
-tensorflow::Status LifoSelector::Delete(ItemSelector::Key key) {
+absl::Status LifoSelector::Delete(ItemSelector::Key key) {
   auto it = key_to_iterator_.find(key);
   if (it == key_to_iterator_.end())
-    return tensorflow::errors::InvalidArgument("Key ", key, " not found.");
+    return absl::InvalidArgumentError(absl::StrCat("Key ", key, " not found."));
   keys_.erase(it->second);
   key_to_iterator_.erase(it);
-  return tensorflow::Status::OK();
+  return absl::OkStatus();
 }
 
-tensorflow::Status LifoSelector::Insert(ItemSelector::Key key,
-                                        double priority) {
+absl::Status LifoSelector::Insert(ItemSelector::Key key, double priority) {
   if (key_to_iterator_.find(key) != key_to_iterator_.end()) {
-    return tensorflow::errors::InvalidArgument("Key ", key,
-                                               " already inserted.");
+    return absl::InvalidArgumentError(
+        absl::StrCat("Key ", key, " already inserted."));
   }
   key_to_iterator_.emplace(key, keys_.emplace(keys_.begin(), key));
-  return tensorflow::Status::OK();
+  return absl::OkStatus();
 }
 
-tensorflow::Status LifoSelector::Update(ItemSelector::Key key,
-                                        double priority) {
+absl::Status LifoSelector::Update(ItemSelector::Key key, double priority) {
   if (key_to_iterator_.find(key) == key_to_iterator_.end()) {
-    return tensorflow::errors::InvalidArgument("Key ", key, " not found.");
+    return absl::InvalidArgumentError(absl::StrCat("Key ", key, " not found."));
   }
-  return tensorflow::Status::OK();
+  return absl::OkStatus();
 }
 
 ItemSelector::KeyWithProbability LifoSelector::Sample() {
@@ -67,6 +63,8 @@ KeyDistributionOptions LifoSelector::options() const {
   options.set_is_deterministic(true);
   return options;
 }
+
+std::string LifoSelector::DebugString() const { return "LifoSelector"; }
 
 }  // namespace reverb
 }  // namespace deepmind

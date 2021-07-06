@@ -20,6 +20,7 @@
 #include "grpcpp/grpcpp.h"
 #include "absl/numeric/int128.h"
 #include "absl/random/random.h"
+#include "absl/status/status.h"
 #include "absl/strings/string_view.h"
 #include "reverb/cc/checkpointing/interface.h"
 #include "reverb/cc/chunk_store.h"
@@ -35,12 +36,12 @@ namespace reverb {
 // Implements ReverbService. See reverb_service.proto for documentation.
 class ReverbServiceImpl : public /* grpc_gen:: */ReverbService::Service {
  public:
-  static tensorflow::Status Create(std::vector<std::shared_ptr<Table>> tables,
-                                   std::shared_ptr<Checkpointer> checkpointer,
-                                   std::unique_ptr<ReverbServiceImpl>* service);
+  static absl::Status Create(std::vector<std::shared_ptr<Table>> tables,
+                             std::shared_ptr<Checkpointer> checkpointer,
+                             std::unique_ptr<ReverbServiceImpl>* service);
 
-  static tensorflow::Status Create(std::vector<std::shared_ptr<Table>> tables,
-                                   std::unique_ptr<ReverbServiceImpl>* service);
+  static absl::Status Create(std::vector<std::shared_ptr<Table>> tables,
+                             std::unique_ptr<ReverbServiceImpl>* service);
 
   grpc::Status Checkpoint(grpc::ServerContext* context,
                           const CheckpointRequest* request,
@@ -88,11 +89,14 @@ class ReverbServiceImpl : public /* grpc_gen:: */ReverbService::Service {
   // Closes all tables and the chunk store.
   void Close();
 
+  // Returns a summary string description.
+  std::string DebugString() const;
+
  private:
   explicit ReverbServiceImpl(
       std::shared_ptr<Checkpointer> checkpointer = nullptr);
 
-  tensorflow::Status Initialize(std::vector<std::shared_ptr<Table>> tables);
+  absl::Status Initialize(std::vector<std::shared_ptr<Table>> tables);
 
   // Lookups the table for a given name. Returns nullptr if not found.
   Table* TableByName(absl::string_view name) const;

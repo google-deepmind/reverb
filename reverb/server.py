@@ -124,7 +124,7 @@ class Table:
       extensions: Optional sequence of extensions used to add extra features to
         the table.
       signature: Optional nested structure containing `tf.TypeSpec` objects,
-        describing the storage schema for this table.
+        describing the schema of items in this table.
 
     Raises:
       ValueError: If name is empty.
@@ -219,6 +219,11 @@ class Table:
   def name(self):
     return self.internal_table.name()
 
+  @property
+  def info(self) -> reverb_types.TableInfo:
+    proto_string = self.internal_table.info()
+    return reverb_types.TableInfo.from_serialized_proto(proto_string)
+
   def can_sample(self, num_samples: int) -> bool:
     """Returns True if a sample operation is permitted at the current state."""
     return self.internal_table.can_sample(num_samples)
@@ -226,6 +231,9 @@ class Table:
   def can_insert(self, num_inserts: int) -> bool:
     """Returns True if an insert operation is permitted at the current state."""
     return self.internal_table.can_insert(num_inserts)
+
+  def __repr__(self):
+    return repr(self.internal_table)
 
 
 class Server:
@@ -243,9 +251,9 @@ class Server:
   """
 
   def __init__(self,
-               tables: Sequence[Table] = None,
-               port: Union[int, None] = None,
-               checkpointer: checkpointers.CheckpointerBase = None):
+               tables: Optional[Sequence[Table]] = None,
+               port: Optional[Union[int, None]] = None,
+               checkpointer: Optional[checkpointers.CheckpointerBase] = None):
     """Constructor of Server serving the ReverbService.
 
     Args:
@@ -286,6 +294,9 @@ class Server:
     if hasattr(self, '_port'):
       portpicker.return_port(self._port)
 
+  def __repr__(self):
+    return repr(self._server)
+
   @property
   def port(self):
     """Port the gRPC service is running at."""
@@ -296,8 +307,20 @@ class Server:
     return self._server.Stop()
 
   def wait(self):
-    """Wait indefinitely for the ReverbService to stop."""
-    return self._server.Wait()
+    """Blocks until the service is shut down.
+
+    This method will never return unless the server is shut down which will only
+    happen if:
+
+      * `Server.stop` is called by another thread.
+      * A KeyboardInterrupt is raised (i.e. a SIGINT signal is sent to the
+        process).
+
+    Raises:
+      KeyboardInterrupt: If the server was killed by a SIGINT.
+    """
+    if self._server.Wait():
+      raise KeyboardInterrupt
 
   def in_process_client(self):
     """Gets a local in process client.

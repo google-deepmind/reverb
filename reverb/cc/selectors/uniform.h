@@ -18,10 +18,10 @@
 #include <vector>
 
 #include "absl/random/random.h"
+#include "absl/status/status.h"
 #include "reverb/cc/checkpointing/checkpoint.pb.h"
 #include "reverb/cc/platform/hash_map.h"
 #include "reverb/cc/selectors/interface.h"
-#include "tensorflow/core/lib/core/status.h"
 
 namespace deepmind {
 namespace reverb {
@@ -31,17 +31,19 @@ namespace reverb {
 // public methods.
 class UniformSelector : public ItemSelector {
  public:
-  tensorflow::Status Delete(Key key) override;
+  absl::Status Delete(Key key) override;
 
-  tensorflow::Status Insert(Key key, double priority) override;
+  absl::Status Insert(Key key, double priority) override;
 
-  tensorflow::Status Update(Key key, double priority) override;
+  absl::Status Update(Key key, double priority) override;
 
   KeyWithProbability Sample() override;
 
   void Clear() override;
 
   KeyDistributionOptions options() const override;
+
+  std::string DebugString() const override;
 
  private:
   // All keys.

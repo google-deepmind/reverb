@@ -17,12 +17,14 @@
 
 #include <stddef.h>
 
-#include <list>
+#include <deque>
 #include <memory>
 #include <string>
 #include <vector>
 
+#include "absl/base/attributes.h"
 #include <cstdint>
+#include "absl/status/status.h"
 #include "absl/time/time.h"
 #include "reverb/cc/platform/thread.h"
 #include "reverb/cc/reverb_service.grpc.pb.h"
@@ -30,7 +32,6 @@
 #include "reverb/cc/support/signature.h"
 #include "reverb/cc/table.h"
 #include "tensorflow/core/framework/tensor.h"
-#include "tensorflow/core/lib/core/status.h"
 
 namespace deepmind {
 namespace reverb {
@@ -53,45 +54,92 @@ inline absl::Duration Int64MillisToNonnegativeDuration(int64_t milliseconds) {
 class Sample {
  public:
   Sample(tensorflow::uint64 key, double probability,
-         tensorflow::int64 table_size, double priority,
-         std::list<std::vector<tensorflow::Tensor>> chunks);
+         tensorflow::int64 table_size, double priority, bool rate_limited,
+         std::vector<std::vector<tensorflow::Tensor>> column_chunks,
+         std::vector<bool> squeeze_columns);
 
   // Returns the next time step from this sample as a flat sequence of tensors.
   // CHECK-fails if the entire sample has already been returned.
   std::vector<tensorflow::Tensor> GetNextTimestep();
 
   // Returns the entire sample as a flat sequence of batched tensors.
-  // CHECK-fails if `GetNextTimestep()` has already been called on this sample.
+  //
+  // Fails with `DataLossError` if `GetNextTimestep()` has already been called
+  // on this sample.
+  // Fails with `FailedPreconditionError` if sample cannot be decomposed into
+  // timestpes.
+  //
   // Return:
   //   K+4 tensors each having a leading dimension of size N (= sample
-  //   length). The first K tensors holds the actual timestep data batched into
-  //   a tensor of shape [N, ...original_shape]. The following four tensors are
-  //   1D (length N) tensors representing the key, sample probability, table
-  //   size and priority respectively.
-  tensorflow::Status AsBatchedTimesteps(std::vector<tensorflow::Tensor>* data);
+  //   length). The first four tensors are 1D (length N) tensors representing
+  //   the key, sample probability, table size and priority respectively. The
+  //   last K tensors holds the actual timestep data batched into a tensor of
+  //   shape [N, ...original_shape].
+  absl::Status AsBatchedTimesteps(std::vector<tensorflow::Tensor>* data);
+
+  // Returns the entire sample as a flat sequence of batched tensors.
+  //
+  // Fails with `DataLossError` if `GetNextTimestep()` has already been called
+  // on this sample.
+  //
+  // Return:
+  //   K+4 tensors. The first four tensors are scalar tensors representing
+  //   the key, sample probability, table size and priority respectively. The
+  //   last K tensors holds the actual trajectory data.
+  absl::Status AsTrajectory(std::vector<tensorflow::Tensor>* data);
 
   // Returns true if the end of the sample has been reached.
   ABSL_MUST_USE_RESULT bool is_end_of_sample() const;
 
+  // Returns true if the sample can be decomposed into timesteps.
+  ABSL_MUST_USE_RESULT bool is_composed_of_timesteps() const;
+
+  // Whether the sample was delayed due to rate limiting or not.
+  bool rate_limited() const;
+
  private:
+  // Concatenates content of column `i` into `data[i+4]`, i.e ofset by info
+  // columns.
+  absl::Status UnpackColumns(std::vector<tensorflow::Tensor>* data);
+
   // The key of the replay item this time step was sampled from.
   tensorflow::uint64 key_;
+
   // The probability of the replay item this time step was sampled from.
   double probability_;
+
   // The size of the replay table this time step was sampled from at the time
   // of sampling.
   tensorflow::int64 table_size_;
+
   // Priority of the replay item this time step was sampled from.
   double priority_;
 
-  // Total number of time steps in this sample.
+  // Whether the sample was delayed due to rate limiting or not.
+  bool rate_limited_;
+
+  // Total number of time steps in this sample. Only set when
+  // `is_timestep_sample()` is true.
   int64_t num_timesteps_;
 
-  // Number of data tensors per time step.
-  int64_t num_data_tensors_;
+  struct ColumnChunk {
+    // Unpacked chunk, and potentially sliced, chunk content.
+    tensorflow::Tensor tensor;
 
-  // A list of tensor chunks.
-  std::list<std::vector<tensorflow::Tensor>> chunks_;
+    // Index of the next sub slice to return when emitting timesteps.
+    int offset = 0;
+  };
+
+  // Flat trajectory data. Each column uses a deque so the batched tensor can be
+  // deallocated as soon as all its content has been emitted through
+  // `GetNextTimestep`. If the data is retrieved with `AsBatchedTimesteps` or
+  // `AsTrajectory` then the column chunks are concatenated instead of
+  // subsliced.
+  std::vector<std::deque<ColumnChunk>> columns_;
+
+  // Columns where the batch dimension should be emitted. This is only respected
+  // by `AsTrajectory`.
+  std::vector<bool> squeeze_columns_;
 
   // The next time step to return when GetNextTimestep() is called.
   int64_t next_timestep_index_;
@@ -110,7 +158,7 @@ class SamplerWorker {
 
   // Attempt to sample up to `num_samples` and push results to `queue`. Returns
   // when `num_samples` pushed to `queue` or error encountered.
-  virtual std::pair<int64_t, tensorflow::Status> FetchSamples(
+  virtual std::pair<int64_t, absl::Status> FetchSamples(
       internal::Queue<std::unique_ptr<Sample>>* queue, int64_t num_samples,
       absl::Duration rate_limiter_timeout) = 0;
 };
@@ -224,7 +272,7 @@ class Sampler {
 
     // Checks that field values are valid and returns `InvalidArgument` if any
     // field value invalid.
-    tensorflow::Status Validate() const;
+    absl::Status Validate() const;
   };
 
   // Constructs a new `Sampler` using gRPC streams.
@@ -250,12 +298,34 @@ class Sampler {
 
   // Blocks until a timestep has been retrieved or until a non transient error
   // is encountered or `Close` has been called.
-  tensorflow::Status GetNextTimestep(std::vector<tensorflow::Tensor>* data,
-                                     bool* end_of_sequence);
+  absl::Status GetNextTimestep(std::vector<tensorflow::Tensor>* data,
+                               bool* end_of_sequence,
+                               bool* rate_limited = nullptr);
+
+  // Blocks until a complete (timestep sequence) sample has been retrieved or
+  // until a non transient error is encountered or `Close` has been called.
+  //
+  // Once the sample has been retrieved then the data is unpacked as "batched
+  // timesteps". That is, for a timestep trajectory of length N, the result is
+  // the same as calling `GetNextTimestep` N times and then concatenating the
+  // results column wise.
+  //
+  // TODO(b/179118872): Remove this method and just use GetNextTrajectory.
+  absl::Status GetNextSample(std::vector<tensorflow::Tensor>* data,
+                             bool* rate_limited = nullptr);
 
   // Blocks until a complete sample has been retrieved or until a non transient
   // error is encountered or `Close` has been called.
-  tensorflow::Status GetNextSample(std::vector<tensorflow::Tensor>* data);
+  //
+  // Once the sample has been retrieved then the sample is unpacked into 4+K
+  // tensors. The first 4 tensors are scalars representig the key, probability,
+  // table size and priority of the sample. The remaining K tensors are the
+  // columns of the flattened trajectory.
+  //
+  // TODO(b/179118872): Rename this to GetNextSample once the existing method
+  //   has been deleted.
+  absl::Status GetNextTrajectory(std::vector<tensorflow::Tensor>* data,
+                                 bool* rate_limited = nullptr);
 
   // Cancels all workers and joins their threads. Any blocking or future call
   // to `GetNextTimestep` or `GetNextSample` will return CancelledError without
@@ -271,24 +341,33 @@ class Sampler {
           const Options& options, internal::DtypesAndShapes dtypes_and_shapes);
 
   // Validates the `data` vector against `dtypes_and_shapes`.
-  //
-  // `data` is the data received by GetNextTimeStep or GetNextSample.
-  // `time_step` is `true` if `GetNextTimeStep` is the caller and `false`
-  //   if `GetNextSample` is the caller.
-  tensorflow::Status ValidateAgainstOutputSpec(
-      const std::vector<tensorflow::Tensor>& data, bool time_step);
+  enum class ValidationMode {
+    // `GetNextTimestep` is the caller. The signature represents a single
+    // timestep and so do does the provided data.
+    kTimestep,
+
+    // `GetNextSample` is the caller. The signature represents a single timestep
+    // and the data is a sequence of batched timesteps.
+    kBatchedTimestep,
+
+    // `GetNextTrajectory` is the caller. The signature represents a complete
+    // trajectory and so does the data.
+    kTrajectory,
+  };
+  absl::Status ValidateAgainstOutputSpec(
+      const std::vector<tensorflow::Tensor>& data, ValidationMode mode);
 
   void RunWorker(SamplerWorker* worker) ABSL_LOCKS_EXCLUDED(mu_);
 
   // If `active_sample_` has been read, blocks until a sample has been retrieved
   // (popped from `samples_`) and populates `active_sample_`.
-  tensorflow::Status MaybeSampleNext();
+  absl::Status MaybeSampleNext();
 
   // Blocks until a complete sample has been retrieved or until a non transient
   // error is encountered or `Close` has been called. Note that this method does
   // NOT increment `returned_`. This is left to `GetNextTimestep` and
   // `GetNextSample`. The returned pointer is only valid if the status is OK.
-  tensorflow::Status PopNextSample(std::unique_ptr<Sample>* sample);
+  absl::Status PopNextSample(std::unique_ptr<Sample>* sample);
 
   // True if the workers should be shut down. This is the case when either:
   //  - `Close` has been called.
@@ -330,7 +409,7 @@ class Sampler {
   std::vector<std::unique_ptr<internal::Thread>> worker_threads_;
 
   // OK or the first non transient error encountered by a worker.
-  tensorflow::Status worker_status_ ABSL_GUARDED_BY(mu_);
+  absl::Status worker_status_ ABSL_GUARDED_BY(mu_);
 
   // Remaining timesteps of the currently active sample. Not that this is not
   // protected by mutex as concurrent calls to `GetNextTimestep` is not

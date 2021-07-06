@@ -16,12 +16,16 @@
 """Pytype helpers."""
 
 import collections
-from typing import Any, Iterable, Mapping, NamedTuple, Optional, Union, get_type_hints
+from typing import Any, Iterable, Mapping, Optional, Union, get_type_hints
 
+import dataclasses
 from reverb import pybind
 import tensorflow.compat.v1 as tf
 
 from reverb.cc import schema_pb2
+# pylint: disable=g-direct-tensorflow-import
+from tensorflow.python.saved_model import nested_structure_coder
+# pylint: enable=g-direct-tensorflow-import
 
 
 Fifo = pybind.FifoSelector
@@ -44,10 +48,51 @@ _table_info_type_dict = collections.OrderedDict(
 _table_info_type_dict['signature'] = Optional[SpecNest]
 
 
-"""A tuple describing Table information.
+@dataclasses.dataclass
+class TableInfo:
+  """A tuple describing Table information.
 
-The main difference between this object and a `schema_pb2.TableInfo` message
-is that the signature is a nested structure of `tf.TypeSpec` objects,
-instead of a raw proto.
-"""
-TableInfo = NamedTuple('TableInfo', tuple(_table_info_type_dict.items()))
+  The main difference between this object and a `schema_pb2.TableInfo` message
+  is that the signature is a nested structure of `tf.TypeSpec` objects,
+  instead of a raw proto.
+
+  It also has a `TableInfo.from_serialized_proto` classmethod, which is an
+  alternate constructor for creating a `TableInfo` object from a serialized
+  `schema_pb2.TableInfo` proto.
+  """
+  # LINT.IfChange
+  name: str
+  sampler_options: schema_pb2.KeyDistributionOptions
+  remover_options: schema_pb2.KeyDistributionOptions
+  max_size: int
+  max_times_sampled: int
+  rate_limiter_info: schema_pb2.RateLimiterInfo
+  signature: Optional[SpecNest]
+  current_size: int
+  num_episodes: int
+  num_deleted_episodes: int
+  num_unique_samples: int
+  # LINT.ThenChange(../../reverb/schema.proto)
+
+  @classmethod
+  def from_serialized_proto(cls, proto_string: bytes) -> 'TableInfo':
+    """Constructs a TableInfo from a serialized `schema_pb2.TableInfo`."""
+    proto = schema_pb2.TableInfo.FromString(proto_string)
+    if proto.HasField('signature'):
+      signature = nested_structure_coder.StructureCoder().decode_proto(
+          proto.signature)
+    else:
+      signature = None
+    return cls(
+        name=proto.name,
+        sampler_options=proto.sampler_options,
+        remover_options=proto.remover_options,
+        max_size=proto.max_size,
+        max_times_sampled=proto.max_times_sampled,
+        rate_limiter_info=proto.rate_limiter_info,
+        signature=signature,
+        current_size=proto.current_size,
+        num_episodes=proto.num_episodes,
+        num_deleted_episodes=proto.num_deleted_episodes,
+        num_unique_samples=proto.num_unique_samples,
+        )

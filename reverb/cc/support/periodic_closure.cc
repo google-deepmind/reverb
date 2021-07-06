@@ -21,8 +21,6 @@
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "reverb/cc/platform/logging.h"
-#include "tensorflow/core/lib/core/status.h"
-#include "tensorflow/core/platform/errors.h"
 
 namespace deepmind {
 namespace reverb {
@@ -40,14 +38,14 @@ PeriodicClosure::PeriodicClosure(std::function<void()> fn,
   REVERB_CHECK_GE(period_, absl::ZeroDuration()) << "period should be >= 0";
 }
 
-tensorflow::Status PeriodicClosure::Start() {
+absl::Status PeriodicClosure::Start() {
   absl::WriterMutexLock lock(&mu_);
   if (stopped_) {
-    return tensorflow::errors::InvalidArgument(
+    return absl::InvalidArgumentError(
         "PeriodicClosure: Start called after Close");
   }
   if (worker_ != nullptr) {
-    return tensorflow::errors::InvalidArgument(
+    return absl::InvalidArgumentError(
         "PeriodicClosure: Start called when closure already running");
   }
   worker_ = StartThread(name_prefix_, [this] {
@@ -62,20 +60,20 @@ tensorflow::Status PeriodicClosure::Start() {
       fn_();
     }
   });
-  return tensorflow::Status::OK();
+  return absl::OkStatus();
 }
 
-tensorflow::Status PeriodicClosure::Stop() {
+absl::Status PeriodicClosure::Stop() {
   {
     absl::MutexLock l(&mu_);
     if (stopped_) {
-      return tensorflow::errors::InvalidArgument(
-          "PeriodicClsoure: Stop called multiple times");
+      return absl::InvalidArgumentError(
+          "PeriodicClosure: Stop called multiple times");
     }
     stopped_ = true;
   }
   worker_ = nullptr;  // Join thread.
-  return tensorflow::Status::OK();
+  return absl::OkStatus();
 }
 
 }  // namespace internal

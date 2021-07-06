@@ -4,6 +4,8 @@ package deepmind.reverb;
 
 import "reverb/cc/schema.proto";
 
+option cc_enable_arenas = true;
+
 service ReverbService {
   // Writes all in-memory data to disk. We store the tables
   // along with the chunks. On success, the path of the checkpoint is
@@ -103,20 +105,20 @@ message InsertStreamRequest {
     bool send_confirmation = 3;
   }
 
-  oneof payload {
-    // Chunk that can be referenced by a PrioritizedItem.
-    ChunkData chunk = 1;
+  // Chunk that can be referenced by a PrioritizedItem.
+  repeated ChunkData chunks = 1;
 
-    // Item for inserting into tables. The item must only reference
-    // chunks that has been sent been sent on the stream thus far and kept after
-    // previous insertion requests.
-    PriorityInsertion item = 2;
-  }
+  // Item for inserting into tables. The item must only reference
+  // chunks that has been sent been sent on the stream thus far and kept after
+  // previous insertion requests. If a request contains an item and chunks, the
+  // chunks are added to the table before the item. Hence, the item may
+  // reference these chunks.
+  PriorityInsertion item = 2;
 }
 
 message InsertStreamResponse {
   // ID of inserted/updated items.
-  uint64 key = 1;
+  repeated uint64 keys = 1;
 }
 
 message MutatePrioritiesRequest {
@@ -166,14 +168,20 @@ message SampleStreamRequest {
 }
 
 message SampleStreamResponse {
-  // First response item in the stream is info about the sample.
-  SampleInfo info = 1;
+  message SampleEntry {
 
-  // Followed by at least one data response.
-  ChunkData data = 2;
+    // First response item in the stream is info about the sample.
+    SampleInfo info = 1;
 
-  // True if this is the last message in the sequence.
-  bool end_of_sequence = 3;
+    // Followed by at least one data response.
+    repeated ChunkData data = 2;
+
+    // True if this is the last message in the sequence.
+    bool end_of_sequence = 3;
+  }
+
+  // Batch of sample entries.
+  repeated SampleEntry entries = 1;
 }
 
 message ResetRequest {

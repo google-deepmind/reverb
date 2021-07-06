@@ -18,17 +18,19 @@
 #include <memory>
 
 #include "grpcpp/support/channel_arguments.h"
+#include "absl/status/status.h"
+#include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "absl/time/time.h"
 #include "absl/types/optional.h"
 #include "reverb/cc/platform/grpc_utils.h"
 #include "reverb/cc/platform/logging.h"
+#include "reverb/cc/platform/status_macros.h"
 #include "reverb/cc/reverb_service.pb.h"
 #include "reverb/cc/schema.pb.h"
 #include "reverb/cc/support/grpc_util.h"
 #include "reverb/cc/support/uint128.h"
-#include "tensorflow/core/lib/core/status.h"
-#include "tensorflow/core/platform/errors.h"
+#include "reverb/cc/trajectory_writer.h"
 
 namespace deepmind {
 namespace reverb {
@@ -55,7 +57,7 @@ Client::Client(absl::string_view server_address)
           CreateCustomGrpcChannel(server_address, MakeChannelCredentials(),
                                   CreateChannelArguments()))) {}
 
-tensorflow::Status Client::MaybeUpdateServerInfoCache(
+absl::Status Client::MaybeUpdateServerInfoCache(
     absl::Duration timeout,
     std::shared_ptr<internal::FlatSignatureMap>* cached_flat_signatures) {
   // TODO(b/154927570): Once tables can be mutated on the server, we'll need to
@@ -66,7 +68,7 @@ tensorflow::Status Client::MaybeUpdateServerInfoCache(
     absl::ReaderMutexLock lock(&cached_table_mu_);
     if (cached_flat_signatures_) {
       *cached_flat_signatures = cached_flat_signatures_;
-      return tensorflow::Status::OK();
+      return absl::OkStatus();
     }
   }
 
@@ -75,7 +77,7 @@ tensorflow::Status Client::MaybeUpdateServerInfoCache(
     // immediately and without error; but we don't have anything already cached.
     // Just act like everything is fine! (Return empty signatures).
     *cached_flat_signatures = std::make_shared<internal::FlatSignatureMap>();
-    return tensorflow::Status::OK();
+    return absl::OkStatus();
   }
 
   // This performs an RPC, so don't run it within a mutex.
@@ -97,18 +99,18 @@ tensorflow::Status Client::MaybeUpdateServerInfoCache(
   //
   //      https://github.com/grpc/grpc/blob/631fe79f84af295c60aea5693350b45154827398/src/core/ext/filters/client_channel/client_channel.cc#L1661
   struct ServerInfo info;
-  TF_RETURN_IF_ERROR(GetServerInfo(timeout, &info));
+  REVERB_RETURN_IF_ERROR(GetServerInfo(timeout, &info));
 
   absl::MutexLock lock(&cached_table_mu_);
-  TF_RETURN_IF_ERROR(LockedUpdateServerInfoCache(info));
+  REVERB_RETURN_IF_ERROR(LockedUpdateServerInfoCache(info));
   *cached_flat_signatures = cached_flat_signatures_;
-  return tensorflow::Status::OK();
+  return absl::OkStatus();
 }
 
-tensorflow::Status Client::NewWriter(int chunk_length, int max_timesteps,
-                                     bool delta_encoded,
-                                     absl::optional<int> max_in_flight_items,
-                                     std::unique_ptr<Writer>* writer) {
+absl::Status Client::NewWriter(int chunk_length, int max_timesteps,
+                               bool delta_encoded,
+                               absl::optional<int> max_in_flight_items,
+                               std::unique_ptr<Writer>* writer) {
   // TODO(b/154928265): caching this request?  For example, if
   // it's been N seconds or minutes, it may be time to
   // get an updated ServerInfo and see if there are new tables.
@@ -116,21 +118,22 @@ tensorflow::Status Client::NewWriter(int chunk_length, int max_timesteps,
   // TODO(b/154927687): It is not ideal that this blocks forever. We should
   // probably limit this and ignore the signature if it couldn't be found within
   // some limits.
-  TF_RETURN_IF_ERROR(MaybeUpdateServerInfoCache(absl::InfiniteDuration(),
-                                                &cached_flat_signatures));
+  REVERB_RETURN_IF_ERROR(MaybeUpdateServerInfoCache(absl::InfiniteDuration(),
+                                                    &cached_flat_signatures));
   *writer = absl::make_unique<Writer>(
       stub_, chunk_length, max_timesteps, delta_encoded,
       std::move(cached_flat_signatures), std::move(max_in_flight_items));
-  return tensorflow::Status::OK();
+  return absl::OkStatus();
 }
-tensorflow::Status Client::NewWriter(int chunk_length, int max_timesteps,
-                                     bool delta_encoded,
-                                     std::unique_ptr<Writer>* writer) {
+
+absl::Status Client::NewWriter(int chunk_length, int max_timesteps,
+                               bool delta_encoded,
+                               std::unique_ptr<Writer>* writer) {
   return NewWriter(chunk_length, max_timesteps, delta_encoded, absl::nullopt,
                    writer);
 }
 
-tensorflow::Status Client::MutatePriorities(
+absl::Status Client::MutatePriorities(
     absl::string_view table, const std::vector<KeyWithPriority>& updates,
     const std::vector<uint64_t>& deletes, absl::Duration timeout) {
   grpc::ClientContext context;
@@ -148,11 +151,11 @@ tensorflow::Status Client::MutatePriorities(
   return FromGrpcStatus(stub_->MutatePriorities(&context, request, &response));
 }
 
-tensorflow::Status Client::NewSampler(
+absl::Status Client::NewSampler(
     const std::string& table, const Sampler::Options& options,
     internal::DtypesAndShapes dtypes_and_shapes,
     std::unique_ptr<Sampler>* sampler) {
-  TF_RETURN_IF_ERROR(options.Validate());
+  REVERB_RETURN_IF_ERROR(options.Validate());
 
   std::shared_ptr<Table> table_ptr;
   if (GetLocalTablePtr(table, &table_ptr).ok()) {
@@ -166,18 +169,18 @@ tensorflow::Status Client::NewSampler(
                                           std::move(dtypes_and_shapes));
   }
 
-  return tensorflow::Status::OK();
+  return absl::OkStatus();
 }
 
-tensorflow::Status Client::NewSampler(const std::string& table,
-                                      const Sampler::Options& options,
-                                      absl::Duration validation_timeout,
-                                      std::unique_ptr<Sampler>* sampler) {
+absl::Status Client::NewSampler(const std::string& table,
+                                const Sampler::Options& options,
+                                absl::Duration validation_timeout,
+                                std::unique_ptr<Sampler>* sampler) {
   internal::DtypesAndShapes dtypes_and_shapes;
   auto status = GetDtypesAndShapesForSampler(table, validation_timeout,
                                              &dtypes_and_shapes);
 
-  if (tensorflow::errors::IsDeadlineExceeded(status)) {
+  if (absl::IsDeadlineExceeded(status)) {
     REVERB_LOG(REVERB_WARNING)
         << "Unable to validate shapes and dtypes of new sampler for '" << table
         << "' as server could not be reached in time (" << validation_timeout
@@ -189,7 +192,7 @@ tensorflow::Status Client::NewSampler(const std::string& table,
   return NewSampler(table, options, std::move(dtypes_and_shapes), sampler);
 }
 
-tensorflow::Status Client::GetDtypesAndShapesForSampler(
+absl::Status Client::GetDtypesAndShapesForSampler(
     const std::string& table, absl::Duration validation_timeout,
     internal::DtypesAndShapes* dtypes_and_shapes) {
   // TODO(b/154928265): caching this request?  For example, if
@@ -197,7 +200,7 @@ tensorflow::Status Client::GetDtypesAndShapesForSampler(
   // get an updated ServerInfo and see if there are new tables.
 
   std::shared_ptr<internal::FlatSignatureMap> cached_flat_signatures;
-  TF_RETURN_IF_ERROR(
+  REVERB_RETURN_IF_ERROR(
       MaybeUpdateServerInfoCache(validation_timeout, &cached_flat_signatures));
 
   const auto iter = cached_flat_signatures->find(table);
@@ -239,38 +242,38 @@ tensorflow::Status Client::GetDtypesAndShapesForSampler(
 
     dtypes_and_shapes->emplace(std::move(dtypes_and_shapes_vec));
   }
-  return tensorflow::Status::OK();
+  return absl::OkStatus();
 }
 
-tensorflow::Status Client::NewSampler(
+absl::Status Client::NewSampler(
     const std::string& table, const Sampler::Options& options,
     const tensorflow::DataTypeVector& validation_dtypes,
     const std::vector<tensorflow::PartialTensorShape>& validation_shapes,
     absl::Duration validation_timeout, std::unique_ptr<Sampler>* sampler) {
   if (validation_dtypes.size() != validation_shapes.size()) {
-    return tensorflow::errors::InvalidArgument(
+    return absl::InvalidArgumentError(absl::StrCat(
         "validation_shapes.size() != validation_dtypes.size() (",
-        validation_shapes.size(), " vs. ", validation_dtypes.size(), ")");
+        validation_shapes.size(), " vs. ", validation_dtypes.size(), ")"));
   }
 
   internal::DtypesAndShapes dtypes_and_shapes;
-  TF_RETURN_IF_ERROR(GetDtypesAndShapesForSampler(table, validation_timeout,
-                                                  &dtypes_and_shapes));
+  REVERB_RETURN_IF_ERROR(GetDtypesAndShapesForSampler(table, validation_timeout,
+                                               &dtypes_and_shapes));
   // Only perform check if the table had a signature associated with it.
   if (dtypes_and_shapes) {
     if (dtypes_and_shapes->size() != validation_shapes.size()) {
-      return tensorflow::errors::InvalidArgument(
+      return absl::InvalidArgumentError(absl::StrCat(
           "Inconsistent number of tensors requested from table '", table,
           "'.  Requested ", validation_shapes.size(),
           " tensors, but table signature shows ", dtypes_and_shapes->size(),
           " tensors.  Table signature: ",
-          internal::DtypesShapesString(*dtypes_and_shapes));
+          internal::DtypesShapesString(*dtypes_and_shapes)));
     }
     for (int i = 0; i < dtypes_and_shapes->size(); ++i) {
       if (dtypes_and_shapes->at(i).dtype != validation_dtypes[i] ||
           !dtypes_and_shapes->at(i).shape.IsCompatibleWith(
               validation_shapes[i])) {
-        return tensorflow::errors::InvalidArgument(
+        return absl::InvalidArgumentError(absl::StrCat(
             "Requested incompatible tensor at flattened index ", i,
             " from table '", table, "'.  Requested (dtype, shape): (",
             tensorflow::DataTypeString(validation_dtypes[i]), ", ",
@@ -279,7 +282,7 @@ tensorflow::Status Client::NewSampler(
             tensorflow::DataTypeString(dtypes_and_shapes->at(i).dtype), ", ",
             dtypes_and_shapes->at(i).shape.DebugString(),
             ").  Table signature: ",
-            internal::DtypesShapesString(*dtypes_and_shapes));
+            internal::DtypesShapesString(*dtypes_and_shapes)));
       }
     }
   } else {
@@ -297,8 +300,15 @@ tensorflow::Status Client::NewSampler(
   return NewSampler(table, options, std::move(dtypes_and_shapes), sampler);
 }
 
-tensorflow::Status Client::GetServerInfo(absl::Duration timeout,
-                                         struct ServerInfo* info) {
+absl::Status Client::NewSamplerWithoutSignatureCheck(
+    const std::string& table, const Sampler::Options& options,
+    std::unique_ptr<Sampler>* sampler) {
+  return NewSampler(table, options, /*dtypes_and_shapes=*/absl::nullopt,
+                    sampler);
+}
+
+absl::Status Client::GetServerInfo(absl::Duration timeout,
+                                   struct ServerInfo* info) {
   grpc::ClientContext context;
   context.set_wait_for_ready(true);
   if (timeout != absl::InfiniteDuration()) {
@@ -308,47 +318,47 @@ tensorflow::Status Client::GetServerInfo(absl::Duration timeout,
 
   ServerInfoRequest request;
   ServerInfoResponse response;
-  TF_RETURN_IF_ERROR(
+  REVERB_RETURN_IF_ERROR(
       FromGrpcStatus(stub_->ServerInfo(&context, request, &response)));
   info->tables_state_id = MessageToUint128(response.tables_state_id());
   for (class TableInfo& table : *response.mutable_table_info()) {
     info->table_info.emplace_back(std::move(table));
   }
-  return tensorflow::Status::OK();
+  return absl::OkStatus();
 }
 
-tensorflow::Status Client::ServerInfo(struct ServerInfo* info) {
+absl::Status Client::ServerInfo(struct ServerInfo* info) {
   return ServerInfo(absl::InfiniteDuration(), info);
 }
 
-tensorflow::Status Client::ServerInfo(absl::Duration timeout,
-                                      struct ServerInfo* info) {
+absl::Status Client::ServerInfo(absl::Duration timeout,
+                                struct ServerInfo* info) {
   struct ServerInfo local_info;
-  TF_RETURN_IF_ERROR(GetServerInfo(timeout, &local_info));
+  REVERB_RETURN_IF_ERROR(GetServerInfo(timeout, &local_info));
   {
     absl::MutexLock lock(&cached_table_mu_);
-    TF_RETURN_IF_ERROR(LockedUpdateServerInfoCache(local_info));
+    REVERB_RETURN_IF_ERROR(LockedUpdateServerInfoCache(local_info));
   }
   std::swap(*info, local_info);
-  return tensorflow::Status::OK();
+  return absl::OkStatus();
 }
 
-tensorflow::Status Client::LockedUpdateServerInfoCache(
+absl::Status Client::LockedUpdateServerInfoCache(
     const struct ServerInfo& info) {
   if (!cached_flat_signatures_ || tables_state_id_ != info.tables_state_id) {
     internal::FlatSignatureMap signatures;
     for (const auto& table_info : info.table_info) {
-      TF_RETURN_IF_ERROR(internal::FlatSignatureFromTableInfo(
+      REVERB_RETURN_IF_ERROR(internal::FlatSignatureFromTableInfo(
           table_info, &(signatures[table_info.name()])));
     }
     cached_flat_signatures_.reset(
         new internal::FlatSignatureMap(std::move(signatures)));
     tables_state_id_ = info.tables_state_id;
   }
-  return tensorflow::Status::OK();
+  return absl::OkStatus();
 }
 
-tensorflow::Status Client::Reset(const std::string& table) {
+absl::Status Client::Reset(const std::string& table) {
   grpc::ClientContext context;
   context.set_wait_for_ready(true);
   ResetRequest request;
@@ -357,19 +367,19 @@ tensorflow::Status Client::Reset(const std::string& table) {
   return FromGrpcStatus(stub_->Reset(&context, request, &response));
 }
 
-tensorflow::Status Client::Checkpoint(std::string* path) {
+absl::Status Client::Checkpoint(std::string* path) {
   grpc::ClientContext context;
   context.set_fail_fast(true);
   CheckpointRequest request;
   CheckpointResponse response;
-  TF_RETURN_IF_ERROR(
+  REVERB_RETURN_IF_ERROR(
       FromGrpcStatus(stub_->Checkpoint(&context, request, &response)));
   *path = response.checkpoint_path();
-  return tensorflow::Status::OK();
+  return absl::OkStatus();
 }
 
-tensorflow::Status Client::GetLocalTablePtr(absl::string_view table_name,
-                                            std::shared_ptr<Table>* out) {
+absl::Status Client::GetLocalTablePtr(absl::string_view table_name,
+                                      std::shared_ptr<Table>* out) {
   grpc::ClientContext context;
   context.set_wait_for_ready(false);
   auto stream = stub_->InitializeConnection(&context);
@@ -378,20 +388,20 @@ tensorflow::Status Client::GetLocalTablePtr(absl::string_view table_name,
   request.set_pid(getpid());
   request.set_table_name(table_name.data(), table_name.size());
   if (!stream->Write(request)) {
-    TF_RETURN_IF_ERROR(FromGrpcStatus(stream->Finish()));
-    return tensorflow::errors::Internal(
+    REVERB_RETURN_IF_ERROR(FromGrpcStatus(stream->Finish()));
+    return absl::InternalError(
         "InitializeConnection: Failed to write to stream.");
   }
 
   InitializeConnectionResponse response;
   if (!stream->Read(&response)) {
-    TF_RETURN_IF_ERROR(FromGrpcStatus(stream->Finish()));
-    return tensorflow::errors::Internal(
+    REVERB_RETURN_IF_ERROR(FromGrpcStatus(stream->Finish()));
+    return absl::InternalError(
         "InitializeConnection: Failed to read from stream.");
   }
 
   if (response.address() == 0) {
-    return tensorflow::errors::FailedPrecondition(
+    return absl::FailedPreconditionError(
         "Client and server are not running in the same process.");
   }
 
@@ -400,6 +410,27 @@ tensorflow::Status Client::GetLocalTablePtr(absl::string_view table_name,
   stream->Write(request);
 
   return FromGrpcStatus(stream->Finish());
+}
+
+absl::Status Client::NewTrajectoryWriter(
+    const TrajectoryWriter::Options& options,
+    absl::Duration get_signature_timeout,
+    std::unique_ptr<TrajectoryWriter>* writer) {
+  std::shared_ptr<internal::FlatSignatureMap> cached_flat_signatures;
+  REVERB_RETURN_IF_ERROR(MaybeUpdateServerInfoCache(get_signature_timeout,
+                                                    &cached_flat_signatures));
+
+  TrajectoryWriter::Options updated_options = options;
+  updated_options.flat_signature_map = *cached_flat_signatures;
+  return NewTrajectoryWriter(updated_options, writer);
+}
+
+absl::Status Client::NewTrajectoryWriter(
+    const TrajectoryWriter::Options& options,
+    std::unique_ptr<TrajectoryWriter>* writer) {
+  REVERB_RETURN_IF_ERROR(options.Validate());
+  *writer = absl::make_unique<TrajectoryWriter>(stub_, options);
+  return absl::OkStatus();
 }
 
 }  // namespace reverb

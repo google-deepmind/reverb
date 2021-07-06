@@ -15,6 +15,7 @@
 #ifndef REVERB_CC_PLATFORM_DEFAULT_HASH_SET_H_
 #define REVERB_CC_PLATFORM_DEFAULT_HASH_SET_H_
 
+// IWYU pragma: private
 #include "absl/container/flat_hash_set.h"
 #include "reverb/cc/platform/default/hash.h"
 

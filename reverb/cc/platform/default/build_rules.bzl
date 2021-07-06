@@ -261,6 +261,7 @@ def reverb_cc_test(name, srcs, deps = [], **kwargs):
       **kwargs: Additional args to cc_test.
     """
     new_deps = [
+        "@com_github_grpc_grpc//:grpc++_test",
         "@com_google_googletest//:gtest",
         "@tensorflow_includes//:includes",
         "@tensorflow_solib//:framework_lib",
@@ -378,7 +379,8 @@ def reverb_pybind_extension(
         licenses = None,
         compatible_with = None,
         restricted_to = None,
-        deprecation = None):
+        deprecation = None,
+        pytype_srcs = None):
     """Builds a generic Python extension module.
 
     The module can be loaded in python by performing "import ${name}.".
@@ -402,6 +404,7 @@ def reverb_pybind_extension(
       compatible_with: see bazel docs.
       restricted_to: see bazel docs.
       deprecation:  see bazel docs.
+      pytype_srcs: Unused list of pytype stub files.
     """
     if name == module_name:
         fail(
@@ -540,14 +543,15 @@ def reverb_absl_deps():
         # are forced to use platform:hash_{map,set}, which uses a safer hasher.
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/base:core_headers",
-        "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/functional:bind_front",
         "@com_google_absl//absl/memory",
         "@com_google_absl//absl/numeric:int128",
         "@com_google_absl//absl/random",
         "@com_google_absl//absl/random:distributions",
+        "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:cord",
+        "@com_google_absl//absl/strings:str_format",
         "@com_google_absl//absl/synchronization",
         "@com_google_absl//absl/time",
         "@com_google_absl//absl/types:optional",

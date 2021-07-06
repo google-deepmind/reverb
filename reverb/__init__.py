@@ -44,3 +44,10 @@ from reverb.server import Server
 from reverb.server import Table
 
 from reverb.tf_client import TFClient
+
+from reverb.timestep_dataset import TimestepDataset
+
+from reverb.trajectory_dataset import TrajectoryDataset
+
+from reverb.trajectory_writer import TrajectoryColumn
+from reverb.trajectory_writer import TrajectoryWriter

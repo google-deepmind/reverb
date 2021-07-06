@@ -25,27 +25,35 @@
 #include "google/protobuf/timestamp.pb.h"
 #include <cstdint>
 #include "absl/memory/memory.h"
+#include "absl/status/status.h"
+#include "absl/strings/str_cat.h"
 #include "absl/synchronization/mutex.h"
+#include "absl/synchronization/notification.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "absl/types/span.h"
 #include "reverb/cc/checkpointing/checkpoint.pb.h"
 #include "reverb/cc/chunk_store.h"
+#include "reverb/cc/errors.h"
 #include "reverb/cc/platform/hash_map.h"
 #include "reverb/cc/platform/hash_set.h"
 #include "reverb/cc/platform/logging.h"
+#include "reverb/cc/platform/status_macros.h"
 #include "reverb/cc/rate_limiter.h"
 #include "reverb/cc/schema.pb.h"
 #include "reverb/cc/selectors/interface.h"
+#include "reverb/cc/support/trajectory_util.h"
 #include "reverb/cc/table_extensions/interface.h"
-#include "tensorflow/core/platform/errors.h"
-#include "tensorflow/core/platform/status.h"
 
 namespace deepmind {
 namespace reverb {
 namespace {
 
 using Extensions = std::vector<std::shared_ptr<TableExtension>>;
+
+// Number of queued inserts that are allowed on the table without slowing down
+// further inserts.
+static constexpr int64_t kMaxEnqueuedInserts = 1000;
 
 inline bool IsInsertedBefore(const PrioritizedItem& a,
                              const PrioritizedItem& b) {
@@ -61,7 +69,68 @@ inline void EncodeAsTimestampProto(absl::Time t,
   proto->set_nanos((t - absl::FromUnixSeconds(s)) / absl::Nanoseconds(1));
 }
 
+inline absl::Status CheckItemValidity(const Table::Item& item) {
+  if (item.item.flat_trajectory().columns().empty() ||
+      item.item.flat_trajectory().columns(0).chunk_slices().empty()) {
+    return absl::InvalidArgumentError("Item trajectory must not be empty.");
+  }
+
+  auto trajectory_keys = internal::GetChunkKeys(item.item.flat_trajectory());
+  if (trajectory_keys.size() != item.chunks.size()) {
+    return absl::InvalidArgumentError(
+        absl::StrCat("The number of chunks (", item.chunks.size(),
+                     ") does not equal the number of chunks referenced "
+                     "in item's trajectory (",
+                     trajectory_keys.size(), ")."));
+  }
+
+  for (int i = 0; i < trajectory_keys.size(); ++i) {
+    if (item.chunks[i]->key() != trajectory_keys[i]) {
+      return absl::InvalidArgumentError(
+          "Item chunks does not match chunks referenced in trajectory.");
+    }
+  }
+
+  return absl::OkStatus();
+}
+
 }  // namespace
+
+void Table::FinalizeSampleRequest(std::unique_ptr<Table::SampleRequest> request,
+                           absl::Status status) {
+  Table::SampleRequest* r = request.release();
+  r->status = status;
+  callback_executor_->Schedule([r] {
+    auto to_notify = r->on_batch_done.lock();
+    // Callback might have been destroyed in the meantime.
+    if (to_notify != nullptr) {
+      (*to_notify)(r);
+    }
+    delete r;
+  });
+}
+
+// For a given set of sampling requests extract the ones exceeding provided
+// deadline. Compute `next_deadline` when some request should be terminated
+// in the future. Requests to be terminated are moved into `to_terminate`
+// and replaced by nullptr.
+void GetExpiredRequests(
+    const absl::Time& deadline,
+    std::vector<std::unique_ptr<Table::SampleRequest>>* requests,
+    std::vector<std::unique_ptr<Table::SampleRequest>>* to_terminate,
+    absl::Time* next_deadline) {
+  for (auto& sample : *requests) {
+    if (sample == nullptr) {
+      // Request has already been removed during the previous iteration.
+      continue;
+    }
+    if (sample->deadline <= deadline) {
+      to_terminate->push_back(std::move(sample));
+    } else {
+      *next_deadline = std::min(*next_deadline, sample->deadline);
+    }
+  }
+}
 
 Table::Table(std::string name, std::shared_ptr<ItemSelector> sampler,
              std::shared_ptr<ItemSelector> remover, int64_t max_size,
@@ -71,23 +140,203 @@ Table::Table(std::string name, std::shared_ptr<ItemSelector> sampler,
     : sampler_(std::move(sampler)),
       remover_(std::move(remover)),
       num_deleted_episodes_(0),
+      num_unique_samples_(0),
       max_size_(max_size),
       max_times_sampled_(max_times_sampled),
       name_(std::move(name)),
       rate_limiter_(std::move(rate_limiter)),
       extensions_(std::move(extensions)),
       signature_(std::move(signature)) {
-  TF_CHECK_OK(rate_limiter_->RegisterTable(this));
+  REVERB_CHECK_OK(rate_limiter_->RegisterTable(this));
   for (auto& extension : extensions_) {
-    TF_CHECK_OK(extension->RegisterTable(&mu_, this));
+    REVERB_CHECK_OK(extension->RegisterTable(&mu_, this));
   }
 }
 
 Table::~Table() {
+  Close();
+  {
+    absl::MutexLock lock(&worker_mu_);
+    stop_worker_ = true;
+    wakeup_worker_.Signal();
+  }
+  // Join the worker thread
+  table_worker_ = nullptr;
   rate_limiter_->UnregisterTable(&mu_, this);
   for (auto& extension : extensions_) {
     extension->UnregisterTable(&mu_, this);
   }
+}
+
+void Table::EnableTableWorker(std::shared_ptr<TaskExecutor> executor) {
+  callback_executor_ = executor;
+  table_worker_ = internal::StartThread("TableWorker_" + name_, [&]() {
+    // Sampling requests that exceeded deadline and should be terminated.
+    std::vector<std::unique_ptr<Table::SampleRequest>> to_terminate;
+    // Status to be send to the already timed out sample requests (changes upon
+    // table shutdown to distinguish between timeout and table shutdown).
+    absl::Status sampling_status = errors::RateLimiterTimeout();
+    // Status to be send to the inserters once there is more place to insert
+    // (changes upon table shutdown).
+    absl::Status insert_status = absl::OkStatus();
+    // Collection of items removed from the table (by either insert or sample
+    // operations) which are waiting for cleanup. Cleanup is done outside of
+    // time-critical table worker.
+    std::vector<std::shared_ptr<Item>> to_delete;
+    // Collection of callbacks for insert operations waiting for more space in
+    // the table.
+    std::vector<std::weak_ptr<std::function<void(const absl::Status&)>>>
+        notify_inserts_ok;
+    // Collection of items waiting to the added to the table.
+    std::vector<std::shared_ptr<Item>> current_inserts;
+    // Index of the next item in the `pending_inserts` to be processed.
+    int current_insert = 0;
+    // Collection of sample requests to be processed.
+    std::vector<std::unique_ptr<SampleRequest>> current_sampling;
+    // Index of the next request from the `sampling_requests` to be processed.
+    int current_sample = 0;
+    // Whether the next sample was rate limited.
+    bool rate_limited = false;
+
+    // Progress of handling insert/sample requests. Used for detecting whether
+    // worker has something to do (making progress) or should go to sleep.
+    int64_t progress = 0;
+    int64_t last_progress = 0;
+    while (true) {
+      // Notify clients waiting to insert
+      for (auto& notify : notify_inserts_ok) {
+        auto to_notify = notify.lock();
+        // Callback might have been destroyed in the meantime.
+        if (to_notify != nullptr) {
+          (*to_notify)(insert_status);
+        }
+      }
+      notify_inserts_ok.clear();
+      {
+        absl::MutexLock lock(&mu_);
+        // Tracks whether while loop below makes progress.
+        int64_t prev_progress = progress - 1;
+        while (prev_progress < progress) {
+          prev_progress = progress;
+          // Try processing an insert request.
+          if (current_insert < current_inserts.size() &&
+              rate_limiter_->CanInsert(&mu_, 1)) {
+            auto res = InsertOrAssignInternal(current_inserts[current_insert++],
+                                              &to_delete);
+            progress++;
+            if (!res.ok()) {
+              REVERB_LOG(REVERB_ERROR)
+                  << "Table worker encountered an error while inserting: "
+                  << res.ToString() << ". Shutting down.";
+              return;
+            }
+          }
+          // Skip sampling requests which timed out already.
+          while (current_sample < current_sampling.size() &&
+                 current_sampling[current_sample] == nullptr) {
+            current_sample++;
+          }
+          // Try processing a sample request.
+          if (current_sample < current_sampling.size()) {
+            auto& request = current_sampling[current_sample];
+            while (rate_limiter_->MaybeCommitSample(&mu_)) {
+              progress++;
+              request->samples.emplace_back();
+              auto res = SampleInternal(rate_limited, &request->samples.back(),
+                                        &to_delete);
+              if (!res.ok()) {
+                REVERB_LOG(REVERB_ERROR)
+                    << "Table worker encountered an error while sampling: "
+                    << res.ToString() << ". Shutting down.";
+                return;
+              }
+              // Capacity of the samples collection indicates how many items
+              // should be sampled.
+              if (request->samples.capacity() == request->samples.size()) {
+                // Finalized request is moved out of sampling_requests.
+                FinalizeSampleRequest(std::move(request), absl::OkStatus());
+                current_sample++;
+                break;
+              }
+            }
+          }
+        }
+      }
+      {
+        absl::MutexLock lock(&worker_mu_);
+        // Items to be deleted are being deleted by the callers to spread the
+        // load. We could consider doing that in a dedicated thread instead.
+        if (!to_delete.empty() && deleted_items_.empty()) {
+          std::swap(to_delete, deleted_items_);
+        }
+        if (current_insert == current_inserts.size() &&
+            !pending_inserts_.empty()) {
+          // Get a new batch of insert requests as previous batch is done.
+          progress++;
+          current_insert = 0;
+          current_inserts.clear();
+          std::swap(current_inserts, pending_inserts_);
+          // As `pending_inserts_` is empty now, we should let waiting users
+          // know it is fine to continue with the inserts.
+          std::swap(notify_inserts_ok, notify_inserts_ok_);
+        }
+        if (current_sample == current_sampling.size() &&
+            !pending_sampling_.empty()) {
+          // Get a new batch of sample requests as previous batch is done.
+          progress++;
+          current_sample = 0;
+          current_sampling.clear();
+          std::swap(current_sampling, pending_sampling_);
+
+          // We'll consider the new batch of requests to be unaffected by the
+          // rate limiter until the worker is put to sleep again.
+          rate_limited = false;
+        }
+        if (progress != last_progress) {
+          // There was progress executing insert/sample requests,
+          // so continue without handling timeouts.
+          last_progress = progress;
+          continue;
+        }
+        auto deadline = absl::Now();
+        auto wakeup = absl::InfiniteFuture();
+        {
+          absl::MutexLock table_lock(&mu_);
+          if (!rate_limiter_->CheckIfCancelled(&mu_).ok()) {
+            // We need to terminate all in-flight operations, so collect
+            // requests with the deadline smaller than InfiniteFuture.
+            deadline = absl::InfiniteFuture();
+            sampling_status =
+                absl::CancelledError("RateLimiter has been cancelled");
+            insert_status =
+                absl::CancelledError("RateLimiter has been cancelled");
+            if (notify_inserts_ok.empty() && !notify_inserts_ok_.empty()) {
+              std::swap(notify_inserts_ok, notify_inserts_ok_);
+            }
+          }
+        }
+        GetExpiredRequests(deadline, &current_sampling, &to_terminate,
+                           &wakeup);
+        GetExpiredRequests(deadline, &pending_sampling_, &to_terminate,
+                           &wakeup);
+        if (to_terminate.empty() && notify_inserts_ok.empty()) {
+          if (stop_worker_) {
+            return;
+          }
+          worker_sleeps_ = true;
+          rate_limited = !current_sampling.empty() &&
+                         current_sample != current_sampling.size();
+          wakeup_worker_.WaitWithDeadline(&worker_mu_, wakeup);
+          worker_sleeps_ = false;
+        }
+      }
+      // Notify sample requests which exceeded deadline.
+      for (auto& sample : to_terminate) {
+        FinalizeSampleRequest(std::move(sample), sampling_status);
+      }
+      to_terminate.clear();
+    }
+  });
 }
 
 std::vector<Table::Item> Table::Copy(size_t count) const {
@@ -96,18 +345,22 @@ std::vector<Table::Item> Table::Copy(size_t count) const {
   items.reserve(count == 0 ? data_.size() : count);
   for (auto it = data_.cbegin();
        it != data_.cend() && (count == 0 || items.size() < count); it++) {
-    items.push_back(it->second);
+    items.push_back(*it->second);
   }
   return items;
 }
 
-tensorflow::Status Table::InsertOrAssign(Item item) {
+absl::Status Table::InsertOrAssign(Item item, absl::Duration timeout) {
+  // InsertOrAssign is not allowed when using table worker.
+  REVERB_CHECK(table_worker_ == nullptr);
+  REVERB_RETURN_IF_ERROR(CheckItemValidity(item));
+
   auto key = item.item.key();
   auto priority = item.item.priority();
 
   // If an item is deleted as part of the insert then we keep the data alive
   // until the lock has been released.
-  Item deleted_item;
+  std::shared_ptr<Item> deleted_item;
   {
     absl::MutexLock lock(&mu_);
 
@@ -119,7 +372,7 @@ tensorflow::Status Table::InsertOrAssign(Item item) {
     // Wait for the insert to be staged. While waiting the lock is released but
     // once it returns the lock is acquired again. While waiting for the right
     // to insert the operation might have transformed into an update.
-    TF_RETURN_IF_ERROR(rate_limiter_->AwaitCanInsert(&mu_));
+    REVERB_RETURN_IF_ERROR(rate_limiter_->AwaitCanInsert(&mu_, timeout));
 
     if (data_.contains(key)) {
       // If the insert was transformed into an update while waiting we need to
@@ -131,26 +384,26 @@ tensorflow::Status Table::InsertOrAssign(Item item) {
     // Set the insertion timestamp after the lock has been acquired as this
     // represents the order it was inserted into the sampler and remover.
     EncodeAsTimestampProto(absl::Now(), item.item.mutable_inserted_at());
-    data_[key] = std::move(item);
+    data_[key] = std::make_shared<Item>(std::move(item));
 
-    TF_RETURN_IF_ERROR(sampler_->Insert(key, priority));
-    TF_RETURN_IF_ERROR(remover_->Insert(key, priority));
+    REVERB_RETURN_IF_ERROR(sampler_->Insert(key, priority));
+    REVERB_RETURN_IF_ERROR(remover_->Insert(key, priority));
 
     auto it = data_.find(key);
     for (auto& extension : extensions_) {
-      extension->OnInsert(&mu_, it->second);
+      extension->OnInsert(&mu_, *it->second);
     }
 
     // Increment references to the episode/s the item is referencing.
     // We increment before a possible call to DeleteItem since the sampler can
     // return this key.
-    for (const auto& chunk : it->second.chunks) {
-      ++episode_refs_[chunk->data().sequence_range().episode_id()];
+    for (const auto& chunk : it->second->chunks) {
+      ++episode_refs_[chunk->episode_id()];
     }
 
     // Remove an item if we exceeded `max_size_`.
     if (data_.size() > max_size_) {
-      TF_RETURN_IF_ERROR(DeleteItem(remover_->Sample().key, &deleted_item));
+      REVERB_RETURN_IF_ERROR(DeleteItem(remover_->Sample().key, &deleted_item));
     }
 
     // Now that the new item has been inserted and an older item has
@@ -158,91 +411,250 @@ tensorflow::Status Table::InsertOrAssign(Item item) {
     rate_limiter_->Insert(&mu_);
   }
 
-  return tensorflow::Status::OK();
+  return absl::OkStatus();
 }
 
-tensorflow::Status Table::MutateItems(absl::Span<const KeyWithPriority> updates,
-                                      absl::Span<const Key> deletes) {
-  std::vector<Item> deleted_items(deletes.size());
+absl::Status Table::InsertOrAssignAsync(
+    Item item, bool* can_insert_more,
+    std::weak_ptr<std::function<void(const absl::Status&)>>
+        insert_more_callback) {
+  REVERB_RETURN_IF_ERROR(CheckItemValidity(item));
+
+  std::shared_ptr<Item> to_delete;
+  {
+    absl::MutexLock lock(&worker_mu_);
+    pending_inserts_.push_back(std::make_shared<Item>(std::move(item)));
+    if (worker_sleeps_) {
+      wakeup_worker_.Signal();
+    }
+    if (!deleted_items_.empty()) {
+      to_delete = std::move(deleted_items_.back());
+      deleted_items_.pop_back();
+    }
+    *can_insert_more = pending_inserts_.size() < kMaxEnqueuedInserts;
+    if (!*can_insert_more) {
+      // Caller is not allowed to do any more inserts immediately.
+      // A callback is registered, so that when there is space for more
+      // requests, client is notified.
+      notify_inserts_ok_.push_back(insert_more_callback);
+    }
+  }
+  return absl::OkStatus();
+}
+
+absl::Status Table::InsertOrAssignInternal(std::shared_ptr<Item> item,
+    std::vector<std::shared_ptr<Item>>* to_delete) {
+  const auto key = item->item.key();
+  const auto priority = item->item.priority();
+  if (data_.contains(key)) {
+    REVERB_RETURN_IF_ERROR(UpdateItem(key, priority));
+    to_delete->push_back(std::move(item));
+    return absl::OkStatus();
+  }
+
+  // Set the insertion timestamp after the lock has been acquired as this
+  // represents the order it was inserted into the sampler and remover.
+  EncodeAsTimestampProto(absl::Now(), item->item.mutable_inserted_at());
+  data_[key] = std::move(item);
+
+  REVERB_RETURN_IF_ERROR(sampler_->Insert(key, priority));
+  REVERB_RETURN_IF_ERROR(remover_->Insert(key, priority));
+
+  auto it = data_.find(key);
+  for (auto& extension : extensions_) {
+    extension->OnInsert(&mu_, *it->second);
+  }
+
+  // Increment references to the episode/s the item is referencing.
+  // We increment before a possible call to DeleteItem since the sampler can
+  // return this key.
+  for (const auto& chunk : it->second->chunks) {
+    ++episode_refs_[chunk->episode_id()];
+  }
+
+  // Remove an item if we exceeded `max_size_`.
+  if (data_.size() > max_size_) {
+    std::shared_ptr<Item> deleted_item;
+    REVERB_RETURN_IF_ERROR(DeleteItem(remover_->Sample().key, &deleted_item));
+    to_delete->push_back(std::move(deleted_item));
+  }
+
+  // Now that the new item has been inserted and an older item has
+  // (potentially) been removed the insert can be finalized.
+  rate_limiter_->Insert(&mu_);
+  return absl::OkStatus();
+}
+
+absl::Status Table::MutateItems(absl::Span<const KeyWithPriority> updates,
+                                absl::Span<const Key> deletes) {
+  std::vector<std::shared_ptr<Item>> deleted_items(deletes.size());
   {
     absl::MutexLock lock(&mu_);
     for (int i = 0; i < deletes.size(); i++) {
-      TF_RETURN_IF_ERROR(DeleteItem(deletes[i], &deleted_items[i]));
+      REVERB_RETURN_IF_ERROR(DeleteItem(deletes[i], &deleted_items[i]));
     }
     for (const auto& item : updates) {
-      TF_RETURN_IF_ERROR(UpdateItem(item.key(), item.priority()));
+      REVERB_RETURN_IF_ERROR(UpdateItem(item.key(), item.priority()));
     }
   }
-  return tensorflow::Status::OK();
+  // Table worker doesn't listen on rate_limiter, so need to wake it up
+  // explicitly.
+  if (table_worker_) {
+    absl::MutexLock lock(&worker_mu_);
+    if (worker_sleeps_) {
+      wakeup_worker_.Signal();
+    }
+  }
+  return absl::OkStatus();
 }
 
-tensorflow::Status Table::Sample(SampledItem* sampled_item,
-                                 absl::Duration timeout) {
+absl::Status Table::Sample(SampledItem* sampled_item, absl::Duration timeout) {
   std::vector<SampledItem> items;
-  TF_RETURN_IF_ERROR(SampleFlexibleBatch(&items, 1, timeout));
+  REVERB_RETURN_IF_ERROR(SampleFlexibleBatch(&items, 1, timeout));
   *sampled_item = std::move(items[0]);
-  return tensorflow::Status::OK();
+  return absl::OkStatus();
 }
 
-tensorflow::Status Table::SampleFlexibleBatch(std::vector<SampledItem>* items,
-                                              int batch_size,
-                                              absl::Duration timeout) {
+void Table::EnqueSampleRequest(int num_samples,
+                               std::weak_ptr<SamplingCallback> callback,
+                               absl::Duration timeout) {
+  REVERB_CHECK(table_worker_ != nullptr)
+      << "Table::EnqueueSampleRequest called without calling "
+         "Table::EnableTableWorker first.";
+
+  auto request = std::make_unique<SampleRequest>();
+  request->on_batch_done = std::move(callback);
+  request->deadline = absl::Now() + timeout;
+  // Reserved size is used to communicate sampling batch size (it eliminates the
+  // need of alocating memory inside the table worker).
+  request->samples.reserve(num_samples);
+  {
+    absl::MutexLock lock(&worker_mu_);
+    pending_sampling_.push_back(std::move(request));
+    if (worker_sleeps_) {
+      wakeup_worker_.Signal();
+    }
+  }
+}
+
+absl::Status Table::SampleFlexibleBatch(std::vector<SampledItem>* items,
+                                        int batch_size,
+                                        absl::Duration timeout) {
+  if (!items->empty()) {
+    return absl::InvalidArgumentError(
+        "Table::SampleFlexibleBatch called with non-empty output vector.");
+  }
+  if (table_worker_) {
+    absl::Status result = absl::OkStatus();
+    absl::Notification notification;
+    auto callback = std::make_shared<SamplingCallback>(
+        [&](Table::SampleRequest* sample) {
+          if (!sample->status.ok()) {
+            result = sample->status;
+          } else {
+            std::swap(*items, sample->samples);
+          }
+          notification.Notify();
+        });
+    EnqueSampleRequest(batch_size, callback, timeout);
+    notification.WaitForNotification();
+    return result;
+  }
   // Allocate memory outside of critical section.
   items->reserve(batch_size);
 
   // Keep references to the (potentially) deleted items alive until the lock has
   // been released.
-  std::vector<Item> deleted_items;
+  std::vector<std::shared_ptr<Item>> deleted_items;
   {
     absl::MutexLock lock(&mu_);
-    for (int i = 0; i < batch_size; i++) {
-      if (auto status = rate_limiter_->AwaitAndFinalizeSample(&mu_, timeout);
-          !status.ok()) {
-        // Deadline exceeded errors encountered after the first call means that
-        // it was not possible to proceed with another sample without awaiting
-        // changes. If this happens then we simply return the items that we
-        // sampled so far.
-        if (i != 0 && tensorflow::errors::IsDeadlineExceeded(status)) {
-          return tensorflow::Status::OK();
-        }
-        return status;
+
+    // Check if we can start sampling straight away or if we are rate limited.
+    bool rate_limited = !rate_limiter_->MaybeCommitSample(&mu_);
+
+    // If we were unable to start sampling straight away then we wait until the
+    // rate limiter allows for at least one sample or until the timeout has
+    // expired.
+    if (rate_limited) {
+      REVERB_RETURN_IF_ERROR(
+          rate_limiter_->AwaitAndFinalizeSample(&mu_, timeout));
+    }
+
+    do {
+      auto sample = sampler_->Sample();
+      std::shared_ptr<Item>& item = data_[sample.key];
+
+      // If this is the first time the item was sampled then
+      if (item->item.times_sampled() == 0) {
+        ++num_unique_samples_;
       }
 
-      // All calls but the first should return immediately if the rate limiter
-      // does not allow for another sample call to proceed.
-      timeout = absl::ZeroDuration();
-
-      auto sample = sampler_->Sample();
-      Item& item = data_[sample.key];
-
       // Increment the sample count.
-      item.item.set_times_sampled(item.item.times_sampled() + 1);
+      item->item.set_times_sampled(item->item.times_sampled() + 1);
 
       // Copy Details of the sampled item.
       SampledItem sampled_item = {
-          .item = item.item,
-          .chunks = item.chunks,
+          .ref = item,
           .probability = sample.probability,
           .table_size = static_cast<int64_t>(data_.size()),
+          .priority = item->item.priority(),
+          .times_sampled = item->item.times_sampled(),
+          .rate_limited = rate_limited,
       };
       items->push_back(std::move(sampled_item));
 
       // Notify extensions which item was sampled.
       for (auto& extension : extensions_) {
-        extension->OnSample(&mu_, item);
+        extension->OnSample(&mu_, *item);
       }
 
       // If there is an upper bound of the number of times an item can be
       // sampled and it is now reached then delete the item before the lock is
       // released.
-      if (item.item.times_sampled() == max_times_sampled_) {
+      if (item->item.times_sampled() == max_times_sampled_) {
         deleted_items.emplace_back();
-        TF_RETURN_IF_ERROR(DeleteItem(item.item.key(), &deleted_items.back()));
+        REVERB_RETURN_IF_ERROR(
+            DeleteItem(item->item.key(), &deleted_items.back()));
       }
-    }
+    } while (items->size() < batch_size &&
+             rate_limiter_->MaybeCommitSample(&mu_));
   }
 
-  return tensorflow::Status::OK();
+  return absl::OkStatus();
+}
+
+absl::Status Table::SampleInternal(
+    bool rate_limited, SampledItem* result,
+    std::vector<std::shared_ptr<Item>>* to_delete) {
+  auto sample = sampler_->Sample();
+  std::shared_ptr<Item>& item = data_[sample.key];
+  // Increment the sample count.
+  item->item.set_times_sampled(item->item.times_sampled() + 1);
+
+  // Copy Details of the sampled item.
+  *result = {
+      .ref = item,
+      .probability = sample.probability,
+      .table_size = static_cast<int64_t>(data_.size()),
+      .priority = item->item.priority(),
+      .times_sampled = item->item.times_sampled(),
+      .rate_limited = rate_limited,
+  };
+
+  // Notify extensions which item was sampled.
+  for (auto& extension : extensions_) {
+    extension->OnSample(&mu_, *item);
+  }
+
+  // If there is an upper bound of the number of times an item can be
+  // sampled and it is now reached then delete the item before the lock is
+  // released.
+  if (item->item.times_sampled() == max_times_sampled_) {
+    to_delete->emplace_back();
+    REVERB_RETURN_IF_ERROR(
+        DeleteItem(item->item.key(), &to_delete->back()));
+  }
+  return absl::OkStatus();
 }
 
 int64_t Table::size() const {
@@ -270,6 +682,7 @@ TableInfo Table::info() const {
   info.set_current_size(data_.size());
   info.set_num_episodes(episode_refs_.size());
   info.set_num_deleted_episodes(num_deleted_episodes_);
+  info.set_num_unique_samples(num_unique_samples_);
 
   return info;
 }
@@ -279,18 +692,18 @@ void Table::Close() {
   rate_limiter_->Cancel(&mu_);
 }
 
-tensorflow::Status Table::DeleteItem(Table::Key key, Item* deleted_item) {
+absl::Status Table::DeleteItem(Table::Key key,
+                               std::shared_ptr<Item>* deleted_item) {
   auto it = data_.find(key);
-  if (it == data_.end()) return tensorflow::Status::OK();
+  if (it == data_.end()) return absl::OkStatus();
 
   for (auto& extension : extensions_) {
-    extension->OnDelete(&mu_, it->second);
+    extension->OnDelete(&mu_, *it->second);
   }
 
   // Decrement counts to the episodes the item is referencing.
-  for (const auto& chunk : it->second.chunks) {
-    auto ep_it =
-        episode_refs_.find(chunk->data().sequence_range().episode_id());
+  for (const auto& chunk : it->second->chunks) {
+    auto ep_it = episode_refs_.find(chunk->episode_id());
     REVERB_CHECK(ep_it != episode_refs_.end());
     if (--(ep_it->second) == 0) {
       episode_refs_.erase(ep_it);
@@ -301,33 +714,42 @@ tensorflow::Status Table::DeleteItem(Table::Key key, Item* deleted_item) {
   *deleted_item = std::move(it->second);
   data_.erase(it);
   rate_limiter_->Delete(&mu_);
-  TF_RETURN_IF_ERROR(sampler_->Delete(key));
-  TF_RETURN_IF_ERROR(remover_->Delete(key));
-  return tensorflow::Status::OK();
+  REVERB_RETURN_IF_ERROR(sampler_->Delete(key));
+  REVERB_RETURN_IF_ERROR(remover_->Delete(key));
+  return absl::OkStatus();
 }
 
-tensorflow::Status Table::UpdateItem(
+absl::Status Table::UpdateItem(
     Key key, double priority, std::initializer_list<TableExtension*> exclude) {
   auto it = data_.find(key);
   if (it == data_.end()) {
-    return tensorflow::Status::OK();
+    return absl::OkStatus();
   }
-  it->second.item.set_priority(priority);
-  TF_RETURN_IF_ERROR(sampler_->Update(key, priority));
-  TF_RETURN_IF_ERROR(remover_->Update(key, priority));
+  it->second->item.set_priority(priority);
+  REVERB_RETURN_IF_ERROR(sampler_->Update(key, priority));
+  REVERB_RETURN_IF_ERROR(remover_->Update(key, priority));
 
   for (auto& extension : extensions_) {
     if (std::none_of(
             exclude.begin(), exclude.end(),
             [ext_ptr = extension.get()](auto e) { return e == ext_ptr; })) {
-      extension->OnUpdate(&mu_, it->second);
+      extension->OnUpdate(&mu_, *it->second);
     }
   }
 
-  return tensorflow::Status::OK();
+  return absl::OkStatus();
 }
 
-tensorflow::Status Table::Reset() {
+absl::Status Table::Reset() {
+  // Make sure worker has no more pending work.
+  if (table_worker_) {
+    auto worker_done = [this]() ABSL_EXCLUSIVE_LOCKS_REQUIRED(worker_mu_) {
+      return worker_sleeps_ && pending_inserts_.empty();
+    };
+    absl::MutexLock lock(&worker_mu_);
+    worker_mu_.Await(absl::Condition(&worker_done));
+  }
+
   absl::MutexLock lock(&mu_);
 
   for (auto& extension : extensions_) {
@@ -338,12 +760,13 @@ tensorflow::Status Table::Reset() {
   remover_->Clear();
 
   num_deleted_episodes_ = 0;
+  num_unique_samples_ = 0;
 
   data_.clear();
 
   rate_limiter_->Reset(&mu_);
 
-  return tensorflow::Status::OK();
+  return absl::OkStatus();
 }
 
 Table::CheckpointAndChunks Table::Checkpoint() {
@@ -359,6 +782,7 @@ Table::CheckpointAndChunks Table::Checkpoint() {
   absl::MutexLock lock(&mu_);
 
   checkpoint.set_num_deleted_episodes(num_deleted_episodes_);
+  checkpoint.set_num_unique_samples(num_unique_samples_);
 
   *checkpoint.mutable_sampler() = sampler_->options();
   *checkpoint.mutable_remover() = remover_->options();
@@ -369,8 +793,8 @@ Table::CheckpointAndChunks Table::Checkpoint() {
 
   absl::flat_hash_set<std::shared_ptr<ChunkStore::Chunk>> chunks;
   for (const auto& entry : data_) {
-    *checkpoint.add_items() = entry.second.item;
-    chunks.insert(entry.second.chunks.begin(), entry.second.chunks.end());
+    *checkpoint.add_items() = entry.second->item;
+    chunks.insert(entry.second->chunks.begin(), entry.second->chunks.end());
   }
 
   // Sort the items in ascending order based on their insertion time. This makes
@@ -382,7 +806,7 @@ Table::CheckpointAndChunks Table::Checkpoint() {
   return {std::move(checkpoint), std::move(chunks)};
 }
 
-tensorflow::Status Table::InsertCheckpointItem(Table::Item item) {
+absl::Status Table::InsertCheckpointItem(Table::Item item) {
   absl::MutexLock lock(&mu_);
   REVERB_CHECK_LE(data_.size() + 1, max_size_)
       << "InsertCheckpointItem called on already full Table";
@@ -390,39 +814,42 @@ tensorflow::Status Table::InsertCheckpointItem(Table::Item item) {
       << "InsertCheckpointItem called for item with already present key: "
       << item.item.key();
 
-  TF_RETURN_IF_ERROR(sampler_->Insert(item.item.key(), item.item.priority()));
-  TF_RETURN_IF_ERROR(remover_->Insert(item.item.key(), item.item.priority()));
+  REVERB_RETURN_IF_ERROR(
+      sampler_->Insert(item.item.key(), item.item.priority()));
+  REVERB_RETURN_IF_ERROR(
+      remover_->Insert(item.item.key(), item.item.priority()));
 
   const auto key = item.item.key();
-  auto it = data_.emplace(key, std::move(item)).first;
+  auto it = data_.emplace(key, std::make_shared<Item>(std::move(item))).first;
   for (auto& extension : extensions_) {
-    extension->OnInsert(&mu_, it->second);
+    extension->OnInsert(&mu_, *it->second);
   }
 
-  for (const auto& chunk : it->second.chunks) {
-    ++episode_refs_[chunk->data().sequence_range().episode_id()];
+  for (const auto& chunk : it->second->chunks) {
+    ++episode_refs_[chunk->episode_id()];
   }
 
-  return tensorflow::Status::OK();
+  return absl::OkStatus();
 }
 
 bool Table::Get(Table::Key key, Table::Item* item) {
   absl::MutexLock lock(&mu_);
   auto it = data_.find(key);
   if (it != data_.end()) {
-    *item = it->second;
+    *item = *it->second;
     return true;
   }
   return false;
 }
 
-const internal::flat_hash_map<Table::Key, Table::Item>* Table::RawLookup() {
+const internal::flat_hash_map<Table::Key, std::shared_ptr<Table::Item>>*
+Table::RawLookup() {
   mu_.AssertHeld();
   return &data_;
 }
 
 void Table::UnsafeAddExtension(std::shared_ptr<TableExtension> extension) {
-  TF_CHECK_OK(extension->RegisterTable(&mu_, this));
+  REVERB_CHECK_OK(extension->RegisterTable(&mu_, this));
   absl::MutexLock lock(&mu_);
   REVERB_CHECK(data_.empty());
   extensions_.push_back(std::move(extension));
@@ -458,7 +885,7 @@ int64_t Table::num_episodes() const {
   return episode_refs_.size();
 }
 
-tensorflow::Status Table::UnsafeUpdateItem(
+absl::Status Table::UnsafeUpdateItem(
     Key key, double priority, std::initializer_list<TableExtension*> exclude) {
   mu_.AssertHeld();
   return UpdateItem(key, priority, std::move(exclude));
@@ -490,6 +917,12 @@ void Table::set_num_deleted_episodes_from_checkpoint(int64_t value) {
   num_deleted_episodes_ = value;
 }
 
+void Table::set_num_unique_samples_from_checkpoint(int64_t value) {
+  absl::MutexLock lock(&mu_);
+  REVERB_CHECK(data_.empty() && num_unique_samples_ == 0);
+  num_unique_samples_ = value;
+}
+
 int32_t Table::DefaultFlexibleBatchSize() const {
   const auto& rl_info = rate_limiter_->InfoWithoutCallStats();
   // When a samples per insert ratio is provided then match the batch size with
@@ -513,6 +946,42 @@ int32_t Table::DefaultFlexibleBatchSize() const {
 
   // If all else fails, default to one sample per call.
   return 1;
+}
+
+std::string Table::DebugString() const {
+  absl::MutexLock lock(&mu_);
+  std::string str = absl::StrCat(
+      "Table(sampler=", sampler_->DebugString(),
+      ", remover=", remover_->DebugString(),
+      ", max_size=", max_size_,
+      ", max_times_sampled=", max_times_sampled_,
+      ", name=", name_,
+      ", rate_limiter=", rate_limiter_->DebugString(),
+      ", signature=",
+      (signature_.has_value() ? signature_.value().DebugString() : "nullptr"));
+
+  if (!extensions_.empty()) {
+    absl::StrAppend(&str, ", extensions=[");
+    for (size_t i = 0; i < extensions_.size(); ++i) {
+      absl::StrAppend(&str, extensions_[i]->DebugString());
+      if (i != extensions_.size() - 1) {
+        absl::StrAppend(&str, ", ");
+      }
+    }
+    absl::StrAppend(&str, "]");
+  }
+  absl::StrAppend(&str, ")");
+  return str;
+}
+
+bool Table::worker_is_sleeping() const {
+  absl::MutexLock lock(&worker_mu_);
+  return worker_sleeps_;
+}
+
+int Table::num_pending_async_sample_requests() const {
+  absl::MutexLock lock(&worker_mu_);
+  return pending_sampling_.size();
 }
 
 }  // namespace reverb

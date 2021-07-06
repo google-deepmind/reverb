@@ -32,8 +32,8 @@
 #include "reverb/cc/sampler.h"
 #include "reverb/cc/schema.pb.h"
 #include "reverb/cc/support/signature.h"
+#include "reverb/cc/trajectory_writer.h"
 #include "reverb/cc/writer.h"
-#include "tensorflow/core/lib/core/status.h"
 
 namespace deepmind {
 namespace reverb {
@@ -55,13 +55,12 @@ class Client {
   explicit Client(absl::string_view server_address);
 
   // Upon successful return, `writer` will contain an instance of Writer.
-  tensorflow::Status NewWriter(int chunk_length, int max_timesteps,
-                               bool delta_encoded,
-                               std::unique_ptr<Writer>* writer);
-  tensorflow::Status NewWriter(int chunk_length, int max_timesteps,
-                               bool delta_encoded,
-                               absl::optional<int> max_in_flight_items,
-                               std::unique_ptr<Writer>* writer);
+  absl::Status NewWriter(int chunk_length, int max_timesteps,
+                         bool delta_encoded, std::unique_ptr<Writer>* writer);
+  absl::Status NewWriter(int chunk_length, int max_timesteps,
+                         bool delta_encoded,
+                         absl::optional<int> max_in_flight_items,
+                         std::unique_ptr<Writer>* writer);
 
   // Upon successful return, `sampler` will contain an instance of
   // Sampler.
@@ -70,10 +69,16 @@ class Client {
   // `ServerInfo` call, and passes this to `sampler`.  The `validation_timeout`
   // parameter controls how long the wait is on `ServerInfo` if this data is
   // not already cached.
-  tensorflow::Status NewSampler(const std::string& table,
-                                const Sampler::Options& options,
-                                absl::Duration validation_timeout,
-                                std::unique_ptr<Sampler>* sampler);
+  absl::Status NewSampler(const std::string& table,
+                          const Sampler::Options& options,
+                          absl::Duration validation_timeout,
+                          std::unique_ptr<Sampler>* sampler);
+
+  // Upon successful return, `sampler` will contain an instance of
+  // Sampler which does not perform any validation of shapes and dtypes.
+  absl::Status NewSamplerWithoutSignatureCheck(
+      const std::string& table, const Sampler::Options& options,
+      std::unique_ptr<Sampler>* sampler);
 
   // Upon successful return, `sampler` will contain an instance of
   // Sampler.
@@ -96,7 +101,7 @@ class Client {
   // The remaining elements should be the dtypes/shapes of the entries
   // expected in table signature.
   //
-  tensorflow::Status NewSampler(
+  absl::Status NewSampler(
       const std::string& table, const Sampler::Options& options,
       const tensorflow::DataTypeVector& validation_dtypes,
       const std::vector<tensorflow::PartialTensorShape>& validation_shapes,
@@ -106,20 +111,33 @@ class Client {
   // `table`. If `timeout` is specified, function may return a
   // DEADLINE_EXCEEDED error. If `timeout` is not specified, function may block
   // indefinitely.
-  tensorflow::Status MutatePriorities(
+  absl::Status MutatePriorities(
       absl::string_view table, const std::vector<KeyWithPriority>& updates,
       const std::vector<uint64_t>& deletes,
       absl::Duration timeout = absl::InfiniteDuration());
 
-  tensorflow::Status Reset(const std::string& table);
+  absl::Status Reset(const std::string& table);
 
-  tensorflow::Status Checkpoint(std::string* path);
+  absl::Status Checkpoint(std::string* path);
 
   // Requests ServerInfo. Forces an update of internal signature caches.
-  tensorflow::Status ServerInfo(absl::Duration timeout,
-                                struct ServerInfo* info);
+  absl::Status ServerInfo(absl::Duration timeout, struct ServerInfo* info);
   // Waits indefinitely for server to respond.
-  tensorflow::Status ServerInfo(struct ServerInfo* info);
+  absl::Status ServerInfo(struct ServerInfo* info);
+
+  // Validates `options` and if valid, creates a new `TrajectoryWriter`.
+  //
+  // TODO(b/177308010): Remove banner when `TrajectoryWriter` is ready for use.
+  absl::Status NewTrajectoryWriter(const TrajectoryWriter::Options& options,
+                                   std::unique_ptr<TrajectoryWriter>* writer);
+
+  // This version tries to lookup and populate `options.flat_signature_map`
+  // using a (potentially cached) `ServerInfo` call. `get_signature_timeout`
+  // parameter controls how long the wait is on `ServerInfo` if this data is
+  // not already cached.
+  absl::Status NewTrajectoryWriter(const TrajectoryWriter::Options& options,
+                                   absl::Duration get_signature_timeout,
+                                   std::unique_ptr<TrajectoryWriter>* writer);
 
  private:
   const std::shared_ptr</* grpc_gen:: */ReverbService::StubInterface> stub_;
@@ -127,37 +145,36 @@ class Client {
   // Request direct access to Table managed by server. Result will only be
   // populated when the stub was created using a localhost address of a server
   // running in the same process.
-  tensorflow::Status GetLocalTablePtr(absl::string_view table_name,
-                                      std::shared_ptr<Table>* out);
+  absl::Status GetLocalTablePtr(absl::string_view table_name,
+                                std::shared_ptr<Table>* out);
 
   // Upon successful return, `sampler` will contain an instance of
   // Sampler.  This version is called by the public `NewSampler` methods.
   //
   // Care should be made to ensure that `dtypes_and_shapes` here includes
   // the prefix tensors associated with the SampleInfo.
-  tensorflow::Status NewSampler(const std::string& table,
-                                const Sampler::Options& options,
-                                internal::DtypesAndShapes dtypes_and_shapes,
-                                std::unique_ptr<Sampler>* sampler);
+  absl::Status NewSampler(const std::string& table,
+                          const Sampler::Options& options,
+                          internal::DtypesAndShapes dtypes_and_shapes,
+                          std::unique_ptr<Sampler>* sampler);
 
-  tensorflow::Status MaybeUpdateServerInfoCache(
+  absl::Status MaybeUpdateServerInfoCache(
       absl::Duration timeout,
       std::shared_ptr<internal::FlatSignatureMap>* cached_flat_signatures);
 
   // Uses MaybeUpdateServerInfoCache to get ServerInfo and pull the
   // dtypes_and_shapes for `table`.  If `table` is not in the ServerInfo, then
   // dtypes_and_shapes is set to absl::nullopt.
-  tensorflow::Status GetDtypesAndShapesForSampler(
+  absl::Status GetDtypesAndShapesForSampler(
       const std::string& table, absl::Duration validation_timeout,
       internal::DtypesAndShapes* dtypes_and_shapes);
 
   // Purely functional request for server info.  Does not update any internal
   // caches.
-  tensorflow::Status GetServerInfo(absl::Duration timeout,
-                                   struct ServerInfo* info);
+  absl::Status GetServerInfo(absl::Duration timeout, struct ServerInfo* info);
 
   // Updates tables_state_id_ and cached_flat_signatures_ using info.
-  tensorflow::Status LockedUpdateServerInfoCache(const struct ServerInfo& info)
+  absl::Status LockedUpdateServerInfoCache(const struct ServerInfo& info)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(cached_table_mu_);
 
   absl::Mutex cached_table_mu_;

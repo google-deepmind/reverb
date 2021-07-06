@@ -14,41 +14,38 @@
 
 #include "reverb/cc/selectors/fifo.h"
 
+#include "absl/strings/str_cat.h"
 #include "reverb/cc/checkpointing/checkpoint.pb.h"
 #include "reverb/cc/platform/logging.h"
 #include "reverb/cc/schema.pb.h"
 #include "reverb/cc/selectors/interface.h"
-#include "tensorflow/core/lib/core/errors.h"
-#include "tensorflow/core/lib/core/status.h"
 
 namespace deepmind {
 namespace reverb {
 
-tensorflow::Status FifoSelector::Delete(ItemSelector::Key key) {
+absl::Status FifoSelector::Delete(ItemSelector::Key key) {
   auto it = key_to_iterator_.find(key);
   if (it == key_to_iterator_.end())
-    return tensorflow::errors::InvalidArgument("Key ", key, " not found.");
+    return absl::InvalidArgumentError(absl::StrCat("Key ", key, " not found."));
   keys_.erase(it->second);
   key_to_iterator_.erase(it);
-  return tensorflow::Status::OK();
+  return absl::OkStatus();
 }
 
-tensorflow::Status FifoSelector::Insert(ItemSelector::Key key,
-                                        double priority) {
+absl::Status FifoSelector::Insert(ItemSelector::Key key, double priority) {
   if (key_to_iterator_.find(key) != key_to_iterator_.end()) {
-    return tensorflow::errors::InvalidArgument("Key ", key,
-                                               " already inserted.");
+    return absl::InvalidArgumentError(
+        absl::StrCat("Key ", key, " already inserted."));
   }
   key_to_iterator_.emplace(key, keys_.emplace(keys_.end(), key));
-  return tensorflow::Status::OK();
+  return absl::OkStatus();
 }
 
-tensorflow::Status FifoSelector::Update(ItemSelector::Key key,
-                                        double priority) {
+absl::Status FifoSelector::Update(ItemSelector::Key key, double priority) {
   if (key_to_iterator_.find(key) == key_to_iterator_.end()) {
-    return tensorflow::errors::InvalidArgument("Key ", key, " not found.");
+    return absl::InvalidArgumentError(absl::StrCat("Key ", key, " not found."));
   }
-  return tensorflow::Status::OK();
+  return absl::OkStatus();
 }
 
 ItemSelector::KeyWithProbability FifoSelector::Sample() {
@@ -67,6 +64,8 @@ KeyDistributionOptions FifoSelector::options() const {
   options.set_is_deterministic(true);
   return options;
 }
+
+std::string FifoSelector::DebugString() const { return "FifoSelector"; }
 
 }  // namespace reverb
 }  // namespace deepmind

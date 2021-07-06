@@ -25,6 +25,7 @@
 #include "absl/base/thread_annotations.h"
 #include "absl/flags/flag.h"
 #include "absl/random/random.h"
+#include "absl/status/status.h"
 #include "absl/strings/string_view.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/types/optional.h"
@@ -37,7 +38,6 @@
 #include "reverb/cc/support/signature.h"
 #include "tensorflow/core/framework/tensor.h"
 #include "tensorflow/core/framework/tensor_shape.h"
-#include "tensorflow/core/lib/core/status.h"
 #include "tensorflow/core/lib/hash/hash.h"
 
 namespace deepmind {
@@ -46,7 +46,7 @@ namespace reverb {
 // None of the methods are thread safe.
 class Writer {
  public:
-  static constexpr absl::optional<int> kDefaultMaxInFlightItems = absl::nullopt;
+  static constexpr int64_t kMaxRequestSizeBytes = 40 * 1024 * 1024;  // 40MB.
 
   // The client must not be deleted while any of its writer instances exist.
   Writer(std::shared_ptr</* grpc_gen:: */ReverbService::StubInterface> stub,
@@ -63,22 +63,19 @@ class Writer {
   // If all operations are successful then `buffer_` is cleared, a new
   // `next_chunk_key_` is set and old items are removed from `chunks_` until its
   // size is <= `max_chunks_`. If unsuccessful all internal state is reverted.
-  tensorflow::Status Append(std::vector<tensorflow::Tensor> data);
+  absl::Status Append(std::vector<tensorflow::Tensor> data);
 
   // Appends a batched sequence of timesteps. Equivalent to calling `Append` `T`
   // times where `T` is batch size of `sequence`. The shapes of the elements of
   // `sequence` thus have `[T] + shape_of_single_timestep_element`.
-  tensorflow::Status AppendSequence(std::vector<tensorflow::Tensor> sequence);
+  absl::Status AppendSequence(std::vector<tensorflow::Tensor> sequence);
 
   // Adds a new PrioritizedItem to `table` spanning the last `num_timesteps` and
   // pushes new item to `pending_items_`. If `buffer_` is empty then the new
   // item is streamed to the ReverbService. If unsuccessful all internal state
   // is reverted.
-  tensorflow::Status CreateItem(const std::string& table, int num_timesteps,
-                                double priority);
-
-  // TODO(b/154929199): There should probably be a method for ending an episode
-  // even if you don't want to close the stream.
+  absl::Status CreateItem(const std::string& table, int num_timesteps,
+                          double priority);
 
   // Creates a new batch from the content of `buffer_` and writes all
   // `pending_items_` and closes the stream_. The object must be abandoned after
@@ -86,7 +83,7 @@ class Writer {
   // until server has confirmed that all items have been written.
   // If retry_on_unavailable is true, it will keep trying to send to the server
   // when the server returns Unavailable errors.
-  tensorflow::Status Close(bool retry_on_unavailable = true);
+  absl::Status Close(bool retry_on_unavailable = true);
 
   // Creates a new batch from the content of `buffer_` and writes all
   // `pending_items_`.  This is useful to force any pending items to be sent to
@@ -95,7 +92,7 @@ class Writer {
 
   // TODO(b/159623854): Add a configurable timeout and pipe it through to the
   // python API.
-  tensorflow::Status Flush();
+  absl::Status Flush();
 
   // Returns a summary string description.
   std::string DebugString() const;
@@ -110,11 +107,11 @@ class Writer {
   // number of items in `buffer_` and old items are removed from `chunks_` until
   // its size is <= `max_chunks_`. If the operation was unsuccessful then chunk
   // is popped from `chunks_`.
-  tensorflow::Status Finish(bool retry_on_unavailable);
+  absl::Status Finish(bool retry_on_unavailable);
 
   // Retries `WritePendingData` until sucessful or, if retry_on_unavailable is
   // true, until non transient errors encountered
-  tensorflow::Status WriteWithRetries(bool retry_on_unavailable);
+  absl::Status WriteWithRetries(bool retry_on_unavailable);
 
   // Streams the chunks in `chunks_` referenced by `pending_items_` followed by
   // items in `pending_items_`
@@ -151,7 +148,7 @@ class Writer {
   // in flight to be confirmed so unless this method is called as a result of an
   // error then `ConfirmItems(0)` must be called before invoking
   // `StopItemConfirmationWorker`.
-  tensorflow::Status StopItemConfirmationWorker() ABSL_LOCKS_EXCLUDED(mu_);
+  absl::Status StopItemConfirmationWorker() ABSL_LOCKS_EXCLUDED(mu_);
 
   // gRPC stub for the ReverbService.
   std::shared_ptr</* grpc_gen:: */ReverbService::StubInterface> stub_;
@@ -250,7 +247,7 @@ class Writer {
   // Returns a nullopt signature if no signatures were provided to the Writer on
   // initialization.  Raises an InvalidArgument if the table is not in
   // signatures_.
-  tensorflow::Status GetFlatSignature(
+  absl::Status GetFlatSignature(
       absl::string_view table,
       const internal::DtypesAndShapes** dtypes_and_shapes) const;
 };

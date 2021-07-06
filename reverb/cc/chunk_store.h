@@ -28,6 +28,8 @@
 #include "reverb/cc/platform/thread.h"
 #include "reverb/cc/schema.pb.h"
 #include "reverb/cc/support/queue.h"
+#include "tensorflow/core/framework/tensor.h"
+#include "tensorflow/core/framework/tensor_shape.h"
 #include "tensorflow/core/lib/core/status.h"
 
 namespace deepmind {
@@ -38,12 +40,35 @@ namespace reverb {
 // key for the mapping and wrap the ChunkData with in a thin class which
 // provides a read-only accessor to the ChunkData.
 //
+//          +-----------+
+//          |           |     shared_ptr
+//          | ChunkData |<---------------------+
+//          |           |                      |
+//          +-----------+                      |
+//                ^                            |
+//                | shared_ptr                 |
+//                |                            |
+//         +--------------+              +----------+            +----------+
+//         |              |   weak_ptr   |          | shared_ptr |          |
+//         |  ChunkStore  |------------->|  Chunk   |<-----------|  Caller  |
+//         |              |              |          |            |          |
+//         +--------------+              +----------+            +----------+
+//
+// Data insertion is handled as follows:
+//
+//   1. Provided ChunkData is moved into a shared_ptr.
+//   2. The data ptr is saved in an internal map and used to construct a
+//      Chunk (heap allocated as a shared_ptr).
+//   3. A weak_ptr is constructed from the shared_ptr of the Chunk and saved
+//      in an internal map.
+//   4. The shared_ptr of the Chunk is returned to the caller.
+//
 // Each Chunk is reference counted individually. When its reference count drops
 // to zero, the Chunk is destroyed and subsequent calls to Get() will no longer
-// return that Chunk. Please note that this container only holds a weak pointer
-// to a Chunk, and thus does not count towards the reference count. For this
-// reason, Insert() returns a shared pointer, as otherwise the Chunk would be
-// destroyed right away.
+// return that Chunk. Please note that ChunkStore only holds a weak pointer to a
+// Chunk, and thus does not count towards the reference count. For this reason,
+// Insert() returns a shared pointer, as otherwise the Chunk would be destroyed
+// right away.
 //
 // All public methods are thread safe.
 class ChunkStore {
@@ -52,17 +77,26 @@ class ChunkStore {
 
   class Chunk {
    public:
-    explicit Chunk(ChunkData data) : data_(std::move(data)) {}
+    explicit Chunk(ChunkData data);
+
+    // Unique identifier of the chunk.
+    uint64_t key() const;
 
     // Returns the proto data of the chunk.
-    const ChunkData& data() const { return data_; }
+    const ChunkData& data() const;
 
     // (Potentially cached) size of `data`.
-    size_t DataByteSizeLong() const {
-      absl::call_once(data_byte_size_once_,
-                      [this]() { data_byte_size_ = data_.ByteSizeLong(); });
-      return data_byte_size_;
-    }
+    size_t DataByteSizeLong() const;
+
+    // Alias for `data().sequence_range().episode_id()`.
+    uint64_t episode_id() const;
+
+    // The number of tensors batched together in each column. Note that all
+    // columns always share the same number of rows (i.e batch dimension).
+    int32_t num_rows() const;
+
+    // Number of tensors in each step.
+    int num_columns() const;
 
    private:
     ChunkData data_;

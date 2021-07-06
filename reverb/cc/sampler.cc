@@ -15,40 +15,40 @@
 #include "reverb/cc/sampler.h"
 
 #include <algorithm>
+#include <deque>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "grpcpp/impl/codegen/client_context.h"
 #include "grpcpp/impl/codegen/sync_stream.h"
 #include "absl/memory/memory.h"
+#include "absl/status/status.h"
+#include "absl/strings/str_cat.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
+#include "reverb/cc/chunk_store.h"
+#include "reverb/cc/errors.h"
+#include "reverb/cc/platform/hash_map.h"
+#include "reverb/cc/platform/hash_set.h"
 #include "reverb/cc/platform/logging.h"
+#include "reverb/cc/platform/status_macros.h"
 #include "reverb/cc/platform/thread.h"
 #include "reverb/cc/rate_limiter.h"
 #include "reverb/cc/reverb_service.pb.h"
+#include "reverb/cc/schema.pb.h"
 #include "reverb/cc/support/grpc_util.h"
+#include "reverb/cc/support/tf_util.h"
+#include "reverb/cc/support/trajectory_util.h"
 #include "reverb/cc/table.h"
 #include "reverb/cc/tensor_compression.h"
+#include "tensorflow/core/framework/tensor.h"
 #include "tensorflow/core/framework/tensor_util.h"
-#include "tensorflow/core/lib/core/status.h"
-#include "tensorflow/core/platform/errors.h"
 
 namespace deepmind {
 namespace reverb {
 namespace {
-
-inline bool SampleIsDone(const std::vector<SampleStreamResponse>& sample) {
-  if (sample.empty()) return false;
-  int64_t chunk_length = 0;
-  for (const auto& response : sample) {
-    chunk_length +=
-        response.data().data().tensors(0).tensor_shape().dim(0).size();
-  }
-  const auto& range = sample.front().info().item().sequence_range();
-  return chunk_length >= range.length() + range.offset();
-}
 
 template <typename T>
 tensorflow::Tensor InitializeTensor(T value, int64_t length) {
@@ -59,133 +59,110 @@ tensorflow::Tensor InitializeTensor(T value, int64_t length) {
   return tensor;
 }
 
-tensorflow::Status AsSample(std::vector<SampleStreamResponse> responses,
-                            std::unique_ptr<Sample>* sample) {
-  const auto& info = responses.front().info();
-
-  // Extract all chunks belonging to this sample.
-  std::list<std::vector<tensorflow::Tensor>> chunks;
-
-  // The chunks are not required to be aligned perfectly with the data so a
-  // part of the first chunk is potentially stripped. The same applies to the
-  // last part of the final chunk.
-  int64_t offset = info.item().sequence_range().offset();
-  int64_t remaining = info.item().sequence_range().length();
-
-  for (auto& response : responses) {
-    REVERB_CHECK_GT(remaining, 0);
-
-    std::vector<tensorflow::Tensor> batches;
-    batches.resize(response.data().data().tensors_size());
-
-    int64_t batch_size = -1;
-
-    // Convert each chunk tensor and release the chunk memory afterwards.
-    int64_t insert_index = response.data().data().tensors_size() - 1;
-    while (!response.data().data().tensors().empty()) {
-      tensorflow::Tensor batch;
-
-      {
-        // This ensures we release the response proto after converting the
-        // result to a tensor.
-        auto chunk = absl::WrapUnique(response.mutable_data()
-                                          ->mutable_data()
-                                          ->mutable_tensors()
-                                          ->ReleaseLast());
-        batch = DecompressTensorFromProto(*chunk);
-      }
-
-      if (response.data().delta_encoded()) {
-        batch = DeltaEncode(batch, /*encode=*/false);
-      }
-
-      if (batch_size < 0) {
-        batch_size = batch.dim_size(0);
-      } else {
-        if (batch_size != batch.dim_size(0)) {
-          return tensorflow::errors::Internal(
-              "Chunks of the same response must have identical batch size, but "
-              "first chunk has batch size ",
-              batch_size, " while the current chunk has batch size ",
-              batch.dim_size(0));
-        }
-      }
-
-      batch =
-          batch.Slice(offset, std::min<int64_t>(offset + remaining, batch_size));
-      if (!batch.IsAligned()) {
-        batch = tensorflow::tensor::DeepCopy(batch);
-      }
-
-      batches[insert_index--] = std::move(batch);
-    }
-
-    chunks.push_back(std::move(batches));
-
-    remaining -= std::min<int64_t>(remaining, batch_size - offset);
-    offset = 0;
-  }
-
-  REVERB_CHECK_EQ(remaining, 0);
-
-  *sample = absl::make_unique<Sample>(info.item().key(), info.probability(),
-                                      info.table_size(), info.item().priority(),
-                                      std::move(chunks));
-  return tensorflow::Status::OK();
+template <typename T>
+tensorflow::Tensor ScalarTensor(T value) {
+  // TODO(b/186669968): Move to the Tensor(scalar_value) constructor once
+  // alignment bug is fixed.
+  tensorflow::Tensor tensor(tensorflow::DataTypeToEnum<T>::v(),
+                            tensorflow::TensorShape({}));
+  tensor.scalar<T>()() = std::move(value);
+  return tensor;
 }
 
-tensorflow::Status AsSample(const Table::SampledItem& sampled_item,
-                            std::unique_ptr<Sample>* sample) {
-  // The chunks are not required to be aligned perfectly with the data so a
-  // part of the first chunk is potentially stripped. The same applies to the
-  // last part of the final chunk.
-  int64_t offset = sampled_item.item.sequence_range().offset();
-  int64_t remaining = sampled_item.item.sequence_range().length();
-
-  // Decompress and trim the chunks.
-  std::list<std::vector<tensorflow::Tensor>> chunks;
-  for (auto& chunk : sampled_item.chunks) {
-    REVERB_CHECK_GT(remaining, 0);
-
-    std::vector<tensorflow::Tensor> batches;
-    batches.reserve(chunk->data().data().tensors_size());
-
-    int64_t batch_size = -1;
-    for (const auto& chunk_data : chunk->data().data().tensors()) {
-      tensorflow::Tensor batch = DecompressTensorFromProto(chunk_data);
-      if (chunk->data().delta_encoded()) {
-        batch = DeltaEncode(batch, /*encode=*/false);
-      }
-      if (batch_size < 0) {
-        batch_size = batch.dim_size(0);
-      } else {
-        if (batch_size != batch.dim_size(0)) {
-          return tensorflow::errors::Internal(
-              "Chunks of the same response must have identical batch size, but "
-              "first chunk has batch size ",
-              batch_size, " while the current chunk has batch size ",
-              batch.dim_size(0));
-        }
-      }
-      batch = batch.Slice(offset,
-                          std::min<int64_t>(offset + remaining, batch_size));
-      if (!batch.IsAligned()) {
-        batch = tensorflow::tensor::DeepCopy(batch);
-      }
-      batches.push_back(std::move(batch));
+absl::Status AsSample(std::vector<SampleStreamResponse::SampleEntry> responses,
+                      std::unique_ptr<Sample>* sample) {
+  const auto& info = responses.front().info();
+  internal::flat_hash_map<uint64_t, std::unique_ptr<ChunkData>> chunks;
+  for (auto& response : responses) {
+    while (response.data_size() != 0) {
+      auto* chunk = response.mutable_data()->ReleaseLast();
+      chunks[chunk->chunk_key()] = absl::WrapUnique<ChunkData>(chunk);
     }
-
-    chunks.push_back(std::move(batches));
-    remaining -= std::min<int64_t>(remaining, batch_size - offset);
-    offset = 0;
   }
 
-  REVERB_CHECK_EQ(remaining, 0);
-  *sample = absl::make_unique<deepmind::reverb::Sample>(
-      sampled_item.item.key(), sampled_item.probability,
-      sampled_item.table_size, sampled_item.item.priority(), std::move(chunks));
+  // Count the number of times each chunk is referenced in the column slices.
+  // This allows us to check if the chunk is needed anymore after every use. If
+  // all the references have been handled then the memory of the chunk can be
+  // freed thus reducing total memory usage.
+  internal::flat_hash_map<uint64_t, int> chunk_ref_count;
+  for (const auto& column : info.item().flat_trajectory().columns()) {
+    for (const auto& slice : column.chunk_slices()) {
+      chunk_ref_count[slice.chunk_key()]++;
+    }
+  }
 
-  return tensorflow::Status::OK();
+  // Extract all chunks belonging to this sample.
+  const auto& columns = info.item().flat_trajectory().columns();
+
+  std::vector<std::vector<tensorflow::Tensor>> column_chunks(columns.size());
+  std::vector<bool> squeeze_columns(columns.size());
+
+  for (int i = 0; i < columns.size(); i++) {
+    squeeze_columns[i] = columns[i].squeeze();
+    for (const auto& slice : columns[i].chunk_slices()) {
+      auto it = chunks.find(slice.chunk_key());
+      if (it == chunks.end()) {
+        return absl::InternalError(
+            absl::StrCat("Chunk ", slice.chunk_key(),
+                         " could not be found when unpacking item ",
+                         info.item().key(), "."));
+      }
+
+      column_chunks[i].emplace_back();
+      REVERB_RETURN_IF_ERROR(internal::UnpackChunkColumnAndSlice(
+          *it->second, slice, &column_chunks[i].back()));
+
+      // If this was the last time the chunk is referenced the we can release
+      // its memory.
+      if (--chunk_ref_count[slice.chunk_key()] == 0) {
+        chunks.erase(it);
+      }
+    }
+  }
+
+  *sample = absl::make_unique<Sample>(
+      info.item().key(), info.probability(), info.table_size(),
+      info.item().priority(), info.rate_limited(), std::move(column_chunks),
+      std::move(squeeze_columns));
+
+  return absl::OkStatus();
+}
+
+absl::Status AsSample(const Table::SampledItem& sampled_item,
+                      std::unique_ptr<Sample>* sample) {
+  internal::flat_hash_map<uint64_t, std::shared_ptr<ChunkStore::Chunk>> chunks(
+      sampled_item.ref->chunks.size());
+  for (auto& chunk : sampled_item.ref->chunks) {
+    chunks[chunk->key()] = chunk;
+  }
+
+  std::vector<std::vector<tensorflow::Tensor>> column_chunks;
+  column_chunks.reserve(
+      sampled_item.ref->item.flat_trajectory().columns_size());
+
+  for (const auto& column :
+       sampled_item.ref->item.flat_trajectory().columns()) {
+    std::vector<tensorflow::Tensor> unpacked_chunks;
+
+    for (const auto& slice : column.chunk_slices()) {
+      unpacked_chunks.emplace_back();
+      REVERB_RETURN_IF_ERROR(internal::UnpackChunkColumnAndSlice(
+          chunks[slice.chunk_key()]->data(), slice, &unpacked_chunks.back()));
+    }
+
+    column_chunks.push_back(std::move(unpacked_chunks));
+  }
+
+  std::vector<bool> squeeze_columns;
+  for (const auto& col : sampled_item.ref->item.flat_trajectory().columns()) {
+    squeeze_columns.push_back(col.squeeze());
+  }
+  *sample = absl::make_unique<deepmind::reverb::Sample>(
+      sampled_item.ref->item.key(), sampled_item.probability,
+      sampled_item.table_size, sampled_item.priority, sampled_item.rate_limited,
+      std::move(column_chunks), std::move(squeeze_columns));
+
+  return absl::OkStatus();
 }
 
 class GrpcSamplerWorker : public SamplerWorker {
@@ -215,7 +192,7 @@ class GrpcSamplerWorker : public SamplerWorker {
   // closed and the number of samples pushed to `queue` is returned together
   // with the status of the stream.  A timeout will cause the Status type
   // DeadlineExceeded to be returned.
-  std::pair<int64_t, tensorflow::Status> FetchSamples(
+  std::pair<int64_t, absl::Status> FetchSamples(
       internal::Queue<std::unique_ptr<Sample>>* queue, int64_t num_samples,
       absl::Duration rate_limiter_timeout) override {
     std::unique_ptr<grpc::ClientReaderWriterInterface<SampleStreamRequest,
@@ -224,7 +201,7 @@ class GrpcSamplerWorker : public SamplerWorker {
     {
       absl::MutexLock lock(&mu_);
       if (closed_) {
-        return {0, tensorflow::errors::Cancelled("`Close` called on Sampler.")};
+        return {0, absl::CancelledError("`Close` called on Sampler.")};
       }
       context_ = absl::make_unique<grpc::ClientContext>();
       context_->set_wait_for_ready(false);
@@ -233,6 +210,7 @@ class GrpcSamplerWorker : public SamplerWorker {
 
     int64_t num_samples_returned = 0;
     while (num_samples_returned < num_samples) {
+      // TODO(b/190237214): Ignore timeouts when data is not being requested.
       SampleStreamRequest request;
       request.set_table(table_name_);
       request.set_num_samples(
@@ -245,36 +223,63 @@ class GrpcSamplerWorker : public SamplerWorker {
         return {num_samples_returned, FromGrpcStatus(stream->Finish())};
       }
 
-      for (int64_t i = 0; i < request.num_samples(); i++) {
-        std::vector<SampleStreamResponse> responses;
-        while (!SampleIsDone(responses)) {
-          SampleStreamResponse response;
-          if (!stream->Read(&response)) {
-            return {num_samples_returned, FromGrpcStatus(stream->Finish())};
+      std::vector<SampleStreamResponse::SampleEntry> parts_of_next_sample;
+      for (int64_t sampled = 0; sampled < request.num_samples();) {
+        SampleStreamResponse response;
+        if (!stream->Read(&response)) {
+          auto status = FromGrpcStatus(stream->Finish());
+          if (errors::IsRateLimiterTimeout(status) &&
+              queue->num_waiting_to_pop() < 1) {
+            // The rate limiter timed out but no one is waiting for new data,
+            // so we can exit with an OkStatus and get restarted with a new
+            // stream.
+            return {num_samples_returned, absl::OkStatus()};
+          } else {
+            return {num_samples_returned, status};
           }
-          responses.push_back(std::move(response));
         }
+        for (auto& entry : response.entries()) {
+          parts_of_next_sample.push_back(std::move(entry));
+          // Continue grabbing entries until the current sample is complete.
+          if (!parts_of_next_sample.back().end_of_sequence()) {
+            continue;
+          }
 
-        std::unique_ptr<Sample> sample;
-        auto status = AsSample(std::move(responses), &sample);
-        if (!status.ok()) {
-          return {num_samples_returned, status};
+          // We have received everything we need to unpack the next sample so
+          // let's push it to the queue. We don't expect AsSample to ever fail
+          // but it will be closed if the Sampler has been closed.
+          std::unique_ptr<Sample> sample;
+          auto status = AsSample(std::move(parts_of_next_sample), &sample);
+          parts_of_next_sample.clear();
+          if (!status.ok()) {
+            return {num_samples_returned, status};
+          }
+          if (!queue->Push(std::move(sample))) {
+            return {num_samples_returned,
+                    absl::CancelledError("`Close` called on Sampler")};
+          }
+          // The sample was successfully received from the stream and pushed to
+          // the queue. There might still be more samples, or partial samples,
+          // in the same SampleStreamResponse so we'll continue reading the
+          // remaining entries into the next sample.
+          ++num_samples_returned;
+          ++sampled;
         }
-        if (!queue->Push(std::move(sample))) {
-          return {num_samples_returned,
-                  tensorflow::errors::Cancelled("`Close` called on Sampler")};
-        }
-        ++num_samples_returned;
+      }
+      if (!parts_of_next_sample.empty()) {
+        return {num_samples_returned,
+                absl::InternalError(
+                    "Streamed responses included unattributed SampleEntry.")};
       }
     }
 
     if (num_samples_returned != num_samples) {
       return {num_samples_returned,
-              tensorflow::errors::Internal(
-                  "num_samples_returned != num_samples (", num_samples_returned,
-                  " vs. ", num_samples)};
+              absl::InternalError(
+                  absl::StrCat("num_samples_returned != num_samples (",
+                               num_samples_returned, " vs. ", num_samples))};
     }
-    return {num_samples_returned, tensorflow::Status::OK()};
+    return {num_samples_returned, absl::OkStatus()};
   }
 
  private:
@@ -314,7 +319,7 @@ class LocalSamplerWorker : public SamplerWorker {
     closed_ = true;
   }
 
-  std::pair<int64_t, tensorflow::Status> FetchSamples(
+  std::pair<int64_t, absl::Status> FetchSamples(
       internal::Queue<std::unique_ptr<Sample>>* queue, int64_t num_samples,
       absl::Duration rate_limiter_timeout) override {
     static const auto kWakeupTimeout = absl::Seconds(3);
@@ -325,8 +330,7 @@ class LocalSamplerWorker : public SamplerWorker {
       {
         absl::MutexLock lock(&mu_);
         if (closed_) {
-          return {0,
-                  tensorflow::errors::Cancelled("`Close` called on Sampler.")};
+          return {0, absl::CancelledError("`Close` called on Sampler.")};
         }
       }
 
@@ -347,15 +351,24 @@ class LocalSamplerWorker : public SamplerWorker {
 
       // If the deadline is exceeded but the "real deadline" is still in the
       // future then we are only waking up to check for cancellation.
-      if (tensorflow::errors::IsDeadlineExceeded(status) &&
-          absl::Now() < final_deadline) {
-        continue;
+      if (absl::IsDeadlineExceeded(status)) {
+        if (absl::Now() < final_deadline) {
+          continue;
+        }
+        if (queue->num_waiting_to_pop() < 1) {
+          // While no items requested, we reset the final_deadline and restart.
+          final_deadline = absl::Now() + rate_limiter_timeout;
+          continue;
+        }
       }
 
       // All other errors are "real" and thus should be returned to the caller.
       if (!status.ok()) {
         return {num_samples_returned, status};
       }
+
+      // We received new items, so reset the timeout deadline.
+      final_deadline = absl::Now() + rate_limiter_timeout;
 
       // Push sampled items to queue.
       for (const auto& item : items) {
@@ -365,7 +378,7 @@ class LocalSamplerWorker : public SamplerWorker {
         }
         if (!queue->Push(std::move(sample))) {
           return {num_samples_returned,
-                  tensorflow::errors::Cancelled("`Close` called on Sampler")};
+                  absl::CancelledError("`Close` called on Sampler")};
         }
         ++num_samples_returned;
       }
@@ -373,11 +386,11 @@ class LocalSamplerWorker : public SamplerWorker {
 
     if (num_samples_returned != num_samples) {
       return {num_samples_returned,
-              tensorflow::errors::Internal(
-                  "num_samples_returned != num_samples (", num_samples_returned,
-                  " vs. ", num_samples)};
+              absl::InternalError(
+                  absl::StrCat("num_samples_returned != num_samples (",
+                               num_samples_returned, " vs. ", num_samples))};
     }
-    return {num_samples_returned, tensorflow::Status::OK()};
+    return {num_samples_returned, absl::OkStatus()};
   }
 
  private:
@@ -427,6 +440,16 @@ std::vector<std::unique_ptr<SamplerWorker>> MakeLocalWorkers(
       options.flexible_batch_size == Sampler::kAutoSelectValue
           ? table->DefaultFlexibleBatchSize()
           : options.flexible_batch_size;
+
+  // Local workers do not send `SampleStreamRequest` and thus will not make
+  // explicit use of `max_in_flight_samples_per_worker`. It would however be
+  // incorrect to allow more than `max_in_flight_samples_per_worker` to be
+  // sampled in a simple call so we limit `flexible_batch_size` by it. This will
+  // have the desired effect as workers fetch new samples once the previous
+  // batch has been depleted effectively limiting the number of in flight items
+  // to `flexible_batch_size` (and thus `max_in_flight_samples_per_worker`).
+  flexible_batch_size =
+      std::min(flexible_batch_size, options.max_in_flight_samples_per_worker);
 
   std::vector<std::unique_ptr<SamplerWorker>> workers;
   workers.reserve(num_workers);
@@ -481,12 +504,22 @@ Sampler::Sampler(std::shared_ptr<Table> table, const Options& options,
 
 Sampler::~Sampler() { Close(); }
 
-tensorflow::Status Sampler::GetNextTimestep(
-    std::vector<tensorflow::Tensor>* data, bool* end_of_sequence) {
-  TF_RETURN_IF_ERROR(MaybeSampleNext());
+absl::Status Sampler::GetNextTimestep(std::vector<tensorflow::Tensor>* data,
+                                      bool* end_of_sequence,
+                                      bool* rate_limited) {
+  REVERB_RETURN_IF_ERROR(MaybeSampleNext());
+  if (!active_sample_->is_composed_of_timesteps()) {
+    return absl::InvalidArgumentError(
+        "Sampled trajectory cannot be decomposed into timesteps.");
+  }
+
+  if (rate_limited != nullptr) {
+    *rate_limited = active_sample_->rate_limited();
+  }
 
   *data = active_sample_->GetNextTimestep();
-  TF_RETURN_IF_ERROR(ValidateAgainstOutputSpec(*data, /*time_step=*/true));
+  REVERB_RETURN_IF_ERROR(
+      ValidateAgainstOutputSpec(*data, ValidationMode::kTimestep));
 
   if (end_of_sequence != nullptr) {
     *end_of_sequence = active_sample_->is_end_of_sample();
@@ -497,60 +530,85 @@ tensorflow::Status Sampler::GetNextTimestep(
     if (++returned_ == max_samples_) samples_.Close();
   }
 
-  return tensorflow::Status::OK();
+  return absl::OkStatus();
 }
 
-tensorflow::Status Sampler::GetNextSample(
-    std::vector<tensorflow::Tensor>* data) {
+absl::Status Sampler::GetNextSample(std::vector<tensorflow::Tensor>* data,
+                                    bool* rate_limited) {
   std::unique_ptr<Sample> sample;
-  TF_RETURN_IF_ERROR(PopNextSample(&sample));
-  TF_RETURN_IF_ERROR(sample->AsBatchedTimesteps(data));
-  TF_RETURN_IF_ERROR(ValidateAgainstOutputSpec(*data, /*time_step=*/false));
+  REVERB_RETURN_IF_ERROR(PopNextSample(&sample));
+  REVERB_RETURN_IF_ERROR(sample->AsBatchedTimesteps(data));
+  REVERB_RETURN_IF_ERROR(
+      ValidateAgainstOutputSpec(*data, ValidationMode::kBatchedTimestep));
+
+  if (rate_limited != nullptr) {
+    *rate_limited = sample->rate_limited();
+  }
 
   absl::WriterMutexLock lock(&mu_);
   if (++returned_ == max_samples_) samples_.Close();
-  return tensorflow::Status::OK();
+  return absl::OkStatus();
 }
 
-tensorflow::Status Sampler::ValidateAgainstOutputSpec(
-    const std::vector<tensorflow::Tensor>& data, bool time_step) {
+absl::Status Sampler::GetNextTrajectory(std::vector<tensorflow::Tensor>* data,
+                                        bool* rate_limited) {
+  std::unique_ptr<Sample> sample;
+  REVERB_RETURN_IF_ERROR(PopNextSample(&sample));
+  REVERB_RETURN_IF_ERROR(sample->AsTrajectory(data));
+  REVERB_RETURN_IF_ERROR(
+      ValidateAgainstOutputSpec(*data, ValidationMode::kTrajectory));
+
+  if (rate_limited != nullptr) {
+    *rate_limited = sample->rate_limited();
+  }
+
+  absl::WriterMutexLock lock(&mu_);
+  if (++returned_ == max_samples_) samples_.Close();
+  return absl::OkStatus();
+}
+
+absl::Status Sampler::ValidateAgainstOutputSpec(
+    const std::vector<tensorflow::Tensor>& data, Sampler::ValidationMode mode) {
   if (!dtypes_and_shapes_) {
-    return tensorflow::Status::OK();
+    return absl::OkStatus();
   }
 
   if (data.size() != dtypes_and_shapes_->size()) {
-    return tensorflow::errors::InvalidArgument(
+    return absl::InvalidArgumentError(absl::StrCat(
         "Inconsistent number of tensors received from table '", table_,
         "'.  Specification has ", dtypes_and_shapes_->size(),
         " tensors, but data coming from the table shows ", data.size(),
         " tensors.\nTable signature: ",
         internal::DtypesShapesString(*dtypes_and_shapes_),
         ".\nIncoming tensor signature: ",
-        internal::DtypesShapesString(internal::SpecsFromTensors(data)));
+        internal::DtypesShapesString(internal::SpecsFromTensors(data))));
   }
 
-  for (int i = 0; i < data.size(); ++i) {
+  for (int i = 4; i < data.size(); ++i) {
     tensorflow::TensorShape elem_shape;
-    if (!time_step) {
+    if (mode == ValidationMode::kBatchedTimestep) {
       // Remove the outer dimension from data[i].shape() so we can properly
       // compare against the spec (which doesn't have the sequence dimension).
       elem_shape = data[i].shape();
       if (elem_shape.dims() == 0) {
-        return tensorflow::errors::InvalidArgument(
-            "Invalid tensor shape received from table '", table_,
-            "'.  "
-            "time_step is false but data[",
-            i,
-            "] has scalar shape "
-            "(no time dimension).");
+        return absl::InvalidArgumentError(
+            absl::StrCat("Invalid tensor shape received from table '", table_,
+                         "'.  "
+                         "time_step is false but data[",
+                         i,
+                         "] has scalar shape "
+                         "(no time dimension)."));
       }
       elem_shape.RemoveDim(0);
     }
 
-    auto* shape_ptr = time_step ? &(data[i].shape()) : &elem_shape;
+    auto* shape_ptr =
+        mode == ValidationMode::kTimestep || mode == ValidationMode::kTrajectory
+            ? &(data[i].shape())
+            : &elem_shape;
     if (data[i].dtype() != dtypes_and_shapes_->at(i).dtype ||
         !dtypes_and_shapes_->at(i).shape.IsCompatibleWith(*shape_ptr)) {
-      return tensorflow::errors::InvalidArgument(
+      return absl::InvalidArgumentError(absl::StrCat(
           "Received incompatible tensor at flattened index ", i,
           " from table '", table_, "'.  Specification has (dtype, shape): (",
           tensorflow::DataTypeString(dtypes_and_shapes_->at(i).dtype), ", ",
@@ -558,10 +616,10 @@ tensorflow::Status Sampler::ValidateAgainstOutputSpec(
           ").  Tensor has (dtype, shape): (",
           tensorflow::DataTypeString(data[i].dtype()), ", ",
           shape_ptr->DebugString(), ").\nTable signature: ",
-          internal::DtypesShapesString(*dtypes_and_shapes_));
+          internal::DtypesShapesString(*dtypes_and_shapes_)));
     }
   }
-  return tensorflow::Status::OK();
+  return absl::OkStatus();
 }
 
 bool Sampler::should_stop_workers() const {
@@ -583,23 +641,23 @@ void Sampler::Close() {
   worker_threads_.clear();  // Joins worker threads.
 }
 
-tensorflow::Status Sampler::MaybeSampleNext() {
+absl::Status Sampler::MaybeSampleNext() {
   if (active_sample_ != nullptr && !active_sample_->is_end_of_sample()) {
-    return tensorflow::Status::OK();
+    return absl::OkStatus();
   }
 
   return PopNextSample(&active_sample_);
 }
 
-tensorflow::Status Sampler::PopNextSample(std::unique_ptr<Sample>* sample) {
-  if (samples_.Pop(sample)) return tensorflow::Status::OK();
+absl::Status Sampler::PopNextSample(std::unique_ptr<Sample>* sample) {
+  if (samples_.Pop(sample)) return absl::OkStatus();
 
   absl::ReaderMutexLock lock(&mu_);
   if (returned_ == max_samples_) {
-    return tensorflow::errors::OutOfRange("`max_samples` already returned.");
+    return absl::OutOfRangeError("`max_samples` already returned.");
   }
   if (closed_) {
-    return tensorflow::errors::Cancelled("Sampler has been cancelled.");
+    return absl::CancelledError("Sampler has been cancelled.");
   }
   return worker_status_;
 }
@@ -616,6 +674,7 @@ void Sampler::RunWorker(SamplerWorker* worker) {
       mu_.Unlock();
       return;
     }
+
     int64_t samples_to_stream =
         std::min<int64_t>(max_samples_per_stream_, max_samples_ - requested_);
     requested_ += samples_to_stream;
@@ -633,7 +692,7 @@ void Sampler::RunWorker(SamplerWorker* worker) {
 
       // Overwrite the final status only if it wasn't already an error.
       if (worker_status_.ok() && !result.second.ok() &&
-          !tensorflow::errors::IsUnavailable(result.second)) {
+          !absl::IsUnavailable(result.second)) {
         worker_status_ = result.second;
         samples_.Close();  // Unblock any pending calls.
         return;
@@ -643,69 +702,108 @@ void Sampler::RunWorker(SamplerWorker* worker) {
 }
 
 Sample::Sample(tensorflow::uint64 key, double probability,
-               tensorflow::int64 table_size, double priority,
-               std::list<std::vector<tensorflow::Tensor>> chunks)
+               tensorflow::int64 table_size, double priority, bool rate_limited,
+               std::vector<std::vector<tensorflow::Tensor>> column_chunks,
+               std::vector<bool> squeeze_columns)
     : key_(key),
       probability_(probability),
       table_size_(table_size),
       priority_(priority),
-      num_timesteps_(0),
-      num_data_tensors_(0),
-      chunks_(std::move(chunks)),
-      next_timestep_index_(0),
+      rate_limited_(rate_limited),
+      num_timesteps_(-1),
+      squeeze_columns_(std::move(squeeze_columns)),
       next_timestep_called_(false) {
-  REVERB_CHECK(!chunks_.empty()) << "Must provide at least one chunk.";
-  REVERB_CHECK(!chunks_.front().empty())
+  REVERB_CHECK(!column_chunks.empty()) << "Must provide at least one chunk.";
+  REVERB_CHECK(!column_chunks.front().empty())
       << "Chunks must hold at least one tensor.";
 
-  num_data_tensors_ = chunks_.front().size();
-  for (const auto& batches : chunks_) {
-    num_timesteps_ += batches.front().dim_size(0);
+  columns_.reserve(column_chunks.size());
+  for (auto& chunks : column_chunks) {
+    std::deque<ColumnChunk> slices;
+    for (auto& chunk : chunks) {
+      slices.push_back({std::move(chunk), 0});
+    }
+    columns_.push_back(std::move(slices));
+  }
+
+  if (is_composed_of_timesteps()) {
+    num_timesteps_ = 0;
+    for (const auto& column_slice : columns_.front()) {
+      // Note that we can safely assume that the tensor is not a scalar since a
+      // batch dimension is always added when building a chunk. A scalar would
+      // thus be represented as a tensor of shape [1].
+      num_timesteps_ += column_slice.tensor.dim_size(0);
+    }
   }
 }
 
 std::vector<tensorflow::Tensor> Sample::GetNextTimestep() {
   REVERB_CHECK(!is_end_of_sample());
+  REVERB_CHECK(is_composed_of_timesteps());
+
+  next_timestep_called_ = true;
 
   // Construct the output tensors.
   std::vector<tensorflow::Tensor> result;
-  result.reserve(num_data_tensors_ + 4);
-  result.push_back(tensorflow::Tensor(key_));
-  result.push_back(tensorflow::Tensor(probability_));
-  result.push_back(tensorflow::Tensor(table_size_));
-  result.push_back(tensorflow::Tensor(priority_));
+  result.reserve(columns_.size() + 4);
+  result.push_back(ScalarTensor(key_));
+  result.push_back(ScalarTensor(probability_));
+  result.push_back(ScalarTensor(table_size_));
+  result.push_back(ScalarTensor(priority_));
 
-  for (const auto& t : chunks_.front()) {
-    auto slice = t.SubSlice(next_timestep_index_);
-    if (slice.IsAligned()) {
-      result.push_back(std::move(slice));
-    } else {
-      result.push_back(tensorflow::tensor::DeepCopy(slice));
+  for (auto& col : columns_) {
+    auto slice = col.front().tensor.SubSlice(col.front().offset++);
+    if (!slice.IsAligned()) {
+      slice = tensorflow::tensor::DeepCopy(slice);
+    }
+    result.push_back(std::move(slice));
+
+    if (col.front().offset == col.front().tensor.dim_size(0)) {
+      col.pop_front();
     }
   }
-
-  // Advance the iterator.
-  ++next_timestep_index_;
-  if (next_timestep_index_ == chunks_.front().front().dim_size(0)) {
-    // Go to the next chunk.
-    chunks_.pop_front();
-    next_timestep_index_ = 0;
-  }
-  next_timestep_called_ = true;
 
   return result;
 }
 
-bool Sample::is_end_of_sample() const { return chunks_.empty(); }
+bool Sample::is_end_of_sample() const {
+  return std::all_of(columns_.begin(), columns_.end(),
+                     [](const auto& c) { return c.empty(); });
+}
 
-tensorflow::Status Sample::AsBatchedTimesteps(
-    std::vector<tensorflow::Tensor>* data) {
+bool Sample::is_composed_of_timesteps() const {
+  int prev_column_length = -1;
+  for (const auto& col : columns_) {
+    int column_length = 0;
+    for (const auto& column_slice : col) {
+      // Note that we can safely assume that the tensor is not a scalar since a
+      // batch dimension is always added when building a chunk. A scalar would
+      // thus be represented as a tensor of shape [1].
+      column_length += column_slice.tensor.dim_size(0);
+    }
+
+    if (prev_column_length != -1 && prev_column_length != column_length) {
+      return false;
+    }
+    prev_column_length = column_length;
+  }
+  return true;
+}
+
+bool Sample::rate_limited() const { return rate_limited_; }
+
+absl::Status Sample::AsBatchedTimesteps(std::vector<tensorflow::Tensor>* data) {
   if (next_timestep_called_) {
-    return tensorflow::errors::DataLoss(
+    return absl::DataLossError(
         "Sample::AsBatchedTimesteps: Some time steps have been lost.");
   }
+  if (!is_composed_of_timesteps()) {
+    return absl::FailedPreconditionError(
+        "Sample::AsBatchedTimesteps when trajectory cannot be decomposed into "
+        "timesteps.");
+  }
 
-  std::vector<tensorflow::Tensor> sequences(num_data_tensors_ + 4);
+  std::vector<tensorflow::Tensor> sequences(columns_.size() + 4);
 
   // Initialize the first three items with the key, probability and table size.
   sequences[0] = InitializeTensor(key_, num_timesteps_);
@@ -713,63 +811,107 @@ tensorflow::Status Sample::AsBatchedTimesteps(
   sequences[2] = InitializeTensor(table_size_, num_timesteps_);
   sequences[3] = InitializeTensor(priority_, num_timesteps_);
 
-  // Prepare the data for concatenation.
-  // data_tensors[i][j] is the j-th chunk of the i-th data tensor.
-  std::vector<std::vector<tensorflow::Tensor>> data_tensors(num_data_tensors_);
+  // Unpack the data columns.
+  REVERB_RETURN_IF_ERROR(UnpackColumns(&sequences));
 
-  // Extract all chunks.
-  while (!chunks_.empty()) {
-    auto it_to = data_tensors.begin();
-    for (auto& batch : chunks_.front()) {
-      (it_to++)->push_back(std::move(batch));
-    }
-    chunks_.pop_front();
+  std::swap(sequences, *data);
+
+  return absl::OkStatus();
+}
+
+absl::Status Sample::AsTrajectory(std::vector<tensorflow::Tensor>* data) {
+  if (next_timestep_called_) {
+    return absl::DataLossError(
+        "Sample::AsBatchedTimesteps: Some time steps have been lost.");
   }
+  std::vector<tensorflow::Tensor> sequences(columns_.size() + 4);
 
-  // Concatenate all chunks.
-  int64_t i = 4;
-  for (const auto& chunks : data_tensors) {
-    TF_RETURN_IF_ERROR(tensorflow::tensor::Concat(chunks, &sequences[i++]));
+  // Initialize the first four items with the key, probability, table size and
+  // priority.
+  sequences[0] = ScalarTensor(key_);
+  sequences[1] = ScalarTensor(probability_);
+  sequences[2] = ScalarTensor(table_size_);
+  sequences[3] = ScalarTensor(priority_);
+
+  // Unpack the data columns.
+  REVERB_RETURN_IF_ERROR(UnpackColumns(&sequences));
+
+  // Remove batch dimension from squeezed columns.
+  for (int i = 0; i < squeeze_columns_.size(); i++) {
+    if (!squeeze_columns_[i]) continue;
+    if (int batch_dim = sequences[i + 4].shape().dim_size(0); batch_dim != 1) {
+      return absl::InternalError(absl::StrCat(
+          "Tried to squeeze column with batch size ", batch_dim, "."));
+    }
+
+    sequences[i + 4] = sequences[i + 4].SubSlice(0);
+    if (!sequences[i + 4].IsAligned()) {
+      sequences[i + 4] = tensorflow::tensor::DeepCopy(sequences[i + 4]);
+    }
   }
 
   std::swap(sequences, *data);
 
-  return tensorflow::Status::OK();
+  return absl::OkStatus();
 }
 
-tensorflow::Status Sampler::Options::Validate() const {
+absl::Status Sample::UnpackColumns(std::vector<tensorflow::Tensor>* data) {
+  REVERB_CHECK_EQ(data->size(), columns_.size() + 4);
+
+  int64_t i = 4;
+  for (const auto& column : columns_) {
+    // If the column is made up of a single batched tensor then there will be no
+    // need for concatenation so we can save ourselves a copy by simply moving
+    // the one (unpacked) chunk into sequences.
+    if (column.size() == 1) {
+      data->at(i++) = std::move(column.front().tensor);
+    } else {
+      std::vector<tensorflow::Tensor> column_tensors;
+      column_tensors.reserve(column.size());
+      for (auto& slice : column) {
+        column_tensors.push_back(std::move(slice.tensor));
+      }
+
+      REVERB_RETURN_IF_ERROR(FromTensorflowStatus(
+          tensorflow::tensor::Concat(column_tensors, &data->at(i++))));
+    }
+  }
+  return absl::OkStatus();
+}
+
+absl::Status Sampler::Options::Validate() const {
   if (max_samples < 1 && max_samples != kUnlimitedMaxSamples) {
-    return tensorflow::errors::InvalidArgument(
-        "max_samples (", max_samples, ") must be ", kUnlimitedMaxSamples,
-        " or >= 1");
+    return absl::InvalidArgumentError(
+        absl::StrCat("max_samples (", max_samples, ") must be ",
+                     kUnlimitedMaxSamples, " or >= 1"));
   }
   if (max_in_flight_samples_per_worker < 1) {
-    return tensorflow::errors::InvalidArgument(
-        "max_in_flight_samples_per_worker (", max_in_flight_samples_per_worker,
-        ") has to be >= 1");
+    return absl::InvalidArgumentError(
+        absl::StrCat("max_in_flight_samples_per_worker (",
+                     max_in_flight_samples_per_worker, ") has to be >= 1"));
   }
   if (num_workers < 1 && num_workers != kAutoSelectValue) {
-    return tensorflow::errors::InvalidArgument("num_workers (", num_workers,
-                                               ") must be ", kAutoSelectValue,
-                                               " or >= 1");
+    return absl::InvalidArgumentError(
+        absl::StrCat("num_workers (", num_workers, ") must be ",
+                     kAutoSelectValue, " or >= 1"));
   }
   if (max_samples_per_stream < 1 &&
       max_samples_per_stream != kUnlimitedMaxSamples) {
-    return tensorflow::errors::InvalidArgument(
-        "max_samples_per_stream (", max_samples_per_stream, ") must be ",
-        kUnlimitedMaxSamples, " or >= 1");
+    return absl::InvalidArgumentError(
+        absl::StrCat("max_samples_per_stream (", max_samples_per_stream,
+                     ") must be ", kUnlimitedMaxSamples, " or >= 1"));
   }
   if (rate_limiter_timeout < absl::ZeroDuration()) {
-    return tensorflow::errors::InvalidArgument("rate_limiter_timeout (",
-                                               rate_limiter_timeout,
-                                               ") must not be negative.");
+    return absl::InvalidArgumentError(absl::StrCat(
+        "rate_limiter_timeout (", absl::FormatDuration(rate_limiter_timeout),
+        ") must not be negative."));
   }
   if (flexible_batch_size < 1 && flexible_batch_size != kAutoSelectValue) {
-    return tensorflow::errors::InvalidArgument(
-        "flexible_batch_size (", flexible_batch_size, ") must be ",
-        kAutoSelectValue, " or >= 1");
+    return absl::InvalidArgumentError(
+        absl::StrCat("flexible_batch_size (", flexible_batch_size, ") must be ",
+                     kAutoSelectValue, " or >= 1"));
   }
-  return tensorflow::Status::OK();
+  return absl::OkStatus();
 }
 
 }  // namespace reverb

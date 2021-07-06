@@ -20,22 +20,29 @@
 #include "reverb/cc/schema.pb.h"
 #include "reverb/cc/tensor_compression.h"
 #include "tensorflow/core/framework/tensor.h"
+#include "tensorflow/core/framework/tensor_shape.pb.h"
 
 namespace deepmind {
 namespace reverb {
 namespace testing {
 
 ChunkData MakeChunkData(uint64_t key) {
-  return MakeChunkData(key, MakeSequenceRange(key * 100, 0, 1));
+  return MakeChunkData(key, MakeSequenceRange(key * 100, 0, 1), 1);
 }
 
 ChunkData MakeChunkData(uint64_t key, SequenceRange range) {
+  return MakeChunkData(key, range, 1);
+}
+
+ChunkData MakeChunkData(uint64_t key, SequenceRange range, int num_tensors) {
   ChunkData chunk;
   chunk.set_chunk_key(key);
   tensorflow::Tensor t(tensorflow::DT_INT32,
                        {range.end() - range.start() + 1, 10});
   t.flat<int32_t>().setConstant(1);
-  CompressTensorAsProto(t, chunk.mutable_data()->add_tensors());
+  for (int i = 0; i < num_tensors; i++) {
+    CompressTensorAsProto(t, chunk.mutable_data()->add_tensors());
+  }
   *chunk.mutable_sequence_range() = std::move(range);
 
   return chunk;
@@ -65,13 +72,16 @@ PrioritizedItem MakePrioritizedItem(uint64_t key, double priority,
   item.set_key(key);
   item.set_priority(priority);
 
-  for (const auto& chunk : chunks) {
-    item.add_chunk_keys(chunk.chunk_key());
+  for (int i = 0; i < chunks.front().data().tensors_size(); i++) {
+    auto* col = item.mutable_flat_trajectory()->add_columns();
+    for (const auto& chunk : chunks) {
+      auto* slice = col->add_chunk_slices();
+      slice->set_chunk_key(chunk.chunk_key());
+      slice->set_offset(0);
+      slice->set_length(chunk.data().tensors(0).tensor_shape().dim(0).size());
+      slice->set_index(i);
+    }
   }
-
-  item.mutable_sequence_range()->set_length(
-      1 + chunks.back().sequence_range().end() -
-      chunks.front().sequence_range().start());
 
   return item;
 }

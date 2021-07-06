@@ -20,12 +20,12 @@
 #include <cstdint>
 #include "absl/base/thread_annotations.h"
 #include "absl/container/fixed_array.h"
+#include "absl/status/status.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/time/time.h"
 #include "reverb/cc/checkpointing/checkpoint.pb.h"
 #include "reverb/cc/platform/hash_set.h"
 #include "reverb/cc/schema.pb.h"
-#include "tensorflow/core/lib/core/status.h"
 
 namespace deepmind {
 namespace reverb {
@@ -74,14 +74,14 @@ class RateLimiter {
   // is still an insert op (while waiting the item may be inserted by another
   // thread and thus the operation now is an update). If the operation remains
   // an insert then `Insert` must be called to commit the state change.
-  tensorflow::Status AwaitCanInsert(absl::Mutex* mu,
-                                    absl::Duration timeout = kDefaultTimeout)
+  absl::Status AwaitCanInsert(absl::Mutex* mu,
+                              absl::Duration timeout = kDefaultTimeout)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu);
 
   // Waits until the sample operation can proceed without violating the
   // conditions of the rate limiter. If the condition is fulfilled before the
   // timeout expires or `Cancel` called then the state is updated.
-  tensorflow::Status AwaitAndFinalizeSample(
+  absl::Status AwaitAndFinalizeSample(
       absl::Mutex* mu, absl::Duration timeout = kDefaultTimeout)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu);
 
@@ -103,6 +103,11 @@ class RateLimiter {
   // sampled. Dies if `num_samples` is < 1.
   bool CanSample(absl::Mutex* mu, int num_samples) const
       ABSL_SHARED_LOCKS_REQUIRED(mu);
+
+  // Returns true iff the current state allows for an item to be sampled.
+  // When returning true it increases sampling counter and the caller
+  // is supposed to perform a single item sampling.
+  bool MaybeCommitSample(absl::Mutex* mu) ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu);
 
   // Returns true iff the current state would allow for `num_inserts` to be
   // inserted. Dies if `num_inserts` is < 1.
@@ -127,10 +132,13 @@ class RateLimiter {
                                           size_t min_sample_event_id) const
       ABSL_SHARED_LOCKS_REQUIRED(mu);
 
+  // Returns a summary string description.
+  std::string DebugString() const;
+
  private:
   friend class Table;
   // `Table` calls these methods on construction and destruction.
-  tensorflow::Status RegisterTable(Table* table);
+  absl::Status RegisterTable(Table* table);
   void UnregisterTable(absl::Mutex* mu, Table* table) ABSL_LOCKS_EXCLUDED(mu);
 
   // Checks if sample and insert operations can proceed and if so calls `Signal`
@@ -138,7 +146,8 @@ class RateLimiter {
   void MaybeSignalCondVars(absl::Mutex* mu) ABSL_SHARED_LOCKS_REQUIRED(mu);
 
   // Returns Cancelled-status if `Cancel` have been called.
-  tensorflow::Status CheckIfCancelled() const;
+  absl::Status CheckIfCancelled(absl::Mutex* mu) const
+      ABSL_SHARED_LOCKS_REQUIRED(mu);
 
   // Pointer to the table. We expect this to be available (if set), since it's
   // set by a Table calling RegisterTable(this) after it stores a shared_ptr to

@@ -14,11 +14,10 @@
 
 #include "reverb/cc/selectors/heap.h"
 
+#include "absl/strings/str_cat.h"
 #include "reverb/cc/checkpointing/checkpoint.pb.h"
 #include "reverb/cc/schema.pb.h"
 #include "reverb/cc/selectors/interface.h"
-#include "tensorflow/core/lib/core/errors.h"
-#include "tensorflow/core/lib/core/status.h"
 
 namespace deepmind {
 namespace reverb {
@@ -26,37 +25,35 @@ namespace reverb {
 HeapSelector::HeapSelector(bool min_heap)
     : sign_(min_heap ? 1 : -1), update_count_(0) {}
 
-tensorflow::Status HeapSelector::Delete(ItemSelector::Key key) {
+absl::Status HeapSelector::Delete(ItemSelector::Key key) {
   auto it = nodes_.find(key);
   if (it == nodes_.end()) {
-    return tensorflow::errors::InvalidArgument("Key ", key, " not found.");
+    return absl::InvalidArgumentError(absl::StrCat("Key ", key, " not found."));
   }
   heap_.Remove(it->second.get());
   nodes_.erase(it);
-  return tensorflow::Status::OK();
+  return absl::OkStatus();
 }
 
-tensorflow::Status HeapSelector::Insert(ItemSelector::Key key,
-                                        double priority) {
+absl::Status HeapSelector::Insert(ItemSelector::Key key, double priority) {
   if (nodes_.contains(key)) {
-    return tensorflow::errors::InvalidArgument("Key ", key,
-                                               " already inserted.");
+    return absl::InvalidArgumentError(
+        absl::StrCat("Key ", key, " already inserted."));
   }
   nodes_[key] =
       absl::make_unique<HeapNode>(key, priority * sign_, update_count_++);
   heap_.Push(nodes_[key].get());
-  return tensorflow::Status::OK();
+  return absl::OkStatus();
 }
 
-tensorflow::Status HeapSelector::Update(ItemSelector::Key key,
-                                        double priority) {
+absl::Status HeapSelector::Update(ItemSelector::Key key, double priority) {
   if (!nodes_.contains(key)) {
-    return tensorflow::errors::InvalidArgument("Key ", key, " not found.");
+    return absl::InvalidArgumentError(absl::StrCat("Key ", key, " not found."));
   }
   nodes_[key]->priority = priority * sign_;
   nodes_[key]->update_number = update_count_++;
   heap_.Adjust(nodes_[key].get());
-  return tensorflow::Status::OK();
+  return absl::OkStatus();
 }
 
 ItemSelector::KeyWithProbability HeapSelector::Sample() {
@@ -75,6 +72,10 @@ KeyDistributionOptions HeapSelector::options() const {
   options.mutable_heap()->set_min_heap(sign_ == 1);
   options.set_is_deterministic(true);
   return options;
+}
+
+std::string HeapSelector::DebugString() const {
+  return absl::StrCat("HeapSelector(sign=", sign_, ")");
 }
 
 }  // namespace reverb

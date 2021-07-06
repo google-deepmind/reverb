@@ -18,11 +18,13 @@
 #include <string>
 #include <vector>
 
+#include "absl/status/status.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/optional.h"
 #include "reverb/cc/platform/hash_map.h"
 #include "reverb/cc/platform/hash_set.h"
 #include "reverb/cc/schema.pb.h"
+#include "reverb/cc/table.h"
 #include "tensorflow/core/framework/tensor.h"
 #include "tensorflow/core/framework/tensor_shape.h"
 #include "tensorflow/core/framework/types.h"
@@ -41,19 +43,19 @@ struct TensorSpec {
 
 typedef absl::optional<std::vector<TensorSpec>> DtypesAndShapes;
 
-tensorflow::Status FlatSignatureFromTableInfo(
+absl::Status FlatSignatureFromTableInfo(
     const TableInfo& info, DtypesAndShapes* dtypes_and_shapes);
 
-tensorflow::Status FlatSignatureFromStructuredValue(
+absl::Status FlatSignatureFromStructuredValue(
     const tensorflow::StructuredValue& value,
     DtypesAndShapes* dtypes_and_shapes);
 
 tensorflow::StructuredValue StructuredValueFromChunkData(
     const ChunkData& chunk_data);
 
-tensorflow::Status FlatPathFromStructuredValue(
-    const tensorflow::StructuredValue& value, absl::string_view prefix,
-    std::vector<std::string>* paths);
+// Create a structured value of the trajectory referenced by `item`. Non
+// squeezed columns are assigned a batch dimension of -1.
+tensorflow::StructuredValue StructuredValueFromItem(const TableItem& item);
 
 // Map from table name to optional vector of flattened (dtype, shape) pairs.
 typedef internal::flat_hash_map<std::string, internal::DtypesAndShapes>

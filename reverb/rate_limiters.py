@@ -29,6 +29,9 @@ class RateLimiter(metaclass=abc.ABCMeta):
   def __init__(self, internal_limiter: pybind.RateLimiter):
     self.internal_limiter = internal_limiter
 
+  def __repr__(self):
+    return repr(self.internal_limiter)
+
 
 class MinSize(RateLimiter):
   """Block sample calls unless replay contains `min_size_to_sample`.

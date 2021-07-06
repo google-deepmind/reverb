@@ -22,13 +22,15 @@ ARG cpu_base_image="ubuntu:18.04"
 ARG base_image=$cpu_base_image
 ARG tensorflow_pip="tf-nightly"
 ARG python_version="python3.6"
+ARG APT_COMMAND="apt-get -o Acquire::Retries=3 -y"
 
 # Pick up some TF dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN ${APT_COMMAND} update && ${APT_COMMAND} install -y --no-install-recommends \
         software-properties-common \
         aria2 \
         build-essential \
         curl \
+        gdb \
         git \
         less \
         libfreetype6-dev \
@@ -53,13 +55,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 RUN curl -O https://bootstrap.pypa.io/get-pip.py
 
-ARG bazel_version=2.2.0
+ARG bazel_version=3.7.2
 # This is to install bazel, for development purposes.
 ENV BAZEL_VERSION ${bazel_version}
 RUN mkdir /bazel && \
     cd /bazel && \
-    curl -H "User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/57.0.2987.133 Safari/537.36" -fSsL -O https://github.com/bazelbuild/bazel/releases/download/$BAZEL_VERSION/bazel-$BAZEL_VERSION-installer-linux-x86_64.sh && \
-    curl -H "User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/57.0.2987.133 Safari/537.36" -fSsL -o /bazel/LICENSE.txt https://raw.githubusercontent.com/bazelbuild/bazel/master/LICENSE && \
+    curl -fSsL -O https://github.com/bazelbuild/bazel/releases/download/$BAZEL_VERSION/bazel-$BAZEL_VERSION-installer-linux-x86_64.sh && \
     chmod +x bazel-*.sh && \
     ./bazel-$BAZEL_VERSION-installer-linux-x86_64.sh && \
     cd / && \
@@ -75,6 +76,7 @@ RUN cp /usr/local/lib/bazel/bin/bazel-complete.bash /etc/bash_completion.d
 ARG pip_dependencies=' \
       contextlib2 \
       dm-tree>=0.1.5 \
+      dataclasses \
       google-api-python-client \
       h5py \
       numpy \

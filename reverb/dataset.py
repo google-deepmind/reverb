@@ -186,6 +186,7 @@ class ReplayDataset(tf.data.Dataset):
     self._num_workers_per_iterator = num_workers_per_iterator
     self._max_samples_per_stream = max_samples_per_stream
     self._rate_limiter_timeout_ms = rate_limiter_timeout_ms
+    self._flexible_batch_size = flexible_batch_size
 
     if _is_tf1_runtime():
       # Disabling to avoid errors given the different tf.data.Dataset init args
@@ -281,7 +282,8 @@ class ReplayDataset(tf.data.Dataset):
         max_in_flight_samples_per_worker=self._max_in_flight_samples_per_worker,
         num_workers_per_iterator=self._num_workers_per_iterator,
         max_samples_per_stream=self._max_samples_per_stream,
-        rate_limiter_timeout_ms=self._rate_limiter_timeout_ms)
+        rate_limiter_timeout_ms=self._rate_limiter_timeout_ms,
+        flexible_batch_size=self._flexible_batch_size)
 
   def _inputs(self) -> List[Any]:
     return []

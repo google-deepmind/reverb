@@ -1,5 +1,6 @@
 load(
     "//reverb/cc/platform:build_rules.bzl",
+    "reverb_absl_deps",
     "reverb_cc_library",
     "reverb_cc_proto_library",
 )
@@ -19,5 +20,5 @@ reverb_cc_proto_library(
 reverb_cc_library(
     name = "interface",
     hdrs = ["interface.h"],
-    deps = ["//reverb/cc:table"],
+    deps = ["//reverb/cc:table"] + reverb_absl_deps(),
 )

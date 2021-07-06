@@ -18,6 +18,7 @@
 
 #include "gtest/gtest.h"
 #include "absl/time/clock.h"
+#include "reverb/cc/platform/status_matchers.h"
 #include "reverb/cc/testing/time_testutil.h"
 #include "tensorflow/core/lib/core/status_test_util.h"
 
@@ -41,9 +42,9 @@ TEST(PeriodicClosureTest, ObeyInterval) {
 
   PeriodicClosure pc(callback, kPeriod);
 
-  TF_EXPECT_OK(pc.Start());
+  REVERB_EXPECT_OK(pc.Start());
   absl::SleepFor(timeout);
-  TF_EXPECT_OK(pc.Stop());
+  REVERB_EXPECT_OK(pc.Stop());
 
   // The closure could get called up to kCalls+1 times: once at time 0, once
   // at time kPeriod, once at time kPeriod*2, up to once at time
@@ -64,7 +65,7 @@ TEST(PeriodicClosureTest, MinInterval) {
 
   PeriodicClosure pc(callback, absl::ZeroDuration());
 
-  TF_EXPECT_OK(pc.Start());
+  REVERB_EXPECT_OK(pc.Start());
 
   test::WaitFor([&]() { return actual_calls > 0 && actual_calls < 3; },
                 kCallDuration, 100);
@@ -72,7 +73,7 @@ TEST(PeriodicClosureTest, MinInterval) {
   ASSERT_GT(actual_calls, 0);
   ASSERT_LT(actual_calls, 3);
 
-  TF_EXPECT_OK(pc.Stop());  // we should be able to Stop()
+  REVERB_EXPECT_OK(pc.Stop());  // we should be able to Stop()
 }
 
 std::function<void()> DoNothing() {
@@ -88,39 +89,39 @@ TEST(PeriodicClosureDeathTest, NotStopped) {
   PeriodicClosure* pc =
       new PeriodicClosure(DoNothing(), absl::Milliseconds(10));
 
-  TF_EXPECT_OK(pc->Start());
+  REVERB_EXPECT_OK(pc->Start());
   ASSERT_DEATH(delete pc, ".* before destructed");
 
-  TF_EXPECT_OK(pc->Stop());
+  REVERB_EXPECT_OK(pc->Stop());
   delete pc;
 }
 
 TEST(PeriodicClosureDeathTest, DoubleStart) {
   PeriodicClosure pc(DoNothing, absl::Milliseconds(10));
 
-  TF_EXPECT_OK(pc.Start());
+  REVERB_EXPECT_OK(pc.Start());
   auto status = pc.Start();
-  EXPECT_EQ(status.code(), tensorflow::error::INVALID_ARGUMENT);
+  EXPECT_EQ(status.code(), absl::StatusCode::kInvalidArgument);
 
-  TF_EXPECT_OK(pc.Stop());
+  REVERB_EXPECT_OK(pc.Stop());
 }
 
 TEST(PeriodicClosureDeathTest, DoubleStop) {
   PeriodicClosure pc(DoNothing, absl::Milliseconds(10));
 
-  TF_EXPECT_OK(pc.Start());
+  REVERB_EXPECT_OK(pc.Start());
 
-  TF_EXPECT_OK(pc.Stop());
+  REVERB_EXPECT_OK(pc.Stop());
   auto status = pc.Stop();
-  EXPECT_EQ(status.code(), tensorflow::error::INVALID_ARGUMENT);
+  EXPECT_EQ(status.code(), absl::StatusCode::kInvalidArgument);
 }
 
 TEST(PeriodicClosureDeathTest, StartAfterStop) {
   PeriodicClosure pc(DoNothing, absl::Milliseconds(10));
 
-  TF_EXPECT_OK(pc.Stop());
+  REVERB_EXPECT_OK(pc.Stop());
   auto status = pc.Start();
-  EXPECT_EQ(status.code(), tensorflow::error::INVALID_ARGUMENT);
+  EXPECT_EQ(status.code(), absl::StatusCode::kInvalidArgument);
 }
 
 }  // namespace

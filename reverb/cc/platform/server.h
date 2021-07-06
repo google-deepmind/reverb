@@ -18,6 +18,7 @@
 #include <memory>
 #include <vector>
 
+#include "absl/status/status.h"
 #include "reverb/cc/checkpointing/interface.h"
 #include "reverb/cc/client.h"
 #include "reverb/cc/table.h"
@@ -36,19 +37,22 @@ class Server {
   virtual void Stop() = 0;
 
   // Blocks until the server has terminated. Does not terminate the server
-  // itself. Use this to want to wait indefinitely.
-  virtual void Wait() = 0;
+  // itself. Use this to want to wait indefinitely. Returns true if the server
+  // was stopped by a SIGINT signal.
+  virtual bool Wait() = 0;
 
   // Gets a local in process client. This bypasses proto serialization and
   // network overhead. Careful: The resulting client instance must not be used
   // after this server instance has terminated.
   virtual std::unique_ptr<Client> InProcessClient() = 0;
+
+  // Returns a summary string description.
+  virtual std::string DebugString() const = 0;
 };
 
-tensorflow::Status StartServer(std::vector<std::shared_ptr<Table>> tables,
-                               int port,
-                               std::shared_ptr<Checkpointer> checkpointer,
-                               std::unique_ptr<Server> *server);
+absl::Status StartServer(std::vector<std::shared_ptr<Table>> tables, int port,
+                         std::shared_ptr<Checkpointer> checkpointer,
+                         std::unique_ptr<Server> *server);
 
 }  // namespace reverb
 }  // namespace deepmind

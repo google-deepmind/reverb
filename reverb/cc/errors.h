@@ -15,15 +15,15 @@
 #ifndef REVERB_CC_ERRORS_H_
 #define REVERB_CC_ERRORS_H_
 
-#include "tensorflow/core/lib/core/status.h"
+#include "absl/status/status.h"
 
 namespace deepmind {
 namespace reverb {
 namespace errors {
 
-tensorflow::Status RateLimiterTimeout();
+absl::Status RateLimiterTimeout();
 
-bool IsRateLimiterTimeout(tensorflow::Status);
+bool IsRateLimiterTimeout(absl::Status status);
 
 }  // namespace errors
 }  // namespace reverb

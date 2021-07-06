@@ -24,6 +24,7 @@
 
 #include <cstdint>
 #include "absl/base/thread_annotations.h"
+#include "absl/status/status.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/types/optional.h"
 #include "absl/types/span.h"
@@ -34,8 +35,8 @@
 #include "reverb/cc/rate_limiter.h"
 #include "reverb/cc/schema.pb.h"
 #include "reverb/cc/selectors/interface.h"
+#include "reverb/cc/support/task_executor.h"
 #include "reverb/cc/table_extensions/interface.h"
-#include "tensorflow/core/lib/core/status.h"
 #include "tensorflow/core/protobuf/struct.pb.h"
 
 namespace deepmind {
@@ -78,16 +79,33 @@ struct TableItem {
 //
 class Table {
  public:
+  struct SampleRequest;
   using Key = ItemSelector::Key;
   using Item = TableItem;
+  using SamplingCallback = std::function<void(SampleRequest*)>;
 
   // Used as the return of Sample(). Note that this returns the probability of
   // an item instead as opposed to the raw priority value.
   struct SampledItem {
-    PrioritizedItem item;
-    std::vector<std::shared_ptr<ChunkStore::Chunk>> chunks;
+    std::shared_ptr<Item> ref;
     double probability;
     int64_t table_size;
+    // Use these values over accessing priority and times_sampled from the
+    // referenced Item, as Item might be modified in the background.
+    double priority;
+    int32_t times_sampled;
+    // True if the sample was delayed due to rate limiting. That is, the system
+    // stopped proccessing requests even though there were outstanding sample
+    // requests to be fulfilled.
+    bool rate_limited;
+  };
+
+  // Represents asynchronous sampling request processed by the table worker.
+  struct SampleRequest {
+    std::vector<SampledItem> samples;
+    absl::Time deadline;
+    absl::Status status;
+    std::weak_ptr<SamplingCallback> on_batch_done;
   };
 
   // Used when checkpointing to ensure that none of the chunks referenced by the
@@ -135,21 +153,37 @@ class Table {
   // that we insert the new item that exceeds the capacity BEFORE we run the
   // remover. This means that the newly inserted item could be deleted right
   // away.
-  tensorflow::Status InsertOrAssign(Item item);
+  //
+  // The timeout is forwarded to the rate limiter. If the right to insert cannot
+  // be acquired before the timeout is exceeded the `DeadlineExceededError` is
+  // returned and no action is taken.
+  absl::Status InsertOrAssign(
+      Item item, absl::Duration timeout = absl::InfiniteDuration());
+
+  // Similar to the InsertOrAssign, but insert operation is queued inside the
+  // table instead of blocking the caller. can_insert_more is set to true if
+  // further inserts can be performed right away. When can_insert_more is set
+  // to false, insert_more_callback callback will be called when further inserts
+  // are allowed (with OK status), or with an error in case system is being
+  // terminated.
+  absl::Status InsertOrAssignAsync(
+      Item item, bool* can_insert_more,
+      std::weak_ptr<std::function<void(const absl::Status&)>>
+          insert_more_callback);
 
   // Inserts an item without consulting or modifying the RateLimiter about the
   // operation.
   //
   // This should ONLY be used when restoring a `Table` from a checkpoint.
-  tensorflow::Status InsertCheckpointItem(Item item);
+  absl::Status InsertCheckpointItem(Item item);
 
   // Updates the priority or deletes items in this table distribution. All
   // operations in the arguments are applied in the order that they are listed.
   // Different operations can be set at the same time. Ignores non existing keys
   // but returns any other errors. The operations might be applied partially
   // when an error occurs.
-  tensorflow::Status MutateItems(absl::Span<const KeyWithPriority> updates,
-                                 absl::Span<const Key> deletes);
+  absl::Status MutateItems(absl::Span<const KeyWithPriority> updates,
+                           absl::Span<const Key> deletes);
 
   // Attempts to sample an item from table with the sampling
   // strategy passed to the constructor. We only allow the sample operation if
@@ -157,8 +191,17 @@ class Table {
   // `max_times_sampled_`, then we delete it before returning so it cannot be
   // sampled again.  If `Sample` waits for `rate_limiter_` for longer than
   // `timeout`, instead of sampling a `DeadlineExceeded` status is returned.
-  tensorflow::Status Sample(SampledItem* item,
-                            absl::Duration timeout = kDefaultTimeout);
+  absl::Status Sample(SampledItem* item,
+                      absl::Duration timeout = kDefaultTimeout);
+
+  // Enques an asynchronous sampling performed by the table worker.
+  // All queued sampling operations are a subject to the table's sampling
+  // strategy defined by the `rate_limiter_`. Sampled element which has reached
+  // `max_times_sampled_` are deleted from the table, so it cannot be
+  // sampled again.
+  void EnqueSampleRequest(int num_samples,
+                          std::weak_ptr<SamplingCallback> callback,
+                          absl::Duration timeout = kDefaultTimeout);
 
   // Attempts to sample up to `batch_size` items (without releasing the lock).
   //
@@ -179,9 +222,9 @@ class Table {
   // operation to be "approved" by the rate limiter. The remaining items of the
   // batch will only be added if these can proceeed without releasing the lock
   // and awaiting state changes in the rate limiter.
-  tensorflow::Status SampleFlexibleBatch(
-      std::vector<SampledItem>* items, int batch_size,
-      absl::Duration timeout = kDefaultTimeout);
+  absl::Status SampleFlexibleBatch(std::vector<SampledItem>* items,
+                                   int batch_size,
+                                   absl::Duration timeout = kDefaultTimeout);
 
   // Returns true iff the current state would allow for `num_samples` to be
   // sampled. Dies if `num_samples` is < 1.
@@ -221,11 +264,11 @@ class Table {
   bool Get(Key key, Item* item) ABSL_LOCKS_EXCLUDED(mu_);
 
   // Get pointer to `data_`. Must only be called by extensions while lock held.
-  const internal::flat_hash_map<Key, Item>* RawLookup()
+  const internal::flat_hash_map<Key, std::shared_ptr<Item>>* RawLookup()
       ABSL_ASSERT_EXCLUSIVE_LOCK(mu_);
 
   // Removes all items and resets the RateLimiter to its initial state.
-  tensorflow::Status Reset();
+  absl::Status Reset();
 
   // Generate a checkpoint from the table's current state.
   CheckpointAndChunks Checkpoint() ABSL_LOCKS_EXCLUDED(mu_);
@@ -240,10 +283,13 @@ class Table {
   // deleted.
   int64_t num_deleted_episodes() const ABSL_LOCKS_EXCLUDED(mu_);
 
-  // "Manually" set the number of deleted episodes. This is only intended to be
-  // called when reconstructing a Table from a checkpoint and will trigger death
-  // unless it is the very first interaction with the table.
+  // "Manually" set the number of deleted episodes and unique samples. This is
+  // only intended to be called when reconstructing a Table from a checkpoint
+  // and will trigger death unless it is the very first interaction with the
+  // table.
   void set_num_deleted_episodes_from_checkpoint(int64_t value)
+      ABSL_LOCKS_EXCLUDED(mu_);
+  void set_num_unique_samples_from_checkpoint(int64_t value)
       ABSL_LOCKS_EXCLUDED(mu_);
 
   const std::string& name() const;
@@ -265,19 +311,49 @@ class Table {
   void Close();
 
   // Asserts that `mu_` is held at runtime and calls UpdateItem.
-  tensorflow::Status UnsafeUpdateItem(
+  absl::Status UnsafeUpdateItem(
       Key key, double priority, std::initializer_list<TableExtension*> exclude)
       ABSL_ASSERT_EXCLUSIVE_LOCK(mu_);
 
   // Suggestion of default batch size to use in `SampleFlexibleBatch`.
   int32_t DefaultFlexibleBatchSize() const;
 
+  // Returns a summary string description.
+  std::string DebugString() const;
+
+  // Make the table use table worker for executing operations. Worker will use
+  // provided executor for running operation callbacks. This method should be
+  // called before adding any data to the table.
+  void EnableTableWorker(std::shared_ptr<TaskExecutor> executor);
+
+  // Check whether the worker is currently sleeping. This method is only exposed
+  // for testing purposes.
+  bool worker_is_sleeping() const ABSL_LOCKS_EXCLUDED(worker_mu_);
+
+  // Get the number of sample requests which hasn't been picked up by the worker
+  // yet. This method is only exposed for testing purposes.
+  int num_pending_async_sample_requests() const ABSL_LOCKS_EXCLUDED(worker_mu_);
+
  private:
   // Updates item priority in `data_`, `samper_`, `remover_` and calls
   // `OnUpdate` on all extensions not part of `exclude`.
-  tensorflow::Status UpdateItem(
-      Key key, double priority,
-      std::initializer_list<TableExtension*> exclude = {})
+  absl::Status UpdateItem(Key key, double priority,
+                          std::initializer_list<TableExtension*> exclude = {})
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_);
+
+  // Used by the table worker to perform sampling.
+  absl::Status SampleInternal(bool rate_limited, SampledItem* result,
+                              std::vector<std::shared_ptr<Item>>* to_delete)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_);
+
+  // Finalize sampling request with a given status.
+  void FinalizeSampleRequest(std::unique_ptr<Table::SampleRequest> request,
+                             absl::Status status);
+
+  // Performs batched insertion of `pending_inserts` into the table. to_delete
+  // is filled with elements to be deleted (once table lock is not held).
+  absl::Status InsertOrAssignInternal(
+      std::shared_ptr<Item> item, std::vector<std::shared_ptr<Item>>* to_delete)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_);
 
   // Deletes the item associated with the key from `data_`, `sampler_` and
@@ -285,8 +361,12 @@ class Table {
   //
   // The deleted item is returned in order to allow the deallocation of the
   // underlying item to be postponed until the lock has been released.
-  tensorflow::Status DeleteItem(Key key, Item* deleted_item)
+  absl::Status DeleteItem(Key key, std::shared_ptr<Item>* deleted_item)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_);
+
+  // Synchronizes access to `sampler_`, `remover_`, 'rate_limiter_`,
+  // 'extensions_` and `data_`,
+  mutable absl::Mutex mu_;
 
   // Distribution used for sampling.
   std::shared_ptr<ItemSelector> sampler_ ABSL_GUARDED_BY(mu_);
@@ -296,7 +376,8 @@ class Table {
 
   // Bijection of key to item. Used for storing the chunks and timestep range of
   // each item.
-  internal::flat_hash_map<Key, Item> data_ ABSL_GUARDED_BY(mu_);
+  internal::flat_hash_map<Key, std::shared_ptr<Item>> data_
+      ABSL_GUARDED_BY(mu_);
 
   // Count of references from chunks referenced by items.
   internal::flat_hash_map<uint64_t, int64_t> episode_refs_ ABSL_GUARDED_BY(mu_);
@@ -305,6 +386,10 @@ class Table {
   // in the table but have since been removed. Is set to 0 when `Reset()`
   // called.
   int64_t num_deleted_episodes_ ABSL_GUARDED_BY(mu_);
+
+  // The total number of unique items sampled from the table since the table
+  // was created or reset most recently.
+  int64_t num_unique_samples_ ABSL_GUARDED_BY(mu_);
 
   // Maximum number of items that this container can hold. InsertOrAssign()
   // respects this limit when inserting a new item.
@@ -326,12 +411,46 @@ class Table {
   // of insert, delete, update or reset operations.
   std::vector<std::shared_ptr<TableExtension>> extensions_ ABSL_GUARDED_BY(mu_);
 
-  // Synchronizes access to `sampler_`, `remover_`, 'rate_limiter_`,
-  // 'extensions_` and `data_`,
-  mutable absl::Mutex mu_;
-
   // Optional signature for data in the table.
   const absl::optional<tensorflow::StructuredValue> signature_;
+
+  // Worker thread which processes asynchronous insert and sample requests.
+  std::unique_ptr<internal::Thread> table_worker_;
+
+  // Pending asynchronous insert requests to the table.
+  std::vector<std::shared_ptr<Item>> pending_inserts_
+      ABSL_GUARDED_BY(worker_mu_);
+
+  // Pending sample requests to the table (not yet picked up by the worker).
+  std::vector<std::unique_ptr<SampleRequest>> pending_sampling_
+      ABSL_GUARDED_BY(worker_mu_);
+
+  // Items collected by the worker for asynchronous deletion by the clients.
+  // This way we avoid expensive memory dealocation inside the worker.
+  std::vector<std::shared_ptr<Item>> deleted_items_ ABSL_GUARDED_BY(worker_mu_);
+
+  // Callbacks to be executed when further asynchronous insertions into the
+  // table are allowed. Callbacks are provided with asynchronous inserts
+  // and only pushed to this list if more inserts were not possible straight
+  // away.
+  std::vector<std::weak_ptr<std::function<void(const absl::Status&)>>>
+      notify_inserts_ok_ ABSL_GUARDED_BY(worker_mu_);
+
+  // Whether table worker is sleeping currently (no work to do).
+  bool worker_sleeps_ ABSL_GUARDED_BY(worker_mu_) = false;
+
+  // Should worker terminate. Set to true upon table termination to stop the
+  // worker.
+  bool stop_worker_ ABSL_GUARDED_BY(worker_mu_) = false;
+
+  // Used for waking up a worker when asleep.
+  absl::CondVar wakeup_worker_ ABSL_GUARDED_BY(worker_mu_);
+
+  // Mutex to protect worker's state.
+  mutable absl::Mutex worker_mu_ ABSL_ACQUIRED_BEFORE(mu_);
+
+  // Executor used by the table worker to run operation callbacks.
+  std::shared_ptr<TaskExecutor> callback_executor_;
 };
 
 }  // namespace reverb

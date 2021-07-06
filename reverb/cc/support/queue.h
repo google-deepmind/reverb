@@ -18,10 +18,10 @@
 #include <vector>
 
 #include "absl/base/thread_annotations.h"
+#include "absl/status/status.h"
+#include "absl/strings/str_cat.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/time/time.h"
-#include "tensorflow/core/platform/errors.h"
-#include "tensorflow/core/platform/status.h"
 
 namespace deepmind {
 namespace reverb {
@@ -47,8 +47,8 @@ class Queue {
   // `capacity` is the maximum number of elements which the queue can hold.
   explicit Queue(int capacity)
       : buffer_(capacity),
-        size_(0),
-        index_(0),
+        pushes_(0),
+        pops_(0),
         closed_(false),
         last_item_pushed_(false) {}
 
@@ -64,15 +64,17 @@ class Queue {
   // success, `true` is returned. If the queue is closed, `false` is returned.
   bool Push(T x) ABSL_LOCKS_EXCLUDED(mu_) {
     absl::MutexLock lock(&mu_);
+    ScopedIncrement ticket(&num_waiting_to_push_);
+
     mu_.Await(absl::Condition(
         +[](Queue* q) {
           return q->closed_ || q->last_item_pushed_ ||
-                 q->size_ < q->buffer_.size();
+                 q->pushes_ - q->pops_ < q->buffer_.size();
         },
         this));
     if (closed_ || last_item_pushed_) return false;
-    buffer_[(index_ + size_) % buffer_.size()] = std::move(x);
-    ++size_;
+    buffer_[pushes_ % buffer_.size()] = std::move(x);
+    ++pushes_;
     return true;
   }
 
@@ -88,49 +90,52 @@ class Queue {
   //   CancelledError: if queue has been closed or SetLastItemPushed called on
   //     an already empty queue.
   //
-  tensorflow::Status PopBatch(int batch_size, absl::Duration timeout,
-                              std::vector<T>* out) {
+  absl::Status PopBatch(int batch_size, absl::Duration timeout,
+                        std::vector<T>* out) {
     if (batch_size > buffer_.size()) {
-      return tensorflow::errors::InvalidArgument("Batch size (", batch_size,
-                                                 ") must be <= of queue size (",
-                                                 buffer_.size(), ").");
+      return absl::InvalidArgumentError(
+          absl::StrCat("Batch size (", batch_size,
+                       ") must be <= of queue size (", buffer_.size(), ")."));
     }
 
     auto trigger = [&]() ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_) {
-      return closed_ || size_ >= batch_size || last_item_pushed_;
+      return closed_ || pushes_ - pops_ >= batch_size || last_item_pushed_;
     };
 
     absl::MutexLock lock(&mu_);
+    ScopedIncrement ticket(&num_waiting_to_pop_);
+
     if (!mu_.AwaitWithTimeout(absl::Condition(&trigger), timeout) &&
         !last_item_pushed_ && !closed_) {
-      return tensorflow::errors::DeadlineExceeded(
-          "Timeout exceeeded before ", batch_size, " items observed in queue.");
+      return absl::DeadlineExceededError(
+          absl::StrCat("Timeout exceeded before ", batch_size,
+                       " items observed in queue."));
     }
 
     if (closed_) {
-      return tensorflow::errors::Cancelled("Queue is closed.");
+      return absl::CancelledError("Queue is closed.");
     }
 
     if (last_item_pushed_) {
-      return tensorflow::errors::ResourceExhausted(
+      return absl::ResourceExhaustedError(absl::StrCat(
           "The last item have been pushed to the queue and the current size (",
-          size_, ") is less than the batch size (", batch_size, ").");
+          pushes_ - pops_, ") is less than the batch size (", batch_size, ").")
+      );
     }
 
     for (int i = 0; i < batch_size; i++) {
-      out->push_back(std::move(buffer_[index_]));
-      index_ = (index_ + 1) % buffer_.size();
-      --size_;
+      out->push_back(std::move(buffer_[pops_ % buffer_.size()]));
+      pops_++;
     }
 
-    if (size_ == 0 && last_item_pushed_) {
+    if (pops_ == pushes_ && last_item_pushed_) {
       closed_ = true;
     }
 
-    return tensorflow::Status::OK();
+    return absl::OkStatus();
   }
 
-  tensorflow::Status PopBatch(int batch_size, std::vector<T>* out) {
+  absl::Status PopBatch(int batch_size, std::vector<T>* out) {
     return PopBatch(batch_size, absl::InfiniteDuration(), out);
   }
 
@@ -138,7 +143,7 @@ class Queue {
   void SetLastItemPushed() ABSL_LOCKS_EXCLUDED(mu_) {
     absl::MutexLock lock(&mu_);
     last_item_pushed_ = true;
-    if (size_ == 0) {
+    if (pushes_ == pops_) {
       closed_ = true;
     }
   }
@@ -151,13 +156,14 @@ class Queue {
   // returned then queue is closed.
   bool Pop(T* item) ABSL_LOCKS_EXCLUDED(mu_) {
     absl::MutexLock lock(&mu_);
-    mu_.Await(absl::Condition(
-        +[](Queue* q) { return q->closed_ || q->size_ > 0; }, this));
+    ScopedIncrement ticket(&num_waiting_to_pop_);
+
+    mu_.Await(absl::Condition(+[](Queue* q) {
+        return q->closed_ || q->pushes_ > q->pops_; }, this));
     if (closed_) return false;
-    *item = std::move(buffer_[index_]);
-    index_ = (index_ + 1) % buffer_.size();
-    --size_;
-    if (size_ == 0 && last_item_pushed_) {
+    *item = std::move(buffer_[pops_ % buffer_.size()]);
+    pops_++;
+    if (pushes_ == pops_ && last_item_pushed_) {
       closed_ = true;
     }
     return true;
@@ -166,20 +172,45 @@ class Queue {
   // Current number of elements.
   int size() const ABSL_LOCKS_EXCLUDED(mu_) {
     absl::ReaderMutexLock lock(&mu_);
-    return size_;
+    return pushes_ - pops_;
+  }
+
+  int num_waiting_to_pop() const ABSL_LOCKS_EXCLUDED(mu_) {
+    absl::ReaderMutexLock lock(&mu_);
+    return num_waiting_to_pop_;
+  }
+
+  int num_waiting_to_push() const ABSL_LOCKS_EXCLUDED(mu_) {
+    absl::ReaderMutexLock lock(&mu_);
+    return num_waiting_to_push_;
+  }
+
+  int num_pushes() const ABSL_LOCKS_EXCLUDED(mu_) {
+    absl::ReaderMutexLock lock(&mu_);
+    return pushes_;
   }
 
  private:
   mutable absl::Mutex mu_;
 
+  // Increments a counter while in scope.
+  class ScopedIncrement {
+   public:
+    ScopedIncrement(int* value) : value_(value) { ++(*value_); }
+    ~ScopedIncrement() { --(*value_); }
+
+   private:
+    int* value_;
+  };
+
   // Circular buffer. Initialized with fixed size `capacity_`.
   std::vector<T> buffer_ ABSL_GUARDED_BY(mu_);
 
-  // Current number of elements.
-  int size_ ABSL_GUARDED_BY(mu_);
+  // Total number of pushed elements.
+  int64_t pushes_ ABSL_GUARDED_BY(mu_);
 
-  // Index of the beginning of the queue in the circular buffer.
-  int index_ ABSL_GUARDED_BY(mu_);
+  // Total number of poped elements.
+  int64_t pops_ ABSL_GUARDED_BY(mu_);
 
   // Whether `Close()` was called.
   bool closed_ ABSL_GUARDED_BY(mu_);
@@ -188,7 +219,14 @@ class Queue {
   // treated the same as if `Closed()` had been called. If set and the queue is
   // empty after a pop call then `closed_` is set.
   bool last_item_pushed_ ABSL_GUARDED_BY(mu_);
-};
+
+  // The number of threads which are currently waiting on the queue.
+  int num_waiting_to_pop_ ABSL_GUARDED_BY(mu_) = 0;
+  int num_waiting_to_push_ ABSL_GUARDED_BY(mu_) = 0;
+} ABSL_CACHELINE_ALIGNED;
+static_assert(sizeof(Queue<bool>) >= ABSL_CACHELINE_SIZE,
+              "Queue has to take the entire cache line so that its lock is not "
+              "colocated with other locks.");
 
 }  // namespace internal
 }  // namespace reverb

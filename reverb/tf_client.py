@@ -117,7 +117,7 @@ class TFClient:
                         table: str,
                         keys: tf.Tensor,
                         priorities: tf.Tensor,
-                        name: str = None):
+                        name: Optional[str] = None):
     """Creates op for updating priorities of existing items in the replay.
 
     Not found elements for `keys` are silently ignored.

@@ -80,8 +80,9 @@ reverb_cc_test(
     deps = [
         ":queue",
         "//reverb/cc/platform:logging",
+        "//reverb/cc/platform:status_matchers",
         "//reverb/cc/platform:thread",
-    ] + reverb_absl_deps() + reverb_tf_deps(),
+    ] + reverb_absl_deps(),
 )
 
 reverb_cc_test(
@@ -89,6 +90,7 @@ reverb_cc_test(
     srcs = ["periodic_closure_test.cc"],
     deps = [
         ":periodic_closure",
+        "//reverb/cc/platform:status_matchers",
         "//reverb/cc/testing:time_testutil",
     ] + reverb_absl_deps() + reverb_tf_deps(),
 )
@@ -98,8 +100,89 @@ reverb_cc_library(
     srcs = ["signature.cc"],
     hdrs = ["signature.h"],
     deps = [
+        ":trajectory_util",
         "//reverb/cc:schema_cc_proto",
+        "//reverb/cc:table",
         "//reverb/cc/platform:hash_map",
         "//reverb/cc/platform:hash_set",
+        "//reverb/cc/platform:logging",
+        "//reverb/cc/platform:status_macros",
     ] + reverb_tf_deps() + reverb_absl_deps(),
+)
+
+reverb_cc_test(
+    name = "signature_test",
+    srcs = ["signature_test.cc"],
+    deps = [
+        ":signature",
+    ] + reverb_tf_deps() + reverb_absl_deps(),
+)
+
+reverb_cc_library(
+    name = "task_executor",
+    srcs = ["task_executor.cc"],
+    hdrs = ["task_executor.h"],
+    deps = [
+        "//reverb/cc/platform:status_macros",
+        "//reverb/cc/platform:thread",
+        "//reverb/cc/support:periodic_closure",
+        "//reverb/cc/support:unbounded_queue",
+    ] + reverb_absl_deps(),
+)
+
+reverb_cc_library(
+    name = "tf_util",
+    hdrs = ["tf_util.h"],
+    deps = [
+    ] + reverb_absl_deps() + reverb_tf_deps(),
+)
+
+reverb_cc_library(
+    name = "unbounded_queue",
+    hdrs = ["unbounded_queue.h"],
+    deps = reverb_absl_deps(),
+)
+
+reverb_cc_test(
+    name = "unbounded_queue_test",
+    srcs = ["unbounded_queue_test.cc"],
+    deps = [
+        ":unbounded_queue",
+        "//reverb/cc/platform:logging",
+        "//reverb/cc/platform:thread",
+    ] + reverb_absl_deps() + reverb_tf_deps(),
+)
+
+reverb_cc_library(
+    name = "trajectory_util",
+    srcs = ["trajectory_util.cc"],
+    hdrs = ["trajectory_util.h"],
+    deps = [
+        "//reverb/cc:chunk_store",
+        "//reverb/cc:schema_cc_proto",
+        "//reverb/cc:tensor_compression",
+        "//reverb/cc/platform:hash_set",
+        "//reverb/cc/platform:logging",
+        "//reverb/cc/platform:status_macros",
+    ] + reverb_tf_deps() + reverb_absl_deps(),
+)
+
+reverb_cc_test(
+    name = "trajectory_util_test",
+    srcs = ["trajectory_util_test.cc"],
+    deps = [
+        ":trajectory_util",
+        "//reverb/cc:chunk_store",
+        "//reverb/cc:schema_cc_proto",
+        "//reverb/cc:tensor_compression",
+        "//reverb/cc/testing:proto_test_util",
+        "//reverb/cc/testing:tensor_testutil",
+        "//reverb/cc/platform:status_matchers",
+    ] + reverb_tf_deps(),
+)
+
+reverb_cc_library(
+    name = "key_generators",
+    hdrs = ["key_generators.h"],
+    deps = reverb_absl_deps(),
 )

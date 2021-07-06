@@ -19,9 +19,9 @@
 
 #include <cstdint>
 #include "absl/base/thread_annotations.h"
+#include "absl/status/status.h"
 #include "absl/synchronization/mutex.h"
 #include "reverb/cc/schema.pb.h"
-#include "tensorflow/core/platform/status.h"
 
 namespace deepmind {
 namespace reverb {
@@ -36,6 +36,9 @@ class TableItem;
 class TableExtension {
  public:
   virtual ~TableExtension() = default;
+
+  // Returns a summary string description.
+  virtual std::string DebugString() const = 0;
 
  protected:
   friend class Table;
@@ -62,7 +65,7 @@ class TableExtension {
   virtual void OnReset(absl::Mutex* mu) ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu) = 0;
 
   // Table calls these methods on construction and destruction.
-  virtual tensorflow::Status RegisterTable(absl::Mutex* mu, Table* table)
+  virtual absl::Status RegisterTable(absl::Mutex* mu, Table* table)
       ABSL_LOCKS_EXCLUDED(mu) = 0;
   virtual void UnregisterTable(absl::Mutex* mu, Table* table)
       ABSL_LOCKS_EXCLUDED(mu) = 0;

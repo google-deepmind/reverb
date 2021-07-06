@@ -93,13 +93,24 @@ client.insert([0, 1], priorities={'my_table': 1.0})
 An item can also reference multiple data elements:
 
 ```python
-# Creates three data elements ([2, 2] , [3, 3], and [4, 4]) and a single item
-# `[[2, 2], [3, 3], [4, 4]]` that references all three of them.
-with client.writer(max_sequence_length=3) as writer:
-  writer.append([2, 2])
-  writer.append([3, 3])
-  writer.append([4, 4])
-  writer.create_item('my_table', num_timesteps=3, priority=1.0)
+# Appends three data elements and inserts a single item which references all
+# of them as {'a': [2, 3, 4], 'b': [12, 13, 14]}.
+with client.trajectory_writer(num_keep_alive_refs=3) as writer:
+  writer.append({'a': 2, 'b': 12})
+  writer.append({'a': 3, 'b': 13})
+  writer.append({'a': 4, 'b': 14})
+
+  # Create an item referencing all the data.
+  writer.create_item(
+      table='my_table',
+      priority=1.0,
+      trajectory={
+          'a': writer.history['a'][:],
+          'b': writer.history['b'][:],
+      })
+
+  # Block until the item has been inserted and confirmed by the server.
+  writer.flush()
 ```
 
 The items we have added to Reverb can be read by sampling them:
@@ -136,7 +147,7 @@ represents a file.
 
 ### Tables
 
-A Reverb `Server` consists of one or more tables. A table hold items, and each
+A Reverb `Server` consists of one or more tables. A table holds items, and each
 item references one or more data elements. Tables also define sample and
 removal [selection strategies](#item-selection-strategies), a maximum item
 capacity, and a [rate limiter](#rate-limiting).
@@ -157,14 +168,13 @@ Items are automatically removed from the Table when one of two conditions are
 met:
 
 1.  Inserting a new item would cause the number of items in the Table to exceed
-    its maximum capacity.
+    its maximum capacity. Table’s removal strategy is used to determine which
+    item to remove.
 
 1.  An item has been sampled more than the maximum number of times permitted by
-    the Table's rate limiter. Note that not all rate limiters will enforce this.
+    the Table's rate limiter. Such item is deleted.
 
-In both cases, which item to remove is determined by the table's removal
-strategy. As mentioned earlier, a data element is automatically removed from the
-`Server` when the number of items that references it reaches zero.
+Data elements not referenced anymore by any item are also deleted.
 
 Users have full control over how data is sampled and removed from Reverb
 tables. The behavior is primarily controlled by the
@@ -175,7 +185,7 @@ behaviors can be achieved. Some commonly used configurations include:
 
 **Uniform Experience Replay**
 
-A set of the `N=1000` most recently inserted items are maintained. By setting
+A set of `N=1000` most recently inserted items are maintained. By setting
 `sampler=reverb.selectors.Uniform()`, the probability to select an item is the
 same for all items. Due to `reverb.rate_limiters.MinSize(100)`, sampling
 requests will block until 100 items have been inserted. By setting
@@ -197,7 +207,7 @@ and [DDPG].
 
 **Prioritized Experience Replay**
 
-A set of the `N=1000` most recently inserted items. By setting
+A set of `N=1000` most recently inserted items. By setting
 `sampler=reverb.selectors.Prioritized(priority_exponent=0.8)`, the probability
 to select an item is proportional to the item's priority.
 
@@ -229,7 +239,7 @@ calls are blocked until there is at least one item.
 reverb.Table(
     name='my_queue',
     sampler=reverb.selectors.Fifo(),
-    removers=reverb.selectors.Fifo(),
+    remover=reverb.selectors.Fifo(),
     max_size=1000,
     max_times_sampled=1,
     rate_limiter=reverb.rate_limiters.Queue(size=1000),
@@ -319,16 +329,17 @@ for details on the implementation of checkpointing in Reverb.
 
 ## Citation
 
-If you use this code, please cite it as:
+If you use this code, please cite the
+[Reverb paper](https://arxiv.org/abs/2102.04736) as
 
 ```
-@software{Reverb,
-  title = {{Reverb}: An efficient data storage and transport system for ML research},
-  author = "{Albin Cassirer, Gabriel Barth-Maron, Thibault Sottiaux, Manuel Kroiss, Eugene Brevdo}",
-  howpublished = {\url{https://github.com/deepmind/reverb}},
-  url = "https://github.com/deepmind/reverb",
-  year = 2020,
-  note = "[Online; accessed 01-June-2020]"
+@misc{cassirer2021reverb,
+      title={Reverb: A Framework For Experience Replay},
+      author={Albin Cassirer and Gabriel Barth-Maron and Eugene Brevdo and Sabela Ramos and Toby Boyd and Thibault Sottiaux and Manuel Kroiss},
+      year={2021},
+      eprint={2102.04736},
+      archivePrefix={arXiv},
+      primaryClass={cs.LG}
 }
 ```
 

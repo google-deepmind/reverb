@@ -33,6 +33,7 @@
 #ifndef REVERB_CC_PLATFORM_DEFAULT_LOGGING_H_
 #define REVERB_CC_PLATFORM_DEFAULT_LOGGING_H_
 
+// IWYU pragma: private
 #include <atomic>
 #include <cstdlib>
 #include <iostream>

@@ -29,7 +29,7 @@ from setuptools.dist import Distribution
 import reverb_version
 
 # Defaults if doing a release build.
-TENSORFLOW_VERSION = 'tensorflow>=2.3.0'
+TENSORFLOW_VERSION = 'tensorflow~=2.5.0'
 
 
 class BinaryDistribution(Distribution):
@@ -84,6 +84,7 @@ class SetupToolsHelper(object):
   def _get_required_packages(self):
     """Returns list of required packages."""
     required_packages = [
+        'dataclasses; python_version < "3.7.0"',  # Back-port for Python 3.6.
         'dm-tree',
         'portpicker',
     ]
@@ -143,6 +144,7 @@ class SetupToolsHelper(object):
             'Programming Language :: Python :: 3.6',
             'Programming Language :: Python :: 3.7',
             'Programming Language :: Python :: 3.8',
+            'Programming Language :: Python :: 3.9',
             'Topic :: Scientific/Engineering',
             'Topic :: Scientific/Engineering :: Mathematics',
             'Topic :: Scientific/Engineering :: Artificial Intelligence',
@@ -168,7 +170,7 @@ if __name__ == '__main__':
       type=str,
       default=None,
       help='Overrides TF version required when Reverb is installed, e.g.'
-      'tensorflow>=2.3.0')
+      'tensorflow==2.5.0')
   FLAGS, unparsed = parser.parse_known_args()
   # Go forward with only non-custom flags.
   sys.argv.clear()
