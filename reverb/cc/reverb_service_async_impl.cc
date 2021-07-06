@@ -479,6 +479,11 @@ ReverbServiceAsyncImpl::SampleStream(grpc::CallbackServerContext* context) {
   // How often to check whether callback execution finished before deleting
   // reactor.
   static constexpr absl::Duration kCallbackWaitTime = absl::Milliseconds(1);
+  // Maximal number of queued SampleStreamResponse-messages waiting to be send
+  // to the client. When this limit is reached enqueuing of sampling requests on
+  // the target table is paused. The limit is in place to cap reactor's memory
+  // usage.
+  static constexpr int kMaxQueuedResponses = 3;
 
   class WorkerlessSampleReactor : public ReverbServerTableReactor<
       SampleStreamRequest, SampleStreamResponse, SampleStreamResponseCtx> {
@@ -492,6 +497,7 @@ ReverbServiceAsyncImpl::SampleStream(grpc::CallbackServerContext* context) {
               [&](Table::SampleRequest* sample) {
                 {
                   absl::MutexLock lock(&mu_);
+                  waiting_for_enqueued_sample_ = false;
                   if (!sample->status.ok()) {
                     SetReactorAsFinished(ToGrpcStatus(sample->status));
                     return;
@@ -504,16 +510,16 @@ ReverbServiceAsyncImpl::SampleStream(grpc::CallbackServerContext* context) {
                   if (!already_writing) {
                     MaybeSendNextResponse();
                   }
+                  const int next_batch_size = task_info_.NextSampleSize();
+                  if (next_batch_size != 0) {
+                    MaybeStartSampling();
+                    return;
+                  }
                 }
-                const int next_batch_size = task_info_.NextSampleSize();
-                if (next_batch_size == 0) {
-                  // Current request is finalized, ask for another one.
-                  MaybeStartRead();
-                } else {
-                  task_info_.table->EnqueSampleRequest(next_batch_size,
-                      sampling_done_, task_info_.timeout);
-                }
-              })) {
+                // Current request is finalized, ask for another one.
+                MaybeStartRead();
+              })),
+          waiting_for_enqueued_sample_(false) {
       MaybeStartRead();
     }
 
@@ -525,6 +531,12 @@ ReverbServiceAsyncImpl::SampleStream(grpc::CallbackServerContext* context) {
       while (weak_ptr.lock()) {
         absl::SleepFor(kCallbackWaitTime);
       }
+    }
+
+    void OnWriteDone(bool ok) override {
+      ReverbServerTableReactor::OnWriteDone(ok);
+      absl::MutexLock lock(&mu_);
+      MaybeStartSampling();
     }
 
     grpc::Status ProcessIncomingRequest(SampleStreamRequest* request) override
@@ -560,21 +572,39 @@ ReverbServiceAsyncImpl::SampleStream(grpc::CallbackServerContext* context) {
               : request->flexible_batch_size();
       task_info_.fetched_samples = 0;
       task_info_.requested_samples = request->num_samples();
-      task_info_.table->EnqueSampleRequest(task_info_.NextSampleSize(),
-          sampling_done_, task_info_.timeout);
+      MaybeStartSampling();
       return grpc::Status::OK;
     }
 
    private:
+    void MaybeStartSampling() ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_) {
+      const int next_batch_size = task_info_.NextSampleSize();
+      if (next_batch_size == 0) {
+        // Current request has been fully processed.
+        return;
+      }
+      if (waiting_for_enqueued_sample_) {
+        // There is already an inflight sample request.
+        return;
+      }
+      if (responses_to_send_.size() >= kMaxQueuedResponses) {
+        // There are too many pending responses to send to the client.
+        return;
+      }
+      waiting_for_enqueued_sample_ = true;
+      task_info_.table->EnqueSampleRequest(next_batch_size, sampling_done_,
+                                           task_info_.timeout);
+    }
+
     void ProcessSample(Table::SampledItem* sample, bool write_in_flight)
         ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_) {
       if (responses_to_send_.empty() ||
           (responses_to_send_.size() == 1 && write_in_flight) ||
-          current_response_size_ > kMaxSampleResponseSizeBytes) {
+          current_response_size_bytes_ > kMaxSampleResponseSizeBytes) {
         // We need a new response as there is no previous one / is already in
         // flight or too big.
         responses_to_send_.emplace();
-        current_response_size_ = 0;
+        current_response_size_bytes_ = 0;
       }
       SampleStreamResponseCtx* response = &responses_to_send_.back();
       auto* entry = response->payload.add_entries();
@@ -600,13 +630,13 @@ ReverbServiceAsyncImpl::SampleStream(grpc::CallbackServerContext* context) {
         }
         ChunkData* chunk =
             const_cast<ChunkData*>(&sample->ref->chunks[i]->data());
-        current_response_size_ += chunk->ByteSizeLong();
+        current_response_size_bytes_ += chunk->ByteSizeLong();
         entry->mutable_data()->UnsafeArenaAddAllocated(chunk);
         if (i < sample->ref->chunks.size() - 1 &&
-            current_response_size_ > kMaxSampleResponseSizeBytes) {
+            current_response_size_bytes_ > kMaxSampleResponseSizeBytes) {
           // Current response is too big, start a new one.
           responses_to_send_.emplace();
-          current_response_size_ = 0;
+          current_response_size_bytes_ = 0;
           response = &responses_to_send_.back();
           entry = response->payload.add_entries();
         }
@@ -620,13 +650,18 @@ ReverbServiceAsyncImpl::SampleStream(grpc::CallbackServerContext* context) {
     const ReverbServiceAsyncImpl* server_;
 
     // Context of the current sample request.
-    SampleTaskInfo task_info_;
+    SampleTaskInfo task_info_ ABSL_GUARDED_BY(mu_);
 
     // Callback called by the table worker when current sampling batch is done.
     std::shared_ptr<SamplingCallback> sampling_done_;
 
-    // Size of the response currently being constructed.
-    int64_t current_response_size_;
+    // Size (measured in bytes occupied by items' chunks) of the response
+    // currently being constructed.
+    int64_t current_response_size_bytes_ ABSL_GUARDED_BY(mu_);
+
+    // True if the reactor is awaiting the result of a sampling request already
+    // enqueued in the target table.
+    bool waiting_for_enqueued_sample_  ABSL_GUARDED_BY(mu_);
   };
 
   return new WorkerlessSampleReactor(this);
