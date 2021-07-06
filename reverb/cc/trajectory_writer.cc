@@ -45,10 +45,10 @@ namespace {
 std::vector<FlatTrajectory::ChunkSlice> MergeAdjacent(
     const std::vector<std::weak_ptr<CellRef>>& refs) {
   std::vector<FlatTrajectory::ChunkSlice> slices;
-  for (const auto& ref : refs) {
+  for (const std::weak_ptr<CellRef>& ref : refs) {
     // Caller (TrajectoryWriter) is responsible for ensuring that all of the
     // weak pointers are alive.
-    auto ref_sp = ref.lock();
+    std::shared_ptr<CellRef> ref_sp = ref.lock();
     REVERB_CHECK(ref_sp);
 
     if (slices.empty() || slices.back().chunk_key() != ref_sp->chunk_key()) {
@@ -70,9 +70,8 @@ bool SendNotAlreadySentChunks(
     internal::flat_hash_set<uint64_t>* streamed_chunk_keys,
     absl::Span<const std::shared_ptr<CellRef>> refs,
     ArenaOwnedRequest* request) {
-
   // Send referenced chunks which haven't already been sent.
-  for (const auto& ref : refs) {
+  for (const std::shared_ptr<CellRef>& ref : refs) {
     if (!ref->IsReady() || streamed_chunk_keys->contains(ref->chunk_key())) {
       continue;
     }
@@ -99,7 +98,7 @@ bool SendNotAlreadySentChunks(
 }
 
 bool AllReady(absl::Span<const std::shared_ptr<CellRef>> refs) {
-  for (const auto& ref : refs) {
+  for (const std::shared_ptr<CellRef>& ref : refs) {
     if (!ref->IsReady()) {
       return false;
     }
@@ -109,7 +108,7 @@ bool AllReady(absl::Span<const std::shared_ptr<CellRef>> refs) {
 
 bool ContainsAll(const internal::flat_hash_set<uint64_t>& set,
                  absl::Span<const std::shared_ptr<CellRef>> refs) {
-  for (const auto& ref : refs) {
+  for (const std::shared_ptr<CellRef>& ref : refs) {
     if (set.find(ref->chunk_key()) == set.end()) {
       return false;
     }
@@ -120,7 +119,7 @@ bool ContainsAll(const internal::flat_hash_set<uint64_t>& set,
 std::vector<internal::TensorSpec> FlatSignatureFromTrajectory(
     const FlatTrajectory& trajectory,
     absl::Span<const std::shared_ptr<CellRef>> refs) {
-  auto get_spec = [&](uint64_t chunk_key) {
+  auto get_spec = [&](uint64_t chunk_key) -> internal::TensorSpec {
     for (const auto& ref : refs) {
       if (ref->chunk_key() == chunk_key) {
         return ref->chunker().lock()->spec();
@@ -131,7 +130,7 @@ std::vector<internal::TensorSpec> FlatSignatureFromTrajectory(
 
   std::vector<internal::TensorSpec> specs;
   for (int col_idx = 0; col_idx < trajectory.columns_size(); col_idx++) {
-    const auto& col = trajectory.columns(col_idx);
+    const FlatTrajectory::Column& col = trajectory.columns(col_idx);
     internal::TensorSpec spec = get_spec(col.chunk_slices(0).chunk_key());
     spec.name = std::to_string(col_idx);
     if (!col.squeeze()) {
@@ -156,7 +155,7 @@ TrajectoryWriter::TrajectoryWriter(
       stream_worker_(
           internal::StartThread("TrajectoryWriter_StreamWorker", [this] {
             while (true) {
-              auto status = RunStreamWorker();
+              absl::Status status = RunStreamWorker();
 
               absl::MutexLock lock(&mu_);
 
@@ -180,8 +179,8 @@ TrajectoryWriter::~TrajectoryWriter() {
     absl::MutexLock lock(&mu_);
     if (closed_) return;
 
-    auto status = FlushLocked(/*ignore_last_num_items=*/0,
-                              /*timeout=*/absl::InfiniteDuration());
+    absl::Status status = FlushLocked(/*ignore_last_num_items=*/0,
+                                      /*timeout=*/absl::InfiniteDuration());
     REVERB_LOG_IF(REVERB_WARNING, !status.ok())
         << "TrajectoryWriter destroyed before content finalized. Encountered "
            "error when trying to finalize content: "
@@ -218,12 +217,12 @@ absl::Status TrajectoryWriter::AppendInternal(
   // create a chunker using the spec of the item.
   for (int i = 0; i < data.size(); i++) {
     if (data[i].has_value() && !chunkers_.contains(i)) {
-      const auto& tensor = data[i].value();
+      const tensorflow::Tensor& tensor = data[i].value();
       // If the new column has been configured with `ConfigureChunker` then we
       // use the overrided options. If not then we use the default in
       // `options_.chunker_options`.
-      const auto& chunker_options = options_override_.contains(i)
-                                        ? options_override_[i]
+      const std::shared_ptr<ChunkerOptions>& chunker_options =
+          options_override_.contains(i) ? options_override_[i]
                                         : options_.chunker_options;
       chunkers_[i] = std::make_shared<Chunker>(
           internal::TensorSpec{std::to_string(i), tensor.dtype(),
@@ -240,7 +239,7 @@ absl::Status TrajectoryWriter::AppendInternal(
     }
 
     std::weak_ptr<CellRef> ref;
-    auto status =
+    absl::Status status =
         chunkers_[i]->Append(std::move(data[i].value()), episode_info, &ref);
     if (absl::IsFailedPrecondition(status)) {
       return absl::FailedPreconditionError(
@@ -274,7 +273,7 @@ absl::Status TrajectoryWriter::CreateItem(
     absl::Span<const TrajectoryColumn> trajectory) {
   if (trajectory.empty() ||
       std::all_of(trajectory.begin(), trajectory.end(),
-                  [](const auto& col) { return col.empty(); })) {
+                  [](const TrajectoryColumn& col) { return col.empty(); })) {
     return absl::InvalidArgumentError("trajectory must not be empty.");
   }
 
@@ -289,7 +288,7 @@ absl::Status TrajectoryWriter::CreateItem(
   // deallocated before the worker has successfully written the item (and data)
   // to the gRPC stream.
   for (int col_idx = 0; col_idx < trajectory.size(); ++col_idx) {
-    if (auto status = trajectory[col_idx].Validate(); !status.ok()) {
+    if (absl::Status status = trajectory[col_idx].Validate(); !status.ok()) {
       return absl::InvalidArgumentError(
           absl::StrCat("Error in column ", col_idx, ": ", status.message()));
     }
@@ -302,7 +301,7 @@ absl::Status TrajectoryWriter::CreateItem(
   item_and_refs.item.set_table(table.data(), table.size());
   item_and_refs.item.set_priority(priority);
 
-  for (const auto& column : trajectory) {
+  for (const TrajectoryColumn& column : trajectory) {
     column.ToProto(item_and_refs.item.mutable_flat_trajectory()->add_columns());
   }
 
@@ -322,8 +321,9 @@ absl::Status TrajectoryWriter::Validate(
     return absl::OkStatus();
   }
 
-  const auto& table = item_and_refs.item.table();
-  const auto& signature_map = options_.flat_signature_map.value();
+  const std::string& table = item_and_refs.item.table();
+  const internal::FlatSignatureMap& signature_map =
+      options_.flat_signature_map.value();
   auto it = signature_map.find(table);
   if (it == signature_map.end()) {
     return absl::InvalidArgumentError(
@@ -334,10 +334,10 @@ absl::Status TrajectoryWriter::Validate(
   if (!it->second.has_value()) {
     return absl::OkStatus();
   }
-  const auto& table_signature = it->second.value();
+  const std::vector<internal::TensorSpec>& table_signature = it->second.value();
 
-  const auto& trajectory = item_and_refs.item.flat_trajectory();
-  auto trajectory_signature =
+  const FlatTrajectory& trajectory = item_and_refs.item.flat_trajectory();
+  std::vector<internal::TensorSpec> trajectory_signature =
       FlatSignatureFromTrajectory(trajectory, item_and_refs.refs);
 
   if (table_signature.size() != trajectory_signature.size()) {
@@ -353,8 +353,8 @@ absl::Status TrajectoryWriter::Validate(
   }
 
   for (int i = 0; i < table_signature.size(); i++) {
-    const auto& want = table_signature[i];
-    const auto& got = trajectory_signature[i];
+    const internal::TensorSpec& want = table_signature[i];
+    const internal::TensorSpec& got = trajectory_signature[i];
 
     if (want.dtype != got.dtype || !want.shape.IsCompatibleWith(got.shape)) {
       return absl::InvalidArgumentError(absl::StrFormat(
@@ -377,7 +377,7 @@ absl::Status TrajectoryWriter::Validate(
 void TrajectoryColumn::ToProto(FlatTrajectory::Column* proto) const {
   // Note that MergeAdjacent can safely assume that all weak_ptrs are alive
   // since the corresponding shared_ptrs exists in item_and_refs.
-  for (auto& slice : MergeAdjacent(refs_)) {
+  for (FlatTrajectory::ChunkSlice& slice : MergeAdjacent(refs_)) {
     *proto->add_chunk_slices() = std::move(slice);
   }
   proto->set_squeeze(squeeze_);
@@ -439,12 +439,11 @@ bool TrajectoryWriter::GetNextPendingItem(
 bool TrajectoryWriter::SendItem(
     TrajectoryWriter::InsertStream* stream,
     const internal::flat_hash_set<uint64_t>& keep_keys,
-    const PrioritizedItem& item,
-    ArenaOwnedRequest* request) const {
+    const PrioritizedItem& item, ArenaOwnedRequest* request) const {
   request->r.mutable_item()->unsafe_arena_set_allocated_item(
       const_cast<PrioritizedItem*>(&item));
   request->r.mutable_item()->set_send_confirmation(true);
-  for (auto keep_key : keep_keys) {
+  for (uint64_t keep_key : keep_keys) {
     request->r.mutable_item()->add_keep_chunk_keys(keep_key);
   }
   grpc::WriteOptions options;
@@ -469,7 +468,7 @@ internal::flat_hash_set<uint64_t> TrajectoryWriter::GetKeepKeys(
     // these chunks around after the item has been written.
     if (it == write_queue_.begin()) continue;
 
-    for (const auto& ref : it->refs) {
+    for (const std::shared_ptr<CellRef>& ref : it->refs) {
       if (streamed_chunk_keys.contains(ref->chunk_key())) {
         keys.insert(ref->chunk_key());
       }
@@ -483,15 +482,16 @@ absl::Status TrajectoryWriter::RunStreamWorker() {
   std::unique_ptr<InsertStream> stream;
   REVERB_RETURN_IF_ERROR(SetContextAndCreateStream(&stream));
 
-  auto reader = internal::StartThread("TrajectoryWriter_ReaderWorker", [&] {
-    InsertStreamResponse response;
-    while (stream->Read(&response)) {
-      absl::MutexLock lock(&mu_);
-      for (auto& key : response.keys()) {
-        in_flight_items_.erase(key);
-      }
-    }
-  });
+  std::unique_ptr<internal::Thread> reader =
+      internal::StartThread("TrajectoryWriter_ReaderWorker", [&] {
+        InsertStreamResponse response;
+        while (stream->Read(&response)) {
+          absl::MutexLock lock(&mu_);
+          for (uint64_t key : response.keys()) {
+            in_flight_items_.erase(key);
+          }
+        }
+      });
 
   internal::flat_hash_set<uint64_t> streamed_chunk_keys;
   ArenaOwnedRequest request;
@@ -576,10 +576,10 @@ absl::Status TrajectoryWriter::FlushLocked(int ignore_last_num_items,
   // force the finalization of the `ignore_last_num_items` last items in the
   // queue.
   int num_items_to_force_flush = write_queue_.size() - ignore_last_num_items;
-  for (const auto& item : write_queue_) {
+  for (const ItemAndRefs& item : write_queue_) {
     if (num_items_to_force_flush-- <= 0) break;
 
-    for (auto& ref : item.refs) {
+    for (const std::shared_ptr<CellRef>& ref : item.refs) {
       if (!ref->IsReady()) {
         REVERB_RETURN_IF_ERROR(ref->chunker().lock()->Flush());
       }
@@ -593,8 +593,8 @@ absl::Status TrajectoryWriter::FlushLocked(int ignore_last_num_items,
   // The write worker is now able to send  (at least) all but the last
   // `ignore_last_num_items` items to the server. We release the mutex and wait
   // for the items to be confirmed or the TrajectoryWriter to be closed.
-  auto cond = [ignore_last_num_items,
-               this]() ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_) {
+  auto cond = [ignore_last_num_items, this]()
+                  ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_) -> bool {
     if (!unrecoverable_status_.ok()) {
       return true;
     }
@@ -685,9 +685,10 @@ absl::Status TrajectoryColumn::Validate() const {
   }
 
   // Check that the column only contains compatible data references.
-  const auto& col_spec = locked_refs[0]->chunker().lock()->spec();
+  const internal::TensorSpec& col_spec =
+      locked_refs[0]->chunker().lock()->spec();
   for (int i = 1; i < locked_refs.size(); ++i) {
-    const auto& spec = locked_refs[i]->chunker().lock()->spec();
+    const internal::TensorSpec& spec = locked_refs[i]->chunker().lock()->spec();
     if (spec.dtype != col_spec.dtype) {
       return absl::InvalidArgumentError(absl::StrCat(
           "Column references tensors with different dtypes: ",
@@ -707,7 +708,7 @@ absl::Status TrajectoryColumn::Validate() const {
 
 bool TrajectoryColumn::LockReferences(
     std::vector<std::shared_ptr<CellRef>>* locked_refs) const {
-  for (auto& ref : refs_) {
+  for (const std::weak_ptr<CellRef>& ref : refs_) {
     locked_refs->push_back(ref.lock());
     if (!locked_refs->back()) return false;
   }
