@@ -47,6 +47,7 @@ reverb_cc_library(
         "//reverb/cc/platform:server_hdr",
         "//reverb/cc/platform:status_macros",
         "//reverb/cc/platform:tfrecord_checkpointer",
+        "//reverb/cc/support:periodic_closure",
         "@com_google_absl//absl/strings",
     ] + reverb_grpc_deps(),
     alwayslink = 1,

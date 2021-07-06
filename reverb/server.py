@@ -307,8 +307,20 @@ class Server:
     return self._server.Stop()
 
   def wait(self):
-    """Wait indefinitely for the ReverbService to stop."""
-    return self._server.Wait()
+    """Blocks until the service is shut down.
+
+    This method will never return unless the server is shut down which will only
+    happen if:
+
+      * `Server.stop` is called by another thread.
+      * A KeyboardInterrupt is raised (i.e. a SIGINT signal is sent to the
+        process).
+
+    Raises:
+      KeyboardInterrupt: If the server was killed by a SIGINT.
+    """
+    if self._server.Wait():
+      raise KeyboardInterrupt
 
   def in_process_client(self):
     """Gets a local in process client.

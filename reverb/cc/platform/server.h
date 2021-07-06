@@ -37,8 +37,9 @@ class Server {
   virtual void Stop() = 0;
 
   // Blocks until the server has terminated. Does not terminate the server
-  // itself. Use this to want to wait indefinitely.
-  virtual void Wait() = 0;
+  // itself. Use this to want to wait indefinitely. Returns true if the server
+  // was stopped by a SIGINT signal.
+  virtual bool Wait() = 0;
 
   // Gets a local in process client. This bypasses proto serialization and
   // network overhead. Careful: The resulting client instance must not be used

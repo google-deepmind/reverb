@@ -15,6 +15,7 @@
 #include "reverb/cc/platform/server.h"
 
 #include <chrono>  // NOLINT(build/c++11) - grpc API requires it.
+#include <csignal>
 #include <memory>
 
 #include "grpcpp/server_builder.h"
@@ -25,14 +26,30 @@
 #include "reverb/cc/platform/logging.h"
 #include "reverb/cc/platform/status_macros.h"
 #include "reverb/cc/reverb_service_impl.h"
+#include "reverb/cc/support/periodic_closure.h"
 
 namespace deepmind {
 namespace reverb {
 namespace {
 
+static std::function<void()> stop_server_fn = []() {};
+
+void signal_handler(int signal) {
+  REVERB_CHECK_EQ(signal, SIGINT);
+  stop_server_fn();
+}
+
 class ServerImpl : public Server {
  public:
-  ServerImpl(int port) : port_(port) {}
+  ServerImpl(int port)
+      : port_(port),
+        signal_worker_(
+            [this] {
+              if (stop_signalled_) {
+                Stop();
+              }
+            },
+            absl::Milliseconds(250)) {}
 
   absl::Status Initialize(std::vector<std::shared_ptr<Table>> tables,
                           std::shared_ptr<Checkpointer> checkpointer) {
@@ -52,10 +69,14 @@ class ServerImpl : public Server {
     }
     running_ = true;
     REVERB_LOG(REVERB_INFO) << "Started replay server on port " << port_;
+    REVERB_RETURN_IF_ERROR(signal_worker_.Start());
     return absl::OkStatus();
   }
 
-  ~ServerImpl() override { Stop(); }
+  ~ServerImpl() override {
+    signal_worker_.Stop().IgnoreError();
+    Stop();
+  }
 
   void Stop() override {
     absl::WriterMutexLock lock(&mu_);
@@ -71,9 +92,22 @@ class ServerImpl : public Server {
     running_ = false;
   }
 
-  void Wait() override {
-    // TODO(b/155370940): Implement the SIGINT handling.
+  bool Wait() override {
+    {
+      absl::MutexLock lock(&mu_);
+      if (!running_) return false;
+    }
+
+    // Register a signal handler for notifying the server about SIGINT signals.
+    stop_server_fn = [server_ptr = this] { server_ptr->SignalStop(); };
+    std::signal(SIGINT, signal_handler);
+
     server_->Wait();
+
+    // Disable the signal handler by removing the callback.
+    stop_server_fn = []() {};
+
+    return stop_signalled_;
   }
 
   std::unique_ptr<Client> InProcessClient() override {
@@ -91,6 +125,8 @@ class ServerImpl : public Server {
                         ")");
   }
 
+  void SignalStop() { stop_signalled_ = true; }
+
  private:
   int port_;
   std::unique_ptr<ReverbServiceImpl> reverb_service_;
@@ -98,6 +134,15 @@ class ServerImpl : public Server {
 
   absl::Mutex mu_;
   bool running_ ABSL_GUARDED_BY(mu_) = false;
+
+  // We can't call Stop directly from the signal handler as it requires mutex
+  // locking which could result in deadlocks caused by recursive calls to the
+  // the handler. We therefore use the indirect method of simply setting this
+  // bool flag to true from the signal handler and deligate the actuall call
+  // to Stop to a worker thread which periodically wakes up to check if Stop
+  // should be called.
+  bool stop_signalled_ = false;
+  internal::PeriodicClosure signal_worker_;
 };
 
 }  // namespace
