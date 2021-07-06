@@ -199,9 +199,9 @@ class Table {
   // strategy defined by the `rate_limiter_`. Sampled element which has reached
   // `max_times_sampled_` are deleted from the table, so it cannot be
   // sampled again.
-  void EnqueSampleRequest(
-      int num_samples,
-      std::weak_ptr<SamplingCallback> callback, absl::Duration timeout);
+  void EnqueSampleRequest(int num_samples,
+                          std::weak_ptr<SamplingCallback> callback,
+                          absl::Duration timeout = kDefaultTimeout);
 
   // Attempts to sample up to `batch_size` items (without releasing the lock).
   //
