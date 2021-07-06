@@ -203,6 +203,15 @@ void Table::EnableTableWorker(std::shared_ptr<TaskExecutor> executor) {
     int64_t progress = 0;
     int64_t last_progress = 0;
     while (true) {
+      // Notify clients waiting to insert
+      for (auto& notify : notify_inserts_ok) {
+        auto to_notify = notify.lock();
+        // Callback might have been destroyed in the meantime.
+        if (to_notify != nullptr) {
+          (*to_notify)(insert_status);
+        }
+      }
+      notify_inserts_ok.clear();
       {
         absl::MutexLock lock(&mu_);
         // Tracks whether while loop below makes progress.
@@ -231,6 +240,7 @@ void Table::EnableTableWorker(std::shared_ptr<TaskExecutor> executor) {
           if (current_sample < current_sampling.size()) {
             auto& request = current_sampling[current_sample];
             while (rate_limiter_->MaybeCommitSample(&mu_)) {
+              progress++;
               request->samples.emplace_back();
               auto res = SampleInternal(rate_limited, &request->samples.back(),
                                         &to_delete);
@@ -305,7 +315,6 @@ void Table::EnableTableWorker(std::shared_ptr<TaskExecutor> executor) {
             }
           }
         }
-
         GetExpiredRequests(deadline, &current_sampling, &to_terminate,
                            &wakeup);
         GetExpiredRequests(deadline, &pending_sampling_, &to_terminate,
@@ -326,15 +335,6 @@ void Table::EnableTableWorker(std::shared_ptr<TaskExecutor> executor) {
         FinalizeSampleRequest(std::move(sample), sampling_status);
       }
       to_terminate.clear();
-      // Notify clients waiting to insert
-      for (auto& notify : notify_inserts_ok) {
-        auto to_notify = notify.lock();
-        // Callback might have been destroyed in the meantime.
-        if (to_notify != nullptr) {
-          (*to_notify)(insert_status);
-        }
-      }
-      notify_inserts_ok.clear();
     }
   });
 }
