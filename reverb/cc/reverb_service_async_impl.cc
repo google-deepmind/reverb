@@ -182,7 +182,9 @@ ReverbServiceAsyncImpl::InsertStream(grpc::CallbackServerContext* context) {
                   [&](const absl::Status& status) {
                     if (!status.ok()) {
                       absl::MutexLock lock(&mu_);
-                      SetReactorAsFinished(ToGrpcStatus(status));
+                      if (!is_finished_) {
+                        SetReactorAsFinished(ToGrpcStatus(status));
+                      }
                       return;
                     }
                     MaybeStartRead();
@@ -499,7 +501,9 @@ ReverbServiceAsyncImpl::SampleStream(grpc::CallbackServerContext* context) {
                   absl::MutexLock lock(&mu_);
                   waiting_for_enqueued_sample_ = false;
                   if (!sample->status.ok()) {
-                    SetReactorAsFinished(ToGrpcStatus(sample->status));
+                    if (!is_finished_) {
+                      SetReactorAsFinished(ToGrpcStatus(sample->status));
+                    }
                     return;
                   }
                   task_info_.fetched_samples += sample->samples.size();
