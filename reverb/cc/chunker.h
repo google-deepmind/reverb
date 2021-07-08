@@ -39,6 +39,22 @@ class CellRef;
 class Chunker;
 class ChunkerOptions;
 
+// References a single cell (i.e. a single tensor) in a data column that was
+// added to Reverb. `CellRef`s are created by a `Chunker` instance when
+// aggregating trajectories. A `CellRef` indexes into a chunk, which is a
+// continuous subset of rows of a column. `chunk_key` references the chunk and
+// `offset` identifies the offset within the chunk (starting at 0).
+//
+// The actual chunk referenced by `CellRef` is typically only created after the
+// `CellRef` instance was created. This is because the `Chunker` waits until a
+// sufficient batch size has been achieved before actually creating the chunk.
+// As such, the data referenced by `CellRef` initially lives inside the
+// `Chunker`. Once the chunker has created a chunk, the chunk is associated with
+// the corresponding `CellRef`s via the `SetChunk` member function.
+//
+// Note: Chunks consume a lot of memory since they hold the actual tensor data.
+// They are kept in memory until the last `CellRef` is destroyed or deletes its
+// reference to the chunk.
 class CellRef {
  public:
   struct EpisodeInfo {
@@ -121,8 +137,8 @@ class Chunker : public std::enable_shared_from_this<Chunker> {
   // calls, appends it to the active chunk and returns a reference to the new
   // row. If the active chunk now has `max_chunk_length` rows then it is
   // finalized and its `CellRef`s notified (including `ref`).
-  absl::Status Append(tensorflow::Tensor tensor,
-                      CellRef::EpisodeInfo episode_info,
+  absl::Status Append(const tensorflow::Tensor& tensor,
+                      const CellRef::EpisodeInfo& episode_info,
                       std::weak_ptr<CellRef>* ref) ABSL_LOCKS_EXCLUDED(mu_);
 
   // Creates a chunk from the data in the buffer and calls `SetChunk` on its

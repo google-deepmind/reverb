@@ -50,7 +50,7 @@ CellRef::CellRef(std::weak_ptr<Chunker> chunker, uint64_t chunk_key, int offset,
     : chunker_(std::move(chunker)),
       chunk_key_(chunk_key),
       offset_(offset),
-      episode_info_(std::move(episode_info)),
+      episode_info_(episode_info),
       chunk_(absl::nullopt) {}
 
 uint64_t CellRef::chunk_key() const { return chunk_key_; }
@@ -107,9 +107,9 @@ Chunker::Chunker(internal::TensorSpec spec,
   Reset();
 }
 
-absl::Status Chunker::Append(tensorflow::Tensor tensor,
-                                   CellRef::EpisodeInfo episode_info,
-                                   std::weak_ptr<CellRef>* ref) {
+absl::Status Chunker::Append(const tensorflow::Tensor& tensor,
+                             const CellRef::EpisodeInfo& episode_info,
+                             std::weak_ptr<CellRef>* ref) {
   if (tensor.dtype() != spec_.dtype) {
     return absl::InvalidArgumentError(absl::StrCat(
         "Tensor of wrong dtype provided for column ", spec_.name, ". Got ",
@@ -137,9 +137,9 @@ absl::Status Chunker::Append(tensorflow::Tensor tensor,
         "than already observed.");
   }
 
-  active_refs_.push_back(std::make_shared<CellRef>(
-      std::weak_ptr<Chunker>(shared_from_this()), next_chunk_key_, offset_++,
-      std::move(episode_info)));
+  active_refs_.push_back(
+      std::make_shared<CellRef>(std::weak_ptr<Chunker>(shared_from_this()),
+                                next_chunk_key_, offset_++, episode_info));
 
   // Add a batch dim to the tensor before adding it to the buffer. This will
   // prepare it for the concat op when the chunk is finalized.
@@ -171,7 +171,7 @@ absl::Status Chunker::Append(tensorflow::Tensor tensor,
 std::vector<uint64_t> Chunker::GetKeepKeys() const {
   absl::MutexLock lock(&mu_);
   std::vector<uint64_t> keys;
-  for (const auto& ref : active_refs_) {
+  for (const std::shared_ptr<CellRef>& ref : active_refs_) {
     if (keys.empty() || keys.back() != ref->chunk_key()) {
       keys.push_back(ref->chunk_key());
     }
@@ -203,19 +203,35 @@ absl::Status Chunker::FlushLocked() {
 
   // Set the sequence range of the chunk.
   for (const auto& ref : active_refs_) {
+    // active_refs_ is sorted by insertion time. Iterate over the list until
+    // the first cell belonging to the newly created chunk is found.
     if (ref->chunk_key() != chunk.chunk_key()) continue;
 
     if (!chunk.has_sequence_range()) {
-      auto* range = chunk.mutable_sequence_range();
+      // On the first ref belonging to this chunk, set the the episode ID and
+      // set the episode length to 1 (i.e. start == end). The episode length
+      // will be extended if we discover more refs belonging to this chunk.
+      SequenceRange* range = chunk.mutable_sequence_range();
       range->set_episode_id(ref->episode_id());
       range->set_start(ref->episode_step());
       range->set_end(ref->episode_step());
     } else {
-      auto* range = chunk.mutable_sequence_range();
+      SequenceRange* range = chunk.mutable_sequence_range();
+
+      // Sanity check: The ref belongs to this episode (and chunk) and the ref's
+      // step counter is monotonically increasing (i.e. active_refs_ is sorted
+      // by insertion time).
       REVERB_CHECK(range->episode_id() == ref->episode_id() &&
                    range->end() < ref->episode_step());
 
       // The chunk is sparse if not all steps are represented in the data.
+
+      // Dense chunks have subsequent step counters:
+      // ref(episode_step=0), ref(episode_step=1), ...
+      // Sparse chunks have holes in their step counters:
+      // ref(episode_step=0), ref(episode_step=42), ...
+      // We detect sparse chunks by looking at the step increments.
+      // range->end() is the episode_step of the previous ref in this chunk.
       if (ref->episode_step() != range->end() + 1) {
         range->set_sparse(true);
       }
@@ -225,7 +241,7 @@ absl::Status Chunker::FlushLocked() {
 
   // Now the chunk has been finalized we can notify the `CellRef`s.
   auto chunk_sp = std::make_shared<const ChunkData>(std::move(chunk));
-  for (auto& ref : active_refs_) {
+  for (std::shared_ptr<CellRef>& ref : active_refs_) {
     if (ref->chunk_key() == chunk_sp->chunk_key()) {
       ref->SetChunk(chunk_sp);
     }

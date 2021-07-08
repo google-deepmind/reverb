@@ -19,6 +19,7 @@
 #include <vector>
 
 #include "grpcpp/impl/codegen/sync_stream.h"
+#include "absl/algorithm/container.h"
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
@@ -97,23 +98,17 @@ bool SendNotAlreadySentChunks(
   return true;
 }
 
+// Returns true if all references `refs` are ready.
 bool AllReady(absl::Span<const std::shared_ptr<CellRef>> refs) {
-  for (const std::shared_ptr<CellRef>& ref : refs) {
-    if (!ref->IsReady()) {
-      return false;
-    }
-  }
-  return true;
+  return absl::c_all_of(refs, [](const auto& ref) { return ref->IsReady(); });
 }
 
+// Returns true if `set` contains all chunk keys references by `refs`.
 bool ContainsAll(const internal::flat_hash_set<uint64_t>& set,
                  absl::Span<const std::shared_ptr<CellRef>> refs) {
-  for (const std::shared_ptr<CellRef>& ref : refs) {
-    if (set.find(ref->chunk_key()) == set.end()) {
-      return false;
-    }
-  }
-  return true;
+  return absl::c_all_of(refs, [&set](const auto& ref) {
+    return set.template contains(ref->chunk_key());
+  });
 }
 
 std::vector<internal::TensorSpec> FlatSignatureFromTrajectory(
@@ -532,8 +527,8 @@ absl::Status TrajectoryWriter::RunStreamWorker() {
       streamed_chunk_keys = GetKeepKeys(streamed_chunk_keys);
     }
 
-    for (auto& it : chunkers_) {
-      it.second->OnItemFinalized(item_and_refs.item, item_and_refs.refs);
+    for (auto& [_, chunker] : chunkers_) {
+      chunker->OnItemFinalized(item_and_refs.item, item_and_refs.refs);
     }
 
     // All chunks have been written to the stream so the item can now be
@@ -558,8 +553,6 @@ absl::Status TrajectoryWriter::RunStreamWorker() {
       write_queue_.pop_front();
     }
   }
-
-  return absl::OkStatus();
 }
 
 absl::Status TrajectoryWriter::Flush(int ignore_last_num_items,
@@ -632,13 +625,13 @@ absl::Status TrajectoryWriter::EndEpisode(bool clear_buffers,
 
   REVERB_RETURN_IF_ERROR(FlushLocked(0, timeout));
 
-  for (auto& it : chunkers_) {
+  for (auto& [_, chunker] : chunkers_) {
     if (clear_buffers) {
-      it.second->Reset();
+      chunker->Reset();
     } else {
       // This call should NEVER fail but if it does then we will not be able to
       // recover from it.
-      unrecoverable_status_ = it.second->Flush();
+      unrecoverable_status_ = chunker->Flush();
       REVERB_RETURN_IF_ERROR(unrecoverable_status_);
     }
   }
