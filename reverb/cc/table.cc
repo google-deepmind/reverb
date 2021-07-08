@@ -419,7 +419,8 @@ absl::Status Table::InsertOrAssignAsync(
     std::weak_ptr<std::function<void(const absl::Status&)>>
         insert_more_callback) {
   REVERB_RETURN_IF_ERROR(CheckItemValidity(item));
-
+  // Table worker doesn't release memory of removed items, clients do that
+  // asynchrously.
   std::shared_ptr<Item> to_delete;
   {
     absl::MutexLock lock(&worker_mu_);
@@ -528,9 +529,16 @@ void Table::EnqueSampleRequest(int num_samples,
   // Reserved size is used to communicate sampling batch size (it eliminates the
   // need of alocating memory inside the table worker).
   request->samples.reserve(num_samples);
+  // Table worker doesn't release memory of removed items, clients do that
+  // asynchrously.
+  std::shared_ptr<Item> to_delete;
   {
     absl::MutexLock lock(&worker_mu_);
     pending_sampling_.push_back(std::move(request));
+    if (!deleted_items_.empty()) {
+      to_delete = std::move(deleted_items_.back());
+      deleted_items_.pop_back();
+    }
     if (worker_sleeps_) {
       wakeup_worker_.Signal();
     }
