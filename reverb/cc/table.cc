@@ -776,6 +776,7 @@ absl::Status Table::Reset() {
 
   num_deleted_episodes_ = 0;
   num_unique_samples_ = 0;
+  episode_refs_.clear();
 
   data_.clear();
 

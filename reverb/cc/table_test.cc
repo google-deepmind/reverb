@@ -743,6 +743,10 @@ TEST(TableTest, NumEpisodes) {
   // it is the last reference to the episode.
   REVERB_EXPECT_OK(table->MutateItems({}, {1}));
   EXPECT_EQ(table->num_episodes(), 1);
+
+  // Resetting the table should bring the count back to zero.
+  REVERB_EXPECT_OK(table->Reset());
+  EXPECT_EQ(table->num_episodes(), 0);
 }
 
 TEST(TableTest, NumDeletedEpisodes) {
