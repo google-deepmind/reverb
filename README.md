@@ -168,11 +168,11 @@ Items are automatically removed from the Table when one of two conditions are
 met:
 
 1.  Inserting a new item would cause the number of items in the Table to exceed
-    its maximum capacity. Table’s removal strategy is used to determine which
+    its maximum capacity. Table's removal strategy is used to determine which
     item to remove.
 
 1.  An item has been sampled more than the maximum number of times permitted by
-    the Table’s rate limiter. Such item is deleted.
+    the Table's rate limiter. Such item is deleted.
 
 Data elements not referenced anymore by any item are also deleted.
 
