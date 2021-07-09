@@ -696,8 +696,15 @@ TableInfo Table::info() const {
 }
 
 void Table::Close() {
-  absl::MutexLock lock(&mu_);
-  rate_limiter_->Cancel(&mu_);
+  {
+    absl::MutexLock lock(&mu_);
+    rate_limiter_->Cancel(&mu_);
+  }
+  {
+    // Wakeup worker, so that it can process cancellations.
+    absl::MutexLock lock(&worker_mu_);
+    wakeup_worker_.Signal();
+  }
 }
 
 absl::Status Table::DeleteItem(Table::Key key,

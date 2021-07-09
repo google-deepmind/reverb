@@ -259,8 +259,8 @@ TEST(TableTest, EnqueSampleRequestSetsRateLimitedIfBlocked) {
 
   table->EnqueSampleRequest(1, first_callback, kTimeout);
 
-  // Wait until the worker has picked up the request and gone back to since it
-  // was unable to do anything.
+  // Wait until the worker has picked up the request and gone back to sleep
+  // since it was unable to do anything.
   while (table->num_pending_async_sample_requests() ||
          !table->worker_is_sleeping()) {
     absl::SleepFor(absl::Milliseconds(1));
@@ -949,6 +949,27 @@ TEST(TableTest, InsertOrAssignCanTimeout) {
   // call should time timeout.
   EXPECT_EQ(table.InsertOrAssign(MakeItem(2, 1), absl::Milliseconds(50)).code(),
             absl::StatusCode::kDeadlineExceeded);
+}
+
+TEST(TableTest, CloseWithWorker) {
+  absl::Notification notification;
+  auto callback = std::make_shared<Table::SamplingCallback>(
+      [&](Table::SampleRequest* sample) {
+        EXPECT_FALSE(sample->status.ok());
+        notification.Notify();
+      });
+  auto table = MakeUniformTable("table");
+  auto executor = std::make_shared<TaskExecutor>(1, "TableCallbackExecutor");
+  table->EnableTableWorker(executor);
+  table->EnqueSampleRequest(100, callback);
+  // Wait until the worker has picked up the request and gone back to sleep
+  // since it was unable to do anything.
+  while (table->num_pending_async_sample_requests() ||
+         !table->worker_is_sleeping()) {
+    absl::SleepFor(absl::Milliseconds(1));
+  }
+  table->Close();
+  notification.WaitForNotification();
 }
 
 }  // namespace
