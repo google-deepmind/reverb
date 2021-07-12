@@ -92,7 +92,15 @@ tensorflow::StructuredValue MakeBoundedTensorSpecSignature(
   return signature;
 }
 
-MATCHER(IsChunk, "") { return arg.chunks_size() > 0; }
+MATCHER(IsChunk, "") {
+  if (arg.chunks_size() == 0) {
+    return false;
+  }
+  for (const auto& chunk : arg.chunks()) {
+    EXPECT_EQ(chunk.data_tensors_len(), chunk.data().tensors_size());
+  }
+  return true;
+}
 
 MATCHER_P4(IsItemWithRangeAndPriorityAndTable, offset, length, priority, table,
            "") {
@@ -121,7 +129,6 @@ MATCHER_P4(IsItemWithRangeAndPriorityAndTable, offset, length, priority, table,
   if (arg.item().item().table() != table) {
     return false;
   }
-
   return true;
 }
 

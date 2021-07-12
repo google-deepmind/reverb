@@ -57,6 +57,10 @@ int32_t ChunkStore::Chunk::num_rows() const {
 }
 
 int ChunkStore::Chunk::num_columns() const {
+  // Try to get number of columns without parsing lazy tensors field.
+  if (data_.data_tensors_len() != 0) {
+    return data_.data_tensors_len();
+  }
   return data_.data().tensors_size();
 }
 

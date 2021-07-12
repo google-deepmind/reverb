@@ -426,6 +426,7 @@ absl::Status Writer::Finish(bool retry_on_unavailable) {
     chunk_data.set_delta_encoded(true);
   }
 
+  chunk_data.set_data_tensors_len(batched_tensors.size());
   for (const auto& tensor : batched_tensors) {
     CompressTensorAsProto(tensor, chunk_data.mutable_data()->add_tensors());
   }

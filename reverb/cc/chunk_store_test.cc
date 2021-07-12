@@ -59,6 +59,7 @@ TEST(ChunkStoreTest, GetFailsAfterChunkIsDestroyed) {
 TEST(ChunkStoreTest, InsertingTwiceReturnsExistingChunk) {
   ChunkStore store;
   ChunkData data = testing::MakeChunkData(2);
+  data.set_data_tensors_len(1);
   data.mutable_data()->add_tensors();
   std::shared_ptr<ChunkStore::Chunk> first =
       store.Insert(testing::MakeChunkData(2));
@@ -137,6 +138,7 @@ TEST(ChunkTest, NumColumns) {
   for (int i = 0; i < 5; i++) {
     EXPECT_EQ(ChunkStore::Chunk(data).num_columns(), i);
     data.mutable_data()->add_tensors();
+    data.set_data_tensors_len(i+1);
   }
 }
 

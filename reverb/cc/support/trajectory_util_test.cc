@@ -63,6 +63,8 @@ TEST(FlatTimestepTrajectory, CreateTrajectoryFromChunks) {
   first.mutable_sequence_range()->set_end(4);
   first.mutable_data()->add_tensors();
   first.mutable_data()->add_tensors();
+  first.set_data_tensors_len(2);
+
 
   ChunkData second;
   second.set_chunk_key(2);
@@ -70,6 +72,7 @@ TEST(FlatTimestepTrajectory, CreateTrajectoryFromChunks) {
   second.mutable_sequence_range()->set_end(7);
   second.mutable_data()->add_tensors();
   second.mutable_data()->add_tensors();
+  second.set_data_tensors_len(2);
 
   std::vector<std::shared_ptr<ChunkStore::Chunk>> chunks = {
       std::make_shared<ChunkStore::Chunk>(std::move(first)),
@@ -245,6 +248,7 @@ TEST(UnpackChunkColumn, SelectsCorrectColumn) {
   ChunkData data;
   CompressTensorAsProto(first_col_tensor, data.mutable_data()->add_tensors());
   CompressTensorAsProto(second_col_tensor, data.mutable_data()->add_tensors());
+  data.set_data_tensors_len(2);
 
   tensorflow::Tensor first_got;
   REVERB_EXPECT_OK(UnpackChunkColumn(data, 0, &first_got));

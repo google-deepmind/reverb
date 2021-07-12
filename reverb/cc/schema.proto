@@ -23,6 +23,11 @@ message ChunkData {
   }
   Data data = 5 [lazy = true];
 
+  // Number of tensors in the data field. Set explicitly so that Reverb server
+  // can check it without accessing lazy data field (which is expensive to
+  // parse).
+  int32 data_tensors_len = 6;
+
   // True if delta encoding has been applied before compressing data.
   bool delta_encoded = 4;
 

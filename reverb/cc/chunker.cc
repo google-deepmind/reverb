@@ -200,6 +200,7 @@ absl::Status Chunker::FlushLocked() {
   }
 
   CompressTensorAsProto(batched, chunk.mutable_data()->add_tensors());
+  chunk.set_data_tensors_len(chunk.data().tensors_size());
 
   // Set the sequence range of the chunk.
   for (const auto& ref : active_refs_) {

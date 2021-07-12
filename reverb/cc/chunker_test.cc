@@ -237,6 +237,21 @@ TEST(Chunker, Flush) {
   EXPECT_TRUE(ref.lock()->IsReady());
 }
 
+TEST(Chunker, DataTensorsLen) {
+  auto chunker = MakeChunker(kIntSpec, /*max_chunk_length=*/2,
+                             /*num_keep_alive_refs=*/5);
+  std::weak_ptr<CellRef> ref;
+  REVERB_ASSERT_OK(
+      chunker->Append(MakeZeroTensor<tensorflow::DT_INT32>(kIntSpec),
+                      {/*episode_id=*/1, /*step=*/0}, &ref));
+  EXPECT_FALSE(ref.lock()->IsReady());
+  REVERB_ASSERT_OK(chunker->Flush());
+  auto cell_ref = ref.lock();
+  EXPECT_TRUE(cell_ref->IsReady());
+  EXPECT_EQ(cell_ref->GetChunk()->data_tensors_len(),
+            cell_ref->GetChunk()->data().tensors_size());
+}
+
 TEST(Chunker, ChunkHasBatchDim) {
   auto chunker = MakeChunker(kIntSpec, /*max_chunk_length=*/2,
                              /*num_keep_alive_refs=*/5);
