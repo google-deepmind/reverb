@@ -55,10 +55,7 @@ reverb_cc_library(
 
 reverb_cc_library(
     name = "status_macros",
-    srcs = ["status_builder.cc"],
     hdrs = [
-        "source_location.h",
-        "status_builder.h",
         "status_macros.h",
         "status_matchers.h",
     ],
