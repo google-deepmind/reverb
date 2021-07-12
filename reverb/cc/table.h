@@ -79,6 +79,10 @@ struct TableItem {
 //
 class Table {
  public:
+  // Number of queued inserts that are allowed on the table without slowing down
+  // further inserts.
+  static constexpr int64_t kMaxEnqueuedInserts = 1000;
+
   struct SampleRequest;
   using Key = ItemSelector::Key;
   using Item = TableItem;

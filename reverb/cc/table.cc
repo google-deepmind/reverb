@@ -51,10 +51,6 @@ namespace {
 
 using Extensions = std::vector<std::shared_ptr<TableExtension>>;
 
-// Number of queued inserts that are allowed on the table without slowing down
-// further inserts.
-static constexpr int64_t kMaxEnqueuedInserts = 1000;
-
 inline bool IsInsertedBefore(const PrioritizedItem& a,
                              const PrioritizedItem& b) {
   return a.inserted_at().seconds() < b.inserted_at().seconds() ||
