@@ -415,12 +415,13 @@ absl::Status Table::InsertOrAssignAsync(
     std::weak_ptr<std::function<void(const absl::Status&)>>
         insert_more_callback) {
   REVERB_RETURN_IF_ERROR(CheckItemValidity(item));
+  auto item_ptr = std::make_shared<Item>(std::move(item));
   // Table worker doesn't release memory of removed items, clients do that
   // asynchrously.
   std::shared_ptr<Item> to_delete;
   {
     absl::MutexLock lock(&worker_mu_);
-    pending_inserts_.push_back(std::make_shared<Item>(std::move(item)));
+    pending_inserts_.push_back(std::move(item_ptr));
     if (worker_sleeps_) {
       wakeup_worker_.Signal();
     }
