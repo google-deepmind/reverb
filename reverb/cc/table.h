@@ -315,8 +315,7 @@ class Table {
   void Close();
 
   // Asserts that `mu_` is held at runtime and calls UpdateItem.
-  absl::Status UnsafeUpdateItem(
-      Key key, double priority, std::initializer_list<TableExtension*> exclude)
+  absl::Status UnsafeUpdateItem(Key key, double priority)
       ABSL_ASSERT_EXCLUSIVE_LOCK(mu_);
 
   // Suggestion of default batch size to use in `SampleFlexibleBatch`.
@@ -340,9 +339,8 @@ class Table {
 
  private:
   // Updates item priority in `data_`, `samper_`, `remover_` and calls
-  // `OnUpdate` on all extensions not part of `exclude`.
-  absl::Status UpdateItem(Key key, double priority,
-                          std::initializer_list<TableExtension*> exclude = {})
+  // `OnUpdate` on all extensions.
+  absl::Status UpdateItem(Key key, double priority)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_);
 
   // Used by the table worker to perform sampling.

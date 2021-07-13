@@ -731,8 +731,7 @@ absl::Status Table::DeleteItem(Table::Key key,
   return absl::OkStatus();
 }
 
-absl::Status Table::UpdateItem(
-    Key key, double priority, std::initializer_list<TableExtension*> exclude) {
+absl::Status Table::UpdateItem(Key key, double priority) {
   auto it = data_.find(key);
   if (it == data_.end()) {
     return absl::OkStatus();
@@ -742,11 +741,7 @@ absl::Status Table::UpdateItem(
   REVERB_RETURN_IF_ERROR(remover_->Update(key, priority));
 
   for (auto& extension : extensions_) {
-    if (std::none_of(
-            exclude.begin(), exclude.end(),
-            [ext_ptr = extension.get()](auto e) { return e == ext_ptr; })) {
-      extension->OnUpdate(&mu_, *it->second);
-    }
+    extension->OnUpdate(&mu_, *it->second);
   }
 
   return absl::OkStatus();
@@ -898,10 +893,9 @@ int64_t Table::num_episodes() const {
   return episode_refs_.size();
 }
 
-absl::Status Table::UnsafeUpdateItem(
-    Key key, double priority, std::initializer_list<TableExtension*> exclude) {
+absl::Status Table::UnsafeUpdateItem(Key key, double priority) {
   mu_.AssertHeld();
-  return UpdateItem(key, priority, std::move(exclude));
+  return UpdateItem(key, priority);
 }
 
 std::vector<std::shared_ptr<TableExtension>> Table::UnsafeClearExtensions() {
