@@ -261,9 +261,6 @@ class Table {
   // sure that this method, nor any other method, is called concurrently.
   std::vector<std::shared_ptr<TableExtension>> UnsafeClearExtensions();
 
-  // Registered table extensions.
-  const std::vector<std::shared_ptr<TableExtension>>& extensions() const;
-
   // Lookup a single item. Returns true if found, else false.
   bool Get(Key key, Item* item) ABSL_LOCKS_EXCLUDED(mu_);
 

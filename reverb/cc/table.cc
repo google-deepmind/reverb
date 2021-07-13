@@ -863,10 +863,6 @@ void Table::UnsafeAddExtension(std::shared_ptr<TableExtension> extension) {
   extensions_.push_back(std::move(extension));
 }
 
-const std::vector<std::shared_ptr<TableExtension>>& Table::extensions() const {
-  return extensions_;
-}
-
 const absl::optional<tensorflow::StructuredValue>& Table::signature() const {
   return signature_;
 }
