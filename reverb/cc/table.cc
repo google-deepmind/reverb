@@ -387,7 +387,7 @@ absl::Status Table::InsertOrAssign(Item item, absl::Duration timeout) {
 
     auto it = data_.find(key);
     for (auto& extension : extensions_) {
-      extension->OnInsert(&mu_, *it->second);
+      extension->OnInsert(&mu_, ExtensionItem(it->second));
     }
 
     // Increment references to the episode/s the item is referencing.
@@ -460,7 +460,7 @@ absl::Status Table::InsertOrAssignInternal(std::shared_ptr<Item> item,
 
   auto it = data_.find(key);
   for (auto& extension : extensions_) {
-    extension->OnInsert(&mu_, *it->second);
+    extension->OnInsert(&mu_, ExtensionItem(it->second));
   }
 
   // Increment references to the episode/s the item is referencing.
@@ -610,7 +610,7 @@ absl::Status Table::SampleFlexibleBatch(std::vector<SampledItem>* items,
 
       // Notify extensions which item was sampled.
       for (auto& extension : extensions_) {
-        extension->OnSample(&mu_, *item);
+        extension->OnSample(&mu_, ExtensionItem(item));
       }
 
       // If there is an upper bound of the number of times an item can be
@@ -648,7 +648,7 @@ absl::Status Table::SampleInternal(
 
   // Notify extensions which item was sampled.
   for (auto& extension : extensions_) {
-    extension->OnSample(&mu_, *item);
+    extension->OnSample(&mu_, ExtensionItem(item));
   }
 
   // If there is an upper bound of the number of times an item can be
@@ -710,7 +710,7 @@ absl::Status Table::DeleteItem(Table::Key key,
   if (it == data_.end()) return absl::OkStatus();
 
   for (auto& extension : extensions_) {
-    extension->OnDelete(&mu_, *it->second);
+    extension->OnDelete(&mu_, ExtensionItem(it->second));
   }
 
   // Decrement counts to the episodes the item is referencing.
@@ -741,7 +741,7 @@ absl::Status Table::UpdateItem(Key key, double priority) {
   REVERB_RETURN_IF_ERROR(remover_->Update(key, priority));
 
   for (auto& extension : extensions_) {
-    extension->OnUpdate(&mu_, *it->second);
+    extension->OnUpdate(&mu_, ExtensionItem(it->second));
   }
 
   return absl::OkStatus();
@@ -830,7 +830,7 @@ absl::Status Table::InsertCheckpointItem(Table::Item item) {
   const auto key = item.item.key();
   auto it = data_.emplace(key, std::make_shared<Item>(std::move(item))).first;
   for (auto& extension : extensions_) {
-    extension->OnInsert(&mu_, *it->second);
+    extension->OnInsert(&mu_, ExtensionItem(it->second));
   }
 
   for (const auto& chunk : it->second->chunks) {

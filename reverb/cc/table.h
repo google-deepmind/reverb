@@ -49,6 +49,19 @@ struct TableItem {
   std::vector<std::shared_ptr<ChunkStore::Chunk>> chunks;
 };
 
+// Table item wrapper used by extensions. It holds shared pointer to the
+// TableItem to avoid copies, while also holds priority and times_sampled, which
+// are mutable part of the TableItem.
+struct ExtensionItem {
+  ExtensionItem(std::shared_ptr<TableItem> item) : ref(std::move(item)) {
+    times_sampled = ref->item.times_sampled();
+    priority = ref->item.priority();
+  }
+  std::shared_ptr<TableItem> ref;
+  int32_t times_sampled;
+  double priority;
+};
+
 // A `Table` is a structure for storing `TableItem` objects. The table uses two
 // instances of `ItemSelector`, one for sampling (`sampler`) and
 // another for removing (`remover`). All item operations (insert/update/delete)

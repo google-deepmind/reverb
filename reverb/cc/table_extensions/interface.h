@@ -28,6 +28,7 @@ namespace reverb {
 
 class Table;
 class TableItem;
+class ExtensionItem;
 
 // A `TableExtension` is passed to a single `Table` and executed
 // as part of the atomic operations of the parent table. All "hooks" are
@@ -44,21 +45,21 @@ class TableExtension {
   friend class Table;
 
   // Executed just after item is inserted into  parent `Table`.
-  virtual void OnInsert(absl::Mutex* mu, const TableItem& item)
+  virtual void OnInsert(absl::Mutex* mu, const ExtensionItem& item)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu) = 0;
 
   // Executed just before item is removed from parent `Table`.
-  virtual void OnDelete(absl::Mutex* mu, const TableItem& item)
+  virtual void OnDelete(absl::Mutex* mu, const ExtensionItem& item)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu) = 0;
 
   // Executed just after the priority of an item has been updated in parent
   // `Table`.
-  virtual void OnUpdate(absl::Mutex* mu, const TableItem& item)
+  virtual void OnUpdate(absl::Mutex* mu, const ExtensionItem& item)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu) = 0;
 
   // Executed just before a sample is returned. The sample count of the item
   // includes the active sample and thus always is >= 1.
-  virtual void OnSample(absl::Mutex* mu, const TableItem& item)
+  virtual void OnSample(absl::Mutex* mu, const ExtensionItem& item)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu) = 0;
 
   // Executed just before all items are deleted.

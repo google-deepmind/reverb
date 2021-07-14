@@ -42,33 +42,33 @@ void TableExtensionBase::UnregisterTable(absl::Mutex* mu, Table* table) {
   table_ = nullptr;
 }
 
-void TableExtensionBase::OnDelete(absl::Mutex* mu, const TableItem& item) {
+void TableExtensionBase::OnDelete(absl::Mutex* mu, const ExtensionItem& item) {
   ApplyOnDelete(item);
 }
 
-void TableExtensionBase::OnInsert(absl::Mutex* mu, const TableItem& item) {
+void TableExtensionBase::OnInsert(absl::Mutex* mu, const ExtensionItem& item) {
   ApplyOnInsert(item);
 }
 
 void TableExtensionBase::OnReset(absl::Mutex* mu) { ApplyOnReset(); }
 
-void TableExtensionBase::OnUpdate(absl::Mutex* mu, const TableItem& item) {
+void TableExtensionBase::OnUpdate(absl::Mutex* mu, const ExtensionItem& item) {
   ApplyOnUpdate(item);
 }
 
-void TableExtensionBase::OnSample(absl::Mutex* mu, const TableItem& item) {
+void TableExtensionBase::OnSample(absl::Mutex* mu, const ExtensionItem& item) {
   ApplyOnSample(item);
 }
 
-void TableExtensionBase::ApplyOnDelete(const TableItem& item) {}
+void TableExtensionBase::ApplyOnDelete(const ExtensionItem& item) {}
 
-void TableExtensionBase::ApplyOnInsert(const TableItem& item) {}
+void TableExtensionBase::ApplyOnInsert(const ExtensionItem& item) {}
 
 void TableExtensionBase::ApplyOnReset() {}
 
-void TableExtensionBase::ApplyOnUpdate(const TableItem& item) {}
+void TableExtensionBase::ApplyOnUpdate(const ExtensionItem& item) {}
 
-void TableExtensionBase::ApplyOnSample(const TableItem& item) {}
+void TableExtensionBase::ApplyOnSample(const ExtensionItem& item) {}
 
 }  // namespace reverb
 }  // namespace deepmind

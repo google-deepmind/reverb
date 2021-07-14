@@ -35,11 +35,11 @@ class TableExtensionBase : public TableExtension {
   virtual ~TableExtensionBase() = default;
 
   // Children should override these (noop by default).
-  virtual void ApplyOnDelete(const TableItem& item);
-  virtual void ApplyOnInsert(const TableItem& item);
+  virtual void ApplyOnDelete(const ExtensionItem& item);
+  virtual void ApplyOnInsert(const ExtensionItem& item);
   virtual void ApplyOnReset();
-  virtual void ApplyOnUpdate(const TableItem& item);
-  virtual void ApplyOnSample(const TableItem& item);
+  virtual void ApplyOnUpdate(const ExtensionItem& item);
+  virtual void ApplyOnSample(const ExtensionItem& item);
 
  protected:
   friend class Table;
@@ -51,22 +51,22 @@ class TableExtensionBase : public TableExtension {
       ABSL_LOCKS_EXCLUDED(mu) override;
 
   // Delegates call to ApplyOnDelete.
-  void OnDelete(absl::Mutex* mu, const TableItem& item) override
+  void OnDelete(absl::Mutex* mu, const ExtensionItem& item) override
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu);
 
   // Delegates call to ApplyOnInsert.
-  void OnInsert(absl::Mutex* mu, const TableItem& item) override
+  void OnInsert(absl::Mutex* mu, const ExtensionItem& item) override
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu);
 
   // Delegates call to ApplyOnReset.
   void OnReset(absl::Mutex* mu) override ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu);
 
   // Delegates call to ApplyOnUpdate.
-  void OnUpdate(absl::Mutex* mu, const TableItem& item) override
+  void OnUpdate(absl::Mutex* mu, const ExtensionItem& item) override
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu);
 
   // Delegates call to ApplyOnSample.
-  void OnSample(absl::Mutex* mu, const TableItem& item) override
+  void OnSample(absl::Mutex* mu, const ExtensionItem& item) override
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu);
 
  protected:
