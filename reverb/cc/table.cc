@@ -200,14 +200,19 @@ void Table::EnableTableWorker(std::shared_ptr<TaskExecutor> executor) {
     int64_t last_progress = 0;
     while (true) {
       // Notify clients waiting to insert
-      for (auto& notify : notify_inserts_ok) {
-        auto to_notify = notify.lock();
-        // Callback might have been destroyed in the meantime.
-        if (to_notify != nullptr) {
-          (*to_notify)(insert_status);
-        }
+      if (!notify_inserts_ok.empty()) {
+        callback_executor_->Schedule(
+            [notify_inserts_ok = std::move(notify_inserts_ok), insert_status] {
+              for (auto& notify : notify_inserts_ok) {
+                auto to_notify = notify.lock();
+                // Callback might have been destroyed in the meantime.
+                if (to_notify != nullptr) {
+                  (*to_notify)(insert_status);
+                }
+              }
+            });
+        notify_inserts_ok.clear();
       }
-      notify_inserts_ok.clear();
       {
         absl::MutexLock lock(&mu_);
         // Tracks whether while loop below makes progress.
