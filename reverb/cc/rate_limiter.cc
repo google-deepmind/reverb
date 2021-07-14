@@ -179,6 +179,10 @@ bool RateLimiter::CanInsert(absl::Mutex*, int num_inserts) const {
   return diff <= max_diff_;
 }
 
+void RateLimiter::CreateInstantInsertEvent(absl::Mutex* mu) {
+  insert_stats_.CreateEvent(mu);
+}
+
 void RateLimiter::Cancel(absl::Mutex*) {
   cancelled_ = true;
   can_insert_cv_.SignalAll();

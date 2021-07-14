@@ -114,6 +114,10 @@ class RateLimiter {
   bool CanInsert(absl::Mutex* mu, int num_inserts) const
       ABSL_SHARED_LOCKS_REQUIRED(mu);
 
+  // Creates an insert stats event.
+  void CreateInstantInsertEvent(absl::Mutex* mu)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu);
+
   // Creates a checkpoint of the current state for the rate limiter.
   RateLimiterCheckpoint CheckpointReader(absl::Mutex* mu) const
       ABSL_SHARED_LOCKS_REQUIRED(mu);

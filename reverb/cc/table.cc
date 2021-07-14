@@ -222,6 +222,7 @@ void Table::EnableTableWorker(std::shared_ptr<TaskExecutor> executor) {
           // Try processing an insert request.
           if (current_insert < current_inserts.size() &&
               rate_limiter_->CanInsert(&mu_, 1)) {
+            rate_limiter_->CreateInstantInsertEvent(&mu_);
             auto res = InsertOrAssignInternal(current_inserts[current_insert++],
                                               &to_delete);
             progress++;
@@ -624,7 +625,8 @@ absl::Status Table::SampleFlexibleBatch(std::vector<SampledItem>* items,
       auto sample = sampler_->Sample();
       std::shared_ptr<Item>& item = data_[sample.key];
 
-      // If this is the first time the item was sampled then
+      // If this is the first time the item was sampled then update unique
+      // sampled counter.
       if (item->item.times_sampled() == 0) {
         ++num_unique_samples_;
       }
@@ -668,6 +670,11 @@ absl::Status Table::SampleInternal(
     std::vector<std::shared_ptr<Item>>* to_delete) {
   auto sample = sampler_->Sample();
   std::shared_ptr<Item>& item = data_[sample.key];
+  // If this is the first time the item was sampled then update unique
+  // sampled counter.
+  if (item->item.times_sampled() == 0) {
+    ++num_unique_samples_;
+  }
   // Increment the sample count.
   item->item.set_times_sampled(item->item.times_sampled() + 1);
 

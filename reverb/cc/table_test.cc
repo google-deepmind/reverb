@@ -828,11 +828,6 @@ TEST(TableDeathTest, SetNumDeletedEpisodesFromCheckpointCalledTwice) {
 }
 
 TEST(TableTest, Info) {
-  if (absl::GetFlag(FLAGS_run_table_test_with_worker))  {
-    GTEST_SKIP() << "Skipping Info-test as the behaviour is temporarily "
-                    "incorrect for tables with workers. The test will be "
-                    "enabled when the implementation has been fixed.";
-}
   auto table = MakeTable(
       /*name=*/"dist",
       /*sampler=*/std::make_shared<UniformSelector>(),
