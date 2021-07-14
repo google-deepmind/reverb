@@ -172,10 +172,8 @@ ReverbServiceAsyncImpl::InsertStream(grpc::CallbackServerContext* context) {
   class WorkerlessInsertReactor : public ReverbServerTableReactor<
       InsertStreamRequest, InsertStreamResponse, InsertStreamResponseCtx> {
    public:
-    WorkerlessInsertReactor(ChunkStore* chunk_store,
-                            ReverbServiceAsyncImpl* server)
+    WorkerlessInsertReactor(ReverbServiceAsyncImpl* server)
         : ReverbServerTableReactor(),
-          chunk_store_(chunk_store),
           server_(server),
           continue_inserts_(
               std::make_shared<std::function<void(const absl::Status&)>>(
@@ -245,7 +243,7 @@ ReverbServiceAsyncImpl::InsertStream(grpc::CallbackServerContext* context) {
       for (auto& chunk : *request->mutable_chunks()) {
         ChunkStore::Key key = chunk.chunk_key();
         std::shared_ptr<ChunkStore::Chunk> chunk_sp =
-            chunk_store_->Insert(std::move(chunk));
+            chunk_store_.Insert(std::move(chunk));
         if (chunk_sp == nullptr) {
           return grpc::Status(grpc::StatusCode::CANCELLED,
                               "Service has been closed");
@@ -303,7 +301,7 @@ ReverbServiceAsyncImpl::InsertStream(grpc::CallbackServerContext* context) {
         chunks_;
 
     // ChunkStore, only accessed during reads.
-    ChunkStore* chunk_store_;
+    ChunkStore chunk_store_;
 
     // Used to lookup tables when inserting items.
     const ReverbServiceAsyncImpl* server_;
@@ -314,7 +312,7 @@ ReverbServiceAsyncImpl::InsertStream(grpc::CallbackServerContext* context) {
     std::shared_ptr<std::function<void(const absl::Status&)>> continue_inserts_;
   };
 
-  return new WorkerlessInsertReactor(&chunk_store_, this);
+  return new WorkerlessInsertReactor(this);
 }
 
 grpc::ServerBidiReactor<InitializeConnectionRequest,
