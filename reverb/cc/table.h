@@ -348,6 +348,18 @@ class Table {
   int num_pending_async_sample_requests() const ABSL_LOCKS_EXCLUDED(worker_mu_);
 
  private:
+  // State of the table worker.
+  enum class TableWorkerState {
+    // Worker is actively processing requests.
+    kRunning,
+
+    // Worker is sleeping as there is no work to do.
+    kSleeping,
+
+    // Worker is blocked on rate limiter.
+    kBlocked,
+  };
+
   // Updates item priority in `data_`, `samper_`, `remover_` and calls
   // `OnUpdate` on all extensions.
   absl::Status UpdateItem(Key key, double priority)
@@ -448,8 +460,9 @@ class Table {
   std::vector<std::weak_ptr<std::function<void(const absl::Status&)>>>
       notify_inserts_ok_ ABSL_GUARDED_BY(worker_mu_);
 
-  // Whether table worker is sleeping currently (no work to do).
-  bool worker_sleeps_ ABSL_GUARDED_BY(worker_mu_) = false;
+  // Current table worker's state.
+  TableWorkerState worker_state_ ABSL_GUARDED_BY(worker_mu_) =
+      TableWorkerState::kSleeping;
 
   // Should worker terminate. Set to true upon table termination to stop the
   // worker.

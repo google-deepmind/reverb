@@ -314,6 +314,9 @@ void Table::EnableTableWorker(std::shared_ptr<TaskExecutor> executor) {
             if (notify_inserts_ok.empty() && !notify_inserts_ok_.empty()) {
               std::swap(notify_inserts_ok, notify_inserts_ok_);
             }
+            // Also abandon pending inserts.
+            current_inserts.clear();
+            current_insert = 0;
           }
         }
         GetExpiredRequests(deadline, &current_sampling, &to_terminate,
@@ -324,11 +327,16 @@ void Table::EnableTableWorker(std::shared_ptr<TaskExecutor> executor) {
           if (stop_worker_) {
             return;
           }
-          worker_sleeps_ = true;
+          if (current_sample < current_sampling.size() ||
+              current_insert < current_inserts.size()) {
+            worker_state_ = TableWorkerState::kBlocked;
+          } else {
+            worker_state_ = TableWorkerState::kSleeping;
+          }
           rate_limited = !current_sampling.empty() &&
                          current_sample != current_sampling.size();
           wakeup_worker_.WaitWithDeadline(&worker_mu_, wakeup);
-          worker_sleeps_ = false;
+          worker_state_ = TableWorkerState::kRunning;
         }
       }
       // Notify sample requests which exceeded deadline.
@@ -352,9 +360,31 @@ std::vector<Table::Item> Table::Copy(size_t count) const {
 }
 
 absl::Status Table::InsertOrAssign(Item item, absl::Duration timeout) {
-  // InsertOrAssign is not allowed when using table worker.
-  REVERB_CHECK(table_worker_ == nullptr);
   REVERB_RETURN_IF_ERROR(CheckItemValidity(item));
+  if (table_worker_) {
+    // This code path is here mainly to allow running existing tests with the
+    // table that has a table worker. To be removed together with this entire
+    // function once async server is fully enabled.
+    bool can_insert;
+    absl::Notification can_insert_c;
+    auto can_insert_f =
+        std::make_shared<std::function<void(const absl::Status&)>>(
+            [&](absl::Status status) { can_insert_c.Notify(); });
+    REVERB_RETURN_IF_ERROR(
+        InsertOrAssignAsync(std::move(item), &can_insert, can_insert_f));
+    if (!can_insert) {
+      can_insert_c.WaitForNotification();
+    }
+    auto worker_done = [this]() ABSL_EXCLUSIVE_LOCKS_REQUIRED(worker_mu_) {
+      return worker_state_ == TableWorkerState::kSleeping &&
+             pending_inserts_.empty();
+    };
+    absl::MutexLock lock(&worker_mu_);
+    if (worker_mu_.AwaitWithTimeout(absl::Condition(&worker_done), timeout)) {
+      return absl::OkStatus();
+    }
+    return errors::RateLimiterTimeout();
+  }
 
   auto key = item.item.key();
   auto priority = item.item.priority();
@@ -427,7 +457,7 @@ absl::Status Table::InsertOrAssignAsync(
   {
     absl::MutexLock lock(&worker_mu_);
     pending_inserts_.push_back(std::move(item_ptr));
-    if (worker_sleeps_) {
+    if (worker_state_ != TableWorkerState::kRunning) {
       wakeup_worker_.Signal();
     }
     if (!deleted_items_.empty()) {
@@ -504,7 +534,7 @@ absl::Status Table::MutateItems(absl::Span<const KeyWithPriority> updates,
   // explicitly.
   if (table_worker_) {
     absl::MutexLock lock(&worker_mu_);
-    if (worker_sleeps_) {
+    if (worker_state_ != TableWorkerState::kRunning) {
       wakeup_worker_.Signal();
     }
   }
@@ -541,7 +571,7 @@ void Table::EnqueSampleRequest(int num_samples,
       to_delete = std::move(deleted_items_.back());
       deleted_items_.pop_back();
     }
-    if (worker_sleeps_) {
+    if (worker_state_ != TableWorkerState::kRunning) {
       wakeup_worker_.Signal();
     }
   }
@@ -756,29 +786,34 @@ absl::Status Table::Reset() {
   // Make sure worker has no more pending work.
   if (table_worker_) {
     auto worker_done = [this]() ABSL_EXCLUSIVE_LOCKS_REQUIRED(worker_mu_) {
-      return worker_sleeps_ && pending_inserts_.empty();
+      return worker_state_ != TableWorkerState::kRunning &&
+             pending_inserts_.empty();
     };
     absl::MutexLock lock(&worker_mu_);
     worker_mu_.Await(absl::Condition(&worker_done));
   }
+  {
+    absl::MutexLock lock(&mu_);
 
-  absl::MutexLock lock(&mu_);
+    for (auto& extension : extensions_) {
+      extension->OnReset(&mu_);
+    }
 
-  for (auto& extension : extensions_) {
-    extension->OnReset(&mu_);
+    sampler_->Clear();
+    remover_->Clear();
+
+    num_deleted_episodes_ = 0;
+    num_unique_samples_ = 0;
+    episode_refs_.clear();
+
+    data_.clear();
+
+    rate_limiter_->Reset(&mu_);
   }
-
-  sampler_->Clear();
-  remover_->Clear();
-
-  num_deleted_episodes_ = 0;
-  num_unique_samples_ = 0;
-  episode_refs_.clear();
-
-  data_.clear();
-
-  rate_limiter_->Reset(&mu_);
-
+  {
+    absl::MutexLock worker_lock(&worker_mu_);
+    wakeup_worker_.Signal();
+  }
   return absl::OkStatus();
 }
 
@@ -984,7 +1019,7 @@ std::string Table::DebugString() const {
 
 bool Table::worker_is_sleeping() const {
   absl::MutexLock lock(&worker_mu_);
-  return worker_sleeps_;
+  return worker_state_ != TableWorkerState::kRunning;
 }
 
 int Table::num_pending_async_sample_requests() const {

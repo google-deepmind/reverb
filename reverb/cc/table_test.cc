@@ -24,6 +24,7 @@
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include <cstdint>
+#include "absl/flags/flag.h"
 #include "absl/memory/memory.h"
 #include "absl/status/status.h"
 #include "absl/synchronization/notification.h"
@@ -45,6 +46,9 @@
 #include "tensorflow/core/framework/types.pb.h"
 #include "tensorflow/core/protobuf/struct.pb.h"
 
+ABSL_FLAG(bool, run_table_test_with_worker, false,
+          "Should table test be run against a table with table worker.");
+
 namespace deepmind {
 namespace reverb {
 namespace {
@@ -59,6 +63,14 @@ using ::testing::SizeIs;
 MATCHER_P(HasItemKey, key, "") { return arg.item.key() == key; }
 MATCHER_P(HasSampledItemKey, key, "") { return arg.ref->item.key() == key; }
 
+template <typename ...Ts>
+std::unique_ptr<Table> MakeTable(Ts... args) {
+  auto table = absl::make_unique<Table>(args...);
+  if (absl::GetFlag(FLAGS_run_table_test_with_worker)) {
+    table->EnableTableWorker(std::make_shared<TaskExecutor>(1, "worker"));
+  }
+  return table;
+}
 
 TableItem MakeItem(uint64_t key, double priority,
                    const std::vector<SequenceRange>& sequences) {
@@ -79,16 +91,17 @@ TableItem MakeItem(uint64_t key, double priority) {
   return MakeItem(key, priority, {testing::MakeSequenceRange(key * 100, 0, 1)});
 }
 
-std::unique_ptr<RateLimiter> MakeLimiter(int64_t min_size) {
-  return absl::make_unique<RateLimiter>(1.0, min_size, -DBL_MAX, DBL_MAX);
+std::shared_ptr<RateLimiter> MakeLimiter(int64_t min_size) {
+  return std::make_shared<RateLimiter>(1.0, min_size, -DBL_MAX, DBL_MAX);
 }
 
 std::unique_ptr<Table> MakeUniformTable(const std::string& name,
                                         int64_t max_size = 1000,
                                         int32_t max_times_sampled = 0) {
-  return absl::make_unique<Table>(name, absl::make_unique<UniformSelector>(),
-                                  absl::make_unique<FifoSelector>(), max_size,
-                                  max_times_sampled, MakeLimiter(1));
+  auto table = MakeTable(name, std::make_shared<UniformSelector>(),
+                               std::make_shared<FifoSelector>(), max_size,
+                               max_times_sampled, MakeLimiter(1));
+  return table;
 }
 
 TEST(TableTest, SetsName) {
@@ -226,6 +239,9 @@ TEST(TableTest, SampleFlexibleBatchRequireEmptyOutputVector) {
 }
 
 TEST(TableTest, SampleSetsRateLimitedIfBlocked) {
+  if (absl::GetFlag(FLAGS_run_table_test_with_worker)) {
+    GTEST_SKIP() << "Skipping test that is not intended for worker setups.";
+  }
   auto table = MakeUniformTable("table");
 
   Table::SampledItem rate_limited_item;
@@ -246,8 +262,10 @@ TEST(TableTest, SampleSetsRateLimitedIfBlocked) {
 }
 
 TEST(TableTest, EnqueSampleRequestSetsRateLimitedIfBlocked) {
+  if (!absl::GetFlag(FLAGS_run_table_test_with_worker)) {
+    GTEST_SKIP() << "Skipping test that is only intended for worker setups.";
+  }
   auto table = MakeUniformTable("table");
-  table->EnableTableWorker(std::make_shared<TaskExecutor>(1, "worker"));
 
   absl::Notification first_done;
   Table::SampledItem rate_limited_item;
@@ -324,11 +342,11 @@ TEST(TableTest, ConcurrentCalls) {
 TEST(TableTest, UseAsQueue) {
   Table queue(
       /*name=*/"queue",
-      /*sampler=*/absl::make_unique<FifoSelector>(),
-      /*remover=*/absl::make_unique<FifoSelector>(),
+      /*sampler=*/std::make_shared<FifoSelector>(),
+      /*remover=*/std::make_shared<FifoSelector>(),
       /*max_size=*/10,
       /*max_times_sampled=*/1,
-      absl::make_unique<RateLimiter>(
+      std::make_shared<RateLimiter>(
           /*samples_per_insert=*/1.0,
           /*min_size_to_sample=*/1,
           /*min_diff=*/0,
@@ -378,20 +396,20 @@ TEST(TableTest, UseAsQueue) {
 }
 
 TEST(TableTest, ConcurrentInsertOfTheSameKey) {
-  Table table(
+  auto table = MakeTable(
       /*name=*/"dist",
-      /*sampler=*/absl::make_unique<UniformSelector>(),
-      /*remover=*/absl::make_unique<FifoSelector>(),
+      /*sampler=*/std::make_shared<UniformSelector>(),
+      /*remover=*/std::make_shared<FifoSelector>(),
       /*max_size=*/1000,
       /*max_times_sampled=*/0,
-      absl::make_unique<RateLimiter>(
+      std::make_shared<RateLimiter>(
           /*samples_per_insert=*/1.0,
           /*min_size_to_sample=*/1,
           /*min_diff=*/-1,
           /*max_diff=*/1));
 
   // Insert one item to make new inserts block.
-  REVERB_ASSERT_OK(table.InsertOrAssign(MakeItem(1, 123)));  // diff = 1.0
+  REVERB_ASSERT_OK(table->InsertOrAssign(MakeItem(1, 123)));  // diff = 1.0
 
   std::vector<std::unique_ptr<internal::Thread>> bundle;
 
@@ -399,7 +417,7 @@ TEST(TableTest, ConcurrentInsertOfTheSameKey) {
   std::atomic<int> count(0);
   for (int i = 0; i < 10; i++) {
     bundle.push_back(internal::StartThread("", [&] {
-      REVERB_EXPECT_OK(table.InsertOrAssign(MakeItem(10, 123)));
+      REVERB_EXPECT_OK(table->InsertOrAssign(MakeItem(10, 123)));
       count++;
     }));
   }
@@ -409,78 +427,82 @@ TEST(TableTest, ConcurrentInsertOfTheSameKey) {
   // Making a single sample should unblock one of the inserts. The other inserts
   // are now updates but they are still waiting for their right to insert.
   Table::SampledItem item;
-  REVERB_EXPECT_OK(table.Sample(&item));
+  REVERB_EXPECT_OK(table->Sample(&item));
 
   // Sampling once more would unblock one of the inserts, it will then see that
   // it is now an update and not use its right to insert. Once it releases the
   // lock the same process will follow for all the remaining inserts.
-  REVERB_EXPECT_OK(table.Sample(&item));
+  REVERB_EXPECT_OK(table->Sample(&item));
 
   bundle.clear();  // Joins all threads.
 
   EXPECT_EQ(count, 10);
-  EXPECT_EQ(table.size(), 2);
+  EXPECT_EQ(table->size(), 2);
 }
 
 TEST(TableTest, CloseCancelsPendingCalls) {
-  Table table(
+  auto table = MakeTable(
       /*name=*/"dist",
-      /*sampler=*/absl::make_unique<UniformSelector>(),
-      /*remover=*/absl::make_unique<FifoSelector>(),
+      /*sampler=*/std::make_shared<UniformSelector>(),
+      /*remover=*/std::make_shared<FifoSelector>(),
       /*max_size=*/1000,
       /*max_times_sampled=*/0,
-      absl::make_unique<RateLimiter>(
+      std::make_shared<RateLimiter>(
           /*samples_per_insert=*/1.0,
           /*min_size_to_sample=*/1,
           /*min_diff=*/-1,
           /*max_diff=*/1));
 
   // Insert two item to make new inserts block.
-  REVERB_ASSERT_OK(table.InsertOrAssign(MakeItem(1, 123)));  // diff = 1.0
+  REVERB_ASSERT_OK(table->InsertOrAssign(MakeItem(1, 123)));  // diff = 1.0
 
   absl::Status status;
   absl::Notification notification;
   auto thread = internal::StartThread("", [&] {
-    status = table.InsertOrAssign(MakeItem(10, 123));
+    status = table->InsertOrAssign(MakeItem(10, 123));
     notification.Notify();
   });
 
   EXPECT_FALSE(notification.WaitForNotificationWithTimeout(kTimeout));
 
-  table.Close();
+  table->Close();
 
   EXPECT_TRUE(notification.WaitForNotificationWithTimeout(kTimeout));
-  EXPECT_EQ(status.code(), absl::StatusCode::kCancelled);
+  if (absl::GetFlag(FLAGS_run_table_test_with_worker)) {
+    EXPECT_OK(status);
+  } else {
+    EXPECT_EQ(status.code(), absl::StatusCode::kCancelled);
+  }
 
   thread = nullptr;  // Joins the thread.
 }
 
 TEST(TableTest, ResetResetsRateLimiter) {
-  Table table(
+  auto table = MakeTable(
       /*name=*/"dist",
-      /*sampler=*/absl::make_unique<UniformSelector>(),
-      /*remover=*/absl::make_unique<FifoSelector>(),
+      /*sampler=*/std::make_shared<UniformSelector>(),
+      /*remover=*/std::make_shared<FifoSelector>(),
       /*max_size=*/1000,
       /*max_times_sampled=*/0,
-      absl::make_unique<RateLimiter>(
+      std::make_shared<RateLimiter>(
           /*samples_per_insert=*/1.0,
           /*min_size_to_sample=*/1,
           /*min_diff=*/-1,
           /*max_diff=*/1));
 
   // Insert two item to make new inserts block.
-  REVERB_ASSERT_OK(table.InsertOrAssign(MakeItem(1, 123)));  // diff = 1.0
+  REVERB_ASSERT_OK(table->InsertOrAssign(MakeItem(1, 123)));  // diff = 1.0
 
   absl::Notification notification;
   auto thread = internal::StartThread("", [&] {
-    REVERB_ASSERT_OK(table.InsertOrAssign(MakeItem(10, 123)));
+    REVERB_ASSERT_OK(table->InsertOrAssign(MakeItem(10, 123)));
     notification.Notify();
   });
 
   EXPECT_FALSE(notification.WaitForNotificationWithTimeout(kTimeout));
 
   // Resetting the table should unblock new inserts.
-  REVERB_ASSERT_OK(table.Reset());
+  REVERB_ASSERT_OK(table->Reset());
 
   EXPECT_TRUE(notification.WaitForNotificationWithTimeout(kTimeout));
 
@@ -533,14 +555,14 @@ TEST(TableTest, CheckpointSanityCheck) {
   tensorflow::TensorShapeProto shape;
   tensorflow::TensorShape({1, 2}).AsProto(spec->mutable_shape());
 
-  Table table("dist", absl::make_unique<UniformSelector>(),
-              absl::make_unique<FifoSelector>(), 10, 1,
-              absl::make_unique<RateLimiter>(1.0, 3, -10, 7),
+  auto table = MakeTable("dist", std::make_shared<UniformSelector>(),
+              std::make_shared<FifoSelector>(), 10, 1,
+              std::make_shared<RateLimiter>(1.0, 3, -10, 7),
               std::vector<std::shared_ptr<TableExtension>>(), signature);
 
-  REVERB_EXPECT_OK(table.InsertOrAssign(MakeItem(1, 123)));
+  REVERB_EXPECT_OK(table->InsertOrAssign(MakeItem(1, 123)));
 
-  auto checkpoint = table.Checkpoint();
+  auto checkpoint = table->Checkpoint();
 
   PriorityTableCheckpoint want;
   want.set_table_name("dist");
@@ -588,29 +610,29 @@ TEST(TableTest, CheckpointSanityCheck) {
 }
 
 TEST(TableTest, BlocksSamplesWhenSizeToSmallDueToAutoDelete) {
-  Table table(
+  auto table = MakeTable(
       /*name=*/"dist",
-      /*sampler=*/absl::make_unique<FifoSelector>(),
-      /*remover=*/absl::make_unique<FifoSelector>(),
+      /*sampler=*/std::make_shared<FifoSelector>(),
+      /*remover=*/std::make_shared<FifoSelector>(),
       /*max_size=*/10,
       /*max_times_sampled=*/2,
-      absl::make_unique<RateLimiter>(
+      std::make_shared<RateLimiter>(
           /*samples_per_insert=*/1.0,
           /*min_size_to_sample=*/3,
           /*min_diff=*/0,
           /*max_diff=*/5));
-  REVERB_EXPECT_OK(table.InsertOrAssign(MakeItem(1, 1)));
-  REVERB_EXPECT_OK(table.InsertOrAssign(MakeItem(2, 1)));
-  REVERB_EXPECT_OK(table.InsertOrAssign(MakeItem(3, 1)));
+  REVERB_EXPECT_OK(table->InsertOrAssign(MakeItem(1, 1)));
+  REVERB_EXPECT_OK(table->InsertOrAssign(MakeItem(2, 1)));
+  REVERB_EXPECT_OK(table->InsertOrAssign(MakeItem(3, 1)));
 
   // It should be fine to sample now as the table has been reached its min size.
   Table::SampledItem sample_1;
-  REVERB_EXPECT_OK(table.Sample(&sample_1));
+  REVERB_EXPECT_OK(table->Sample(&sample_1));
   EXPECT_THAT(sample_1, HasSampledItemKey(1));
 
   // A second sample should be fine since the table is still large enough.
   Table::SampledItem sample_2;
-  REVERB_EXPECT_OK(table.Sample(&sample_2));
+  REVERB_EXPECT_OK(table->Sample(&sample_2));
   EXPECT_THAT(sample_2, HasSampledItemKey(1));
 
   // Due to max_times_sampled, the table should have one item less which should
@@ -618,59 +640,59 @@ TEST(TableTest, BlocksSamplesWhenSizeToSmallDueToAutoDelete) {
   absl::Notification notification;
   auto sample_thread = internal::StartThread("", [&] {
     Table::SampledItem sample;
-    REVERB_EXPECT_OK(table.Sample(&sample));
+    REVERB_EXPECT_OK(table->Sample(&sample));
     notification.Notify();
   });
   EXPECT_FALSE(notification.WaitForNotificationWithTimeout(kTimeout));
 
   // Inserting a new item should unblock the sampling.
-  REVERB_EXPECT_OK(table.InsertOrAssign(MakeItem(4, 1)));
+  REVERB_EXPECT_OK(table->InsertOrAssign(MakeItem(4, 1)));
   EXPECT_TRUE(notification.WaitForNotificationWithTimeout(kTimeout));
 
   sample_thread = nullptr;  // Joins the thread.
 }
 
 TEST(TableTest, BlocksSamplesWhenSizeToSmallDueToExplicitDelete) {
-  Table table(
+  auto table = MakeTable(
       /*name=*/"dist",
-      /*sampler=*/absl::make_unique<FifoSelector>(),
-      /*remover=*/absl::make_unique<FifoSelector>(),
+      /*sampler=*/std::make_shared<FifoSelector>(),
+      /*remover=*/std::make_shared<FifoSelector>(),
       /*max_size=*/10,
       /*max_times_sampled=*/-1,
-      absl::make_unique<RateLimiter>(
+      std::make_shared<RateLimiter>(
           /*samples_per_insert=*/1.0,
           /*min_size_to_sample=*/3,
           /*min_diff=*/0,
           /*max_diff=*/5));
-  REVERB_EXPECT_OK(table.InsertOrAssign(MakeItem(1, 1)));
-  REVERB_EXPECT_OK(table.InsertOrAssign(MakeItem(2, 1)));
-  REVERB_EXPECT_OK(table.InsertOrAssign(MakeItem(3, 1)));
+  REVERB_EXPECT_OK(table->InsertOrAssign(MakeItem(1, 1)));
+  REVERB_EXPECT_OK(table->InsertOrAssign(MakeItem(2, 1)));
+  REVERB_EXPECT_OK(table->InsertOrAssign(MakeItem(3, 1)));
 
   // It should be fine to sample now as the table has been reached its min size.
   Table::SampledItem sample_1;
-  REVERB_EXPECT_OK(table.Sample(&sample_1));
+  REVERB_EXPECT_OK(table->Sample(&sample_1));
   EXPECT_THAT(sample_1, HasSampledItemKey(1));
 
   // Deleting an item will make the table too small to allow samples.
-  REVERB_EXPECT_OK(table.MutateItems({}, {1}));
+  REVERB_EXPECT_OK(table->MutateItems({}, {1}));
 
   absl::Notification notification;
   auto sample_thread = internal::StartThread("", [&] {
     Table::SampledItem sample;
-    REVERB_EXPECT_OK(table.Sample(&sample));
+    REVERB_EXPECT_OK(table->Sample(&sample));
     notification.Notify();
   });
   EXPECT_FALSE(notification.WaitForNotificationWithTimeout(kTimeout));
 
   // Inserting a new item should unblock the sampling.
-  REVERB_EXPECT_OK(table.InsertOrAssign(MakeItem(4, 1)));
+  REVERB_EXPECT_OK(table->InsertOrAssign(MakeItem(4, 1)));
   EXPECT_TRUE(notification.WaitForNotificationWithTimeout(kTimeout));
 
   sample_thread = nullptr;  // Joins the thread.
 
   // And any new samples should be fine.
   Table::SampledItem sample_2;
-  REVERB_EXPECT_OK(table.Sample(&sample_2));
+  REVERB_EXPECT_OK(table->Sample(&sample_2));
   EXPECT_THAT(sample_2, HasSampledItemKey(2));
 }
 
@@ -806,30 +828,35 @@ TEST(TableDeathTest, SetNumDeletedEpisodesFromCheckpointCalledTwice) {
 }
 
 TEST(TableTest, Info) {
-  Table table(
+  if (absl::GetFlag(FLAGS_run_table_test_with_worker))  {
+    GTEST_SKIP() << "Skipping Info-test as the behaviour is temporarily "
+                    "incorrect for tables with workers. The test will be "
+                    "enabled when the implementation has been fixed.";
+}
+  auto table = MakeTable(
       /*name=*/"dist",
-      /*sampler=*/absl::make_unique<UniformSelector>(),
-      /*remover=*/absl::make_unique<FifoSelector>(),
+      /*sampler=*/std::make_shared<UniformSelector>(),
+      /*remover=*/std::make_shared<FifoSelector>(),
       /*max_size=*/10,
       /*max_times_sampled=*/1,
-      absl::make_unique<RateLimiter>(
+      std::make_shared<RateLimiter>(
           /*samples_per_insert=*/1.0,
           /*min_size_to_sample=*/1,
           /*min_diff=*/-1,
           /*max_diff=*/5));
-  table.set_num_deleted_episodes_from_checkpoint(5);
-  table.set_num_unique_samples_from_checkpoint(2);
+  table->set_num_deleted_episodes_from_checkpoint(5);
+  table->set_num_unique_samples_from_checkpoint(2);
 
   // Insert two items (each with different episodes).
-  REVERB_EXPECT_OK(table.InsertOrAssign(MakeItem(1, 1)));
-  REVERB_EXPECT_OK(table.InsertOrAssign(MakeItem(2, 1)));
+  REVERB_EXPECT_OK(table->InsertOrAssign(MakeItem(1, 1)));
+  REVERB_EXPECT_OK(table->InsertOrAssign(MakeItem(2, 1)));
 
   // Sample an item. This will trigger the removal of that item since
   // `max_times_sampled` is 1.
   Table::SampledItem sample;
-  REVERB_EXPECT_OK(table.Sample(&sample));
+  REVERB_EXPECT_OK(table->Sample(&sample));
 
-  EXPECT_THAT(table.info(), testing::EqualsProto(R"pb(
+  EXPECT_THAT(table->info(), testing::EqualsProto(R"pb(
                 name: 'dist'
                 sampler_options { uniform: true }
                 remover_options { fifo: true is_deterministic: true }
@@ -862,33 +889,33 @@ TEST(TableTest, DefaultFlexibleBatchSize) {
   // If a sample to insert ratio is set then that should be used.
   Table samples_per_insert_table(
       /*name=*/"samples_per_insert_table",
-      /*sampler=*/absl::make_unique<UniformSelector>(),
-      /*remover=*/absl::make_unique<FifoSelector>(),
+      /*sampler=*/std::make_shared<UniformSelector>(),
+      /*remover=*/std::make_shared<FifoSelector>(),
       /*max_size=*/100,
       /*max_times_sampled=*/0,
-      /*rate_limiter=*/absl::make_unique<RateLimiter>(3.0, 5, -10, 10));
+      /*rate_limiter=*/std::make_shared<RateLimiter>(3.0, 5, -10, 10));
   EXPECT_EQ(samples_per_insert_table.DefaultFlexibleBatchSize(), 3);
 
   // If a min size limiter is used without `max_times_sampled` then it should
   // default to a batch size of 64.
   Table min_size_table(
       /*name=*/"min_size_table",
-      /*sampler=*/absl::make_unique<UniformSelector>(),
-      /*remover=*/absl::make_unique<FifoSelector>(),
+      /*sampler=*/std::make_shared<UniformSelector>(),
+      /*remover=*/std::make_shared<FifoSelector>(),
       /*max_size=*/100,
       /*max_times_sampled=*/0,
-      /*rate_limiter=*/absl::make_unique<RateLimiter>(1, 5, -DBL_MAX, DBL_MIN));
+      /*rate_limiter=*/std::make_shared<RateLimiter>(1, 5, -DBL_MAX, DBL_MIN));
   EXPECT_EQ(min_size_table.DefaultFlexibleBatchSize(), 64);
 
   // If a min size limiter is used and `max_times_sampled` is set then it should
   // default to `max_times_sampled`.
   Table max_times_sampled_table(
       /*name=*/"max_times_sampled_table",
-      /*sampler=*/absl::make_unique<UniformSelector>(),
-      /*remover=*/absl::make_unique<FifoSelector>(),
+      /*sampler=*/std::make_shared<UniformSelector>(),
+      /*remover=*/std::make_shared<FifoSelector>(),
       /*max_size=*/100,
       /*max_times_sampled=*/11,
-      /*rate_limiter=*/absl::make_unique<RateLimiter>(1, 5, -DBL_MAX, DBL_MIN));
+      /*rate_limiter=*/std::make_shared<RateLimiter>(1, 5, -DBL_MAX, DBL_MIN));
   EXPECT_EQ(max_times_sampled_table.DefaultFlexibleBatchSize(), 11);
 }
 
@@ -933,10 +960,10 @@ TEST(TableTest, InsertOrAssignOfItemWithChunkLengthMissmatch) {
 }
 
 TEST(TableTest, InsertOrAssignCanTimeout) {
-  Table table(
+  auto table = MakeTable(
       /*name=*/"table",
-      /*sampler=*/absl::make_unique<UniformSelector>(),
-      /*remover=*/absl::make_unique<FifoSelector>(),
+      /*sampler=*/std::make_shared<UniformSelector>(),
+      /*remover=*/std::make_shared<FifoSelector>(),
       /*max_size=*/5,
       /*max_times_sampled=*/1,
       /*rate_limiter=*/
@@ -947,15 +974,19 @@ TEST(TableTest, InsertOrAssignCanTimeout) {
           /*max_diff=*/1));
 
   // The first item should be inserted without blockage.
-  REVERB_EXPECT_OK(table.InsertOrAssign(MakeItem(1, 1)));
+  REVERB_EXPECT_OK(table->InsertOrAssign(MakeItem(1, 1)));
 
   // The second item should not be allowed without first sampling and thus the
-  // call should time timeout.
-  EXPECT_EQ(table.InsertOrAssign(MakeItem(2, 1), absl::Milliseconds(50)).code(),
-            absl::StatusCode::kDeadlineExceeded);
+  // call should timeout.
+  EXPECT_EQ(
+      table->InsertOrAssign(MakeItem(2, 1), absl::Milliseconds(50)).code(),
+      absl::StatusCode::kDeadlineExceeded);
 }
 
 TEST(TableTest, CloseWithWorker) {
+  if (!absl::GetFlag(FLAGS_run_table_test_with_worker)) {
+    return;
+  }
   absl::Notification notification;
   auto callback = std::make_shared<Table::SamplingCallback>(
       [&](Table::SampleRequest* sample) {
@@ -963,8 +994,6 @@ TEST(TableTest, CloseWithWorker) {
         notification.Notify();
       });
   auto table = MakeUniformTable("table");
-  auto executor = std::make_shared<TaskExecutor>(1, "TableCallbackExecutor");
-  table->EnableTableWorker(executor);
   table->EnqueSampleRequest(100, callback);
   // Wait until the worker has picked up the request and gone back to sleep
   // since it was unable to do anything.
