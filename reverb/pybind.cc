@@ -769,6 +769,7 @@ PYBIND11_MODULE(libpybind, m) {
       .def("Wait", &Server::Wait, py::call_guard<py::gil_scoped_release>())
       .def("InProcessClient", &Server::InProcessClient,
            py::call_guard<py::gil_scoped_release>())
+      .def_property_readonly("uses_async_service", &Server::uses_async_service)
       .def("__repr__", &Server::DebugString,
            py::call_guard<py::gil_scoped_release>());
 
