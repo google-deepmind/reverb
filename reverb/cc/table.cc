@@ -823,6 +823,10 @@ absl::Status Table::Reset() {
   }
   {
     absl::MutexLock worker_lock(&worker_mu_);
+    // Delete all items waiting for deletion.
+    deleted_items_.clear();
+    // Wakeup worker in case it has pending inserts which couldn't make progress
+    // before.
     wakeup_worker_.Signal();
   }
   return absl::OkStatus();
