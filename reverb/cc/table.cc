@@ -196,6 +196,10 @@ absl::Status Table::TableWorkerLoop() {
   // worker has something to do (making progress) or should go to sleep.
   int64_t progress = 0;
   int64_t last_progress = 0;
+  {
+    absl::MutexLock lock(&worker_mu_);
+    worker_state_ = TableWorkerState::kRunning;
+  }
   while (true) {
     // Notify clients waiting to insert
     if (!notify_inserts_ok.empty()) {
