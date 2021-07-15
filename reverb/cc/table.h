@@ -366,6 +366,10 @@ class Table {
     ExtensionItem item;
   };
 
+  // Table worker execution loop. It is executed by a dedicated thread
+  // and performs enqueued table operations (inserts, mutations, sampling...).
+  absl::Status TableWorkerLoop();
+
   // Updates item priority in `data_`, `samper_`, `remover_` and calls
   // `OnUpdate` on all extensions.
   absl::Status UpdateItem(Key key, double priority)

@@ -164,188 +164,180 @@ Table::~Table() {
   }
 }
 
+absl::Status Table::TableWorkerLoop() {
+  // Sampling requests that exceeded deadline and should be terminated.
+  std::vector<std::unique_ptr<Table::SampleRequest>> to_terminate;
+  // Status to be send to the already timed out sample requests (changes upon
+  // table shutdown to distinguish between timeout and table shutdown).
+  absl::Status sampling_status = errors::RateLimiterTimeout();
+  // Status to be send to the inserters once there is more place to insert
+  // (changes upon table shutdown).
+  absl::Status insert_status = absl::OkStatus();
+  // Collection of items removed from the table (by either insert or sample
+  // operations) which are waiting for cleanup. Cleanup is done outside of
+  // time-critical table worker.
+  std::vector<std::shared_ptr<Item>> to_delete;
+  // Collection of callbacks for insert operations waiting for more space in
+  // the table.
+  std::vector<std::weak_ptr<std::function<void(const absl::Status&)>>>
+      notify_inserts_ok;
+  // Collection of items waiting to the added to the table.
+  std::vector<std::shared_ptr<Item>> current_inserts;
+  // Index of the next item in the `pending_inserts` to be processed.
+  int current_insert = 0;
+  // Collection of sample requests to be processed.
+  std::vector<std::unique_ptr<SampleRequest>> current_sampling;
+  // Index of the next request from the `sampling_requests` to be processed.
+  int current_sample = 0;
+  // Whether the next sample was rate limited.
+  bool rate_limited = false;
+
+  // Progress of handling insert/sample requests. Used for detecting whether
+  // worker has something to do (making progress) or should go to sleep.
+  int64_t progress = 0;
+  int64_t last_progress = 0;
+  while (true) {
+    // Notify clients waiting to insert
+    if (!notify_inserts_ok.empty()) {
+      callback_executor_->Schedule(
+          [notify_inserts_ok = std::move(notify_inserts_ok), insert_status] {
+            for (auto& notify : notify_inserts_ok) {
+              auto to_notify = notify.lock();
+              // Callback might have been destroyed in the meantime.
+              if (to_notify != nullptr) {
+                (*to_notify)(insert_status);
+              }
+            }
+          });
+      notify_inserts_ok.clear();
+    }
+    {
+      absl::MutexLock lock(&mu_);
+      // Tracks whether while loop below makes progress.
+      int64_t prev_progress = progress - 1;
+      while (prev_progress < progress) {
+        prev_progress = progress;
+        // Try processing an insert request.
+        if (current_insert < current_inserts.size() &&
+            rate_limiter_->CanInsert(&mu_, 1)) {
+          rate_limiter_->CreateInstantInsertEvent(&mu_);
+          REVERB_RETURN_IF_ERROR(InsertOrAssignInternal(
+              current_inserts[current_insert++], &to_delete));
+          progress++;
+        }
+        // Skip sampling requests which timed out already.
+        while (current_sample < current_sampling.size() &&
+               current_sampling[current_sample] == nullptr) {
+          current_sample++;
+        }
+        // Try processing a sample request.
+        if (current_sample < current_sampling.size()) {
+          auto& request = current_sampling[current_sample];
+          while (rate_limiter_->MaybeCommitSample(&mu_)) {
+            progress++;
+            request->samples.emplace_back();
+            REVERB_RETURN_IF_ERROR(SampleInternal(
+                rate_limited, &request->samples.back(), &to_delete));
+            // Capacity of the samples collection indicates how many items
+            // should be sampled.
+            if (request->samples.capacity() == request->samples.size()) {
+              // Finalized request is moved out of sampling_requests.
+              FinalizeSampleRequest(std::move(request), absl::OkStatus());
+              current_sample++;
+              break;
+            }
+          }
+        }
+      }
+    }
+    {
+      absl::MutexLock lock(&worker_mu_);
+      // Items to be deleted are being deleted by the callers to spread the
+      // load. We could consider doing that in a dedicated thread instead.
+      if (!to_delete.empty() && deleted_items_.empty()) {
+        std::swap(to_delete, deleted_items_);
+      }
+      if (current_insert == current_inserts.size() &&
+          !pending_inserts_.empty()) {
+        // Get a new batch of insert requests as previous batch is done.
+        progress++;
+        current_insert = 0;
+        current_inserts.clear();
+        std::swap(current_inserts, pending_inserts_);
+        // As `pending_inserts_` is empty now, we should let waiting users
+        // know it is fine to continue with the inserts.
+        std::swap(notify_inserts_ok, notify_inserts_ok_);
+      }
+      if (current_sample == current_sampling.size() &&
+          !pending_sampling_.empty()) {
+        // Get a new batch of sample requests as previous batch is done.
+        progress++;
+        current_sample = 0;
+        current_sampling.clear();
+        std::swap(current_sampling, pending_sampling_);
+
+        // We'll consider the new batch of requests to be unaffected by the
+        // rate limiter until the worker is put to sleep again.
+        rate_limited = false;
+      }
+      if (progress != last_progress) {
+        // There was progress executing insert/sample requests,
+        // so continue without handling timeouts.
+        last_progress = progress;
+        continue;
+      }
+      auto deadline = absl::Now();
+      auto wakeup = absl::InfiniteFuture();
+      {
+        absl::MutexLock table_lock(&mu_);
+        if (!rate_limiter_->CheckIfCancelled(&mu_).ok()) {
+          // We need to terminate all in-flight operations, so collect
+          // requests with the deadline smaller than InfiniteFuture.
+          deadline = absl::InfiniteFuture();
+          sampling_status =
+              absl::CancelledError("RateLimiter has been cancelled");
+          insert_status =
+              absl::CancelledError("RateLimiter has been cancelled");
+          if (notify_inserts_ok.empty() && !notify_inserts_ok_.empty()) {
+            std::swap(notify_inserts_ok, notify_inserts_ok_);
+          }
+          // Also abandon pending inserts.
+          current_inserts.clear();
+          current_insert = 0;
+        }
+      }
+      GetExpiredRequests(deadline, &current_sampling, &to_terminate, &wakeup);
+      GetExpiredRequests(deadline, &pending_sampling_, &to_terminate, &wakeup);
+      if (to_terminate.empty() && notify_inserts_ok.empty()) {
+        if (stop_worker_) {
+          return absl::OkStatus();
+        }
+        if (current_sample < current_sampling.size() ||
+            current_insert < current_inserts.size()) {
+          worker_state_ = TableWorkerState::kBlocked;
+        } else {
+          worker_state_ = TableWorkerState::kSleeping;
+        }
+        rate_limited = !current_sampling.empty() &&
+                       current_sample != current_sampling.size();
+        wakeup_worker_.WaitWithDeadline(&worker_mu_, wakeup);
+        worker_state_ = TableWorkerState::kRunning;
+      }
+    }
+    // Notify sample requests which exceeded deadline.
+    for (auto& sample : to_terminate) {
+      FinalizeSampleRequest(std::move(sample), sampling_status);
+    }
+    to_terminate.clear();
+  }
+}
+
 void Table::EnableTableWorker(std::shared_ptr<TaskExecutor> executor) {
   callback_executor_ = executor;
   table_worker_ = internal::StartThread("TableWorker_" + name_, [&]() {
-    // Sampling requests that exceeded deadline and should be terminated.
-    std::vector<std::unique_ptr<Table::SampleRequest>> to_terminate;
-    // Status to be send to the already timed out sample requests (changes upon
-    // table shutdown to distinguish between timeout and table shutdown).
-    absl::Status sampling_status = errors::RateLimiterTimeout();
-    // Status to be send to the inserters once there is more place to insert
-    // (changes upon table shutdown).
-    absl::Status insert_status = absl::OkStatus();
-    // Collection of items removed from the table (by either insert or sample
-    // operations) which are waiting for cleanup. Cleanup is done outside of
-    // time-critical table worker.
-    std::vector<std::shared_ptr<Item>> to_delete;
-    // Collection of callbacks for insert operations waiting for more space in
-    // the table.
-    std::vector<std::weak_ptr<std::function<void(const absl::Status&)>>>
-        notify_inserts_ok;
-    // Collection of items waiting to the added to the table.
-    std::vector<std::shared_ptr<Item>> current_inserts;
-    // Index of the next item in the `pending_inserts` to be processed.
-    int current_insert = 0;
-    // Collection of sample requests to be processed.
-    std::vector<std::unique_ptr<SampleRequest>> current_sampling;
-    // Index of the next request from the `sampling_requests` to be processed.
-    int current_sample = 0;
-    // Whether the next sample was rate limited.
-    bool rate_limited = false;
-
-    // Progress of handling insert/sample requests. Used for detecting whether
-    // worker has something to do (making progress) or should go to sleep.
-    int64_t progress = 0;
-    int64_t last_progress = 0;
-    while (true) {
-      // Notify clients waiting to insert
-      if (!notify_inserts_ok.empty()) {
-        callback_executor_->Schedule(
-            [notify_inserts_ok = std::move(notify_inserts_ok), insert_status] {
-              for (auto& notify : notify_inserts_ok) {
-                auto to_notify = notify.lock();
-                // Callback might have been destroyed in the meantime.
-                if (to_notify != nullptr) {
-                  (*to_notify)(insert_status);
-                }
-              }
-            });
-        notify_inserts_ok.clear();
-      }
-      {
-        absl::MutexLock lock(&mu_);
-        // Tracks whether while loop below makes progress.
-        int64_t prev_progress = progress - 1;
-        while (prev_progress < progress) {
-          prev_progress = progress;
-          // Try processing an insert request.
-          if (current_insert < current_inserts.size() &&
-              rate_limiter_->CanInsert(&mu_, 1)) {
-            rate_limiter_->CreateInstantInsertEvent(&mu_);
-            auto res = InsertOrAssignInternal(current_inserts[current_insert++],
-                                              &to_delete);
-            progress++;
-            if (!res.ok()) {
-              REVERB_LOG(REVERB_ERROR)
-                  << "Table worker encountered an error while inserting: "
-                  << res.ToString() << ". Shutting down.";
-              return;
-            }
-          }
-          // Skip sampling requests which timed out already.
-          while (current_sample < current_sampling.size() &&
-                 current_sampling[current_sample] == nullptr) {
-            current_sample++;
-          }
-          // Try processing a sample request.
-          if (current_sample < current_sampling.size()) {
-            auto& request = current_sampling[current_sample];
-            while (rate_limiter_->MaybeCommitSample(&mu_)) {
-              progress++;
-              request->samples.emplace_back();
-              auto res = SampleInternal(rate_limited, &request->samples.back(),
-                                        &to_delete);
-              if (!res.ok()) {
-                REVERB_LOG(REVERB_ERROR)
-                    << "Table worker encountered an error while sampling: "
-                    << res.ToString() << ". Shutting down.";
-                return;
-              }
-              // Capacity of the samples collection indicates how many items
-              // should be sampled.
-              if (request->samples.capacity() == request->samples.size()) {
-                // Finalized request is moved out of sampling_requests.
-                FinalizeSampleRequest(std::move(request), absl::OkStatus());
-                current_sample++;
-                break;
-              }
-            }
-          }
-        }
-      }
-      {
-        absl::MutexLock lock(&worker_mu_);
-        // Items to be deleted are being deleted by the callers to spread the
-        // load. We could consider doing that in a dedicated thread instead.
-        if (!to_delete.empty() && deleted_items_.empty()) {
-          std::swap(to_delete, deleted_items_);
-        }
-        if (current_insert == current_inserts.size() &&
-            !pending_inserts_.empty()) {
-          // Get a new batch of insert requests as previous batch is done.
-          progress++;
-          current_insert = 0;
-          current_inserts.clear();
-          std::swap(current_inserts, pending_inserts_);
-          // As `pending_inserts_` is empty now, we should let waiting users
-          // know it is fine to continue with the inserts.
-          std::swap(notify_inserts_ok, notify_inserts_ok_);
-        }
-        if (current_sample == current_sampling.size() &&
-            !pending_sampling_.empty()) {
-          // Get a new batch of sample requests as previous batch is done.
-          progress++;
-          current_sample = 0;
-          current_sampling.clear();
-          std::swap(current_sampling, pending_sampling_);
-
-          // We'll consider the new batch of requests to be unaffected by the
-          // rate limiter until the worker is put to sleep again.
-          rate_limited = false;
-        }
-        if (progress != last_progress) {
-          // There was progress executing insert/sample requests,
-          // so continue without handling timeouts.
-          last_progress = progress;
-          continue;
-        }
-        auto deadline = absl::Now();
-        auto wakeup = absl::InfiniteFuture();
-        {
-          absl::MutexLock table_lock(&mu_);
-          if (!rate_limiter_->CheckIfCancelled(&mu_).ok()) {
-            // We need to terminate all in-flight operations, so collect
-            // requests with the deadline smaller than InfiniteFuture.
-            deadline = absl::InfiniteFuture();
-            sampling_status =
-                absl::CancelledError("RateLimiter has been cancelled");
-            insert_status =
-                absl::CancelledError("RateLimiter has been cancelled");
-            if (notify_inserts_ok.empty() && !notify_inserts_ok_.empty()) {
-              std::swap(notify_inserts_ok, notify_inserts_ok_);
-            }
-            // Also abandon pending inserts.
-            current_inserts.clear();
-            current_insert = 0;
-          }
-        }
-        GetExpiredRequests(deadline, &current_sampling, &to_terminate,
-                           &wakeup);
-        GetExpiredRequests(deadline, &pending_sampling_, &to_terminate,
-                           &wakeup);
-        if (to_terminate.empty() && notify_inserts_ok.empty()) {
-          if (stop_worker_) {
-            return;
-          }
-          if (current_sample < current_sampling.size() ||
-              current_insert < current_inserts.size()) {
-            worker_state_ = TableWorkerState::kBlocked;
-          } else {
-            worker_state_ = TableWorkerState::kSleeping;
-          }
-          rate_limited = !current_sampling.empty() &&
-                         current_sample != current_sampling.size();
-          wakeup_worker_.WaitWithDeadline(&worker_mu_, wakeup);
-          worker_state_ = TableWorkerState::kRunning;
-        }
-      }
-      // Notify sample requests which exceeded deadline.
-      for (auto& sample : to_terminate) {
-        FinalizeSampleRequest(std::move(sample), sampling_status);
-      }
-      to_terminate.clear();
-    }
+    auto status = TableWorkerLoop();
+    REVERB_LOG_IF(REVERB_ERROR, !status.ok())
+        << "Table worker encountered a fatal error: " << status;
   });
 }
 
