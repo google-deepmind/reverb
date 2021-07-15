@@ -360,6 +360,12 @@ class Table {
     kBlocked,
   };
 
+  struct ExtensionRequest {
+    enum class CallType { kDelete, kInsert, kSample, kUpdate };
+    CallType call_type;
+    ExtensionItem item;
+  };
+
   // Updates item priority in `data_`, `samper_`, `remover_` and calls
   // `OnUpdate` on all extensions.
   absl::Status UpdateItem(Key key, double priority)
@@ -386,6 +392,11 @@ class Table {
   // The deleted item is returned in order to allow the deallocation of the
   // underlying item to be postponed until the lock has been released.
   absl::Status DeleteItem(Key key, std::shared_ptr<Item>* deleted_item)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_);
+
+  // Eexecutes a given extension operation.
+  void ExtensionOperation(ExtensionRequest::CallType type,
+                          const std::shared_ptr<Item>& item)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_);
 
   // Synchronizes access to `sampler_`, `remover_`, 'rate_limiter_`,

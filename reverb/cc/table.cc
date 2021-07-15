@@ -422,9 +422,7 @@ absl::Status Table::InsertOrAssign(Item item, absl::Duration timeout) {
     REVERB_RETURN_IF_ERROR(remover_->Insert(key, priority));
 
     auto it = data_.find(key);
-    for (auto& extension : extensions_) {
-      extension->OnInsert(&mu_, ExtensionItem(it->second));
-    }
+    ExtensionOperation(ExtensionRequest::CallType::kInsert, it->second);
 
     // Increment references to the episode/s the item is referencing.
     // We increment before a possible call to DeleteItem since the sampler can
@@ -495,9 +493,7 @@ absl::Status Table::InsertOrAssignInternal(std::shared_ptr<Item> item,
   REVERB_RETURN_IF_ERROR(remover_->Insert(key, priority));
 
   auto it = data_.find(key);
-  for (auto& extension : extensions_) {
-    extension->OnInsert(&mu_, ExtensionItem(it->second));
-  }
+  ExtensionOperation(ExtensionRequest::CallType::kInsert, it->second);
 
   // Increment references to the episode/s the item is referencing.
   // We increment before a possible call to DeleteItem since the sampler can
@@ -646,9 +642,7 @@ absl::Status Table::SampleFlexibleBatch(std::vector<SampledItem>* items,
       items->push_back(std::move(sampled_item));
 
       // Notify extensions which item was sampled.
-      for (auto& extension : extensions_) {
-        extension->OnSample(&mu_, ExtensionItem(item));
-      }
+      ExtensionOperation(ExtensionRequest::CallType::kSample, item);
 
       // If there is an upper bound of the number of times an item can be
       // sampled and it is now reached then delete the item before the lock is
@@ -689,9 +683,7 @@ absl::Status Table::SampleInternal(
   };
 
   // Notify extensions which item was sampled.
-  for (auto& extension : extensions_) {
-    extension->OnSample(&mu_, ExtensionItem(item));
-  }
+  ExtensionOperation(ExtensionRequest::CallType::kSample, item);
 
   // If there is an upper bound of the number of times an item can be
   // sampled and it is now reached then delete the item before the lock is
@@ -751,9 +743,7 @@ absl::Status Table::DeleteItem(Table::Key key,
   auto it = data_.find(key);
   if (it == data_.end()) return absl::OkStatus();
 
-  for (auto& extension : extensions_) {
-    extension->OnDelete(&mu_, ExtensionItem(it->second));
-  }
+  ExtensionOperation(ExtensionRequest::CallType::kDelete, it->second);
 
   // Decrement counts to the episodes the item is referencing.
   for (const auto& chunk : it->second->chunks) {
@@ -773,6 +763,36 @@ absl::Status Table::DeleteItem(Table::Key key,
   return absl::OkStatus();
 }
 
+void Table::ExtensionOperation(ExtensionRequest::CallType type,
+                               const std::shared_ptr<Item>& item) {
+  if (extensions_.empty()) {
+    return;
+  }
+  ExtensionItem e_item(item);
+  switch (type) {
+    case ExtensionRequest::CallType::kInsert:
+      for (auto& extension : extensions_) {
+        extension->OnInsert(&mu_, e_item);
+      }
+      break;
+    case ExtensionRequest::CallType::kSample:
+      for (auto& extension : extensions_) {
+        extension->OnSample(&mu_, e_item);
+      }
+      break;
+    case ExtensionRequest::CallType::kUpdate:
+      for (auto& extension : extensions_) {
+        extension->OnUpdate(&mu_, e_item);
+      }
+      break;
+    case ExtensionRequest::CallType::kDelete:
+      for (auto& extension : extensions_) {
+        extension->OnDelete(&mu_, e_item);
+      }
+      break;
+  }
+}
+
 absl::Status Table::UpdateItem(Key key, double priority) {
   auto it = data_.find(key);
   if (it == data_.end()) {
@@ -781,10 +801,7 @@ absl::Status Table::UpdateItem(Key key, double priority) {
   it->second->item.set_priority(priority);
   REVERB_RETURN_IF_ERROR(sampler_->Update(key, priority));
   REVERB_RETURN_IF_ERROR(remover_->Update(key, priority));
-
-  for (auto& extension : extensions_) {
-    extension->OnUpdate(&mu_, ExtensionItem(it->second));
-  }
+  ExtensionOperation(ExtensionRequest::CallType::kUpdate, it->second);
 
   return absl::OkStatus();
 }
@@ -876,9 +893,7 @@ absl::Status Table::InsertCheckpointItem(Table::Item item) {
 
   const auto key = item.item.key();
   auto it = data_.emplace(key, std::make_shared<Item>(std::move(item))).first;
-  for (auto& extension : extensions_) {
-    extension->OnInsert(&mu_, ExtensionItem(it->second));
-  }
+  ExtensionOperation(ExtensionRequest::CallType::kInsert, it->second);
 
   for (const auto& chunk : it->second->chunks) {
     ++episode_refs_[chunk->episode_id()];
