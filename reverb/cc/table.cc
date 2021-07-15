@@ -803,15 +803,6 @@ absl::Status Table::UpdateItem(Key key, double priority) {
 }
 
 absl::Status Table::Reset() {
-  // Make sure worker has no more pending work.
-  if (table_worker_) {
-    auto worker_done = [this]() ABSL_EXCLUSIVE_LOCKS_REQUIRED(worker_mu_) {
-      return worker_state_ != TableWorkerState::kRunning &&
-             pending_inserts_.empty();
-    };
-    absl::MutexLock lock(&worker_mu_);
-    worker_mu_.Await(absl::Condition(&worker_done));
-  }
   {
     absl::MutexLock lock(&mu_);
 
