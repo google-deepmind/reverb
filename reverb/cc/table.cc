@@ -184,11 +184,11 @@ absl::Status Table::TableWorkerLoop() {
   // Collection of items waiting to the added to the table.
   std::vector<std::shared_ptr<Item>> current_inserts;
   // Index of the next item in the `pending_inserts` to be processed.
-  int current_insert = 0;
+  int insert_idx = 0;
   // Collection of sample requests to be processed.
   std::vector<std::unique_ptr<SampleRequest>> current_sampling;
   // Index of the next request from the `sampling_requests` to be processed.
-  int current_sample = 0;
+  int sample_idx = 0;
   // Whether the next sample was rate limited.
   bool rate_limited = false;
 
@@ -218,21 +218,21 @@ absl::Status Table::TableWorkerLoop() {
       while (prev_progress < progress) {
         prev_progress = progress;
         // Try processing an insert request.
-        if (current_insert < current_inserts.size() &&
+        if (insert_idx < current_inserts.size() &&
             rate_limiter_->CanInsert(&mu_, 1)) {
           rate_limiter_->CreateInstantInsertEvent(&mu_);
           REVERB_RETURN_IF_ERROR(InsertOrAssignInternal(
-              current_inserts[current_insert++], &to_delete));
+              current_inserts[insert_idx++], &to_delete));
           progress++;
         }
         // Skip sampling requests which timed out already.
-        while (current_sample < current_sampling.size() &&
-               current_sampling[current_sample] == nullptr) {
-          current_sample++;
+        while (sample_idx < current_sampling.size() &&
+               current_sampling[sample_idx] == nullptr) {
+          sample_idx++;
         }
         // Try processing a sample request.
-        if (current_sample < current_sampling.size()) {
-          auto& request = current_sampling[current_sample];
+        if (sample_idx < current_sampling.size()) {
+          auto& request = current_sampling[sample_idx];
           while (rate_limiter_->MaybeCommitSample(&mu_)) {
             progress++;
             request->samples.emplace_back();
@@ -243,7 +243,7 @@ absl::Status Table::TableWorkerLoop() {
             if (request->samples.capacity() == request->samples.size()) {
               // Finalized request is moved out of sampling_requests.
               FinalizeSampleRequest(std::move(request), absl::OkStatus());
-              current_sample++;
+              sample_idx++;
               break;
             }
           }
@@ -257,22 +257,22 @@ absl::Status Table::TableWorkerLoop() {
       if (!to_delete.empty() && deleted_items_.empty()) {
         std::swap(to_delete, deleted_items_);
       }
-      if (current_insert == current_inserts.size() &&
+      if (insert_idx == current_inserts.size() &&
           !pending_inserts_.empty()) {
         // Get a new batch of insert requests as previous batch is done.
         progress++;
-        current_insert = 0;
+        insert_idx = 0;
         current_inserts.clear();
         std::swap(current_inserts, pending_inserts_);
         // As `pending_inserts_` is empty now, we should let waiting users
         // know it is fine to continue with the inserts.
         std::swap(notify_inserts_ok, notify_inserts_ok_);
       }
-      if (current_sample == current_sampling.size() &&
+      if (sample_idx == current_sampling.size() &&
           !pending_sampling_.empty()) {
         // Get a new batch of sample requests as previous batch is done.
         progress++;
-        current_sample = 0;
+        sample_idx = 0;
         current_sampling.clear();
         std::swap(current_sampling, pending_sampling_);
 
@@ -303,7 +303,7 @@ absl::Status Table::TableWorkerLoop() {
           }
           // Also abandon pending inserts.
           current_inserts.clear();
-          current_insert = 0;
+          insert_idx = 0;
         }
       }
       GetExpiredRequests(deadline, &current_sampling, &to_terminate, &wakeup);
@@ -312,14 +312,14 @@ absl::Status Table::TableWorkerLoop() {
         if (stop_worker_) {
           return absl::OkStatus();
         }
-        if (current_sample < current_sampling.size() ||
-            current_insert < current_inserts.size()) {
+        if (sample_idx < current_sampling.size() ||
+            insert_idx < current_inserts.size()) {
           worker_state_ = TableWorkerState::kBlocked;
         } else {
           worker_state_ = TableWorkerState::kSleeping;
         }
         rate_limited = !current_sampling.empty() &&
-                       current_sample != current_sampling.size();
+                       sample_idx != current_sampling.size();
         wakeup_worker_.WaitWithDeadline(&worker_mu_, wakeup);
         worker_state_ = TableWorkerState::kRunning;
       }
