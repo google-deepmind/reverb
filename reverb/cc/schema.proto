@@ -96,6 +96,7 @@ message FlatTrajectory {
 // data. Sampling happens based on the priority of items.
 //
 // Next ID: 9.
+// LINT.IfChange
 message PrioritizedItem {
   // Unique identifier of this item.
   uint64 key = 1;
@@ -120,6 +121,7 @@ message PrioritizedItem {
   repeated uint64 deprecated_chunk_keys = 3 [deprecated = true];
   SliceRange deprecated_sequence_range = 4 [deprecated = true];
 }
+// LINT.ThenChange(reverb_service_impl.cc)
 
 // Used for updating an existing PrioritizedItem.
 message KeyWithPriority {

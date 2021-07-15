@@ -331,7 +331,13 @@ grpc::Status ReverbServiceImpl::SampleStreamInternal(
           // Attach the info to the first message.
           if (chunk_idx == 0) {
             auto* item = entry->mutable_info()->mutable_item();
-            *item = sample.ref->item;
+            // Copy an item field by field to not access priority /
+            // times_sampled fields. They can change in the background.
+            item->set_key(sample.ref->item.key());
+            item->set_table(sample.ref->item.table());
+            *item->mutable_inserted_at() = sample.ref->item.inserted_at();
+            *item->mutable_flat_trajectory() =
+                sample.ref->item.flat_trajectory();
             item->set_priority(sample.priority);
             item->set_times_sampled(sample.times_sampled);
             entry->mutable_info()->set_probability(sample.probability);
