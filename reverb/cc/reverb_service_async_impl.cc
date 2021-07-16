@@ -242,13 +242,9 @@ ReverbServiceAsyncImpl::InsertStream(grpc::CallbackServerContext* context) {
     grpc::Status SaveChunks(InsertStreamRequest* request) {
       for (auto& chunk : *request->mutable_chunks()) {
         ChunkStore::Key key = chunk.chunk_key();
-        std::shared_ptr<ChunkStore::Chunk> chunk_sp =
-            chunk_store_.Insert(std::move(chunk));
-        if (chunk_sp == nullptr) {
-          return grpc::Status(grpc::StatusCode::CANCELLED,
-                              "Service has been closed");
+        if (!chunks_.contains(key)) {
+          chunks_[key] = std::make_shared<ChunkStore::Chunk>(std::move(chunk));
         }
-        chunks_[key] = std::move(chunk_sp);
       }
 
       return grpc::Status::OK;
@@ -291,7 +287,6 @@ ReverbServiceAsyncImpl::InsertStream(grpc::CallbackServerContext* context) {
     //
     // The following fields are ONLY accessed by OnRead (and subcalls):
     //  - chunks_
-    //  - chunk_store_
 
     // Chunks that may be referenced by items not yet received. The ChunkStore
     // itself only maintains weak pointers to the chunk so until an item that
@@ -299,9 +294,6 @@ ReverbServiceAsyncImpl::InsertStream(grpc::CallbackServerContext* context) {
     // stops the chunk from being deallocated.
     internal::flat_hash_map<ChunkStore::Key, std::shared_ptr<ChunkStore::Chunk>>
         chunks_;
-
-    // ChunkStore, only accessed during reads.
-    ChunkStore chunk_store_;
 
     // Used to lookup tables when inserting items.
     const ReverbServiceAsyncImpl* server_;
