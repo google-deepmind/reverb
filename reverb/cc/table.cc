@@ -141,10 +141,10 @@ Table::Table(std::string name, std::shared_ptr<ItemSelector> sampler,
       max_times_sampled_(max_times_sampled),
       name_(std::move(name)),
       rate_limiter_(std::move(rate_limiter)),
-      extensions_(std::move(extensions)),
-      signature_(std::move(signature)) {
+      signature_(std::move(signature)),
+      sync_extensions_(std::move(extensions)) {
   REVERB_CHECK_OK(rate_limiter_->RegisterTable(this));
-  for (auto& extension : extensions_) {
+  for (auto& extension : sync_extensions_) {
     REVERB_CHECK_OK(extension->RegisterTable(&mu_, this));
   }
 }
@@ -156,11 +156,21 @@ Table::~Table() {
     stop_worker_ = true;
     wakeup_worker_.Signal();
   }
+  {
+    absl::MutexLock lock(&mu_);
+    extension_buffer_available_cv_.SignalAll();
+    extension_work_available_cv_.SignalAll();
+  }
   // Join the worker thread
   table_worker_ = nullptr;
+  // Join the extension worker thread.
+  extension_worker_ = nullptr;
   rate_limiter_->UnregisterTable(&mu_, this);
-  for (auto& extension : extensions_) {
+  for (auto& extension : sync_extensions_) {
     extension->UnregisterTable(&mu_, this);
+  }
+  for (auto& extension : async_extensions_) {
+    extension->UnregisterTable(&async_extensions_mu_, this);
   }
 }
 
@@ -173,10 +183,6 @@ absl::Status Table::TableWorkerLoop() {
   // Status to be send to the inserters once there is more place to insert
   // (changes upon table shutdown).
   absl::Status insert_status = absl::OkStatus();
-  // Collection of items removed from the table (by either insert or sample
-  // operations) which are waiting for cleanup. Cleanup is done outside of
-  // time-critical table worker.
-  std::vector<std::shared_ptr<Item>> to_delete;
   // Collection of callbacks for insert operations waiting for more space in
   // the table.
   std::vector<std::weak_ptr<std::function<void(const absl::Status&)>>>
@@ -225,8 +231,8 @@ absl::Status Table::TableWorkerLoop() {
         if (insert_idx < current_inserts.size() &&
             rate_limiter_->CanInsert(&mu_, 1)) {
           rate_limiter_->CreateInstantInsertEvent(&mu_);
-          REVERB_RETURN_IF_ERROR(InsertOrAssignInternal(
-              current_inserts[insert_idx++], &to_delete));
+          REVERB_RETURN_IF_ERROR(
+              InsertOrAssignInternal(current_inserts[insert_idx++]));
           progress++;
         }
         // Skip sampling requests which timed out already.
@@ -241,7 +247,7 @@ absl::Status Table::TableWorkerLoop() {
             progress++;
             request->samples.emplace_back();
             REVERB_RETURN_IF_ERROR(SampleInternal(
-                rate_limited, &request->samples.back(), &to_delete));
+                rate_limited, &request->samples.back()));
             // Capacity of the samples collection indicates how many items
             // should be sampled.
             if (request->samples.capacity() == request->samples.size()) {
@@ -256,11 +262,6 @@ absl::Status Table::TableWorkerLoop() {
     }
     {
       absl::MutexLock lock(&worker_mu_);
-      // Items to be deleted are being deleted by the callers to spread the
-      // load. We could consider doing that in a dedicated thread instead.
-      if (!to_delete.empty() && deleted_items_.empty()) {
-        std::swap(to_delete, deleted_items_);
-      }
       if (insert_idx == current_inserts.size() &&
           !pending_inserts_.empty()) {
         // Get a new batch of insert requests as previous batch is done.
@@ -336,13 +337,107 @@ absl::Status Table::TableWorkerLoop() {
   }
 }
 
+absl::Status Table::ExtensionsWorkerLoop() {
+  // Collection of extension requests being currently processed.
+  std::vector<ExtensionRequest> extension_requests;
+  // Collection of deleted items for which memory is to be released by the
+  // clients (to not perform expensive operations inside the worker loop).
+  std::vector<std::shared_ptr<Item>> deleted_items;
+  {
+    absl::MutexLock lock(&mu_);
+    extension_worker_sleeps_ = false;
+  }
+  while (true) {
+    {
+      absl::MutexLock lock(&worker_mu_);
+      if (stop_worker_) {
+        return absl::OkStatus();
+      }
+      if (deleted_items_.empty() && !deleted_items.empty()) {
+        // Deleted items are freed by the clients to spread the load.
+        // Previous deletion batch has been processed, give clients a new batch.
+        std::swap(deleted_items, deleted_items_);
+      }
+    }
+    {
+      absl::MutexLock lock(&mu_);
+      REVERB_CHECK(extension_requests.empty());
+      if (extension_requests_.empty()) {
+        // No more work to do, go to sleep.
+        extension_worker_sleeps_ = true;
+        extension_work_available_cv_.Wait(&mu_);
+        extension_worker_sleeps_ = false;
+      }
+      std::swap(extension_requests_, extension_requests);
+      if (extension_requests.size() >= kMaxPendingExtensionOps) {
+        // Table worker may be blocked, let know there is place to add more
+        // extension requests now.
+        extension_buffer_available_cv_.Signal();
+      }
+    }
+    {
+      absl::MutexLock lock(&async_extensions_mu_);
+      for (auto& request : extension_requests) {
+        switch (request.call_type) {
+          case ExtensionRequest::CallType::kInsert:
+            for (auto& extension : async_extensions_) {
+              extension->OnInsert(&async_extensions_mu_, request.item);
+            }
+            break;
+          case ExtensionRequest::CallType::kSample:
+            for (auto& extension : async_extensions_) {
+              extension->OnSample(&async_extensions_mu_, request.item);
+            }
+            break;
+          case ExtensionRequest::CallType::kUpdate:
+            for (auto& extension : async_extensions_) {
+              extension->OnUpdate(&async_extensions_mu_, request.item);
+            }
+            break;
+          case ExtensionRequest::CallType::kDelete:
+            for (auto& extension : async_extensions_) {
+              extension->OnDelete(&async_extensions_mu_, request.item);
+            }
+            deleted_items.push_back(std::move(request.item.ref));
+            break;
+          case ExtensionRequest::CallType::kMemoryRelease:
+            deleted_items.push_back(std::move(request.item.ref));
+            break;
+        }
+      }
+    }
+    extension_requests.clear();
+  }
+}
+
 void Table::EnableTableWorker(std::shared_ptr<TaskExecutor> executor) {
   callback_executor_ = executor;
+  extension_worker_ = internal::StartThread("ExtensionWorker_" + name_, [&]() {
+    auto status = ExtensionsWorkerLoop();
+    REVERB_LOG_IF(REVERB_ERROR, !status.ok())
+        << "Extension worker encountered a fatal error: " << status;
+  });
   table_worker_ = internal::StartThread("TableWorker_" + name_, [&]() {
     auto status = TableWorkerLoop();
     REVERB_LOG_IF(REVERB_ERROR, !status.ok())
         << "Table worker encountered a fatal error: " << status;
   });
+  {
+    // Move asynchrouns extensions to async_extensions_ collection. When table
+    // worker is disabled all extensions are added to sync_extensions_.
+    absl::MutexLock table_lock(&mu_);
+    absl::MutexLock extension_lock(&async_extensions_mu_);
+    std::vector<std::shared_ptr<TableExtension>> extensions;
+    std::swap(extensions, sync_extensions_);
+    for (auto& extension : extensions) {
+      if (extension->CanRunAsync()) {
+        async_extensions_.push_back(extension);
+      } else {
+        sync_extensions_.push_back(extension);
+      }
+    }
+    has_async_extensions_ = !async_extensions_.empty();
+  }
 }
 
 std::vector<Table::Item> Table::Copy(size_t count) const {
@@ -470,13 +565,12 @@ absl::Status Table::InsertOrAssignAsync(
   return absl::OkStatus();
 }
 
-absl::Status Table::InsertOrAssignInternal(std::shared_ptr<Item> item,
-    std::vector<std::shared_ptr<Item>>* to_delete) {
+absl::Status Table::InsertOrAssignInternal(std::shared_ptr<Item> item) {
   const auto key = item->item.key();
   const auto priority = item->item.priority();
   if (data_.contains(key)) {
     REVERB_RETURN_IF_ERROR(UpdateItem(key, priority));
-    to_delete->push_back(std::move(item));
+    ExtensionOperation(ExtensionRequest::CallType::kMemoryRelease, item);
     return absl::OkStatus();
   }
 
@@ -500,9 +594,7 @@ absl::Status Table::InsertOrAssignInternal(std::shared_ptr<Item> item,
 
   // Remove an item if we exceeded `max_size_`.
   if (data_.size() > max_size_) {
-    std::shared_ptr<Item> deleted_item;
-    REVERB_RETURN_IF_ERROR(DeleteItem(remover_->Sample().key, &deleted_item));
-    to_delete->push_back(std::move(deleted_item));
+    REVERB_RETURN_IF_ERROR(DeleteItem(remover_->Sample().key));
   }
 
   // Now that the new item has been inserted and an older item has
@@ -655,9 +747,7 @@ absl::Status Table::SampleFlexibleBatch(std::vector<SampledItem>* items,
   return absl::OkStatus();
 }
 
-absl::Status Table::SampleInternal(
-    bool rate_limited, SampledItem* result,
-    std::vector<std::shared_ptr<Item>>* to_delete) {
+absl::Status Table::SampleInternal(bool rate_limited, SampledItem* result) {
   auto sample = sampler_->Sample();
   std::shared_ptr<Item>& item = data_[sample.key];
   // If this is the first time the item was sampled then update unique
@@ -685,9 +775,7 @@ absl::Status Table::SampleInternal(
   // sampled and it is now reached then delete the item before the lock is
   // released.
   if (item->item.times_sampled() == max_times_sampled_) {
-    to_delete->emplace_back();
-    REVERB_RETURN_IF_ERROR(
-        DeleteItem(item->item.key(), &to_delete->back()));
+    REVERB_RETURN_IF_ERROR(DeleteItem(item->item.key()));
   }
   return absl::OkStatus();
 }
@@ -739,8 +827,6 @@ absl::Status Table::DeleteItem(Table::Key key,
   auto it = data_.find(key);
   if (it == data_.end()) return absl::OkStatus();
 
-  ExtensionOperation(ExtensionRequest::CallType::kDelete, it->second);
-
   // Decrement counts to the episodes the item is referencing.
   for (const auto& chunk : it->second->chunks) {
     auto ep_it = episode_refs_.find(chunk->episode_id());
@@ -750,8 +836,10 @@ absl::Status Table::DeleteItem(Table::Key key,
       num_deleted_episodes_++;
     }
   }
-
-  *deleted_item = std::move(it->second);
+  ExtensionOperation(ExtensionRequest::CallType::kDelete, it->second);
+  if (deleted_item) {
+    *deleted_item = std::move(it->second);
+  }
   data_.erase(it);
   rate_limiter_->Delete(&mu_);
   REVERB_RETURN_IF_ERROR(sampler_->Delete(key));
@@ -761,31 +849,53 @@ absl::Status Table::DeleteItem(Table::Key key,
 
 void Table::ExtensionOperation(ExtensionRequest::CallType type,
                                const std::shared_ptr<Item>& item) {
-  if (extensions_.empty()) {
+  // First execute all synchronous extensions.
+  if (!sync_extensions_.empty()) {
+    ExtensionItem e_item(item);
+    switch (type) {
+      case ExtensionRequest::CallType::kInsert:
+        for (auto& extension : sync_extensions_) {
+          extension->OnInsert(&mu_, e_item);
+        }
+        break;
+      case ExtensionRequest::CallType::kSample:
+        for (auto& extension : sync_extensions_) {
+          extension->OnSample(&mu_, e_item);
+        }
+        break;
+      case ExtensionRequest::CallType::kUpdate:
+        for (auto& extension : sync_extensions_) {
+          extension->OnUpdate(&mu_, e_item);
+        }
+        break;
+      case ExtensionRequest::CallType::kDelete:
+        for (auto& extension : sync_extensions_) {
+          extension->OnDelete(&mu_, e_item);
+        }
+        break;
+      case ExtensionRequest::CallType::kMemoryRelease:
+        break;
+    }
+  }
+  if (!extension_worker_) {
+    // All extensions are synchronous without extension worker.
     return;
   }
+  if (!has_async_extensions_ && type != ExtensionRequest::CallType::kDelete &&
+      type != ExtensionRequest::CallType::kMemoryRelease) {
+    // Memory releasing requests depend on extension worker,
+    // otherwise no need to enqueue the operation.
+    return;
+  }
+  while (extension_requests_.size() >= kMaxPendingExtensionOps) {
+    // TODO(stanczyk): Track time spent waiting here.
+    extension_buffer_available_cv_.Wait(&mu_);
+  }
   ExtensionItem e_item(item);
-  switch (type) {
-    case ExtensionRequest::CallType::kInsert:
-      for (auto& extension : extensions_) {
-        extension->OnInsert(&mu_, e_item);
-      }
-      break;
-    case ExtensionRequest::CallType::kSample:
-      for (auto& extension : extensions_) {
-        extension->OnSample(&mu_, e_item);
-      }
-      break;
-    case ExtensionRequest::CallType::kUpdate:
-      for (auto& extension : extensions_) {
-        extension->OnUpdate(&mu_, e_item);
-      }
-      break;
-    case ExtensionRequest::CallType::kDelete:
-      for (auto& extension : extensions_) {
-        extension->OnDelete(&mu_, e_item);
-      }
-      break;
+  ExtensionRequest request{type, e_item};
+  extension_requests_.push_back(request);
+  if (extension_requests_.size() == 1) {
+    extension_work_available_cv_.Signal();
   }
 }
 
@@ -804,12 +914,23 @@ absl::Status Table::UpdateItem(Key key, double priority) {
 
 absl::Status Table::Reset() {
   {
-    absl::MutexLock lock(&mu_);
-
-    for (auto& extension : extensions_) {
-      extension->OnReset(&mu_);
+    absl::MutexLock table_lock(&mu_);
+    if (extension_worker_) {
+      // Make sure extension worker has no more work to do.
+      auto extension_worker_done = [this]() ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_) {
+        return extension_worker_sleeps_ && extension_requests_.empty();
+      };
+      mu_.Await(absl::Condition(&extension_worker_done));
     }
-
+    {
+      absl::MutexLock extension_lock(&async_extensions_mu_);
+      for (auto& extension : sync_extensions_) {
+        extension->OnReset(&mu_);
+      }
+      for (auto& extension : async_extensions_) {
+        extension->OnReset(&async_extensions_mu_);
+      }
+    }
     sampler_->Clear();
     remover_->Clear();
 
@@ -913,7 +1034,12 @@ void Table::UnsafeAddExtension(std::shared_ptr<TableExtension> extension) {
   REVERB_CHECK_OK(extension->RegisterTable(&mu_, this));
   absl::MutexLock lock(&mu_);
   REVERB_CHECK(data_.empty());
-  extensions_.push_back(std::move(extension));
+  if (extension->CanRunAsync() && extension_worker_) {
+    absl::MutexLock lock(&async_extensions_mu_);
+    async_extensions_.push_back(std::move(extension));
+  } else {
+    sync_extensions_.push_back(std::move(extension));
+  }
 }
 
 const absl::optional<tensorflow::StructuredValue>& Table::signature() const {
@@ -951,8 +1077,13 @@ std::vector<std::shared_ptr<TableExtension>> Table::UnsafeClearExtensions() {
   std::vector<std::shared_ptr<TableExtension>> extensions;
   {
     absl::MutexLock lock(&mu_);
+    absl::MutexLock extension_lock(&async_extensions_mu_);
     REVERB_CHECK(data_.empty());
-    extensions.swap(extensions_);
+    extensions.swap(sync_extensions_);
+    for (auto& extension : async_extensions_) {
+      extensions.push_back(extension);
+    }
+    async_extensions_.clear();
   }
 
   for (auto& extension : extensions) {
@@ -1016,17 +1147,27 @@ std::string Table::DebugString() const {
       ", signature=",
       (signature_.has_value() ? signature_.value().DebugString() : "nullptr"));
 
-  if (!extensions_.empty()) {
-    absl::StrAppend(&str, ", extensions=[");
-    for (size_t i = 0; i < extensions_.size(); ++i) {
-      absl::StrAppend(&str, extensions_[i]->DebugString());
-      if (i != extensions_.size() - 1) {
-        absl::StrAppend(&str, ", ");
+  {
+    absl::MutexLock lock(&async_extensions_mu_);
+
+    if (!sync_extensions_.empty() || !async_extensions_.empty()) {
+      absl::StrAppend(&str, ", extensions=[");
+      for (size_t i = 0; i < sync_extensions_.size(); ++i) {
+        absl::StrAppend(&str, sync_extensions_[i]->DebugString());
+        if (i != sync_extensions_.size() - 1 || !async_extensions_.empty()) {
+          absl::StrAppend(&str, ", ");
+        }
       }
+      for (size_t i = 0; i < async_extensions_.size(); ++i) {
+        absl::StrAppend(&str, async_extensions_[i]->DebugString());
+        if (i != async_extensions_.size() - 1) {
+          absl::StrAppend(&str, ", ");
+        }
+      }
+      absl::StrAppend(&str, "]");
     }
-    absl::StrAppend(&str, "]");
+    absl::StrAppend(&str, ")");
   }
-  absl::StrAppend(&str, ")");
   return str;
 }
 

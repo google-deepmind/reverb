@@ -38,6 +38,11 @@ class TableExtension {
  public:
   virtual ~TableExtension() = default;
 
+  // Can this extension be executed asynchronously without holding table's
+  // mutex. It will still be executed sequentially holding extension worker
+  // mutex, but accessing table is not allowed.
+  virtual bool CanRunAsync() const = 0;
+
   // Returns a summary string description.
   virtual std::string DebugString() const = 0;
 

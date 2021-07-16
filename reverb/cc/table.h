@@ -95,6 +95,9 @@ class Table {
   // Number of queued inserts that are allowed on the table without slowing down
   // further inserts.
   static constexpr int64_t kMaxEnqueuedInserts = 1000;
+  // Maximum number of allowed enqueued extension operations. Table worker is
+  // blocked when this number is reached.
+  static constexpr int64_t kMaxPendingExtensionOps = 1000;
 
   struct SampleRequest;
   using Key = ItemSelector::Key;
@@ -361,7 +364,7 @@ class Table {
   };
 
   struct ExtensionRequest {
-    enum class CallType { kDelete, kInsert, kSample, kUpdate };
+    enum class CallType { kDelete, kInsert, kSample, kUpdate, kMemoryRelease };
     CallType call_type;
     ExtensionItem item;
   };
@@ -376,18 +379,15 @@ class Table {
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_);
 
   // Used by the table worker to perform sampling.
-  absl::Status SampleInternal(bool rate_limited, SampledItem* result,
-                              std::vector<std::shared_ptr<Item>>* to_delete)
+  absl::Status SampleInternal(bool rate_limited, SampledItem* result)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_);
 
   // Finalize sampling request with a given status.
   void FinalizeSampleRequest(std::unique_ptr<Table::SampleRequest> request,
                              absl::Status status);
 
-  // Performs batched insertion of `pending_inserts` into the table. to_delete
-  // is filled with elements to be deleted (once table lock is not held).
-  absl::Status InsertOrAssignInternal(
-      std::shared_ptr<Item> item, std::vector<std::shared_ptr<Item>>* to_delete)
+  // Performs insertion of the `item` into the table.
+  absl::Status InsertOrAssignInternal(std::shared_ptr<Item> item)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_);
 
   // Deletes the item associated with the key from `data_`, `sampler_` and
@@ -395,17 +395,29 @@ class Table {
   //
   // The deleted item is returned in order to allow the deallocation of the
   // underlying item to be postponed until the lock has been released.
-  absl::Status DeleteItem(Key key, std::shared_ptr<Item>* deleted_item)
+  // If deleted_item is not provided, deletion is handled by the
+  // extension worker asynchronously.
+  absl::Status DeleteItem(Key key,
+                          std::shared_ptr<Item>* deleted_item = nullptr)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_);
 
-  // Eexecutes a given extension operation.
+  // Executes a given extension operation for all extensions registered with the
+  // table. If extension worker is enabled, operation is executed asynchronously
+  // for all extensions that support asynchronous execution. For synchronous
+  // extensions operation is executed synchronously.
   void ExtensionOperation(ExtensionRequest::CallType type,
                           const std::shared_ptr<Item>& item)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_);
 
-  // Synchronizes access to `sampler_`, `remover_`, 'rate_limiter_`,
-  // 'extensions_` and `data_`,
-  mutable absl::Mutex mu_;
+  // Extensions worker execution loop. It is executed by a dedicated thread
+  // and it performs enqueued extension operations. Operations are executed in
+  // the order enqueued, but they run without holding table's lock.
+  absl::Status ExtensionsWorkerLoop();
+
+  // Synchronizes access to the table's data. Needs to be acquired to sample or
+  // insert data into the table. Synchronous extensions are also executed while
+  // holding this mutex.
+  mutable absl::Mutex mu_ ABSL_ACQUIRED_AFTER(worker_mu_);
 
   // Distribution used for sampling.
   std::shared_ptr<ItemSelector> sampler_ ABSL_GUARDED_BY(mu_);
@@ -446,10 +458,6 @@ class Table {
   // table.
   std::shared_ptr<RateLimiter> rate_limiter_;
 
-  // Extensions implement hooks that are executed while holding `mu_` as part
-  // of insert, delete, update or reset operations.
-  std::vector<std::shared_ptr<TableExtension>> extensions_ ABSL_GUARDED_BY(mu_);
-
   // Optional signature for data in the table.
   const absl::optional<tensorflow::StructuredValue> signature_;
 
@@ -483,14 +491,48 @@ class Table {
   // worker.
   bool stop_worker_ ABSL_GUARDED_BY(worker_mu_) = false;
 
-  // Used for waking up a worker when asleep.
+  // Used for waking up a table worker when asleep.
   absl::CondVar wakeup_worker_ ABSL_GUARDED_BY(worker_mu_);
 
-  // Mutex to protect worker's state.
+  // Mutex to protect table worker's state.
   mutable absl::Mutex worker_mu_ ABSL_ACQUIRED_BEFORE(mu_);
 
   // Executor used by the table worker to run operation callbacks.
   std::shared_ptr<TaskExecutor> callback_executor_;
+
+  // Extension worker which asynchronously updates monitoring.
+  std::unique_ptr<internal::Thread> extension_worker_;
+
+  // Pending extension requests to be processed by the extension worker.
+  std::vector<ExtensionRequest> extension_requests_ ABSL_ACQUIRED_BEFORE(mu_);
+
+  // Used for waking up extension worker when asleep.
+  absl::CondVar extension_work_available_cv_ ABSL_GUARDED_BY(mu_);
+
+  // Used for waking up table worker when space to add more extension requests
+  // is available.
+  absl::CondVar extension_buffer_available_cv_ ABSL_GUARDED_BY(mu_);
+  bool extension_worker_sleeps_ ABSL_GUARDED_BY(mu_) = true;
+
+  // Extensions implement hooks that are executed as part of insert, delete,
+  // update or reset operations. There are two types of extensions supported:
+  //   - synchronous, which run while holding table's `mu_` mutex.
+  //   - asynchronous, which are executed asynchronously by the extension
+  //     executor. Table's mutex is not held.
+  std::vector<std::shared_ptr<TableExtension>> sync_extensions_
+      ABSL_GUARDED_BY(mu_);
+
+  // Are there async extensions to run asynchronously. Used to avoid grabbing
+  // async_extensions_mu_.
+  bool has_async_extensions_ ABSL_GUARDED_BY(mu_) = false;
+
+  // Mutex which has to be held to operate on asynchronous extensions.
+  mutable absl::Mutex async_extensions_mu_ ABSL_ACQUIRED_AFTER(mu_);
+
+  // Collection of asynchronous extensions. It is populated only when extension
+  // worker is enabled.
+  std::vector<std::shared_ptr<TableExtension>> async_extensions_
+      ABSL_GUARDED_BY(async_extensions_mu_);
 };
 
 }  // namespace reverb
