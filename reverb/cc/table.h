@@ -92,12 +92,18 @@ struct ExtensionItem {
 //
 class Table {
  public:
-  // Number of queued inserts that are allowed on the table without slowing down
-  // further inserts.
+  // Maximum number of enqueued inserts that are allowed on the table without
+  // slowing down further inserts:
+  // - absolute value limit.
+  // - table's maximum size percentage limit.
   static constexpr int64_t kMaxEnqueuedInserts = 1000;
-  // Maximum number of allowed enqueued extension operations. Table worker is
-  // blocked when this number is reached.
+  static constexpr float kMaxEnqueuedInsertsPerc = 0.1;
+
+  // Maximum number of allowed enqueued extension operations.
+  // - absolute value limit.
+  // - table's maximum size percentage limit.
   static constexpr int64_t kMaxPendingExtensionOps = 1000;
+  static constexpr float kMaxPendingExtensionOpsPerc = 0.1;
 
   struct SampleRequest;
   using Key = ItemSelector::Key;
@@ -350,6 +356,10 @@ class Table {
   // yet. This method is only exposed for testing purposes.
   int num_pending_async_sample_requests() const ABSL_LOCKS_EXCLUDED(worker_mu_);
 
+  // Number of queued inserts that are allowed on the table without slowing down
+  // further inserts.
+  int max_enqueued_inserts() const { return max_enqueued_inserts_; }
+
  private:
   // State of the table worker.
   enum class TableWorkerState {
@@ -445,6 +455,13 @@ class Table {
   // Maximum number of items that this container can hold. InsertOrAssign()
   // respects this limit when inserting a new item.
   const int64_t max_size_;
+
+  // Number of queued inserts that are allowed on the table without slowing down
+  // further inserts.
+  const int64_t max_enqueued_inserts_;
+
+  // Maximum number of allowed enqueued extension operations.
+  const int64_t max_enqueued_extension_ops_;
 
   // Maximum number of times an item can be sampled before it is deleted.
   // A value <= 0 means there is no limit.

@@ -138,6 +138,12 @@ Table::Table(std::string name, std::shared_ptr<ItemSelector> sampler,
       num_deleted_episodes_(0),
       num_unique_samples_(0),
       max_size_(max_size),
+      max_enqueued_inserts_(
+          std::max(1L, std::min<int64_t>(max_size * kMaxEnqueuedInsertsPerc,
+                                       kMaxEnqueuedInserts))),
+      max_enqueued_extension_ops_(
+          std::max(1L, std::min<int64_t>(max_size * kMaxPendingExtensionOpsPerc,
+                                       kMaxPendingExtensionOps))),
       max_times_sampled_(max_times_sampled),
       name_(std::move(name)),
       rate_limiter_(std::move(rate_limiter)),
@@ -369,7 +375,7 @@ absl::Status Table::ExtensionsWorkerLoop() {
         extension_worker_sleeps_ = false;
       }
       std::swap(extension_requests_, extension_requests);
-      if (extension_requests.size() >= kMaxPendingExtensionOps) {
+      if (extension_requests.size() >= max_enqueued_extension_ops_) {
         // Table worker may be blocked, let know there is place to add more
         // extension requests now.
         extension_buffer_available_cv_.Signal();
@@ -554,7 +560,7 @@ absl::Status Table::InsertOrAssignAsync(
       to_delete = std::move(deleted_items_.back());
       deleted_items_.pop_back();
     }
-    *can_insert_more = pending_inserts_.size() < kMaxEnqueuedInserts;
+    *can_insert_more = pending_inserts_.size() < max_enqueued_inserts_;
     if (!*can_insert_more) {
       // Caller is not allowed to do any more inserts immediately.
       // A callback is registered, so that when there is space for more
@@ -887,7 +893,7 @@ void Table::ExtensionOperation(ExtensionRequest::CallType type,
     // otherwise no need to enqueue the operation.
     return;
   }
-  while (extension_requests_.size() >= kMaxPendingExtensionOps) {
+  while (extension_requests_.size() >= max_enqueued_extension_ops_) {
     // TODO(stanczyk): Track time spent waiting here.
     extension_buffer_available_cv_.Wait(&mu_);
   }
