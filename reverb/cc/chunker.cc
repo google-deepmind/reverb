@@ -51,7 +51,7 @@ CellRef::CellRef(std::weak_ptr<Chunker> chunker, uint64_t chunk_key, int offset,
       chunk_key_(chunk_key),
       offset_(offset),
       episode_info_(episode_info),
-      chunk_(absl::nullopt) {}
+      chunk_(nullptr) {}
 
 uint64_t CellRef::chunk_key() const { return chunk_key_; }
 
@@ -59,19 +59,19 @@ int CellRef::offset() const { return offset_; }
 
 bool CellRef::IsReady() const {
   absl::MutexLock lock(&mu_);
-  return chunk_.has_value();
+  return chunk_ != nullptr;
 }
 
-void CellRef::SetChunk(std::shared_ptr<const ChunkData> chunk) {
+void CellRef::SetChunk(std::shared_ptr<ChunkDataContainer> chunk) {
   absl::MutexLock lock(&mu_);
   chunk_ = std::move(chunk);
 }
 
 std::weak_ptr<Chunker> CellRef::chunker() const { return chunker_; }
 
-std::shared_ptr<const ChunkData> CellRef::GetChunk() const {
+std::shared_ptr<ChunkDataContainer> CellRef::GetChunk() const {
   absl::MutexLock lock(&mu_);
-  return chunk_.value_or(nullptr);
+  return chunk_;
 }
 
 uint64_t CellRef::episode_id() const { return episode_info_.episode_id; }
@@ -187,8 +187,8 @@ absl::Status Chunker::Flush() {
 absl::Status Chunker::FlushLocked() {
   if (buffer_.empty()) return absl::OkStatus();
 
-  ChunkData chunk;
-  chunk.set_chunk_key(next_chunk_key_);
+  auto chunk = absl::make_unique<ChunkData>();
+  chunk->set_chunk_key(next_chunk_key_);
 
   tensorflow::Tensor batched;
   REVERB_RETURN_IF_ERROR(
@@ -196,28 +196,28 @@ absl::Status Chunker::FlushLocked() {
 
   if (options_->GetDeltaEncode()) {
     batched = DeltaEncode(batched, /*encode=*/true);
-    chunk.set_delta_encoded(true);
+    chunk->set_delta_encoded(true);
   }
 
-  CompressTensorAsProto(batched, chunk.mutable_data()->add_tensors());
-  chunk.set_data_tensors_len(chunk.data().tensors_size());
+  CompressTensorAsProto(batched, chunk->mutable_data()->add_tensors());
+  chunk->set_data_tensors_len(chunk->data().tensors_size());
 
   // Set the sequence range of the chunk.
   for (const auto& ref : active_refs_) {
     // active_refs_ is sorted by insertion time. Iterate over the list until
     // the first cell belonging to the newly created chunk is found.
-    if (ref->chunk_key() != chunk.chunk_key()) continue;
+    if (ref->chunk_key() != chunk->chunk_key()) continue;
 
-    if (!chunk.has_sequence_range()) {
+    if (!chunk->has_sequence_range()) {
       // On the first ref belonging to this chunk, set the the episode ID and
       // set the episode length to 1 (i.e. start == end). The episode length
       // will be extended if we discover more refs belonging to this chunk.
-      SequenceRange* range = chunk.mutable_sequence_range();
+      SequenceRange* range = chunk->mutable_sequence_range();
       range->set_episode_id(ref->episode_id());
       range->set_start(ref->episode_step());
       range->set_end(ref->episode_step());
     } else {
-      SequenceRange* range = chunk.mutable_sequence_range();
+      SequenceRange* range = chunk->mutable_sequence_range();
 
       // Sanity check: The ref belongs to this episode (and chunk) and the ref's
       // step counter is monotonically increasing (i.e. active_refs_ is sorted
@@ -241,10 +241,10 @@ absl::Status Chunker::FlushLocked() {
   }
 
   // Now the chunk has been finalized we can notify the `CellRef`s.
-  auto chunk_sp = std::make_shared<const ChunkData>(std::move(chunk));
+  auto chunk_container = std::make_shared<ChunkDataContainer>(std::move(chunk));
   for (std::shared_ptr<CellRef>& ref : active_refs_) {
-    if (ref->chunk_key() == chunk_sp->chunk_key()) {
-      ref->SetChunk(chunk_sp);
+    if (ref->chunk_key() == chunk_container->chunk->chunk_key()) {
+      ref->SetChunk(chunk_container);
     }
   }
 
@@ -292,7 +292,7 @@ absl::Status Chunker::CopyDataForCell(const CellRef* ref,
   if (ref->IsReady()) {
     tensorflow::Tensor column;
     REVERB_RETURN_IF_ERROR(
-        internal::UnpackChunkColumn(*ref->GetChunk(), 0, &column));
+        internal::UnpackChunkColumn(*ref->GetChunk()->get(), 0, &column));
     *out = column.SubSlice(ref->offset());
     if (!out->IsAligned()) {
       *out = tensorflow::tensor::DeepCopy(*out);
@@ -414,8 +414,8 @@ void AutoTunedChunkerOptions::PushItem(
   internal::flat_hash_set<uint64_t> seen_chunks;
   for (const auto& ref : refs) {
     if (seen_chunks.insert(ref->chunk_key()).second) {
-      total_bytes += ref->GetChunk()->ByteSizeLong();
-      total_chunk_length += GetLength(*ref->GetChunk());
+      total_bytes += ref->GetChunk()->get()->ByteSizeLong();
+      total_chunk_length += GetLength(*ref->GetChunk()->get());
     }
   }
 
@@ -517,7 +517,7 @@ AutoTunedChunkerOptions::ReduceAndClearBuffers() {
 void AutoTunedChunkerOptions::PushChunks(
     absl::Span<const std::shared_ptr<CellRef>> refs) {
   for (const auto& ref : refs) {
-    const auto& chunk = *ref->GetChunk();
+    const ChunkData& chunk = *ref->GetChunk()->get();
     if (std::all_of(chunks_.begin(), chunks_.end(), [&chunk](const auto& s) {
           return s.key != chunk.chunk_key();
         })) {

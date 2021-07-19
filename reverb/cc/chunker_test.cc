@@ -248,8 +248,8 @@ TEST(Chunker, DataTensorsLen) {
   REVERB_ASSERT_OK(chunker->Flush());
   auto cell_ref = ref.lock();
   EXPECT_TRUE(cell_ref->IsReady());
-  EXPECT_EQ(cell_ref->GetChunk()->data_tensors_len(),
-            cell_ref->GetChunk()->data().tensors_size());
+  EXPECT_EQ(cell_ref->GetChunk()->get()->data_tensors_len(),
+            cell_ref->GetChunk()->get()->data().tensors_size());
 }
 
 TEST(Chunker, ChunkHasBatchDim) {
@@ -265,7 +265,7 @@ TEST(Chunker, ChunkHasBatchDim) {
       chunker->Append(MakeZeroTensor<tensorflow::DT_INT32>(kIntSpec),
                       {/*episode_id=*/1, /*step=*/1}, &ref));
   ASSERT_TRUE(ref.lock()->IsReady());
-  EXPECT_THAT(ref.lock()->GetChunk()->data().tensors(0).tensor_shape(),
+  EXPECT_THAT(ref.lock()->GetChunk()->get()->data().tensors(0).tensor_shape(),
               testing::EqualsProto("dim { size: 2} dim { size: 1}"));
 
   // The batch dim is added even if it only contains a single step.
@@ -274,7 +274,7 @@ TEST(Chunker, ChunkHasBatchDim) {
                       {/*episode_id=*/1, /*step=*/0}, &ref));
   REVERB_ASSERT_OK(chunker->Flush());
   ASSERT_TRUE(ref.lock()->IsReady());
-  EXPECT_THAT(ref.lock()->GetChunk()->data().tensors(0).tensor_shape(),
+  EXPECT_THAT(ref.lock()->GetChunk()->get()->data().tensors(0).tensor_shape(),
               testing::EqualsProto("dim { size: 1} dim { size: 1}"));
 }
 
@@ -490,7 +490,7 @@ TEST(Chunker, NonSparseEpisodeRange) {
   // Check that the range is non sparse.
   ASSERT_FALSE(step.expired());
   ASSERT_TRUE(step.lock()->IsReady());
-  EXPECT_THAT(step.lock()->GetChunk()->sequence_range(),
+  EXPECT_THAT(step.lock()->GetChunk()->get()->sequence_range(),
               testing::EqualsProto("episode_id: 1 start: 0 end: 4"));
 }
 
@@ -510,7 +510,7 @@ TEST(Chunker, SparseEpisodeRange) {
   ASSERT_FALSE(step.expired());
   ASSERT_TRUE(step.lock()->IsReady());
   EXPECT_THAT(
-      step.lock()->GetChunk()->sequence_range(),
+      step.lock()->GetChunk()->get()->sequence_range(),
       testing::EqualsProto("episode_id: 33 start: 0 end: 8 sparse: true"));
 }
 
@@ -530,7 +530,7 @@ TEST(Chunker, ApplyConfigChangesMaxChunkLength) {
                       {/*episode_id=*/1, /*step=*/0}, &step));
   ASSERT_FALSE(step.expired());
   ASSERT_TRUE(step.lock()->IsReady());
-  EXPECT_THAT(step.lock()->GetChunk()->sequence_range(),
+  EXPECT_THAT(step.lock()->GetChunk()->get()->sequence_range(),
               testing::EqualsProto("episode_id: 1 start: 0 end: 0"));
 }
 
@@ -611,7 +611,7 @@ TEST(Chunker, OnItemFinalizedIsNoopIfNoRefsCreatedByChunker) {
   // came from it.
   EXPECT_CALL(*options_b, OnItemFinalized(_, _)).Times(0);
   chunker_b->OnItemFinalized(
-      testing::MakePrioritizedItem(1, 1.0, {*step.lock()->GetChunk()}),
+      testing::MakePrioritizedItem(1, 1.0, {*step.lock()->GetChunk()->get()}),
       {step.lock()});
 }
 
@@ -641,8 +641,8 @@ TEST(Chunker, OnItemFinalizedFiltersRefsAndForwardsToOptions) {
   // the chunker.
   auto item = testing::MakePrioritizedItem(1, 1.0,
                                            {
-                                               *ref_a.lock()->GetChunk(),
-                                               *ref_b.lock()->GetChunk(),
+                                               *ref_a.lock()->GetChunk()->get(),
+                                               *ref_b.lock()->GetChunk()->get(),
                                            });
   std::vector<std::shared_ptr<CellRef>> refs = {ref_a.lock(), ref_b.lock()};
 
@@ -685,7 +685,7 @@ TEST(Chunker, DeltaEncodeIsRespected) {
       chunker->Append(MakeZeroTensor<tensorflow::DT_INT32>(kIntSpec),
                       {/*episode_id=*/1, /*step=*/0}, &step));
   REVERB_ASSERT_OK(chunker->Flush());
-  EXPECT_TRUE(step.lock()->GetChunk()->delta_encoded());
+  EXPECT_TRUE(step.lock()->GetChunk()->get()->delta_encoded());
 }
 
 TEST(ValidateChunkerOptions, Valid) {

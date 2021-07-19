@@ -25,6 +25,7 @@
 #include "absl/types/optional.h"
 #include "absl/types/span.h"
 #include "reverb/cc/platform/hash_map.h"
+#include "reverb/cc/platform/logging.h"
 #include "reverb/cc/schema.pb.h"
 #include "reverb/cc/support/key_generators.h"
 #include "reverb/cc/support/signature.h"
@@ -38,6 +39,27 @@ namespace reverb {
 class CellRef;
 class Chunker;
 class ChunkerOptions;
+
+// Small wrapper around a unique_ptr to make ownership of the ChunkData proto
+// explicit. Usually, the ChunkData proto is owned by the collection of
+// `CellRef` instances that belong to the chunk and each instance has a
+// shared_ptr pointing to the container. However, by releasing the unique_ptr
+// it's possible to transfer ownership of the ChunkData proto from the
+// collection of `CellRef` instances to a new owner. This is useful if we want
+// to reduce memory usage by deleting ChunkData as soon as the data is streamed.
+struct ChunkDataContainer {
+  explicit ChunkDataContainer(std::unique_ptr<ChunkData> chunk)
+      : chunk(std::move(chunk)) {}
+
+  const ChunkData* get() const {
+    REVERB_CHECK(chunk != nullptr)
+        << "Chunk data was deleted. This usually happens when using "
+           "StreamingTrajectoryWriter, which releases memory greedily.";
+    return chunk.get();
+  }
+
+  std::unique_ptr<const ChunkData> chunk;
+};
 
 // References a single cell (i.e. a single tensor) in a data column that was
 // added to Reverb. `CellRef`s are created by a `Chunker` instance when
@@ -81,7 +103,7 @@ class CellRef {
   bool IsReady() const ABSL_LOCKS_EXCLUDED(mu_);
 
   // Gets chunker if set. If not yet set then nullptr is returned.
-  std::shared_ptr<const ChunkData> GetChunk() const ABSL_LOCKS_EXCLUDED(mu_);
+  std::shared_ptr<ChunkDataContainer> GetChunk() const ABSL_LOCKS_EXCLUDED(mu_);
 
   // Weak pointer to the parent Chunker.
   std::weak_ptr<Chunker> chunker() const;
@@ -102,7 +124,7 @@ class CellRef {
   friend Chunker;
 
   // Called by chunker the referenced data is flushed into a ChunkData.
-  void SetChunk(std::shared_ptr<const ChunkData> chunk)
+  void SetChunk(std::shared_ptr<ChunkDataContainer> chunk)
       ABSL_LOCKS_EXCLUDED(mu_);
 
  private:
@@ -121,8 +143,10 @@ class CellRef {
 
   mutable absl::Mutex mu_;
 
-  // Parent chunk which eventually be set by parent `Chunker`.
-  absl::optional<std::shared_ptr<const ChunkData>> chunk_ ABSL_GUARDED_BY(mu_);
+  // The chunk, which holds the data referenced by this `CellRef` instance.
+  // nullptr until the chunk is actually created by the parent `Chunker` and
+  // updated via `SetChunk`.
+  std::shared_ptr<ChunkDataContainer> chunk_ ABSL_GUARDED_BY(mu_);
 };
 
 // Checks that `max_chunk_length` and `num_keep_alive_refs` is a valid `Chunker`

@@ -78,7 +78,7 @@ bool SendNotAlreadySentChunks(
     }
 
     request->r.mutable_chunks()->UnsafeArenaAddAllocated(
-        const_cast<ChunkData*>(ref->GetChunk().get()));
+        const_cast<ChunkData*>(ref->GetChunk()->get()));
     streamed_chunk_keys->insert(ref->chunk_key());
 
     // If the message has grown beyond the cutoff point then we send it.
