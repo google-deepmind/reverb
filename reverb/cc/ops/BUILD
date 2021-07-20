@@ -27,6 +27,7 @@ reverb_kernel_library(
         "//reverb/cc:errors",
         "//reverb/cc:sampler",
         "//reverb/cc/platform:logging",
+        "//reverb/cc/platform:tf_utils",
         "//reverb/cc/support:tf_util",
     ] + reverb_absl_deps(),
 )
@@ -39,6 +40,7 @@ reverb_kernel_library(
         "//reverb/cc:errors",
         "//reverb/cc:sampler",
         "//reverb/cc/platform:logging",
+        "//reverb/cc/platform:tf_utils",
         "//reverb/cc/support:tf_util",
     ] + reverb_absl_deps(),
 )
@@ -51,6 +53,7 @@ reverb_kernel_library(
         "//reverb/cc:errors",
         "//reverb/cc:sampler",
         "//reverb/cc/platform:logging",
+        "//reverb/cc/platform:tf_utils",
         "//reverb/cc/support:tf_util",
     ] + reverb_absl_deps(),
 )

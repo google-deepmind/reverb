@@ -132,3 +132,12 @@ reverb_cc_library(
     ],
     alwayslink = 1,
 )
+
+reverb_cc_library(
+    name = "tf_utils",
+    srcs = ["tf_utils.cc"],
+    deps = [
+        "//reverb/cc/platform:tf_utils_hdr",
+    ],
+    alwayslink = 1,
+)

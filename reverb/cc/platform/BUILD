@@ -214,3 +214,15 @@ reverb_cc_test(
         ":net",
     ],
 )
+
+reverb_cc_library(
+    name = "tf_utils_hdr",
+    hdrs = ["tf_utils.h"],
+)
+
+reverb_cc_library(
+    name = "tf_utils",
+    hdrs = ["tf_utils.h"],
+    visibility = ["//reverb:__subpackages__"],
+    deps = ["//reverb/cc/platform/default:tf_utils"],
+)
