@@ -46,9 +46,7 @@ class TrajectoryColumn;
 
 class ArenaOwnedRequest {
  public:
-  ~ArenaOwnedRequest() {
-    Clear();
-  }
+  ~ArenaOwnedRequest() { Clear(); }
 
   void Clear() {
     while (!r.chunks().empty()) {
@@ -73,6 +71,10 @@ class TrajectoryWriter {
   static constexpr int64_t kMaxRequestSizeBytes = 40 * 1024 * 1024;  // 40MB.
 
   struct Options {
+    // Checks that field values are valid and returns `InvalidArgument` if
+    // any field value, or combination of field values, are invalid.
+    absl::Status Validate() const;
+
     std::shared_ptr<ChunkerOptions> chunker_options;
 
     // Optional mapping from table names to optional flattened signatures. The
@@ -81,10 +83,20 @@ class TrajectoryWriter {
     // knowledge whatsoever about the tables.
     absl::optional<internal::FlatSignatureMap> flat_signature_map =
         absl::nullopt;
+  };
 
-    // Checks that field values are valid and returns `InvalidArgument` if
-    // any field value, or combination of field values, are invalid.
-    absl::Status Validate() const;
+  struct ItemAndRefs {
+    // Checks that the table the item targets exists and that the item
+    // trajectory conforms to the table signature (if any). Returns
+    // `InvalidArgumentError` if the item is not valid.
+    absl::Status Validate(const Options& options) const;
+
+    PrioritizedItem item;
+
+    // Data referenced by the item. Note that the shared_ptr ensures that the
+    // underlying data is not prematurely cleaned up even if it exceeds the max
+    // age of the parent `Chunker`.
+    std::vector<std::shared_ptr<CellRef>> refs;
   };
 
   // TODO(b/178084425): Allow chunking options to be specified for each column.
@@ -112,9 +124,8 @@ class TrajectoryWriter {
   //
   // TODO(b/178085792): Figure out how episode information should be handled.
   // TODO(b/178085755): Decide how to manage partially invalid data.
-  absl::Status Append(
-      std::vector<absl::optional<tensorflow::Tensor>> data,
-      std::vector<absl::optional<std::weak_ptr<CellRef>>>* refs)
+  absl::Status Append(std::vector<absl::optional<tensorflow::Tensor>> data,
+                      std::vector<absl::optional<std::weak_ptr<CellRef>>>* refs)
       ABSL_LOCKS_EXCLUDED(mu_);
 
   // Same as `Append` but does not increment the episode step counter after
@@ -174,8 +185,8 @@ class TrajectoryWriter {
   // and confirms all pending items, and resets the episode state (i.e generates
   // a new episode ID and sets step index to 0). If `clear_buffers` is true then
   // all `CellRef`s are invalidated (and their data deleted).
-  absl::Status EndEpisode(
-      bool clear_buffers, absl::Duration timeout = absl::InfiniteDuration());
+  absl::Status EndEpisode(bool clear_buffers,
+                          absl::Duration timeout = absl::InfiniteDuration());
 
   // Closes the stream, joins the worker thread and unblocks any concurrent
   // `Flush` call. All future (and concurrent) calls returns CancelledError once
@@ -191,15 +202,6 @@ class TrajectoryWriter {
  private:
   using InsertStream = grpc::ClientReaderWriterInterface<InsertStreamRequest,
                                                          InsertStreamResponse>;
-
-  struct ItemAndRefs {
-    PrioritizedItem item;
-
-    // Data referenced by the item. Note that the shared_ptr ensures that the
-    // underlying data is not prematurely cleaned up even if it exceeds the max
-    // age of the parent `Chunker`.
-    std::vector<std::shared_ptr<CellRef>> refs;
-  };
 
   // See `Append` and `AppendPartial`.
   absl::Status AppendInternal(
@@ -240,8 +242,7 @@ class TrajectoryWriter {
   // method.
   bool SendItem(InsertStream* stream,
                 const internal::flat_hash_set<uint64_t>& keep_keys,
-                const PrioritizedItem& item,
-                ArenaOwnedRequest* request) const;
+                const PrioritizedItem& item, ArenaOwnedRequest* request) const;
 
   // Union of `GetChunkKeys` from all column chunkers and all the chunks
   // referenced by pending items (except for chunks only referenced by the first
@@ -251,11 +252,6 @@ class TrajectoryWriter {
   internal::flat_hash_set<uint64_t> GetKeepKeys(
       const internal::flat_hash_set<uint64_t>& streamed_chunk_keys) const
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_);
-
-  // Checks that the table the item targets exists and that the item trajectory
-  // conforms to the table signature (if any). Returns `InvalidArgumentError` if
-  // the item is not valid.
-  absl::Status Validate(const ItemAndRefs& item_and_refs) const;
 
   // Stub used to create InsertStream gRPC streams.
   std::shared_ptr</* grpc_gen:: */ReverbService::StubInterface> stub_;

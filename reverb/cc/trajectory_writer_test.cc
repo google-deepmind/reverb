@@ -649,7 +649,6 @@ TEST(TrajectoryWriter, DestructorFlushesPendingItems) {
 
 TEST(TrajectoryWriter, RetriesOnTransientError) {
   auto* fail_stream = new MockStream();
-  //  EXPECT_CALL(*fail_stream, Write(IsChunk(), _)).WillOnce(Return(true));
   EXPECT_CALL(*fail_stream, Write(IsChunkAndItem(), _)).WillOnce(Return(false));
   EXPECT_CALL(*fail_stream, Read(_)).WillOnce(Return(false));
   EXPECT_CALL(*fail_stream, Finish())

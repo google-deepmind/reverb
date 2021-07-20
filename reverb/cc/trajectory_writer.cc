@@ -138,6 +138,72 @@ std::vector<internal::TensorSpec> FlatSignatureFromTrajectory(
 
 }  // namespace
 
+absl::Status TrajectoryWriter::Options::Validate() const {
+  if (chunker_options == nullptr) {
+    return absl::InvalidArgumentError("chunker_options must be set.");
+  }
+  return ValidateChunkerOptions(chunker_options.get());
+}
+
+absl::Status TrajectoryWriter::ItemAndRefs::Validate(
+    const TrajectoryWriter::Options& options) const {
+  if (!options.flat_signature_map.has_value()) {
+    return absl::OkStatus();
+  }
+
+  const std::string& table = item.table();
+  const internal::FlatSignatureMap& signature_map =
+      options.flat_signature_map.value();
+  auto it = signature_map.find(table);
+  if (it == signature_map.end()) {
+    return absl::InvalidArgumentError(
+        absl::StrFormat("Unable to create item in table '%s' since the table "
+                        "could not be found.",
+                        table));
+  }
+  if (!it->second.has_value()) {
+    return absl::OkStatus();
+  }
+  const std::vector<internal::TensorSpec>& table_signature = it->second.value();
+
+  const FlatTrajectory& trajectory = item.flat_trajectory();
+  std::vector<internal::TensorSpec> trajectory_signature =
+      FlatSignatureFromTrajectory(trajectory, refs);
+
+  if (table_signature.size() != trajectory_signature.size()) {
+    return absl::InvalidArgumentError(absl::StrFormat(
+        "Unable to create item in table '%s' since the provided trajectory "
+        "is inconsistent with the table signature. The trajectory has %d "
+        "columns but the table signature has %d columns."
+        "\n\nThe table signature is:\n\t%s"
+        "\n\nThe provided trajectory signature was:\n\t%s.\n",
+        table, trajectory_signature.size(), table_signature.size(),
+        internal::DtypesShapesString(table_signature),
+        internal::DtypesShapesString(trajectory_signature)));
+  }
+
+  for (int i = 0; i < table_signature.size(); i++) {
+    const internal::TensorSpec& want = table_signature[i];
+    const internal::TensorSpec& got = trajectory_signature[i];
+
+    if (want.dtype != got.dtype || !want.shape.IsCompatibleWith(got.shape)) {
+      return absl::InvalidArgumentError(absl::StrFormat(
+          "Unable to create item in table '%s' since the provided trajectory "
+          "is inconsistent with the table signature. The table expects column "
+          "%d to be a %s %s tensor but got a %s %s tensor."
+          "\n\nThe table signature is:\n\t%s"
+          "\n\nThe provided trajectory signature is:\n\t%s.\n",
+          table, i, tensorflow::DataTypeString(want.dtype),
+          want.shape.DebugString(), tensorflow::DataTypeString(got.dtype),
+          got.shape.DebugString(),
+          internal::DtypesShapesString(table_signature),
+          internal::DtypesShapesString(trajectory_signature)));
+    }
+  }
+
+  return absl::OkStatus();
+}
+
 TrajectoryWriter::TrajectoryWriter(
     std::shared_ptr</* grpc_gen:: */ReverbService::StubInterface> stub,
     const Options& options)
@@ -235,7 +301,7 @@ absl::Status TrajectoryWriter::AppendInternal(
 
     std::weak_ptr<CellRef> ref;
     absl::Status status =
-        chunkers_[i]->Append(std::move(data[i].value()), episode_info, &ref);
+        chunkers_[i]->Append(data[i].value(), episode_info, &ref);
     if (absl::IsFailedPrecondition(status)) {
       return absl::FailedPreconditionError(
           "Append/AppendPartial called with data containing column that was "
@@ -300,7 +366,7 @@ absl::Status TrajectoryWriter::CreateItem(
     column.ToProto(item_and_refs.item.mutable_flat_trajectory()->add_columns());
   }
 
-  REVERB_RETURN_IF_ERROR(Validate(item_and_refs));
+  REVERB_RETURN_IF_ERROR(item_and_refs.Validate(options_));
 
   {
     absl::MutexLock lock(&mu_);
@@ -308,74 +374,6 @@ absl::Status TrajectoryWriter::CreateItem(
   }
 
   return absl::OkStatus();
-}
-
-absl::Status TrajectoryWriter::Validate(
-    const TrajectoryWriter::ItemAndRefs& item_and_refs) const {
-  if (!options_.flat_signature_map.has_value()) {
-    return absl::OkStatus();
-  }
-
-  const std::string& table = item_and_refs.item.table();
-  const internal::FlatSignatureMap& signature_map =
-      options_.flat_signature_map.value();
-  auto it = signature_map.find(table);
-  if (it == signature_map.end()) {
-    return absl::InvalidArgumentError(
-        absl::StrFormat("Unable to create item in table '%s' since the table "
-                        "could not be found.",
-                        table));
-  }
-  if (!it->second.has_value()) {
-    return absl::OkStatus();
-  }
-  const std::vector<internal::TensorSpec>& table_signature = it->second.value();
-
-  const FlatTrajectory& trajectory = item_and_refs.item.flat_trajectory();
-  std::vector<internal::TensorSpec> trajectory_signature =
-      FlatSignatureFromTrajectory(trajectory, item_and_refs.refs);
-
-  if (table_signature.size() != trajectory_signature.size()) {
-    return absl::InvalidArgumentError(absl::StrFormat(
-        "Unable to create item in table '%s' since the provided trajectory "
-        "is inconsistent with the table signature. The trajectory has %d "
-        "columns but the table signature has %d columns."
-        "\n\nThe table signature is:\n\t%s"
-        "\n\nThe provided trajectory signature was:\n\t%s.\n",
-        table, trajectory_signature.size(), table_signature.size(),
-        internal::DtypesShapesString(table_signature),
-        internal::DtypesShapesString(trajectory_signature)));
-  }
-
-  for (int i = 0; i < table_signature.size(); i++) {
-    const internal::TensorSpec& want = table_signature[i];
-    const internal::TensorSpec& got = trajectory_signature[i];
-
-    if (want.dtype != got.dtype || !want.shape.IsCompatibleWith(got.shape)) {
-      return absl::InvalidArgumentError(absl::StrFormat(
-          "Unable to create item in table '%s' since the provided trajectory "
-          "is inconsistent with the table signature. The table expects column "
-          "%d to be a %s %s tensor but got a %s %s tensor."
-          "\n\nThe table signature is:\n\t%s"
-          "\n\nThe provided trajectory signature is:\n\t%s.\n",
-          table, i, tensorflow::DataTypeString(want.dtype),
-          want.shape.DebugString(), tensorflow::DataTypeString(got.dtype),
-          got.shape.DebugString(),
-          internal::DtypesShapesString(table_signature),
-          internal::DtypesShapesString(trajectory_signature)));
-    }
-  }
-
-  return absl::OkStatus();
-}
-
-void TrajectoryColumn::ToProto(FlatTrajectory::Column* proto) const {
-  // Note that MergeAdjacent can safely assume that all weak_ptrs are alive
-  // since the corresponding shared_ptrs exists in item_and_refs.
-  for (FlatTrajectory::ChunkSlice& slice : MergeAdjacent(refs_)) {
-    *proto->add_chunk_slices() = std::move(slice);
-  }
-  proto->set_squeeze(squeeze_);
 }
 
 void TrajectoryWriter::Close() {
@@ -415,8 +413,7 @@ absl::Status TrajectoryWriter::SetContextAndCreateStream(
   return absl::OkStatus();
 }
 
-bool TrajectoryWriter::GetNextPendingItem(
-    TrajectoryWriter::ItemAndRefs* item_and_refs) const {
+bool TrajectoryWriter::GetNextPendingItem(ItemAndRefs* item_and_refs) const {
   absl::MutexLock lock(&mu_);
   mu_.Await(absl::Condition(
       +[](const TrajectoryWriter* w) ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_) {
@@ -653,16 +650,18 @@ absl::Status TrajectoryWriter::ConfigureChunker(
   return absl::OkStatus();
 }
 
-absl::Status TrajectoryWriter::Options::Validate() const {
-  if (chunker_options == nullptr) {
-    return absl::InvalidArgumentError("chunker_options must be set.");
-  }
-  return ValidateChunkerOptions(chunker_options.get());
-}
-
 TrajectoryColumn::TrajectoryColumn(std::vector<std::weak_ptr<CellRef>> refs,
                                    bool squeeze)
     : refs_(std::move(refs)), squeeze_(squeeze) {}
+
+void TrajectoryColumn::ToProto(FlatTrajectory::Column* proto) const {
+  // Note that MergeAdjacent can safely assume that all weak_ptrs are alive
+  // since the corresponding shared_ptrs exists in item_and_refs.
+  for (FlatTrajectory::ChunkSlice& slice : MergeAdjacent(refs_)) {
+    *proto->add_chunk_slices() = std::move(slice);
+  }
+  proto->set_squeeze(squeeze_);
+}
 
 absl::Status TrajectoryColumn::Validate() const {
   std::vector<std::shared_ptr<CellRef>> locked_refs;
