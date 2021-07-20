@@ -296,6 +296,27 @@ reverb_cc_library(
     ] + reverb_tf_deps() + reverb_absl_deps() + reverb_grpc_deps(),
 )
 
+reverb_cc_library(
+    name = "streaming_trajectory_writer",
+    srcs = ["streaming_trajectory_writer.cc"],
+    hdrs = ["streaming_trajectory_writer.h"],
+    visibility = ["//reverb:__subpackages__"],
+    deps = [
+        ":chunker",
+        ":reverb_service_cc_grpc_proto",
+        ":reverb_service_cc_proto",
+        ":schema_cc_proto",
+        ":trajectory_writer",
+        "//reverb/cc/platform:hash_map",
+        "//reverb/cc/platform:hash_set",
+        "//reverb/cc/platform:logging",
+        "//reverb/cc/platform:status_macros",
+        "//reverb/cc/support:grpc_util",
+        "//reverb/cc/support:key_generators",
+        "//reverb/cc/support:signature",
+    ] + reverb_tf_deps() + reverb_absl_deps() + reverb_grpc_deps(),
+)
+
 reverb_cc_test(
     name = "trajectory_writer_test",
     srcs = ["trajectory_writer_test.cc"],
@@ -308,6 +329,23 @@ reverb_cc_test(
         "//reverb/cc/support:queue",
         "//reverb/cc/platform:logging",
         "//reverb/cc/platform:status_matchers",
+        "//reverb/cc/testing:proto_test_util",
+        "//reverb/cc/testing:tensor_testutil",
+    ] + reverb_tf_deps() + reverb_grpc_deps() + reverb_absl_deps(),
+)
+
+reverb_cc_test(
+    name = "streaming_trajectory_writer_test",
+    srcs = ["streaming_trajectory_writer_test.cc"],
+    deps = [
+        ":chunker",
+        ":reverb_service_cc_grpc_proto",
+        ":reverb_service_cc_proto",
+        ":streaming_trajectory_writer",
+        "//reverb/cc/platform:logging",
+        "//reverb/cc/platform:status_matchers",
+        "//reverb/cc/support:queue",
+        "//reverb/cc/support:signature",
         "//reverb/cc/testing:proto_test_util",
         "//reverb/cc/testing:tensor_testutil",
     ] + reverb_tf_deps() + reverb_grpc_deps() + reverb_absl_deps(),
