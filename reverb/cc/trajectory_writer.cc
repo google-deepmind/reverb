@@ -41,6 +41,23 @@
 
 namespace deepmind {
 namespace reverb {
+
+class ArenaOwnedRequest {
+ public:
+  ~ArenaOwnedRequest() { Clear(); }
+
+  void Clear() {
+    while (!r.chunks().empty()) {
+      r.mutable_chunks()->UnsafeArenaReleaseLast();
+    }
+    if (r.has_item()) {
+      r.mutable_item()->unsafe_arena_release_item();
+      r.clear_item();
+    }
+  }
+  InsertStreamRequest r;
+};
+
 namespace {
 
 std::vector<FlatTrajectory::ChunkSlice> MergeAdjacent(

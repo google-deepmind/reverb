@@ -40,25 +40,8 @@
 namespace deepmind {
 namespace reverb {
 
-// TODO(b/178096736): Write high level API documentation with examples.
-
-class TrajectoryColumn;
-
-class ArenaOwnedRequest {
- public:
-  ~ArenaOwnedRequest() { Clear(); }
-
-  void Clear() {
-    while (!r.chunks().empty()) {
-      r.mutable_chunks()->UnsafeArenaReleaseLast();
-    }
-    if (r.has_item()) {
-      r.mutable_item()->unsafe_arena_release_item();
-      r.clear_item();
-    }
-  }
-  InsertStreamRequest r;
-};
+class TrajectoryColumn;   // Defined below.
+class ArenaOwnedRequest;  // Defined in trajectory_writer.cc.
 
 // With the exception of `Close`, none of the methods are thread safe.
 //
