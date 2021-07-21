@@ -221,7 +221,8 @@ absl::Status StreamingTrajectoryWriter::CreateItem(
   return SendItem(std::move(item_and_refs.item));
 }
 
-absl::Status StreamingTrajectoryWriter::EndEpisode() {
+absl::Status StreamingTrajectoryWriter::EndEpisode(bool clear_buffers,
+                                                   absl::Duration timeout) {
   REVERB_RETURN_IF_ERROR(unrecoverable_error_);
   streamed_chunk_keys_.clear();
   episode_id_ = key_generator_.Generate();
