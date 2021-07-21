@@ -105,6 +105,14 @@ class StreamingTrajectoryWriter : public ColumnWriter {
 
   absl::Status EndEpisode() { return EndEpisode(true); }
 
+  // See `ColumnWriter::Flush` in trajectory_writer.h.
+  // Does not actually send any items since this writer operates synchronously
+  // with each `CreateItem` call. Waits until all but the past
+  // `ignore_last_num_items` items are confirmed.
+  absl::Status Flush(
+      int ignore_last_num_items = 0,
+      absl::Duration timeout = absl::InfiniteDuration()) override;
+
  private:
   using InsertStream = grpc::ClientReaderWriterInterface<InsertStreamRequest,
                                                          InsertStreamResponse>;
@@ -133,6 +141,9 @@ class StreamingTrajectoryWriter : public ColumnWriter {
   // error, which will be reset when a new episode is started.
   absl::Status WriteStream(const InsertStreamRequest& request);
 
+  // Waits for item confirmations until the stream expires.
+  void ProcessItemConfirmations();
+
   // Stub used to create InsertStream gRPC streams.
   std::shared_ptr</* grpc_gen:: */ReverbService::StubInterface> stub_;
 
@@ -150,6 +161,14 @@ class StreamingTrajectoryWriter : public ColumnWriter {
   // Set of chunk IDs belonging to this episode that have been streamed to the
   // replay buffer.
   internal::flat_hash_set<uint64_t> streamed_chunk_keys_;
+
+  // Set of item IDs that have been sent to the replay server but haven't been
+  // confirmed yet.
+  internal::flat_hash_set<uint64_t> in_flight_items_ ABSL_GUARDED_BY(mutex_);
+  absl::Mutex mutex_;
+
+  // Thread that receives item confirmations.
+  std::unique_ptr<internal::Thread> item_confirmation_worker_;
 
   // ID of the active episode.
   uint64_t episode_id_;

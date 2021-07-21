@@ -205,6 +205,21 @@ class ColumnWriter {
   virtual absl::Status EndEpisode(
       bool clear_buffers,
       absl::Duration timeout = absl::InfiniteDuration()) = 0;
+
+  // Sends all but the last `ignore_last_num_items` pending items and awaits
+  // confirmation. Incomplete chunks referenced by these items are finalized
+  // and transmitted.
+  //
+  // `ignore_last_num_items` can be used to limit how much the writer runs ahead
+  // of the server, only blocking when the gap grows too big. For example, to
+  // limit the "run ahead" to 20 just call `Flush(20)` after every `CreateItem`
+  // call. If the number of unconfirmed items never reaches 20 (which is likely
+  // if the rate limiter does not block), then no blocking ever occur. However,
+  // if the sample rate suddenly falls and the rate limiter kicks in then the
+  // `Flush` call blocks the writer from running ahead too much.
+  virtual absl::Status Flush(
+      int ignore_last_num_items = 0,
+      absl::Duration timeout = absl::InfiniteDuration()) = 0;
 };
 
 // With the exception of `Close`, none of the methods are thread safe.
@@ -270,19 +285,9 @@ class TrajectoryWriter : public ColumnWriter {
                           absl::Span<const TrajectoryColumn> trajectory)
       override ABSL_LOCKS_EXCLUDED(mu_);
 
-  // Sends all but the last `ignore_last_num_items` pending items and awaits
-  // confirmation. Incomplete chunks referenced by these items are finalized
-  // and transmitted.
-  //
-  // `ignore_last_num_items` can be used to limit how much the writer runs ahead
-  // of the server, only blocking when the gap grows too big. For example, to
-  // limit the "run ahead" to 20 just call `Flush(20)` after every `CreateItem`
-  // call. If the number of unconfirmed items never reaches 20 (which is likely
-  // if the rate limiter does not block), then no blocking ever occur. However,
-  // if the sample rate suddenly falls and the rate limiter kicks in then the
-  // `Flush` call blocks the writer from running ahead too much.
+  // See `ColumnWriter::Flush` above.
   absl::Status Flush(int ignore_last_num_items = 0,
-                     absl::Duration timeout = absl::InfiniteDuration())
+                     absl::Duration timeout = absl::InfiniteDuration()) override
       ABSL_LOCKS_EXCLUDED(mu_);
 
   // See `ColumnWriter::EndEpisode` above.

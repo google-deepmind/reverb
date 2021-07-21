@@ -628,8 +628,7 @@ absl::Status TrajectoryWriter::FlushLocked(int ignore_last_num_items,
                      in_flight_items_.size(), " items awaiting confirmation."));
   }
 
-  REVERB_RETURN_IF_ERROR(unrecoverable_status_);
-  return absl::OkStatus();
+  return unrecoverable_status_;
 }
 
 absl::Status TrajectoryWriter::EndEpisode(bool clear_buffers,

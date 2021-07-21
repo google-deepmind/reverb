@@ -418,6 +418,7 @@ TEST(StreamingTrajectoryWriter, ItemSentAfterChunks) {
   // and item being sent.
   REVERB_ASSERT_OK(
       writer.CreateItem("table", 1.0, MakeTrajectory({{refs[0]}})));
+  REVERB_EXPECT_OK(writer.Flush());
 
   // Chunk is sent before item.
   EXPECT_THAT(stream->requests(), ElementsAre(IsChunk(), IsItem()));
@@ -426,6 +427,7 @@ TEST(StreamingTrajectoryWriter, ItemSentAfterChunks) {
   // Note that the chunk is not sent again.
   REVERB_ASSERT_OK(
       writer.CreateItem("table", 0.5, MakeTrajectory({{refs[0]}})));
+  REVERB_EXPECT_OK(writer.Flush());
 
   EXPECT_THAT(stream->requests(), ElementsAre(IsChunk(), IsItem(), IsItem()));
 }
@@ -446,6 +448,7 @@ TEST(StreamingTrajectoryWriter, ChunksReferencedByItemAreFinalized) {
   // Create an item which references the first row in the two columns.
   REVERB_ASSERT_OK(writer.CreateItem("table", 1.0,
                                      MakeTrajectory({{first[0]}, {first[1]}})));
+  REVERB_EXPECT_OK(writer.Flush());
 
   // Chunks were finalized: 2 chunks (one for each column).
   EXPECT_THAT(stream->requests(),
@@ -458,6 +461,7 @@ TEST(StreamingTrajectoryWriter, ChunksReferencedByItemAreFinalized) {
 
   REVERB_ASSERT_OK(writer.CreateItem(
       "table", 1.0, MakeTrajectory({{second[0]}, {first[1]}})));
+  REVERB_EXPECT_OK(writer.Flush());
 
   // Chunks were finalized: 1 extra chunk for the first column.
   EXPECT_THAT(stream->requests(), ElementsAre(HasNumChunksAndItem(2, false),
@@ -502,6 +506,7 @@ TEST(StreamingTrajectoryWriter, ChunkersNotifiedWhenAllChunksDone) {
   // Create an item which references the step row in the two columns.
   REVERB_ASSERT_OK(
       writer.CreateItem("table", 1.0, MakeTrajectory({{step[0]}, {step[1]}})));
+  REVERB_EXPECT_OK(writer.Flush());
 
   // The options should be cloned into the chunkers of the two columns and since
   // the chunk length is set to 1 the item should be finalized straight away and
@@ -540,6 +545,7 @@ TEST(StreamingTrajectoryWriter, CorruptEpisodeOnTransientError) {
   EXPECT_OK(writer.Append(Step({MakeTensor(kIntSpec)}), &first));
   REVERB_ASSERT_OK(
       writer.CreateItem("table", 1.0, MakeTrajectory({{first[0]}})));
+  REVERB_EXPECT_OK(writer.Flush());
 
   // The first stream will fail on the second request (item). The writer should
   // then close the stream and once it sees the UNAVAILABLE error open a nee
@@ -586,6 +592,7 @@ TEST(StreamingTrajectoryWriter, MultipleChunksAreSentInSameMessage) {
   // both columns to be sent.
   REVERB_ASSERT_OK(
       writer.CreateItem("table", 1.0, MakeTrajectory({{first[0], first[1]}})));
+  REVERB_EXPECT_OK(writer.Flush());
 
   // Check that both chunks were sent in the same message.
   EXPECT_THAT(stream->requests(),
@@ -654,6 +661,7 @@ TEST(StreamingTrajectoryWriter, KeepKeysIncludesAllEpisodeKeys) {
   // Create an item which only references one of the columns.
   REVERB_ASSERT_OK(
       writer.CreateItem("table", 1.0, MakeTrajectory({{first[0]}})));
+  REVERB_EXPECT_OK(writer.Flush());
 
   // All chunks belonging to this episode should be keps.
   EXPECT_THAT(stream->requests(),

@@ -93,6 +93,7 @@ StreamingTrajectoryWriter::~StreamingTrajectoryWriter() {
     absl::Status status = FromGrpcStatus(stream_->Finish());
     REVERB_LOG_IF(REVERB_ERROR, !status.ok())
         << "Failed to close stream: " << status;
+    item_confirmation_worker_ = nullptr;  // Join thread.
   }
 }
 
@@ -235,6 +236,32 @@ absl::Status StreamingTrajectoryWriter::EndEpisode(bool clear_buffers,
   }
   return absl::OkStatus();
 }
+
+absl::Status StreamingTrajectoryWriter::Flush(int ignore_last_num_items,
+                                              absl::Duration timeout) {
+  absl::MutexLock lock(&mutex_);
+
+  // We assume that confirmations arrive in order of insertion. This means if
+  // in_flight_items_.size() is less than or equal to N, all but the last N
+  // items have been confirmed. If confirmations arrive out-of-order, we'd wait
+  // until all but N (instead of the last N) items are confirmed.
+  auto condition = [ignore_last_num_items, this]()
+                       ABSL_EXCLUSIVE_LOCKS_REQUIRED(mutex_) -> bool {
+    if (!unrecoverable_error_.ok() || !recoverable_error_.ok()) return true;
+
+    return in_flight_items_.size() <= ignore_last_num_items;
+  };
+
+  if (!mutex_.AwaitWithTimeout(absl::Condition(&condition), timeout)) {
+    return absl::DeadlineExceededError(
+        absl::StrCat("Timeout exceeded with ", in_flight_items_.size(),
+                     " items awaiting confirmation."));
+  }
+
+  REVERB_RETURN_IF_ERROR(unrecoverable_error_);
+  return recoverable_error_;
+}
+
 absl::Status StreamingTrajectoryWriter::StreamChunks(
     const std::vector<std::shared_ptr<CellRef>>& refs) {
   // We store requests in a vector as we may shard chunk insertions over several
@@ -291,16 +318,7 @@ absl::Status StreamingTrajectoryWriter::SendItem(PrioritizedItem item) {
   InsertStreamRequest request;
 
   *request.mutable_item()->mutable_item() = std::move(item);
-
-  // TODO(b/143277674): When this is not set then we run the risk of OOM if our
-  //  items (aka episodes) are very large since the buffer per table currently
-  //  is 1000 items.
-  //  In addition to the OOM risk, this also increases the potential off-policy
-  //  ness of the data. As an example, consider a setup where we have a queue of
-  //  size 10 because we want the data to be super online. The effective queue
-  //  size when the confirmations are not used (and respected) becomes 1010 if
-  //  we have a single writer.
-  request.mutable_item()->set_send_confirmation(false);
+  request.mutable_item()->set_send_confirmation(true);
 
   // Keep all chunk keys belonging to this episode since we don't know which
   // chunks that aren't referenced by any item at the moment will be needed by
@@ -320,6 +338,10 @@ absl::Status StreamingTrajectoryWriter::WriteStream(
     // We can recover from transient errors as they only corrupt the current
     // episode.
     absl::Status streaming_status = FromGrpcStatus(stream_->Finish());
+
+    // Join the confirmation thread.
+    item_confirmation_worker_ = nullptr;
+
     if (IsTransientError(streaming_status)) {
       SetContextAndCreateStream();
       recoverable_error_ = absl::DataLossError(absl::StrCat(
@@ -330,13 +352,33 @@ absl::Status StreamingTrajectoryWriter::WriteStream(
       return unrecoverable_error_;
     }
   }
+
+  // The request was successful.
+  // If this request contains an item, mark it as "in-flight".
+  if (request.has_item()) {
+    absl::MutexLock lock(&mutex_);
+    in_flight_items_.insert(request.item().item().key());
+  }
   return absl::OkStatus();
+}
+
+void StreamingTrajectoryWriter::ProcessItemConfirmations() {
+  InsertStreamResponse response;
+  while (stream_->Read(&response)) {
+    absl::MutexLock lock(&mutex_);
+    for (uint64_t key : response.keys()) {
+      in_flight_items_.erase(key);
+    }
+  }
 }
 
 void StreamingTrajectoryWriter::SetContextAndCreateStream() {
   context_ = absl::make_unique<grpc::ClientContext>();
   context_->set_wait_for_ready(true);
   stream_ = stub_->InsertStream(context_.get());
+  item_confirmation_worker_ =
+      internal::StartThread("StreamingTrajectoryWriter_ReaderWorker",
+                            [this]() { ProcessItemConfirmations(); });
 }
 
 }  // namespace deepmind::reverb
