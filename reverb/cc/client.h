@@ -24,6 +24,7 @@
 #include <cstdint>
 #include "absl/base/thread_annotations.h"
 #include "absl/numeric/int128.h"
+#include "absl/status/status.h"
 #include "absl/strings/string_view.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/time/time.h"
@@ -31,6 +32,7 @@
 #include "reverb/cc/reverb_service.pb.h"
 #include "reverb/cc/sampler.h"
 #include "reverb/cc/schema.pb.h"
+#include "reverb/cc/streaming_trajectory_writer.h"
 #include "reverb/cc/support/signature.h"
 #include "reverb/cc/trajectory_writer.h"
 #include "reverb/cc/writer.h"
@@ -138,6 +140,12 @@ class Client {
   absl::Status NewTrajectoryWriter(const TrajectoryWriter::Options& options,
                                    absl::Duration get_signature_timeout,
                                    std::unique_ptr<TrajectoryWriter>* writer);
+
+  // Validates `options` and if valid, creates a new
+  // `StreamingTrajectoryWriter`.
+  absl::Status NewStreamingTrajectoryWriter(
+      const TrajectoryWriter::Options& options,
+      std::unique_ptr<StreamingTrajectoryWriter>* writer);
 
  private:
   const std::shared_ptr</* grpc_gen:: */ReverbService::StubInterface> stub_;

@@ -28,6 +28,7 @@
 #include "reverb/cc/platform/status_macros.h"
 #include "reverb/cc/reverb_service.pb.h"
 #include "reverb/cc/schema.pb.h"
+#include "reverb/cc/streaming_trajectory_writer.h"
 #include "reverb/cc/support/grpc_util.h"
 #include "reverb/cc/support/uint128.h"
 #include "reverb/cc/trajectory_writer.h"
@@ -430,6 +431,14 @@ absl::Status Client::NewTrajectoryWriter(
     std::unique_ptr<TrajectoryWriter>* writer) {
   REVERB_RETURN_IF_ERROR(options.Validate());
   *writer = absl::make_unique<TrajectoryWriter>(stub_, options);
+  return absl::OkStatus();
+}
+
+absl::Status Client::NewStreamingTrajectoryWriter(
+    const TrajectoryWriter::Options& options,
+    std::unique_ptr<StreamingTrajectoryWriter>* writer) {
+  REVERB_RETURN_IF_ERROR(options.Validate());
+  *writer = absl::make_unique<StreamingTrajectoryWriter>(stub_, options);
   return absl::OkStatus();
 }
 

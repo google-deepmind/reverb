@@ -394,6 +394,7 @@ reverb_cc_library(
         ":reverb_service_cc_proto",
         ":schema_cc_proto",
         ":trajectory_writer",
+        ":streaming_trajectory_writer",
         ":writer",
         "//reverb/cc/platform:grpc_utils",
         "//reverb/cc/platform:logging",

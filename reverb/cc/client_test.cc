@@ -164,6 +164,16 @@ TEST(ClientTest, NewTrajectoryWriterValidatesOptions) {
   EXPECT_FALSE(client.NewTrajectoryWriter(options, &writer).ok());
 }
 
+TEST(ClientTest, NewStreamingTrajectoryWriterValidatesOptions) {
+  auto stub = std::make_shared<FakeStub>();
+  Client client(stub);
+  std::unique_ptr<StreamingTrajectoryWriter> writer;
+  TrajectoryWriter::Options options = {
+      .chunker_options = std::make_shared<ConstantChunkerOptions>(-1, 1),
+  };
+  EXPECT_FALSE(client.NewStreamingTrajectoryWriter(options, &writer).ok());
+}
+
 }  // namespace
 }  // namespace reverb
 }  // namespace deepmind
