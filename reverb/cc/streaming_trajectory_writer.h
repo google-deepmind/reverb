@@ -95,15 +95,13 @@ class StreamingTrajectoryWriter : public ColumnWriter {
       absl::string_view table, double priority,
       absl::Span<const TrajectoryColumn> trajectory) override;
 
-  // Terminates the current episode by clearing any recoverable errors and
-  // resetting the episode state (i.e generates a new episode ID and sets step
-  // index to 0).
-  // TODO(b/143277674): Arguments are currently ignored.
+  // Terminates the current episode by clearing any recoverable errors (if
+  // clear_buffers is true) and resetting the episode state (i.e generates a new
+  // episode ID and sets step index to 0).
+  // See also `ColumnWriter::EndEpisode` in trajectory_writer.h.
   absl::Status EndEpisode(
       bool clear_buffers,
       absl::Duration timeout = absl::InfiniteDuration()) override;
-
-  absl::Status EndEpisode() { return EndEpisode(true); }
 
   // See `ColumnWriter::Flush` in trajectory_writer.h.
   // Does not actually send any items since this writer operates synchronously

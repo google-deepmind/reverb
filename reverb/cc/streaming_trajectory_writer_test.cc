@@ -432,6 +432,31 @@ TEST(StreamingTrajectoryWriter, ItemSentAfterChunks) {
   EXPECT_THAT(stream->requests(), ElementsAre(IsChunk(), IsItem(), IsItem()));
 }
 
+TEST(StreamingTrajectoryWriter, CrossEpisodeItems) {
+  auto* stream = new FakeStream();
+  auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
+  EXPECT_CALL(*stub, InsertStreamRaw(_)).WillOnce(Return(stream));
+
+  StreamingTrajectoryWriter writer(stub,
+                                   MakeOptions(/*max_chunk_length=*/1,
+                                               /*num_keep_alive_refs=*/2));
+  StepRef refs;
+  REVERB_ASSERT_OK(writer.Append(Step({MakeTensor(kIntSpec)}), &refs));
+  REVERB_EXPECT_OK(writer.EndEpisode(false));
+  REVERB_ASSERT_OK(writer.Append(Step({MakeTensor(kIntSpec)}), &refs));
+
+  EXPECT_THAT(stream->requests(), ElementsAre(IsChunk(), IsChunk()));
+
+  // The chunk is completed so inserting an item should result in both chunk
+  // and item being sent.
+  REVERB_ASSERT_OK(
+      writer.CreateItem("table", 1.0, MakeTrajectory({{refs[0], refs[1]}})));
+  REVERB_EXPECT_OK(writer.Flush());
+
+  // Chunk is sent before item.
+  EXPECT_THAT(stream->requests(), ElementsAre(IsChunk(), IsChunk(), IsItem()));
+}
+
 TEST(StreamingTrajectoryWriter, ChunksReferencedByItemAreFinalized) {
   auto* stream = new FakeStream();
   auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
@@ -540,7 +565,7 @@ TEST(StreamingTrajectoryWriter, CorruptEpisodeOnTransientError) {
               StatusIs(absl::StatusCode::kDataLoss, ""));
 
   // Start a new episode.
-  EXPECT_OK(writer.EndEpisode());
+  EXPECT_OK(writer.EndEpisode(true));
 
   EXPECT_OK(writer.Append(Step({MakeTensor(kIntSpec)}), &first));
   REVERB_ASSERT_OK(
@@ -571,7 +596,7 @@ TEST(StreamingTrajectoryWriter, StopsOnNonTransientError) {
   StepRef first;
   EXPECT_THAT(writer.Append(Step({MakeTensor(kIntSpec)}), &first),
               StatusIs(absl::StatusCode::kInternal, "A reason"));
-  EXPECT_THAT(writer.EndEpisode(),
+  EXPECT_THAT(writer.EndEpisode(true),
               StatusIs(absl::StatusCode::kInternal, "A reason"));
 }
 
@@ -966,7 +991,7 @@ TEST(StreamingTrajectoryWriter, EndEpisodeResetsEpisodeKeyAndStep) {
   // invalidate any cross-episode cell references.
   uint64_t first_episode_key = first[0]->lock()->episode_id();
 
-  REVERB_ASSERT_OK(writer.EndEpisode());
+  REVERB_ASSERT_OK(writer.EndEpisode(true));
 
   StepRef second;
   REVERB_ASSERT_OK(writer.Append(Step({MakeTensor(kIntSpec)}), &second));

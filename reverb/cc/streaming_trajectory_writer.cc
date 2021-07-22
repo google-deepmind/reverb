@@ -225,15 +225,24 @@ absl::Status StreamingTrajectoryWriter::CreateItem(
 absl::Status StreamingTrajectoryWriter::EndEpisode(bool clear_buffers,
                                                    absl::Duration timeout) {
   REVERB_RETURN_IF_ERROR(unrecoverable_error_);
-  streamed_chunk_keys_.clear();
+
+  // Wait for all items belonging to this episode to be confirmed. This only
+  // makes sense if the stream hasn't failed.
+  if (recoverable_error_.ok()) {
+    REVERB_RETURN_IF_ERROR(Flush(0, timeout));
+  }
+
   episode_id_ = key_generator_.Generate();
   episode_step_ = 0;
-  recoverable_error_ = absl::OkStatus();
 
-  // We don't permit cross-episode chunks.
-  for (auto& [_, chunker] : chunkers_) {
-    chunker->Reset();
+  if (clear_buffers) {
+    streamed_chunk_keys_.clear();
+    recoverable_error_ = absl::OkStatus();
+    for (auto& [_, chunker] : chunkers_) {
+      chunker->Reset();
+    }
   }
+
   return absl::OkStatus();
 }
 
@@ -334,7 +343,20 @@ absl::Status StreamingTrajectoryWriter::WriteStream(
     const InsertStreamRequest& request) {
   grpc::WriteOptions options;
   options.set_no_compression();
+
+  // If this request contains an item, mark it as "in-flight".
+  if (request.has_item()) {
+    absl::MutexLock lock(&mutex_);
+    in_flight_items_.insert(request.item().item().key());
+  }
+
   if (!stream_->Write(request, options)) {
+    // We won't get a confirmation for this item.
+    if (request.has_item()) {
+      absl::MutexLock lock(&mutex_);
+      in_flight_items_.erase(request.item().item().key());
+    }
+
     // We can recover from transient errors as they only corrupt the current
     // episode.
     absl::Status streaming_status = FromGrpcStatus(stream_->Finish());
@@ -353,12 +375,6 @@ absl::Status StreamingTrajectoryWriter::WriteStream(
     }
   }
 
-  // The request was successful.
-  // If this request contains an item, mark it as "in-flight".
-  if (request.has_item()) {
-    absl::MutexLock lock(&mutex_);
-    in_flight_items_.insert(request.item().item().key());
-  }
   return absl::OkStatus();
 }
 
@@ -369,6 +385,7 @@ void StreamingTrajectoryWriter::ProcessItemConfirmations() {
     for (uint64_t key : response.keys()) {
       in_flight_items_.erase(key);
     }
+    response.Clear();
   }
 }
 
