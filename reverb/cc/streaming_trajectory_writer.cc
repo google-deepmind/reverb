@@ -306,7 +306,7 @@ absl::Status StreamingTrajectoryWriter::StreamChunks(
     // If the size of the request exceeds the soft threshold, shard the
     // insertion and start a new request.
     if (requests.back().ByteSizeLong() >=
-        StreamingTrajectoryWriter::kMaxRequestSizeBytes) {
+        TrajectoryWriter::kMaxRequestSizeBytes) {
       requests.emplace_back();
     }
   }
