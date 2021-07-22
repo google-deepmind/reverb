@@ -168,8 +168,8 @@ class FakeStream : public MockStream {
       return false;
     }
     response->add_keys(confirm_id);
-    while (pending_confirmation_.size() > 0) {
-      CHECK(pending_confirmation_.Pop(&confirm_id));
+    while (pending_confirmation_.size() > 0 &&
+           pending_confirmation_.Pop(&confirm_id)) {
       response->add_keys(confirm_id);
     }
     return true;
@@ -649,8 +649,17 @@ TEST(TrajectoryWriter, DestructorFlushesPendingItems) {
 
 TEST(TrajectoryWriter, RetriesOnTransientError) {
   auto* fail_stream = new MockStream();
-  EXPECT_CALL(*fail_stream, Write(IsChunkAndItem(), _)).WillOnce(Return(false));
-  EXPECT_CALL(*fail_stream, Read(_)).WillOnce(Return(false));
+  absl::Notification write_called;
+
+  EXPECT_CALL(*fail_stream, Write(IsChunkAndItem(), _))
+      .WillOnce(Invoke([&](auto, auto) {
+        write_called.Notify();
+        return false;
+      }));
+  EXPECT_CALL(*fail_stream, Read(_)).WillOnce(Invoke([&](auto) {
+    write_called.WaitForNotification();
+    return false;
+  }));
   EXPECT_CALL(*fail_stream, Finish())
       .WillOnce(Return(grpc::Status(grpc::StatusCode::UNAVAILABLE, "")));
 
@@ -671,18 +680,125 @@ TEST(TrajectoryWriter, RetriesOnTransientError) {
       writer.CreateItem("table", 1.0, MakeTrajectory({{first[0]}})));
   REVERB_ASSERT_OK(writer.Flush());
 
-  // The first stream will fail on the second request (item). The writer should
-  // then close the stream and once it sees the UNAVAILABLE error open a nee
+  // The first stream will fail on the first request (item). The writer should
+  // then close the stream and once it sees the UNAVAILABLE error open a new
   // stream. The writer should then proceed to resend the chunk since there is
   // no guarantee that the new stream is connected to the same server and thus
   // the data might not exist on the server.
   EXPECT_THAT(success_stream->requests(), ElementsAre(IsChunkAndItem()));
 }
 
+TEST(TrajectoryWriter, RetriesNonConfirmedItemsOnTransientError) {
+  auto* fail_stream = new MockStream();
+  absl::Notification finish_called;
+
+  // When writing the second item the stream is broken.
+  EXPECT_CALL(*fail_stream, Write(IsChunkAndItem(), _))
+      .WillOnce(Return(true))
+      .WillOnce(Return(false));
+
+  // The writer will then close the stream and find that the error is transient.
+  EXPECT_CALL(*fail_stream, Finish()).WillOnce(Invoke([&] {
+    finish_called.Notify();
+    return grpc::Status(grpc::StatusCode::UNAVAILABLE, "");
+  }));
+
+  // We block the read call from returning anything until the stream has been
+  // closed. This is done to ensure that we are testing how the writer responds
+  // to errors encountered when writing to the stream rather than when reading
+  // from the stream.
+  EXPECT_CALL(*fail_stream, Read(_)).WillOnce(Invoke([&](auto) {
+    finish_called.WaitForNotification();
+    return false;
+  }));
+
+  auto* success_stream = new FakeStream();
+
+  auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
+  EXPECT_CALL(*stub, InsertStreamRaw(_))
+      .WillOnce(Return(fail_stream))
+      .WillOnce(Return(success_stream));
+
+  TrajectoryWriter writer(
+      stub, MakeOptions(/*max_chunk_length=*/1, /*num_keep_alive_refs=*/1));
+
+  // Create two items and wait for them to be confirmed.
+  for (int i = 0; i < 2; i++) {
+    StepRef step;
+    REVERB_ASSERT_OK(writer.Append(Step({MakeTensor(kIntSpec)}), &step));
+    REVERB_ASSERT_OK(
+        writer.CreateItem("table", 1.0, MakeTrajectory({{step[0]}})));
+  }
+  REVERB_ASSERT_OK(writer.Flush());
+
+  // The first stream will fail on the second (item). The writer should
+  // then close the stream and once it sees the UNAVAILABLE error open a new
+  // stream. The writer should realise that the first item, even though
+  // successfully written to the stream, never got confirmed by the server and
+  // send it again when opening a new stream.
+  EXPECT_THAT(success_stream->requests(),
+              ElementsAre(IsChunkAndItem(), IsChunkAndItem()));
+}
+
+TEST(TrajectoryWriter,
+     RetriesNonConfirmedItemsIfReaderStoppedAndErrorIsTransient) {
+  auto* fail_stream = new MockStream();
+  absl::Notification write_called;
+
+  EXPECT_CALL(*fail_stream, Write(IsChunkAndItem(), _))
+      .WillOnce(Invoke([&](auto, auto) {
+        write_called.Notify();
+        return true;
+      }));
+  EXPECT_CALL(*fail_stream, Read(_)).WillOnce(Invoke([&](auto) {
+    write_called.WaitForNotification();
+    return false;
+  }));
+  EXPECT_CALL(*fail_stream, Finish())
+      .WillOnce(Return(grpc::Status(grpc::StatusCode::UNAVAILABLE, "")));
+
+  auto* success_stream = new FakeStream();
+
+  auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
+  EXPECT_CALL(*stub, InsertStreamRaw(_))
+      .WillOnce(Return(fail_stream))
+      .WillOnce(Return(success_stream));
+
+  TrajectoryWriter writer(
+      stub, MakeOptions(/*max_chunk_length=*/1, /*num_keep_alive_refs=*/1));
+
+  // Create one item and wait for it to be confirmed.
+  StepRef step;
+  REVERB_ASSERT_OK(writer.Append(Step({MakeTensor(kIntSpec)}), &step));
+  REVERB_ASSERT_OK(
+      writer.CreateItem("table", 1.0, MakeTrajectory({{step[0]}})));
+  REVERB_ASSERT_OK(writer.Flush());
+
+  // The first stream will accept the write but then fail when the reader worker
+  // is trying to read the confirmation. We do this to simulate a setup were one
+  // or more items were written to the server but the response is delayed due
+  // the rate limiter (or similar blockage) and while waiting for the response
+  // the server becomes unavailable. It is important that we are able to recover
+  // from this in the same way as we recover from errors that are detected when
+  // writing to the stream.
+  //
+  // The second stream will created and succeed.
+  EXPECT_THAT(success_stream->requests(), ElementsAre(IsChunkAndItem()));
+}
+
 TEST(TrajectoryWriter, StopsOnNonTransientError) {
   auto* fail_stream = new MockStream();
-  EXPECT_CALL(*fail_stream, Write(IsChunkAndItem(), _)).WillOnce(Return(false));
-  EXPECT_CALL(*fail_stream, Read(_)).WillOnce(Return(false));
+  absl::Notification write_called;
+
+  EXPECT_CALL(*fail_stream, Write(IsChunkAndItem(), _))
+      .WillOnce(Invoke([&](auto, auto) {
+        write_called.Notify();
+        return false;
+      }));
+  EXPECT_CALL(*fail_stream, Read(_)).WillOnce(Invoke([&](auto) {
+    write_called.WaitForNotification();
+    return false;
+  }));
   EXPECT_CALL(*fail_stream, Finish())
       .WillOnce(Return(grpc::Status(grpc::StatusCode::INTERNAL, "A reason")));
 
@@ -719,6 +835,8 @@ TEST(TrajectoryWriter, StopsOnNonTransientError) {
 
 TEST(TrajectoryWriter, FlushReturnsIfTimeoutExpired) {
   absl::Notification write_block;
+  absl::Notification read_block;
+
   auto* stream = new MockStream();
   EXPECT_CALL(*stream, Write(_, _))
       .WillOnce(Invoke([&](auto, auto) {
@@ -726,6 +844,13 @@ TEST(TrajectoryWriter, FlushReturnsIfTimeoutExpired) {
         return true;
       }))
       .WillRepeatedly(Return(true));
+  EXPECT_CALL(*stream, Read(_)).WillOnce(Invoke([&](auto) {
+    read_block.WaitForNotification();
+    return false;
+  }));
+  EXPECT_CALL(*stream, Finish())
+      .WillOnce(Return(grpc::Status(grpc::StatusCode::INTERNAL, "")));
+
   auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
   EXPECT_CALL(*stub, InsertStreamRaw(_)).WillOnce(Return(stream));
 
@@ -744,11 +869,12 @@ TEST(TrajectoryWriter, FlushReturnsIfTimeoutExpired) {
   EXPECT_EQ(status.code(), absl::StatusCode::kDeadlineExceeded);
   EXPECT_THAT(
       std::string(status.message()),
-      ::testing::HasSubstr("Timeout exceeded with 1 items waiting to be "
+      ::testing::HasSubstr("Timeout exceeded with 0 items waiting to be "
                            "written and 1 items awaiting confirmation."));
 
-  // Unblock the writer.
+  // Unblock the writer and reader.
   write_block.Notify();
+  read_block.Notify();
 
   // Close the writer to avoid having to mock the item confirmation response.
   writer.Close();
@@ -1279,6 +1405,8 @@ TEST(TrajectoryWriter, EndEpisodeResetsEpisodeKeyAndStep) {
 
 TEST(TrajectoryWriter, EndEpisodeReturnsIfTimeoutExpired) {
   absl::Notification write_block;
+  absl::Notification read_block;
+
   auto* stream = new MockStream();
   EXPECT_CALL(*stream, Write(_, _))
       .WillOnce(Invoke([&](auto, auto) {
@@ -1286,6 +1414,13 @@ TEST(TrajectoryWriter, EndEpisodeReturnsIfTimeoutExpired) {
         return true;
       }))
       .WillRepeatedly(Return(true));
+  EXPECT_CALL(*stream, Read(_)).WillOnce(Invoke([&](auto) {
+    read_block.WaitForNotification();
+    return false;
+  }));
+  EXPECT_CALL(*stream, Finish())
+      .WillOnce(Return(grpc::Status(grpc::StatusCode::INTERNAL, "")));
+
   auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
   EXPECT_CALL(*stub, InsertStreamRaw(_)).WillOnce(Return(stream));
 
@@ -1303,11 +1438,12 @@ TEST(TrajectoryWriter, EndEpisodeReturnsIfTimeoutExpired) {
   EXPECT_EQ(status.code(), absl::StatusCode::kDeadlineExceeded);
   EXPECT_THAT(
       std::string(status.message()),
-      ::testing::HasSubstr("Timeout exceeded with 1 items waiting to be "
+      ::testing::HasSubstr("Timeout exceeded with 0 items waiting to be "
                            "written and 1 items awaiting confirmation."));
 
-  // Unblock the writer.
+  // Unblock the writer and reader.
   write_block.Notify();
+  read_block.Notify();
 
   // Close the writer to avoid having to mock the item confirmation response.
   writer.Close();

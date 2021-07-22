@@ -20,10 +20,12 @@
 
 #include "grpcpp/impl/codegen/sync_stream.h"
 #include "absl/algorithm/container.h"
+#include "absl/base/thread_annotations.h"
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
 #include "absl/synchronization/mutex.h"
+#include "absl/synchronization/notification.h"
 #include "absl/time/time.h"
 #include "absl/types/span.h"
 #include "reverb/cc/chunker.h"
@@ -247,6 +249,16 @@ TrajectoryWriter::TrajectoryWriter(
                 unrecoverable_status_ = status;
                 return;
               }
+
+              // If we lose the connection then we'll never receive the item
+              // confirmations so we add them back to the front of the queue.
+              // Note that the internal ordering of the items added to the front
+              // of the queue is undefined and thus may differ from how they
+              // were originally transmitted.
+              for (auto& [_, item_and_refs] : in_flight_items_) {
+                write_queue_.push_front(std::move(item_and_refs));
+              }
+              in_flight_items_.clear();
             }
           })) {
   REVERB_CHECK_OK(options.Validate());
@@ -430,15 +442,15 @@ absl::Status TrajectoryWriter::SetContextAndCreateStream(
   return absl::OkStatus();
 }
 
-bool TrajectoryWriter::GetNextPendingItem(ItemAndRefs* item_and_refs) const {
+bool TrajectoryWriter::GetNextPendingItem(const bool& reader_stopped,
+                                          ItemAndRefs* item_and_refs) const {
   absl::MutexLock lock(&mu_);
-  mu_.Await(absl::Condition(
-      +[](const TrajectoryWriter* w) ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_) {
-        return !w->write_queue_.empty() || w->closed_;
-      },
-      this));
+  auto trigger = [&]() ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_) {
+    return !write_queue_.empty() || closed_ || reader_stopped;
+  };
+  mu_.Await(absl::Condition(&trigger));
 
-  if (closed_) return false;
+  if (closed_ || reader_stopped) return false;
 
   *item_and_refs = write_queue_.front();
 
@@ -491,6 +503,15 @@ absl::Status TrajectoryWriter::RunStreamWorker() {
   std::unique_ptr<InsertStream> stream;
   REVERB_RETURN_IF_ERROR(SetContextAndCreateStream(&stream));
 
+  // We monitor the state of the reader worker so we can interrupt the writer
+  // thread if the reader is unexpectedly stopped. This is critical to avoid
+  // deadlocks when one or more items have been successfully written to the
+  // stream but then there is a delay (e.g. blocked by target table rate
+  // limiter) before the confirmation arrives. If we don't monitor the state of
+  // the read worker then the writer thread may block forever waiting for new
+  // items to write while the "main" thread (the one using the TrajectoryWriter)
+  // is waiting for a `Flush` call (i.e. waiting for items to be confirmed).
+  bool reader_stopped = false;  // Guarded by `mu_`.
   std::unique_ptr<internal::Thread> reader =
       internal::StartThread("TrajectoryWriter_ReaderWorker", [&] {
         InsertStreamResponse response;
@@ -500,6 +521,9 @@ absl::Status TrajectoryWriter::RunStreamWorker() {
             in_flight_items_.erase(key);
           }
         }
+
+        absl::MutexLock lock(&mu_);
+        reader_stopped = true;
       });
 
   internal::flat_hash_set<uint64_t> streamed_chunk_keys;
@@ -507,7 +531,7 @@ absl::Status TrajectoryWriter::RunStreamWorker() {
   while (true) {
     ItemAndRefs item_and_refs;
 
-    if (!GetNextPendingItem(&item_and_refs)) {
+    if (!GetNextPendingItem(reader_stopped, &item_and_refs)) {
       return FromGrpcStatus(stream->Finish());
     }
 
@@ -534,7 +558,7 @@ absl::Status TrajectoryWriter::RunStreamWorker() {
         continue;
       }
 
-      in_flight_items_.insert(item_and_refs.item.key());
+      in_flight_items_[item_and_refs.item.key()] = item_and_refs;
 
       // Remove keys of expired chunks from streamed_chunk_keys to avoid OOM
       // issues caused by the otherwise indefinitely growing hash set.
@@ -606,24 +630,13 @@ absl::Status TrajectoryWriter::FlushLocked(int ignore_last_num_items,
       return true;
     }
 
-    // Items are considered pending until they are confirmed by the server so
-    // both `write_queue_` and `in_flight_items_` must be counted. However, to
-    // protect against data races the write worker will wait to add the item to
-    // `in_flight_items_` BEFORE removing it from `write_queue_` and then
-    // release the mutex for a period in order to perform the actual write to
-    // the gRPC stream. We check for this here to avoid double counting.
-    int num_pending_items = write_queue_.size() + in_flight_items_.size();
-    if (!write_queue_.empty() &&
-        in_flight_items_.contains(write_queue_.front().item.key())) {
-      num_pending_items--;
-    }
-
-    return num_pending_items <= ignore_last_num_items;
+    return num_items_in_queue() + in_flight_items_.size() <=
+           ignore_last_num_items;
   };
 
   if (!mu_.AwaitWithTimeout(absl::Condition(&cond), timeout)) {
     return absl::DeadlineExceededError(
-        absl::StrCat("Timeout exceeded with ", write_queue_.size(),
+        absl::StrCat("Timeout exceeded with ", num_items_in_queue(),
                      " items waiting to be written and ",
                      in_flight_items_.size(), " items awaiting confirmation."));
   }
@@ -721,6 +734,14 @@ bool TrajectoryColumn::LockReferences(
     if (!locked_refs->back()) return false;
   }
   return true;
+}
+
+int TrajectoryWriter::num_items_in_queue() const {
+  if (write_queue_.empty()) return 0;
+  if (in_flight_items_.contains(write_queue_.front().item.key())) {
+    return write_queue_.size() - 1;
+  }
+  return write_queue_.size();
 }
 
 }  // namespace reverb

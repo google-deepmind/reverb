@@ -339,9 +339,10 @@ class TrajectoryWriter : public ColumnWriter {
       ABSL_LOCKS_EXCLUDED(mu_);
 
   // Blocks until `write_queue_` is non-empty then copies the front element into
-  // `item_and_refs`. If `Close` called before operation could complete, `false`
-  // is returned.
-  bool GetNextPendingItem(ItemAndRefs* item_and_refs) const
+  // `item_and_refs`. If `reader_stopped` becomes true or `Close` called
+  // before operation could complete, `false` is returned.
+  bool GetNextPendingItem(const bool& reader_stopped,
+                          ItemAndRefs* item_and_refs) const
       ABSL_LOCKS_EXCLUDED(mu_);
 
   // Build and write the item insertion request to the stream. All chunks
@@ -350,6 +351,17 @@ class TrajectoryWriter : public ColumnWriter {
   bool SendItem(InsertStream* stream,
                 const internal::flat_hash_set<uint64_t>& keep_keys,
                 const PrioritizedItem& item, ArenaOwnedRequest* request) const;
+
+  // The number of items in the `write_queue_` but ignoring the first item if
+  // it is also in `in_flight_items_`.
+  //
+  // Items are considered pending until they are confirmed by the server so
+  // both `write_queue_` and `in_flight_items_` must be counted. However, to
+  // protect against data races the write worker will wait to add the item to
+  // `in_flight_items_` BEFORE removing it from `write_queue_` and then
+  // release the mutex for a period in order to perform the actual write to
+  // the gRPC stream. We check for this here to avoid double counting.
+  int num_items_in_queue() const ABSL_SHARED_LOCKS_REQUIRED(mu_);
 
   // Union of `GetChunkKeys` from all column chunkers and all the chunks
   // referenced by pending items (except for chunks only referenced by the first
@@ -397,9 +409,12 @@ class TrajectoryWriter : public ColumnWriter {
   // Items waiting for `stream_worker_` to write it to the steam.
   std::deque<ItemAndRefs> write_queue_ ABSL_GUARDED_BY(mu_);
 
-  // Keys of items which have been written to the stream but for which no
-  // confirmation has yet been received from the server.
-  internal::flat_hash_set<uint64_t> in_flight_items_ ABSL_GUARDED_BY(mu_);
+  // Items which have been written to the stream but for which no confirmation
+  // has yet been received from the server. Note that we have to keep the item
+  // alive until the confirmation has been received so that we are able to
+  // retry the request if the server becomes unavailable.
+  internal::flat_hash_map<uint64_t, ItemAndRefs> in_flight_items_
+      ABSL_GUARDED_BY(mu_);
 
   // We signal when a chunk is flushed in case the stream worker backed off due
   // to the front item of `write_queue_` referencing incomplete chunks.
