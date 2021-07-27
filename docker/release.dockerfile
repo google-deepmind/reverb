@@ -41,7 +41,6 @@ RUN ${APT_COMMAND} update && ${APT_COMMAND} install -y --no-install-recommends \
         python3.6-dev \
         python3.7-dev \
         python3.8-dev \
-        python3.9-dev \
         # Needed due to python3.8 apt packaging issue.
         python3.8-distutils \
         python3.9-distutils \
