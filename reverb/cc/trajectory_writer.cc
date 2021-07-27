@@ -524,6 +524,7 @@ absl::Status TrajectoryWriter::RunStreamWorker() {
 
         absl::MutexLock lock(&mu_);
         reader_stopped = true;
+        data_cv_.Signal();
       });
 
   internal::flat_hash_set<uint64_t> streamed_chunk_keys;
