@@ -164,6 +164,7 @@ Table::~Table() {
   }
   {
     absl::MutexLock lock(&mu_);
+    stop_extension_worker_ = true;
     extension_buffer_available_cv_.SignalAll();
     extension_work_available_cv_.SignalAll();
   }
@@ -356,9 +357,6 @@ absl::Status Table::ExtensionsWorkerLoop() {
   while (true) {
     {
       absl::MutexLock lock(&worker_mu_);
-      if (stop_worker_) {
-        return absl::OkStatus();
-      }
       if (deleted_items_.empty() && !deleted_items.empty()) {
         // Deleted items are freed by the clients to spread the load.
         // Previous deletion batch has been processed, give clients a new batch.
@@ -370,6 +368,9 @@ absl::Status Table::ExtensionsWorkerLoop() {
       REVERB_CHECK(extension_requests.empty());
       if (extension_requests_.empty()) {
         // No more work to do, go to sleep.
+        if (stop_extension_worker_) {
+          return absl::OkStatus();
+        }
         extension_worker_sleeps_ = true;
         extension_work_available_cv_.Wait(&mu_);
         extension_worker_sleeps_ = false;

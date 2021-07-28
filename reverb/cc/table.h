@@ -531,6 +531,10 @@ class Table {
   absl::CondVar extension_buffer_available_cv_ ABSL_GUARDED_BY(mu_);
   bool extension_worker_sleeps_ ABSL_GUARDED_BY(mu_) = true;
 
+  // Should extension worker terminate. Set to true upon table termination to
+  // stop the worker.
+  bool stop_extension_worker_ ABSL_GUARDED_BY(mu_) = false;
+
   // Extensions implement hooks that are executed as part of insert, delete,
   // update or reset operations. There are two types of extensions supported:
   //   - synchronous, which run while holding table's `mu_` mutex.
