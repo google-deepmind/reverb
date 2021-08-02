@@ -104,6 +104,13 @@ std::unique_ptr<Table> MakeUniformTable(const std::string& name,
   return table;
 }
 
+void WaitForTableSize(Table* table, int size) {
+  for (int retry = 0; retry < 100 && size != 0; retry++) {
+    absl::SleepFor(absl::Milliseconds(1));
+  }
+  EXPECT_EQ(table->size(), size);
+}
+
 TEST(TableTest, SetsName) {
   auto first = MakeUniformTable("first");
   auto second = MakeUniformTable("second");
@@ -160,6 +167,7 @@ TEST(TableTest, DeletesAreAppliedPartially) {
   auto table = MakeUniformTable("dist");
   REVERB_EXPECT_OK(table->InsertOrAssign(MakeItem(3, 123)));
   REVERB_EXPECT_OK(table->InsertOrAssign(MakeItem(7, 456)));
+  WaitForTableSize(table.get(), 2);
   REVERB_EXPECT_OK(table->MutateItems({}, {5, 3}));
   EXPECT_THAT(table->Copy(), ElementsAre(HasItemKey(7)));
 }
@@ -330,8 +338,7 @@ TEST(TableTest, ConcurrentCalls) {
       REVERB_EXPECT_OK(table->InsertOrAssign(MakeItem(i, 123)));
       Table::SampledItem item;
       REVERB_EXPECT_OK(table->Sample(&item));
-      REVERB_EXPECT_OK(
-          table->MutateItems({testing::MakeKeyWithPriority(i, 456)}, {i}));
+      REVERB_EXPECT_OK(table->InsertOrAssign(MakeItem(i, 456)));
       count++;
     }));
   }
@@ -526,8 +533,11 @@ TEST(TableTest, ResetWhileConcurrentCalls) {
         REVERB_EXPECT_OK(table->Reset());
       }
       REVERB_EXPECT_OK(table->InsertOrAssign(MakeItem(i, 123)));
-      REVERB_EXPECT_OK(
-          table->MutateItems({testing::MakeKeyWithPriority(i, 456)}, {i}));
+      auto result =
+          table->MutateItems({testing::MakeKeyWithPriority(i, 456)}, {i});
+      if (!result.ok()) {
+        EXPECT_EQ(result.code(), absl::StatusCode::kInvalidArgument);
+      }
     }));
   }
   bundle.clear();  // Joins all threads.
