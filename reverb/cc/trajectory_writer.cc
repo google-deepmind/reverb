@@ -26,6 +26,7 @@
 #include "absl/strings/str_format.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/synchronization/notification.h"
+#include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "absl/types/span.h"
 #include "reverb/cc/chunker.h"
@@ -234,7 +235,9 @@ TrajectoryWriter::TrajectoryWriter(
       closed_(false),
       stream_worker_(
           internal::StartThread("TrajectoryWriter_StreamWorker", [this] {
+            absl::Duration retry_backoff = absl::Milliseconds(1);
             while (true) {
+              absl::Time start_time = absl::Now();
               absl::Status status = RunStreamWorker();
 
               absl::MutexLock lock(&mu_);
@@ -259,6 +262,13 @@ TrajectoryWriter::TrajectoryWriter(
                 write_queue_.push_front(std::move(item_and_refs));
               }
               in_flight_items_.clear();
+
+              if (absl::Now() - start_time < absl::Seconds(2)) {
+                retry_backoff = std::min(absl::Seconds(1), 2 * retry_backoff);
+              } else {
+                retry_backoff = absl::Milliseconds(1);
+              }
+              absl::SleepFor(retry_backoff);
             }
           })) {
   REVERB_CHECK_OK(options.Validate());
