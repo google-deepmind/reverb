@@ -377,9 +377,10 @@ absl::Status Table::ExtensionsWorkerLoop() {
       }
       std::swap(extension_requests_, extension_requests);
       if (extension_requests.size() >= max_enqueued_extension_ops_) {
-        // Table worker may be blocked, let know there is place to add more
-        // extension requests now.
-        extension_buffer_available_cv_.Signal();
+        // Let know waiting clients there is place to add more
+        // extension requests now. There may be many clients - table worker
+        // and table API calls not performed through the worker.
+        extension_buffer_available_cv_.SignalAll();
       }
     }
     {
