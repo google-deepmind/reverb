@@ -110,10 +110,6 @@ class ReverbServerTableReactor
   // Once this is true, we cannot write or read. It is used to signal that
   // Finish has been called.
   bool is_finished_ ABSL_GUARDED_BY(mu_) = false;
-
-  // Is reactor cancelled by the client. Once this is true,
-  // pending tasks will be discarded.
-  bool is_cancelled_ ABSL_GUARDED_BY(mu_) = false;
 };
 
 /*****************************************************************************
@@ -200,14 +196,18 @@ template <class Request, class Response, class ResponseCtx>
 void ReverbServerTableReactor<Request, Response, ResponseCtx>::OnCancel() {
   absl::MutexLock lock(&mu_);
   still_reading_ = false;
-  is_cancelled_ = true;
+  if (!is_finished_) {
+    auto status =
+        grpc::Status(grpc::StatusCode::INTERNAL, "Connection cancelled.");
+    SetReactorAsFinished(status);
+  }
 }
 
 template <class Request, class Response, class ResponseCtx>
 void ReverbServerTableReactor<Request, Response,
                               ResponseCtx>::MaybeStartRead() {
   absl::MutexLock lock(&mu_);
-  if (still_reading_ && !is_cancelled_ && !is_finished_) {
+  if (still_reading_ && !is_finished_) {
     grpc::ServerBidiReactor<Request, Response>::StartRead(&request_);
   }
 }
