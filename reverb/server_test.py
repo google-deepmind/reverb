@@ -19,6 +19,8 @@ Note: Most of the functionality is tested through ./client_test.py. This file
 only contains a few extra cases which does not fit well in the client tests.
 """
 
+import time
+
 from absl.testing import absltest
 from absl.testing import parameterized
 from reverb import item_selectors
@@ -86,6 +88,11 @@ class ServerTest(absltest.TestCase):
     my_client.insert(1, {TABLE_NAME: 1.0})
     self.assertFalse(table.can_sample(1))
     my_client.insert(1, {TABLE_NAME: 1.0})
+    for _ in range(100):
+      if table.info.current_size == 2:
+        break
+      time.sleep(0.01)
+    self.assertEqual(table.info.current_size, 2)
     self.assertTrue(table.can_sample(2))
     # TODO(b/153258711): This should return False since max_times_sampled=1.
     self.assertTrue(table.can_sample(3))
