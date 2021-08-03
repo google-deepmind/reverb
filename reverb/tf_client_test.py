@@ -16,6 +16,7 @@
 """Tests for tf_client."""
 
 from concurrent import futures
+import time
 
 import numpy as np
 from reverb import client as reverb_client
@@ -26,22 +27,23 @@ from reverb import tf_client
 import tensorflow.compat.v1 as tf
 
 
-def make_server():
-  return server.Server(
-      tables=[
-          server.Table(
-              'dist',
-              sampler=item_selectors.Prioritized(priority_exponent=1),
-              remover=item_selectors.Fifo(),
-              max_size=1000000,
-              rate_limiter=rate_limiters.MinSize(1)),
-          server.Table(
-              'dist2',
-              sampler=item_selectors.Prioritized(priority_exponent=1),
-              remover=item_selectors.Fifo(),
-              max_size=1000000,
-              rate_limiter=rate_limiters.MinSize(1)),
-      ],
+def make_tables_and_server():
+  tables = [
+      server.Table(
+          'dist',
+          sampler=item_selectors.Prioritized(priority_exponent=1),
+          remover=item_selectors.Fifo(),
+          max_size=1000000,
+          rate_limiter=rate_limiters.MinSize(1)),
+      server.Table(
+          'dist2',
+          sampler=item_selectors.Prioritized(priority_exponent=1),
+          remover=item_selectors.Fifo(),
+          max_size=1000000,
+          rate_limiter=rate_limiters.MinSize(1)),
+  ]
+  return tables, server.Server(
+      tables=tables,
       port=None,
   )
 
@@ -51,7 +53,7 @@ class SampleOpTest(tf.test.TestCase):
   @classmethod
   def setUpClass(cls):
     super().setUpClass()
-    cls._server = make_server()
+    cls._tables, cls._server = make_tables_and_server()
     cls._client = reverb_client.Client(f'localhost:{cls._server.port}')
 
   def tearDown(self):
@@ -105,7 +107,7 @@ class UpdatePrioritiesOpTest(tf.test.TestCase):
   @classmethod
   def setUpClass(cls):
     super().setUpClass()
-    cls._server = make_server()
+    cls._tables, cls._server = make_tables_and_server()
     cls._client = reverb_client.Client(f'localhost:{cls._server.port}')
 
   def tearDown(self):
@@ -131,6 +133,11 @@ class UpdatePrioritiesOpTest(tf.test.TestCase):
     for i in range(4):
       self._client.insert([np.array([i], dtype=np.uint32)], {'dist': 1})
 
+    for _ in range(100):
+      if self._tables[0].info.current_size == 4:
+        break
+      time.sleep(0.01)
+    self.assertEqual(self._tables[0].info.current_size, 4)
     # Until we have recieved all 4 items.
     items = {}
     while len(items) < 4:
@@ -166,7 +173,7 @@ class InsertOpTest(tf.test.TestCase):
   @classmethod
   def setUpClass(cls):
     super().setUpClass()
-    cls._server = make_server()
+    cls._tables, cls._server = make_tables_and_server()
     cls._client = reverb_client.Client(f'localhost:{cls._server.port}')
 
   def tearDown(self):
