@@ -521,7 +521,6 @@ absl::Status Table::InsertOrAssign(Item item, absl::Duration timeout) {
     REVERB_RETURN_IF_ERROR(remover_->Insert(key, priority));
 
     auto it = data_.find(key);
-    ExtensionOperation(ExtensionRequest::CallType::kInsert, it->second);
 
     // Increment references to the episode/s the item is referencing.
     // We increment before a possible call to DeleteItem since the sampler can
@@ -529,6 +528,8 @@ absl::Status Table::InsertOrAssign(Item item, absl::Duration timeout) {
     for (const auto& chunk : it->second->chunks) {
       ++episode_refs_[chunk->episode_id()];
     }
+
+    ExtensionOperation(ExtensionRequest::CallType::kInsert, it->second);
 
     // Remove an item if we exceeded `max_size_`.
     if (data_.size() > max_size_) {
@@ -591,7 +592,6 @@ absl::Status Table::InsertOrAssignInternal(std::shared_ptr<Item> item) {
   REVERB_RETURN_IF_ERROR(remover_->Insert(key, priority));
 
   auto it = data_.find(key);
-  ExtensionOperation(ExtensionRequest::CallType::kInsert, it->second);
 
   // Increment references to the episode/s the item is referencing.
   // We increment before a possible call to DeleteItem since the sampler can
@@ -599,6 +599,8 @@ absl::Status Table::InsertOrAssignInternal(std::shared_ptr<Item> item) {
   for (const auto& chunk : it->second->chunks) {
     ++episode_refs_[chunk->episode_id()];
   }
+
+  ExtensionOperation(ExtensionRequest::CallType::kInsert, it->second);
 
   // Remove an item if we exceeded `max_size_`.
   if (data_.size() > max_size_) {
@@ -844,14 +846,15 @@ absl::Status Table::DeleteItem(Table::Key key,
       num_deleted_episodes_++;
     }
   }
-  ExtensionOperation(ExtensionRequest::CallType::kDelete, it->second);
-  if (deleted_item) {
-    *deleted_item = std::move(it->second);
-  }
+  auto item = std::move(it->second);
   data_.erase(it);
   rate_limiter_->Delete(&mu_);
   REVERB_RETURN_IF_ERROR(sampler_->Delete(key));
   REVERB_RETURN_IF_ERROR(remover_->Delete(key));
+  ExtensionOperation(ExtensionRequest::CallType::kDelete, item);
+  if (deleted_item) {
+    *deleted_item = std::move(item);
+  }
   return absl::OkStatus();
 }
 
@@ -1013,11 +1016,11 @@ absl::Status Table::InsertCheckpointItem(Table::Item item) {
 
   const auto key = item.item.key();
   auto it = data_.emplace(key, std::make_shared<Item>(std::move(item))).first;
-  ExtensionOperation(ExtensionRequest::CallType::kInsert, it->second);
 
   for (const auto& chunk : it->second->chunks) {
     ++episode_refs_[chunk->episode_id()];
   }
+  ExtensionOperation(ExtensionRequest::CallType::kInsert, it->second);
 
   return absl::OkStatus();
 }
