@@ -18,6 +18,7 @@
 import collections
 import multiprocessing.dummy as multithreading
 import pickle
+import time
 
 from absl.testing import absltest
 import numpy as np
@@ -43,24 +44,23 @@ class ClientTest(absltest.TestCase):
   @classmethod
   def setUpClass(cls):
     super().setUpClass()
-    cls.server = server.Server(
-        tables=[
-            server.Table(
-                name=TABLE_NAME,
-                sampler=item_selectors.Prioritized(1),
-                remover=item_selectors.Fifo(),
-                max_size=1000,
-                rate_limiter=rate_limiters.MinSize(3),
-                signature=tf.TensorSpec(dtype=tf.int64, shape=[]),
-            ),
-            server.Table.queue(
-                name=NESTED_SIGNATURE_TABLE_NAME,
-                max_size=10,
-                signature=QUEUE_SIGNATURE,
-            ),
-            server.Table.queue(SIMPLE_QUEUE_NAME, 10),
-        ],
-        port=None)
+    cls.tables = [
+        server.Table(
+            name=TABLE_NAME,
+            sampler=item_selectors.Prioritized(1),
+            remover=item_selectors.Fifo(),
+            max_size=1000,
+            rate_limiter=rate_limiters.MinSize(3),
+            signature=tf.TensorSpec(dtype=tf.int64, shape=[]),
+        ),
+        server.Table.queue(
+            name=NESTED_SIGNATURE_TABLE_NAME,
+            max_size=10,
+            signature=QUEUE_SIGNATURE,
+        ),
+        server.Table.queue(SIMPLE_QUEUE_NAME, 10),
+    ]
+    cls.server = server.Server(tables=cls.tables, port=None)
     cls.client = client.Client(f'localhost:{cls.server.port}')
 
   def tearDown(self):
@@ -74,6 +74,13 @@ class ClientTest(absltest.TestCase):
     cls.server.stop()
     super().tearDownClass()
 
+  def wait_for_table_size(self, size):
+    for _ in range(100):
+      if self.tables[0].info.current_size == size:
+        break
+      time.sleep(0.01)
+    self.assertEqual(self.tables[0].info.current_size, size)
+
   def _get_sample_frequency(self, n=10000):
     keys = [sample[0].info.key for sample in self.client.sample(TABLE_NAME, n)]
     counter = collections.Counter(keys)
@@ -85,6 +92,7 @@ class ClientTest(absltest.TestCase):
       if i >= 3:
         sample = next(self.client.sample(TABLE_NAME, 1))[0]
         self.assertEqual(sample.info.table_size, i)
+    self.wait_for_table_size(10)
 
   def test_sample_sets_probability(self):
     for i in range(1, 11):
@@ -97,6 +105,7 @@ class ClientTest(absltest.TestCase):
     # Set the test context by manually mutating priorities to known ones.
     for i in range(10):
       self.client.insert(i, {TABLE_NAME: 1000.0})
+    self.wait_for_table_size(10)
 
     def _sample_priorities(n=100):
       return {
@@ -128,6 +137,7 @@ class ClientTest(absltest.TestCase):
     self.client.insert(1, {TABLE_NAME: 1.0})  # This should be sampled often.
     self.client.insert(2, {TABLE_NAME: 0.1})  # This should be sampled rarely.
     self.client.insert(3, {TABLE_NAME: 0.0})  # This should never be sampled.
+    self.wait_for_table_size(3)
 
     freqs = self._get_sample_frequency()
 
@@ -429,6 +439,7 @@ class ClientTest(absltest.TestCase):
     loaded_client = pickle.loads(pickle.dumps(self.client))
     self.assertEqual(loaded_client._server_address, self.client._server_address)
     loaded_client.insert([0], {TABLE_NAME: 1.0})
+    self.wait_for_table_size(1)
 
   def test_multithreaded_writer_using_flush(self):
     # Ensure that we don't have any errors caused by multithreaded use of
@@ -443,10 +454,9 @@ class ClientTest(absltest.TestCase):
         writer.flush()
 
     for _ in range(5):
-      pool.map(_write, list(range(256)))
+      pool.map(_write, list(range(128)))
 
-    info = self.client.server_info()[TABLE_NAME]
-    self.assertEqual(info.current_size, 1000)
+    self.wait_for_table_size(640)
     pool.close()
     pool.join()
 
