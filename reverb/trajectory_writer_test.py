@@ -326,13 +326,13 @@ class TrajectoryWriterTest(parameterized.TestCase):
     writer = client.trajectory_writer(num_keep_alive_refs=1)
     writer.append([1])
 
-    # There is only space for one item.
-    writer.create_item('queue', 1.0, writer.history[0][:])
-    writer.create_item('queue', 1.0, writer.history[0][:])
-
-    # Since there isn't space for both items end_episode should time out.
+    # Table has space for one item, up to 2 more items can be queued in
+    # table worker queues.
+    # Since there isn't space for all 4 items flush should time out.
     with self.assertRaises(errors.DeadlineExceededError):
-      writer.flush(timeout_ms=1)
+      for _ in range(4):
+        writer.create_item('queue', 1.0, writer.history[0][:])
+        writer.flush(timeout_ms=1)
 
     writer.close()
     server.stop()
@@ -344,13 +344,13 @@ class TrajectoryWriterTest(parameterized.TestCase):
     writer = client.trajectory_writer(num_keep_alive_refs=1)
     writer.append([1])
 
-    # There is only space for one item.
-    writer.create_item('queue', 1.0, writer.history[0][:])
-    writer.create_item('queue', 1.0, writer.history[0][:])
-
-    # Since there isn't space for both items end_episode should time out.
+    # Table has space for one item, up to 2 more items can be queued in
+    # table worker queues.
+    # Since there isn't space for all 4 items end_episode should time out.
     with self.assertRaises(errors.DeadlineExceededError):
-      writer.end_episode(clear_buffers=False, timeout_ms=1)
+      for _ in range(4):
+        writer.create_item('queue', 1.0, writer.history[0][:])
+        writer.end_episode(clear_buffers=False, timeout_ms=1)
 
     writer.close()
     server.stop()
