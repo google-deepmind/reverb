@@ -175,7 +175,9 @@ class FakeStream : public MockStream {
     }
     response->add_keys(confirm_id);
     while (pending_confirmation_.size() > 0) {
-      CHECK(pending_confirmation_.Pop(&confirm_id));
+      if (!pending_confirmation_.Pop(&confirm_id)) {
+        break;
+      }
       response->add_keys(confirm_id);
     }
     return true;
