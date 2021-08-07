@@ -45,10 +45,10 @@ http_archive(
         """sed -i.bak 's/"python",/"python3",/g' third_party/py/python_configure.bzl""",
         """sed -i.bak 's/PYTHONHASHSEED=0/PYTHONHASHSEED=0 python3/g' bazel/cython_library.bzl""",
     ],
-    sha256 = "1b9b77f894d4d2cca73f534f4bee574588e5ed7f31794715073e4957fb790cee",
-    strip_prefix = "grpc-58602e20a3f3e48f24a4114c757099b25b947f7b",
+    sha256 = "45b5956d3c807fbf9045d946864d83013543a2474420cffaa984022428242271",
+    strip_prefix = "grpc-ce05bf557ced2d311bad8ee520f9f8088f715bd8",
     urls = [
-        "https://github.com/grpc/grpc/archive/58602e20a3f3e48f24a4114c757099b25b947f7b.tar.gz",
+        "https://github.com/grpc/grpc/archive/ce05bf557ced2d311bad8ee520f9f8088f715bd8.tar.gz",
     ],
 )
 
