@@ -147,9 +147,10 @@ absl::Status StreamingTrajectoryWriter::AppendInternal(
     absl::Status status =
         chunkers_[i]->Append(data[i].value(), episode_info, &ref);
     if (absl::IsFailedPrecondition(status)) {
-      return absl::FailedPreconditionError(
+      return absl::FailedPreconditionError(absl::StrCat(
           "Append/AppendPartial called with data containing column that was "
-          "present in previous AppendPartial call.");
+          "present in previous AppendPartial call. Chunker error: ",
+          status.message()));
     }
     REVERB_RETURN_IF_ERROR(status);
 
