@@ -569,7 +569,10 @@ absl::Status TrajectoryWriter::RunStreamWorker() {
         continue;
       }
 
+      // Item is about to be written - move from write_queue_ to
+      // in_flight_items_.
       in_flight_items_[item_and_refs.item.key()] = item_and_refs;
+      write_queue_.pop_front();
 
       // Remove keys of expired chunks from streamed_chunk_keys to avoid OOM
       // issues caused by the otherwise indefinitely growing hash set.
@@ -584,23 +587,9 @@ absl::Status TrajectoryWriter::RunStreamWorker() {
     // written.
     if (!SendItem(stream.get(), streamed_chunk_keys, item_and_refs.item,
                   &request)) {
-      {
-        absl::WriterMutexLock lock(&mu_);
-        in_flight_items_.erase(item_and_refs.item.key());
-      }
       return FromGrpcStatus(stream->Finish());
     }
     request.Clear();
-
-    // Item has been sent so we can now pop it from the queue. Note that by
-    // deallocating the ItemAndRefs object we are allowing the underlying
-    // ChunkData to be deallocated.
-    {
-      absl::MutexLock lock(&mu_);
-      // TODO(b/178090185): Maybe keep the item and references around until the
-      // item has been confirmed by the server.
-      write_queue_.pop_front();
-    }
   }
 }
 
@@ -641,13 +630,13 @@ absl::Status TrajectoryWriter::FlushLocked(int ignore_last_num_items,
       return true;
     }
 
-    return num_items_in_queue() + in_flight_items_.size() <=
+    return write_queue_.size() + in_flight_items_.size() <=
            ignore_last_num_items;
   };
 
   if (!mu_.AwaitWithTimeout(absl::Condition(&cond), timeout)) {
     return absl::DeadlineExceededError(
-        absl::StrCat("Timeout exceeded with ", num_items_in_queue(),
+        absl::StrCat("Timeout exceeded with ", write_queue_.size(),
                      " items waiting to be written and ",
                      in_flight_items_.size(), " items awaiting confirmation."));
   }
@@ -745,14 +734,6 @@ bool TrajectoryColumn::LockReferences(
     if (!locked_refs->back()) return false;
   }
   return true;
-}
-
-int TrajectoryWriter::num_items_in_queue() const {
-  if (write_queue_.empty()) return 0;
-  if (in_flight_items_.contains(write_queue_.front().item.key())) {
-    return write_queue_.size() - 1;
-  }
-  return write_queue_.size();
 }
 
 }  // namespace reverb

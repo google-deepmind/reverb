@@ -352,17 +352,6 @@ class TrajectoryWriter : public ColumnWriter {
                 const internal::flat_hash_set<uint64_t>& keep_keys,
                 const PrioritizedItem& item, ArenaOwnedRequest* request) const;
 
-  // The number of items in the `write_queue_` but ignoring the first item if
-  // it is also in `in_flight_items_`.
-  //
-  // Items are considered pending until they are confirmed by the server so
-  // both `write_queue_` and `in_flight_items_` must be counted. However, to
-  // protect against data races the write worker will wait to add the item to
-  // `in_flight_items_` BEFORE removing it from `write_queue_` and then
-  // release the mutex for a period in order to perform the actual write to
-  // the gRPC stream. We check for this here to avoid double counting.
-  int num_items_in_queue() const ABSL_SHARED_LOCKS_REQUIRED(mu_);
-
   // Union of `GetChunkKeys` from all column chunkers and all the chunks
   // referenced by pending items (except for chunks only referenced by the first
   // item) filtered by presense in `streamed_chunk_keys. The chunks referenced
