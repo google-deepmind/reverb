@@ -382,7 +382,7 @@ absl::Status TrajectoryWriter::CreateItem(
     REVERB_RETURN_IF_ERROR(unrecoverable_status_);
   }
 
-  ItemAndRefs item_and_refs;
+  auto item_and_refs = std::make_unique<ItemAndRefs>();
 
   // Lock all the references to ensure that the underlying data is not
   // deallocated before the worker has successfully written the item (and data)
@@ -392,20 +392,21 @@ absl::Status TrajectoryWriter::CreateItem(
       return absl::InvalidArgumentError(
           absl::StrCat("Error in column ", col_idx, ": ", status.message()));
     }
-    if (!trajectory[col_idx].LockReferences(&item_and_refs.refs)) {
+    if (!trajectory[col_idx].LockReferences(&item_and_refs->refs)) {
       return absl::InternalError("CellRef unexpectedly expired in CreateItem.");
     }
   }
 
-  item_and_refs.item.set_key(key_generator_->Generate());
-  item_and_refs.item.set_table(table.data(), table.size());
-  item_and_refs.item.set_priority(priority);
+  item_and_refs->item.set_key(key_generator_->Generate());
+  item_and_refs->item.set_table(table.data(), table.size());
+  item_and_refs->item.set_priority(priority);
 
   for (const TrajectoryColumn& column : trajectory) {
-    column.ToProto(item_and_refs.item.mutable_flat_trajectory()->add_columns());
+    column.ToProto(
+        item_and_refs->item.mutable_flat_trajectory()->add_columns());
   }
 
-  REVERB_RETURN_IF_ERROR(item_and_refs.Validate(options_));
+  REVERB_RETURN_IF_ERROR(item_and_refs->Validate(options_));
 
   {
     absl::MutexLock lock(&mu_);
@@ -452,19 +453,17 @@ absl::Status TrajectoryWriter::SetContextAndCreateStream(
   return absl::OkStatus();
 }
 
-bool TrajectoryWriter::GetNextPendingItem(const bool& reader_stopped,
-                                          ItemAndRefs* item_and_refs) const {
+TrajectoryWriter::ItemAndRefs* TrajectoryWriter::GetNextPendingItem(
+    const bool& reader_stopped) const {
   absl::MutexLock lock(&mu_);
   auto trigger = [&]() ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_) {
     return !write_queue_.empty() || closed_ || reader_stopped;
   };
   mu_.Await(absl::Condition(&trigger));
 
-  if (closed_ || reader_stopped) return false;
+  if (closed_ || reader_stopped) return nullptr;
 
-  *item_and_refs = write_queue_.front();
-
-  return true;
+  return write_queue_.front().get();
 }
 
 bool TrajectoryWriter::SendItem(
@@ -499,7 +498,7 @@ internal::flat_hash_set<uint64_t> TrajectoryWriter::GetKeepKeys(
     // these chunks around after the item has been written.
     if (it == write_queue_.begin()) continue;
 
-    for (const std::shared_ptr<CellRef>& ref : it->refs) {
+    for (const std::shared_ptr<CellRef>& ref : (*it)->refs) {
       if (streamed_chunk_keys.contains(ref->chunk_key())) {
         keys.insert(ref->chunk_key());
       }
@@ -540,16 +539,15 @@ absl::Status TrajectoryWriter::RunStreamWorker() {
   internal::flat_hash_set<uint64_t> streamed_chunk_keys;
   ArenaOwnedRequest request;
   while (true) {
-    ItemAndRefs item_and_refs;
-
-    if (!GetNextPendingItem(reader_stopped, &item_and_refs)) {
+    ItemAndRefs* item_and_refs = GetNextPendingItem(reader_stopped);
+    if (item_and_refs == nullptr) {
       return FromGrpcStatus(stream->Finish());
     }
 
     // Send referenced chunks which haven't already been sent. This call also
     // inserts the new chunk keys into `streamed_chunk_keys`.
     if (!SendNotAlreadySentChunks(stream.get(), &streamed_chunk_keys,
-                                  item_and_refs.refs, &request)) {
+                                  item_and_refs->refs, &request)) {
       return FromGrpcStatus(stream->Finish());
     }
 
@@ -558,12 +556,12 @@ absl::Status TrajectoryWriter::RunStreamWorker() {
       // Check whether all chunks referenced by the item have been written to
       // the stream. If not, then at least one chunk is incomplete and the
       // worker will wait for the chunk state to change and then retry.
-      if (!ContainsAll(streamed_chunk_keys, item_and_refs.refs)) {
+      if (!ContainsAll(streamed_chunk_keys, item_and_refs->refs)) {
         // Do a final check that the chunks didn't change since the lock was
         // last held. If the item still references incomplete chunks then we
         // sleep until the chunks changed. If all the chunks are now completed
         // then we move straight to the top of the loop.
-        if (!AllReady(item_and_refs.refs)) {
+        if (!AllReady(item_and_refs->refs)) {
           data_cv_.Wait(&mu_);
         }
         continue;
@@ -571,7 +569,8 @@ absl::Status TrajectoryWriter::RunStreamWorker() {
 
       // Item is about to be written - move from write_queue_ to
       // in_flight_items_.
-      in_flight_items_[item_and_refs.item.key()] = item_and_refs;
+      in_flight_items_[item_and_refs->item.key()] =
+          std::move(write_queue_.front());
       write_queue_.pop_front();
 
       // Remove keys of expired chunks from streamed_chunk_keys to avoid OOM
@@ -580,12 +579,12 @@ absl::Status TrajectoryWriter::RunStreamWorker() {
     }
 
     for (auto& [_, chunker] : chunkers_) {
-      chunker->OnItemFinalized(item_and_refs.item, item_and_refs.refs);
+      chunker->OnItemFinalized(item_and_refs->item, item_and_refs->refs);
     }
 
     // All chunks have been written to the stream so the item can now be
     // written.
-    if (!SendItem(stream.get(), streamed_chunk_keys, item_and_refs.item,
+    if (!SendItem(stream.get(), streamed_chunk_keys, item_and_refs->item,
                   &request)) {
       return FromGrpcStatus(stream->Finish());
     }
@@ -607,10 +606,10 @@ absl::Status TrajectoryWriter::FlushLocked(int ignore_last_num_items,
   // force the finalization of the `ignore_last_num_items` last items in the
   // queue.
   int num_items_to_force_flush = write_queue_.size() - ignore_last_num_items;
-  for (const ItemAndRefs& item : write_queue_) {
+  for (const auto& item : write_queue_) {
     if (num_items_to_force_flush-- <= 0) break;
 
-    for (const std::shared_ptr<CellRef>& ref : item.refs) {
+    for (const std::shared_ptr<CellRef>& ref : item->refs) {
       if (!ref->IsReady()) {
         REVERB_RETURN_IF_ERROR(ref->chunker().lock()->Flush());
       }

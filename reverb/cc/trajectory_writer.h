@@ -338,11 +338,10 @@ class TrajectoryWriter : public ColumnWriter {
   absl::Status SetContextAndCreateStream(std::unique_ptr<InsertStream>* stream)
       ABSL_LOCKS_EXCLUDED(mu_);
 
-  // Blocks until `write_queue_` is non-empty then copies the front element into
-  // `item_and_refs`. If `reader_stopped` becomes true or `Close` called
-  // before operation could complete, `false` is returned.
-  bool GetNextPendingItem(const bool& reader_stopped,
-                          ItemAndRefs* item_and_refs) const
+  // Blocks until `write_queue_` is non-empty then returns pointer to the front
+  // element. If `reader_stopped` becomes true or `Close` called before
+  // operation could complete, `nullptr` is returned.
+  ItemAndRefs* GetNextPendingItem(const bool& reader_stopped) const
       ABSL_LOCKS_EXCLUDED(mu_);
 
   // Build and write the item insertion request to the stream. All chunks
@@ -396,13 +395,13 @@ class TrajectoryWriter : public ColumnWriter {
   absl::Status unrecoverable_status_ ABSL_GUARDED_BY(mu_);
 
   // Items waiting for `stream_worker_` to write it to the steam.
-  std::deque<ItemAndRefs> write_queue_ ABSL_GUARDED_BY(mu_);
+  std::deque<std::unique_ptr<ItemAndRefs>> write_queue_ ABSL_GUARDED_BY(mu_);
 
   // Items which have been written to the stream but for which no confirmation
   // has yet been received from the server. Note that we have to keep the item
   // alive until the confirmation has been received so that we are able to
   // retry the request if the server becomes unavailable.
-  internal::flat_hash_map<uint64_t, ItemAndRefs> in_flight_items_
+  internal::flat_hash_map<uint64_t, std::unique_ptr<ItemAndRefs>> in_flight_items_
       ABSL_GUARDED_BY(mu_);
 
   // We signal when a chunk is flushed in case the stream worker backed off due
