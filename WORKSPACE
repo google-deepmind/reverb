@@ -45,10 +45,11 @@ http_archive(
         """sed -i.bak 's/"python",/"python3",/g' third_party/py/python_configure.bzl""",
         """sed -i.bak 's/PYTHONHASHSEED=0/PYTHONHASHSEED=0 python3/g' bazel/cython_library.bzl""",
     ],
-    sha256 = "45b5956d3c807fbf9045d946864d83013543a2474420cffaa984022428242271",
-    strip_prefix = "grpc-ce05bf557ced2d311bad8ee520f9f8088f715bd8",
+    sha256 = "39bad059a712c6415b168cb3d922cb0e8c16701b475f047426c81b46577d844b",
+    strip_prefix = "grpc-reverb_fix",
     urls = [
-        "https://github.com/grpc/grpc/archive/ce05bf557ced2d311bad8ee520f9f8088f715bd8.tar.gz",
+        # Patched version of GRPC / boringSSL to make it compile with old TF GCC compiler
+        "https://github.com/qstanczyk/grpc/archive/reverb_fix.tar.gz",
     ],
 )
 
