@@ -146,23 +146,6 @@ reverb_cc_test(
     ] + reverb_grpc_deps() + reverb_absl_deps(),
 )
 
-reverb_cc_test(
-    name = "reverb_service_impl_test",
-    srcs = ["reverb_service_impl_test.cc"],
-    deps = [
-        ":reverb_service_cc_proto",
-        ":reverb_service_impl",
-        ":schema_cc_proto",
-        "//reverb/cc/selectors:fifo",
-        "//reverb/cc/selectors:uniform",
-        "//reverb/cc/platform:checkpointing",
-        "//reverb/cc/platform:status_macros",
-        "//reverb/cc/platform:status_matchers",
-        "//reverb/cc/platform:thread",
-        "//reverb/cc/testing:proto_test_util",
-    ] + reverb_tf_deps() + reverb_absl_deps(),
-)
-
 reverb_cc_library(
     name = "errors",
     srcs = ["errors.cc"],
@@ -403,31 +386,6 @@ reverb_cc_library(
         "//reverb/cc/support:signature",
         "//reverb/cc/support:uint128",
     ] + reverb_grpc_deps() + reverb_absl_deps(),
-)
-
-reverb_cc_library(
-    name = "reverb_service_impl",
-    srcs = ["reverb_service_impl.cc"],
-    hdrs = ["reverb_service_impl.h"],
-    deps = [
-        ":chunk_store",
-        ":table",
-        ":reverb_service_cc_grpc_proto",
-        ":reverb_service_cc_proto",
-        ":sampler",
-        ":schema_cc_proto",
-        "//reverb/cc/checkpointing:interface",
-        "//reverb/cc/platform:hash_map",
-        "//reverb/cc/platform:hash_set",
-        "//reverb/cc/platform:thread",
-        "//reverb/cc/platform:logging",
-        "//reverb/cc/platform:status_macros",
-        "//reverb/cc/support:cleanup",
-        "//reverb/cc/support:grpc_util",
-        "//reverb/cc/support:trajectory_util",
-        "//reverb/cc/support:uint128",
-        "//reverb/cc/support:queue",
-    ] + reverb_tf_deps() + reverb_grpc_deps() + reverb_absl_deps(),
 )
 
 reverb_cc_proto_library(

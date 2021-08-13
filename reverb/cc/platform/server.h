@@ -48,9 +48,6 @@ class Server {
 
   // Returns a summary string description.
   virtual std::string DebugString() const = 0;
-
-  // Whether the asynchronous service is used or not.
-  virtual bool uses_async_service() const = 0;
 };
 
 absl::Status StartServer(std::vector<std::shared_ptr<Table>> tables, int port,

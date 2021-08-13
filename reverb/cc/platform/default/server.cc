@@ -127,8 +127,6 @@ class ServerImpl : public Server {
 
   void SignalStop() { stop_signalled_ = true; }
 
-  bool uses_async_service() const override { return false; }
-
  private:
   int port_;
   std::unique_ptr<ReverbServiceAsyncImpl> reverb_service_;
