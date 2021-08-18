@@ -475,87 +475,28 @@ std::vector<Table::Item> Table::Copy(size_t count) const {
 
 absl::Status Table::InsertOrAssign(Item item, absl::Duration timeout) {
   REVERB_RETURN_IF_ERROR(CheckItemValidity(item));
-  if (table_worker_) {
-    // This code path is here mainly to allow running existing tests with the
-    // table that has a table worker. To be removed together with this entire
-    // function once async server is fully enabled.
-    bool can_insert;
-    absl::Notification can_insert_c;
-    auto can_insert_f =
-        std::make_shared<std::function<void(const absl::Status&)>>(
-            [&](absl::Status status) { can_insert_c.Notify(); });
-    REVERB_RETURN_IF_ERROR(
-        InsertOrAssignAsync(std::move(item), &can_insert, can_insert_f));
-    if (!can_insert) {
-      can_insert_c.WaitForNotification();
-    }
-    auto worker_done = [this]() ABSL_EXCLUSIVE_LOCKS_REQUIRED(worker_mu_) {
-      return worker_state_ == TableWorkerState::kSleeping &&
-             pending_inserts_.empty();
-    };
-    absl::MutexLock lock(&worker_mu_);
-    if (worker_mu_.AwaitWithTimeout(absl::Condition(&worker_done), timeout)) {
-      return absl::OkStatus();
-    }
-    return errors::RateLimiterTimeout();
+  // This code path is here mainly to allow running existing tests with the
+  // table that has a table worker. To be removed together with this entire
+  // function once async server is fully enabled.
+  bool can_insert;
+  absl::Notification can_insert_c;
+  auto can_insert_f =
+      std::make_shared<std::function<void(const absl::Status&)>>(
+          [&](absl::Status status) { can_insert_c.Notify(); });
+  REVERB_RETURN_IF_ERROR(
+      InsertOrAssignAsync(std::move(item), &can_insert, can_insert_f));
+  if (!can_insert) {
+    can_insert_c.WaitForNotification();
   }
-
-  auto key = item.item.key();
-  auto priority = item.item.priority();
-
-  // If an item is deleted as part of the insert then we keep the data alive
-  // until the lock has been released.
-  std::shared_ptr<Item> deleted_item;
-  {
-    absl::MutexLock lock(&mu_);
-
-    /// If item already exists in table then update its priority.
-    if (data_.contains(key)) {
-      return UpdateItem(key, priority);
-    }
-
-    // Wait for the insert to be staged. While waiting the lock is released but
-    // once it returns the lock is acquired again. While waiting for the right
-    // to insert the operation might have transformed into an update.
-    REVERB_RETURN_IF_ERROR(rate_limiter_->AwaitCanInsert(&mu_, timeout));
-
-    if (data_.contains(key)) {
-      // If the insert was transformed into an update while waiting we need to
-      // notify the limiter so it let another insert call to proceed.
-      rate_limiter_->MaybeSignalCondVars(&mu_);
-      return UpdateItem(key, priority);
-    }
-
-    // Set the insertion timestamp after the lock has been acquired as this
-    // represents the order it was inserted into the sampler and remover.
-    EncodeAsTimestampProto(absl::Now(), item.item.mutable_inserted_at());
-    data_[key] = std::make_shared<Item>(std::move(item));
-
-    REVERB_RETURN_IF_ERROR(sampler_->Insert(key, priority));
-    REVERB_RETURN_IF_ERROR(remover_->Insert(key, priority));
-
-    auto it = data_.find(key);
-
-    // Increment references to the episode/s the item is referencing.
-    // We increment before a possible call to DeleteItem since the sampler can
-    // return this key.
-    for (const auto& chunk : it->second->chunks) {
-      ++episode_refs_[chunk->episode_id()];
-    }
-
-    ExtensionOperation(ExtensionRequest::CallType::kInsert, it->second);
-
-    // Remove an item if we exceeded `max_size_`.
-    if (data_.size() > max_size_) {
-      REVERB_RETURN_IF_ERROR(DeleteItem(remover_->Sample().key, &deleted_item));
-    }
-
-    // Now that the new item has been inserted and an older item has
-    // (potentially) been removed the insert can be finalized.
-    rate_limiter_->Insert(&mu_);
+  auto worker_done = [this]() ABSL_EXCLUSIVE_LOCKS_REQUIRED(worker_mu_) {
+    return worker_state_ == TableWorkerState::kSleeping &&
+           pending_inserts_.empty();
+  };
+  absl::MutexLock lock(&worker_mu_);
+  if (worker_mu_.AwaitWithTimeout(absl::Condition(&worker_done), timeout)) {
+    return absl::OkStatus();
   }
-
-  return absl::OkStatus();
+  return errors::RateLimiterTimeout();
 }
 
 absl::Status Table::InsertOrAssignAsync(
@@ -641,11 +582,9 @@ absl::Status Table::MutateItems(absl::Span<const KeyWithPriority> updates,
   }
   // Table worker doesn't listen on rate_limiter, so need to wake it up
   // explicitly.
-  if (table_worker_) {
-    absl::MutexLock lock(&worker_mu_);
-    if (worker_state_ != TableWorkerState::kRunning) {
-      wakeup_worker_.Signal();
-    }
+  absl::MutexLock lock(&worker_mu_);
+  if (worker_state_ != TableWorkerState::kRunning) {
+    wakeup_worker_.Signal();
   }
   return absl::OkStatus();
 }
@@ -660,10 +599,6 @@ absl::Status Table::Sample(SampledItem* sampled_item, absl::Duration timeout) {
 void Table::EnqueSampleRequest(int num_samples,
                                std::weak_ptr<SamplingCallback> callback,
                                absl::Duration timeout) {
-  REVERB_CHECK(table_worker_ != nullptr)
-      << "Table::EnqueueSampleRequest called without calling "
-         "Table::EnableTableWorker first.";
-
   auto request = std::make_unique<SampleRequest>();
   request->on_batch_done = std::move(callback);
   request->deadline = absl::Now() + timeout;
@@ -693,82 +628,20 @@ absl::Status Table::SampleFlexibleBatch(std::vector<SampledItem>* items,
     return absl::InvalidArgumentError(
         "Table::SampleFlexibleBatch called with non-empty output vector.");
   }
-  if (table_worker_) {
-    absl::Status result = absl::OkStatus();
-    absl::Notification notification;
-    auto callback = std::make_shared<SamplingCallback>(
-        [&](Table::SampleRequest* sample) {
-          if (!sample->status.ok()) {
-            result = sample->status;
-          } else {
-            std::swap(*items, sample->samples);
-          }
-          notification.Notify();
-        });
-    EnqueSampleRequest(batch_size, callback, timeout);
-    notification.WaitForNotification();
-    return result;
-  }
-  // Allocate memory outside of critical section.
-  items->reserve(batch_size);
-
-  // Keep references to the (potentially) deleted items alive until the lock has
-  // been released.
-  std::vector<std::shared_ptr<Item>> deleted_items;
-  {
-    absl::MutexLock lock(&mu_);
-
-    // Check if we can start sampling straight away or if we are rate limited.
-    bool rate_limited = !rate_limiter_->MaybeCommitSample(&mu_);
-
-    // If we were unable to start sampling straight away then we wait until the
-    // rate limiter allows for at least one sample or until the timeout has
-    // expired.
-    if (rate_limited) {
-      REVERB_RETURN_IF_ERROR(
-          rate_limiter_->AwaitAndFinalizeSample(&mu_, timeout));
-    }
-
-    do {
-      auto sample = sampler_->Sample();
-      std::shared_ptr<Item>& item = data_[sample.key];
-
-      // If this is the first time the item was sampled then update unique
-      // sampled counter.
-      if (item->item.times_sampled() == 0) {
-        ++num_unique_samples_;
-      }
-
-      // Increment the sample count.
-      item->item.set_times_sampled(item->item.times_sampled() + 1);
-
-      // Copy Details of the sampled item.
-      SampledItem sampled_item = {
-          .ref = item,
-          .probability = sample.probability,
-          .table_size = static_cast<int64_t>(data_.size()),
-          .priority = item->item.priority(),
-          .times_sampled = item->item.times_sampled(),
-          .rate_limited = rate_limited,
-      };
-      items->push_back(std::move(sampled_item));
-
-      // Notify extensions which item was sampled.
-      ExtensionOperation(ExtensionRequest::CallType::kSample, item);
-
-      // If there is an upper bound of the number of times an item can be
-      // sampled and it is now reached then delete the item before the lock is
-      // released.
-      if (item->item.times_sampled() == max_times_sampled_) {
-        deleted_items.emplace_back();
-        REVERB_RETURN_IF_ERROR(
-            DeleteItem(item->item.key(), &deleted_items.back()));
-      }
-    } while (items->size() < batch_size &&
-             rate_limiter_->MaybeCommitSample(&mu_));
-  }
-
-  return absl::OkStatus();
+  absl::Status result = absl::OkStatus();
+  absl::Notification notification;
+  auto callback = std::make_shared<SamplingCallback>(
+      [&](Table::SampleRequest* sample) {
+        if (!sample->status.ok()) {
+          result = sample->status;
+        } else {
+          std::swap(*items, sample->samples);
+        }
+        notification.Notify();
+      });
+  EnqueSampleRequest(batch_size, callback, timeout);
+  notification.WaitForNotification();
+  return result;
 }
 
 absl::Status Table::SampleInternal(bool rate_limited, SampledItem* result) {
