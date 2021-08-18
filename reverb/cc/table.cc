@@ -153,6 +153,9 @@ Table::Table(std::string name, std::shared_ptr<ItemSelector> sampler,
   for (auto& extension : sync_extensions_) {
     REVERB_CHECK_OK(extension->RegisterTable(&mu_, this));
   }
+  auto executor =
+      std::make_shared<TaskExecutor>(1, "TableCallbackExecutor_" + name_);
+  EnableTableWorker(executor);
 }
 
 Table::~Table() {
@@ -214,22 +217,22 @@ absl::Status Table::TableWorkerLoop() {
     worker_state_ = TableWorkerState::kRunning;
   }
   while (true) {
-    // Notify clients waiting to insert
-    if (!notify_inserts_ok.empty()) {
-      callback_executor_->Schedule(
-          [notify_inserts_ok = std::move(notify_inserts_ok), insert_status] {
-            for (auto& notify : notify_inserts_ok) {
-              auto to_notify = notify.lock();
-              // Callback might have been destroyed in the meantime.
-              if (to_notify != nullptr) {
-                (*to_notify)(insert_status);
-              }
-            }
-          });
-      notify_inserts_ok.clear();
-    }
     {
       absl::MutexLock lock(&mu_);
+      // Notify clients waiting to insert
+      if (!notify_inserts_ok.empty()) {
+        callback_executor_->Schedule(
+            [notify_inserts_ok = std::move(notify_inserts_ok), insert_status] {
+              for (auto& notify : notify_inserts_ok) {
+                auto to_notify = notify.lock();
+                // Callback might have been destroyed in the meantime.
+                if (to_notify != nullptr) {
+                  (*to_notify)(insert_status);
+                }
+              }
+            });
+        notify_inserts_ok.clear();
+      }
       // Tracks whether while loop below makes progress.
       int64_t prev_progress = progress - 1;
       while (prev_progress < progress) {
@@ -336,11 +339,14 @@ absl::Status Table::TableWorkerLoop() {
         worker_state_ = TableWorkerState::kRunning;
       }
     }
-    // Notify sample requests which exceeded deadline.
-    for (auto& sample : to_terminate) {
-      FinalizeSampleRequest(std::move(sample), sampling_status);
+    if (!to_terminate.empty()) {
+      // Notify sample requests which exceeded deadline.
+      absl::MutexLock lock(&mu_);
+      for (auto& sample : to_terminate) {
+        FinalizeSampleRequest(std::move(sample), sampling_status);
+      }
+      to_terminate.clear();
     }
-    to_terminate.clear();
   }
 }
 
@@ -418,8 +424,16 @@ absl::Status Table::ExtensionsWorkerLoop() {
   }
 }
 
-void Table::EnableTableWorker(std::shared_ptr<TaskExecutor> executor) {
+void Table::SetCallbackExecutor(std::shared_ptr<TaskExecutor> executor) {
+  absl::MutexLock lock(&mu_);
   callback_executor_ = executor;
+}
+
+void Table::EnableTableWorker(std::shared_ptr<TaskExecutor> executor) {
+  {
+    absl::MutexLock lock(&mu_);
+    callback_executor_ = executor;
+  }
   extension_worker_ = internal::StartThread("ExtensionWorker_" + name_, [&]() {
     auto status = ExtensionsWorkerLoop();
     REVERB_LOG_IF(REVERB_ERROR, !status.ok())
@@ -1048,6 +1062,7 @@ void Table::UnsafeAddExtension(std::shared_ptr<TableExtension> extension) {
   if (extension->CanRunAsync() && extension_worker_) {
     absl::MutexLock lock(&async_extensions_mu_);
     async_extensions_.push_back(std::move(extension));
+    has_async_extensions_ = true;
   } else {
     sync_extensions_.push_back(std::move(extension));
   }

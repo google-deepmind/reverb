@@ -343,10 +343,8 @@ class Table {
   // Returns a summary string description.
   std::string DebugString() const;
 
-  // Make the table use table worker for executing operations. Worker will use
-  // provided executor for running operation callbacks. This method should be
-  // called before adding any data to the table.
-  void EnableTableWorker(std::shared_ptr<TaskExecutor> executor);
+  // Make table worker use provided executor for executing callbacks.
+  void SetCallbackExecutor(std::shared_ptr<TaskExecutor> executor);
 
   // Check whether the worker is currently sleeping. This method is only exposed
   // for testing purposes.
@@ -379,6 +377,10 @@ class Table {
     ExtensionItem item;
   };
 
+  // Starts table worker thread which processes table operations queue. Worker
+  // will use provided executor for running operation callbacks.
+  void EnableTableWorker(std::shared_ptr<TaskExecutor> executor);
+
   // Table worker execution loop. It is executed by a dedicated thread
   // and performs enqueued table operations (inserts, mutations, sampling...).
   absl::Status TableWorkerLoop();
@@ -394,7 +396,8 @@ class Table {
 
   // Finalize sampling request with a given status.
   void FinalizeSampleRequest(std::unique_ptr<Table::SampleRequest> request,
-                             absl::Status status);
+                             absl::Status status)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_);
 
   // Performs insertion of the `item` into the table.
   absl::Status InsertOrAssignInternal(std::shared_ptr<Item> item)
@@ -515,7 +518,7 @@ class Table {
   mutable absl::Mutex worker_mu_ ABSL_ACQUIRED_BEFORE(mu_);
 
   // Executor used by the table worker to run operation callbacks.
-  std::shared_ptr<TaskExecutor> callback_executor_;
+  std::shared_ptr<TaskExecutor> callback_executor_ ABSL_GUARDED_BY(mu_);
 
   // Extension worker which asynchronously updates monitoring.
   std::unique_ptr<internal::Thread> extension_worker_;

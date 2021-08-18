@@ -44,30 +44,6 @@ reverb_cc_test(
 reverb_cc_test(
     name = "table_test",
     srcs = ["table_test.cc"],
-    args = [
-        "--run_table_test_with_worker=false",
-    ],
-    deps = [
-        ":chunk_store",
-        ":table",
-        ":schema_cc_proto",
-        "//reverb/cc/checkpointing:checkpoint_cc_proto",
-        "//reverb/cc/selectors:fifo",
-        "//reverb/cc/selectors:uniform",
-        "//reverb/cc/support:task_executor",
-        "//reverb/cc/table_extensions:interface",
-        "//reverb/cc/platform:status_matchers",
-        "//reverb/cc/platform:thread",
-        "//reverb/cc/testing:proto_test_util",
-    ] + reverb_tf_deps() + reverb_absl_deps(),
-)
-
-reverb_cc_test(
-    name = "table_test_with_worker",
-    srcs = ["table_test.cc"],
-    args = [
-        "--run_table_test_with_worker=true",
-    ],
     deps = [
         ":chunk_store",
         ":table",

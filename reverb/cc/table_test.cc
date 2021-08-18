@@ -46,9 +46,6 @@
 #include "tensorflow/core/framework/types.pb.h"
 #include "tensorflow/core/protobuf/struct.pb.h"
 
-ABSL_FLAG(bool, run_table_test_with_worker, false,
-          "Should table test be run against a table with table worker.");
-
 namespace deepmind {
 namespace reverb {
 namespace {
@@ -66,9 +63,7 @@ MATCHER_P(HasSampledItemKey, key, "") { return arg.ref->item.key() == key; }
 template <typename ...Ts>
 std::unique_ptr<Table> MakeTable(Ts... args) {
   auto table = absl::make_unique<Table>(args...);
-  if (absl::GetFlag(FLAGS_run_table_test_with_worker)) {
-    table->EnableTableWorker(std::make_shared<TaskExecutor>(1, "worker"));
-  }
+  table->SetCallbackExecutor(std::make_shared<TaskExecutor>(1, "worker"));
   return table;
 }
 
@@ -246,33 +241,7 @@ TEST(TableTest, SampleFlexibleBatchRequireEmptyOutputVector) {
           "Table::SampleFlexibleBatch called with non-empty output vector."));
 }
 
-TEST(TableTest, SampleSetsRateLimitedIfBlocked) {
-  if (absl::GetFlag(FLAGS_run_table_test_with_worker)) {
-    GTEST_SKIP() << "Skipping test that is not intended for worker setups.";
-  }
-  auto table = MakeUniformTable("table");
-
-  Table::SampledItem rate_limited_item;
-  auto thread = internal::StartThread("sample", [&] {
-    REVERB_ASSERT_OK(table->Sample(&rate_limited_item, kTimeout));
-  });
-
-  while (table->info().rate_limiter_info().sample_stats().pending() == 0) {
-    absl::SleepFor(absl::Milliseconds(1));
-  }
-  REVERB_ASSERT_OK(table->InsertOrAssign(MakeItem(1, 1)));
-  thread = nullptr;  // Join thread so sample is completed.
-  EXPECT_TRUE(rate_limited_item.rate_limited);
-
-  Table::SampledItem not_rate_limited_item;
-  REVERB_ASSERT_OK(table->Sample(&not_rate_limited_item, kTimeout));
-  EXPECT_FALSE(not_rate_limited_item.rate_limited);
-}
-
 TEST(TableTest, EnqueSampleRequestSetsRateLimitedIfBlocked) {
-  if (!absl::GetFlag(FLAGS_run_table_test_with_worker)) {
-    GTEST_SKIP() << "Skipping test that is only intended for worker setups.";
-  }
   auto table = MakeUniformTable("table");
 
   absl::Notification first_done;
@@ -475,11 +444,7 @@ TEST(TableTest, CloseCancelsPendingCalls) {
   table->Close();
 
   EXPECT_TRUE(notification.WaitForNotificationWithTimeout(kTimeout));
-  if (absl::GetFlag(FLAGS_run_table_test_with_worker)) {
-    EXPECT_OK(status);
-  } else {
-    EXPECT_EQ(status.code(), absl::StatusCode::kCancelled);
-  }
+  EXPECT_OK(status);
 
   thread = nullptr;  // Joins the thread.
 }
@@ -989,9 +954,6 @@ TEST(TableTest, InsertOrAssignCanTimeout) {
 }
 
 TEST(TableTest, CloseWithWorker) {
-  if (!absl::GetFlag(FLAGS_run_table_test_with_worker)) {
-    return;
-  }
   absl::Notification notification;
   auto callback = std::make_shared<Table::SamplingCallback>(
       [&](Table::SampleRequest* sample) {

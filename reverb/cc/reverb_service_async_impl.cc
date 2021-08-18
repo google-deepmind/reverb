@@ -129,7 +129,7 @@ absl::Status ReverbServiceAsyncImpl::Initialize(
       absl::GetFlag(FLAGS_reverb_callback_executor_num_threads),
       "TableCallbackExecutor");
   for (auto& table : tables_) {
-    table.second->EnableTableWorker(executor);
+    table.second->SetCallbackExecutor(executor);
   }
 
   tables_state_id_ = absl::MakeUint128(absl::Uniform<uint64_t>(rnd_),
