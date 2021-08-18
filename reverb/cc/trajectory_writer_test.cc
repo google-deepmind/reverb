@@ -39,6 +39,7 @@
 #include "reverb/cc/chunker.h"
 #include "reverb/cc/platform/logging.h"
 #include "reverb/cc/platform/status_matchers.h"
+#include "reverb/cc/platform/thread.h"
 #include "reverb/cc/reverb_service.grpc.pb.h"
 #include "reverb/cc/reverb_service.pb.h"
 #include "reverb/cc/reverb_service_mock.grpc.pb.h"
@@ -57,16 +58,10 @@ namespace deepmind {
 namespace reverb {
 namespace {
 
-using ::grpc::testing::MockClientReaderWriter;
-using ::testing::_;
 using ::testing::ElementsAre;
-using ::testing::Invoke;
 using ::testing::Return;
 using ::testing::ReturnNew;
 using ::testing::UnorderedElementsAre;
-
-using MockStream =
-    MockClientReaderWriter<InsertStreamRequest, InsertStreamResponse>;
 
 using Step = ::std::vector<::absl::optional<::tensorflow::Tensor>>;
 using StepRef = ::std::vector<::absl::optional<::std::weak_ptr<CellRef>>>;
@@ -77,6 +72,10 @@ const auto kFloatSpec = internal::TensorSpec{"0", tensorflow::DT_FLOAT, {1}};
 MATCHER(IsChunk, "") { return arg.chunks_size() == 1; }
 
 MATCHER(IsChunkAndItem, "") { return arg.chunks_size() == 1 && arg.has_item(); }
+
+MATCHER(IsChunkAndItemPtr, "") {
+  return arg->chunks_size() == 1 && arg->has_item();
+}
 
 MATCHER_P2(HasNumChunksAndItem, size, item, "") {
   return arg.chunks_size() == size && arg.has_item() == item;
@@ -142,43 +141,57 @@ std::vector<TrajectoryColumn> MakeTrajectory(
   return columns;
 }
 
-class FakeStream : public MockStream {
+class FakeStream : public ::grpc::ClientCallbackReaderWriter<
+                       ::deepmind::reverb::InsertStreamRequest,
+                       ::deepmind::reverb::InsertStreamResponse> {
  public:
-  FakeStream()
-      : requests_(std::make_shared<std::vector<InsertStreamRequest>>()),
-        pending_confirmation_(10) {}
+  FakeStream(bool generate_responses)
+      : generate_responses_(generate_responses) {
+    requests_ = std::make_shared<std::vector<InsertStreamRequest>>();
+  }
 
-  ~FakeStream() { pending_confirmation_.Close(); }
+  void SetReactor(
+      ::grpc::ClientBidiReactor<::deepmind::reverb::InsertStreamRequest,
+                                ::deepmind::reverb::InsertStreamResponse>*
+          reactor) {
+    reactor_ = reactor;
+    BindReactor(reactor);
+  }
+  MOCK_METHOD(void, StartCall, ());
+  MOCK_METHOD(void, WritesDone, ());
+  MOCK_METHOD(void, AddHold, (int holds));
+  void Read(::deepmind::reverb::InsertStreamResponse* resp) {
+    absl::MutexLock lock(&mu_);
+    REVERB_CHECK(response_ == nullptr);
+    response_ = resp;
+  }
 
-  bool Write(const InsertStreamRequest& msg,
+  void RemoveHold() {
+    callback_thread_ = internal::StartThread("OnDoneAsync", [this] {
+      reactor_->OnDone(status_);
+    });
+  }
+
+  void Write(const InsertStreamRequest* msg,
              grpc::WriteOptions options) override {
-    absl::MutexLock lock(&mu_);
-    requests_->push_back(msg);
-
-    if (msg.item().send_confirmation()) {
-      REVERB_CHECK(pending_confirmation_.Push(msg.item().item().key()));
+    int confirm_cnt = 0;
+    {
+      absl::MutexLock lock(&mu_);
+      requests_->push_back(*msg);
+      if (msg->item().send_confirmation()) {
+        pending_confirmation_.push(msg->item().item().key());
+        confirm_cnt = 1;
+      }
+      if (!generate_responses_) {
+        return;
+      }
     }
-
-    return true;
+    reactor_->OnWriteDone(true);
+    ConfirmItems(confirm_cnt);
   }
 
-  bool Read(InsertStreamResponse* response) override {
-    uint64_t confirm_id;
-    if (!pending_confirmation_.Pop(&confirm_id)) {
-      return false;
-    }
-    response->add_keys(confirm_id);
-    while (pending_confirmation_.size() > 0 &&
-           pending_confirmation_.Pop(&confirm_id)) {
-      response->add_keys(confirm_id);
-    }
-    return true;
-  }
-
-  grpc::Status Finish() override {
-    absl::MutexLock lock(&mu_);
-    pending_confirmation_.Close();
-    return grpc::Status::OK;
+  void SetStatus(grpc::Status status) {
+    status_ = status;
   }
 
   void BlockUntilNumRequestsIs(int size) const {
@@ -187,6 +200,18 @@ class FakeStream : public MockStream {
       return requests_->size() == size;
     };
     mu_.Await(absl::Condition(&trigger));
+  }
+
+  void ConfirmItems(int count) {
+    {
+      absl::MutexLock lock(&mu_);
+      for (int x = 0; x < count; x++) {
+        response_->add_keys(pending_confirmation_.front());
+        pending_confirmation_.pop();
+      }
+      response_ = nullptr;
+    }
+    reactor_->OnReadDone(true);
   }
 
   const std::vector<InsertStreamRequest>& requests() const {
@@ -201,9 +226,201 @@ class FakeStream : public MockStream {
 
  private:
   mutable absl::Mutex mu_;
+  ::grpc::ClientBidiReactor<::deepmind::reverb::InsertStreamRequest,
+                            ::deepmind::reverb::InsertStreamResponse>*
+      reactor_ = nullptr;
+  std::unique_ptr<::deepmind::reverb::internal::Thread> callback_thread_;
   std::shared_ptr<std::vector<InsertStreamRequest>> requests_
       ABSL_GUARDED_BY(mu_);
-  internal::Queue<uint64_t> pending_confirmation_;
+  std::queue<uint64_t> pending_confirmation_;
+  ::deepmind::reverb::InsertStreamResponse* response_ ABSL_GUARDED_BY(mu_) =
+      nullptr;
+  const bool generate_responses_;
+  grpc::Status status_ = ::grpc::Status::OK;
+};
+
+class AsyncInterface : public ::deepmind::reverb::/* grpc_gen:: */ReverbService::
+                           StubInterface::async_interface {
+ public:
+  AsyncInterface(bool generate_responses = true)
+      : stream_(generate_responses) {}
+
+  void InsertStream(
+      ::grpc::ClientContext* context,
+      ::grpc::ClientBidiReactor<::deepmind::reverb::InsertStreamRequest,
+                                ::deepmind::reverb::InsertStreamResponse>*
+          reactor) {
+    stream_.SetReactor(reactor);
+  }
+
+  MOCK_METHOD(void, Checkpoint,
+               (::grpc::ClientContext*,
+                    const ::deepmind::reverb::CheckpointRequest*,
+                    ::deepmind::reverb::CheckpointResponse*,
+                    std::function<void(::grpc::Status)>));
+  MOCK_METHOD(void, Checkpoint,
+               (::grpc::ClientContext*,
+                    const ::deepmind::reverb::CheckpointRequest*,
+                    ::deepmind::reverb::CheckpointResponse*,
+                    ::grpc::ClientUnaryReactor* reactor));
+  MOCK_METHOD(void, MutatePriorities,
+               (::grpc::ClientContext*,
+                    const ::deepmind::reverb::MutatePrioritiesRequest* request,
+                    ::deepmind::reverb::MutatePrioritiesResponse* response,
+                    std::function<void(::grpc::Status)>));
+  MOCK_METHOD(void, MutatePriorities,
+               (::grpc::ClientContext*,
+                    const ::deepmind::reverb::MutatePrioritiesRequest* request,
+                    ::deepmind::reverb::MutatePrioritiesResponse* response,
+                    ::grpc::ClientUnaryReactor* reactor));
+  MOCK_METHOD(void, Reset, (::grpc::ClientContext*,
+                           const ::deepmind::reverb::ResetRequest* request,
+                           ::deepmind::reverb::ResetResponse* response,
+                           std::function<void(::grpc::Status)>));
+  MOCK_METHOD(void, Reset, (::grpc::ClientContext*,
+                           const ::deepmind::reverb::ResetRequest* request,
+                           ::deepmind::reverb::ResetResponse* response,
+                           ::grpc::ClientUnaryReactor* reactor));
+  MOCK_METHOD(
+      void, SampleStream,
+      ((::grpc::ClientContext*),
+       (::grpc::ClientBidiReactor<::deepmind::reverb::SampleStreamRequest,
+                                  ::deepmind::reverb::SampleStreamResponse>*)));
+  MOCK_METHOD(void, ServerInfo,
+               (::grpc::ClientContext*,
+                    const ::deepmind::reverb::ServerInfoRequest* request,
+                    ::deepmind::reverb::ServerInfoResponse* response,
+                    std::function<void(::grpc::Status)>));
+  MOCK_METHOD(void, ServerInfo,
+               (::grpc::ClientContext*,
+                    const ::deepmind::reverb::ServerInfoRequest* request,
+                    ::deepmind::reverb::ServerInfoResponse* response,
+                    ::grpc::ClientUnaryReactor* reactor));
+  MOCK_METHOD(void,
+      InitializeConnection,
+      ((::grpc::ClientContext*) ,
+           (::grpc::ClientBidiReactor<
+               ::deepmind::reverb::InitializeConnectionRequest,
+               ::deepmind::reverb::InitializeConnectionResponse>*)));
+
+ public:
+  FakeStream stream_;
+};
+
+class MockReverbServiceAsyncStub
+    : public ::deepmind::reverb::/* grpc_gen:: */ReverbService::StubInterface {
+ public:
+  MOCK_METHOD(::grpc::Status,
+      Checkpoint,
+      (::grpc::ClientContext*,
+                     const ::deepmind::reverb::CheckpointRequest&,
+                     ::deepmind::reverb::CheckpointResponse*));
+  MOCK_METHOD(::grpc::ClientAsyncResponseReaderInterface<
+                   ::deepmind::reverb::CheckpointResponse>*, AsyncCheckpointRaw,
+               (
+                   ::grpc::ClientContext*,
+                   const ::deepmind::reverb::CheckpointRequest&,
+                   ::grpc::CompletionQueue*));
+  MOCK_METHOD(::grpc::ClientAsyncResponseReaderInterface<
+                  ::deepmind::reverb::CheckpointResponse>*,
+              PrepareAsyncCheckpointRaw,
+              (::grpc::ClientContext*,
+               const ::deepmind::reverb::CheckpointRequest&,
+               ::grpc::CompletionQueue*));
+  MOCK_METHOD((::grpc::ClientReaderWriterInterface<
+                  ::deepmind::reverb::InsertStreamRequest,
+                  ::deepmind::reverb::InsertStreamResponse>*),
+              InsertStreamRaw, (::grpc::ClientContext*));
+  MOCK_METHOD((::grpc::ClientAsyncReaderWriterInterface<
+                  ::deepmind::reverb::InsertStreamRequest,
+                  ::deepmind::reverb::InsertStreamResponse>*),
+              AsyncInsertStreamRaw,
+              (::grpc::ClientContext*, ::grpc::CompletionQueue*, void* tag));
+  MOCK_METHOD((::grpc::ClientAsyncReaderWriterInterface<
+                  ::deepmind::reverb::InsertStreamRequest,
+                  ::deepmind::reverb::InsertStreamResponse>*),
+              PrepareAsyncInsertStreamRaw,
+              (::grpc::ClientContext*, ::grpc::CompletionQueue*));
+  MOCK_METHOD(::grpc::Status,
+      MutatePriorities,
+      (::grpc::ClientContext*,
+                     const ::deepmind::reverb::MutatePrioritiesRequest& request,
+                     ::deepmind::reverb::MutatePrioritiesResponse* response));
+  MOCK_METHOD(::grpc::ClientAsyncResponseReaderInterface<
+                  ::deepmind::reverb::MutatePrioritiesResponse>*,
+              AsyncMutatePrioritiesRaw,
+              (::grpc::ClientContext*,
+               const ::deepmind::reverb::MutatePrioritiesRequest& request,
+               ::grpc::CompletionQueue*));
+  MOCK_METHOD(::grpc::ClientAsyncResponseReaderInterface<
+                  ::deepmind::reverb::MutatePrioritiesResponse>*,
+              PrepareAsyncMutatePrioritiesRaw,
+              (::grpc::ClientContext*,
+               const ::deepmind::reverb::MutatePrioritiesRequest& request,
+               ::grpc::CompletionQueue*));
+  MOCK_METHOD(::grpc::Status, Reset,
+              (::grpc::ClientContext*,
+               const ::deepmind::reverb::ResetRequest& request,
+               ::deepmind::reverb::ResetResponse* response));
+  MOCK_METHOD(::grpc::ClientAsyncResponseReaderInterface<
+                  ::deepmind::reverb::ResetResponse>*,
+              AsyncResetRaw,
+              (::grpc::ClientContext*,
+               const ::deepmind::reverb::ResetRequest& request,
+               ::grpc::CompletionQueue*));
+  MOCK_METHOD((::grpc::ClientAsyncResponseReaderInterface<
+                  ::deepmind::reverb::ResetResponse>*),
+              PrepareAsyncResetRaw,
+              (::grpc::ClientContext*,
+               const ::deepmind::reverb::ResetRequest& request,
+               ::grpc::CompletionQueue*));
+  MOCK_METHOD((::grpc::ClientReaderWriterInterface<
+                  ::deepmind::reverb::SampleStreamRequest,
+                  ::deepmind::reverb::SampleStreamResponse>*),
+              SampleStreamRaw, (::grpc::ClientContext*));
+  MOCK_METHOD((::grpc::ClientAsyncReaderWriterInterface<
+                  ::deepmind::reverb::SampleStreamRequest,
+                  ::deepmind::reverb::SampleStreamResponse>*),
+              AsyncSampleStreamRaw,
+              (::grpc::ClientContext*, ::grpc::CompletionQueue*, void* tag));
+  MOCK_METHOD((::grpc::ClientAsyncReaderWriterInterface<
+                  ::deepmind::reverb::SampleStreamRequest,
+                  ::deepmind::reverb::SampleStreamResponse>*),
+              PrepareAsyncSampleStreamRaw,
+              (::grpc::ClientContext*, ::grpc::CompletionQueue*));
+  MOCK_METHOD(::grpc::Status, ServerInfo,
+              (::grpc::ClientContext*,
+               const ::deepmind::reverb::ServerInfoRequest&,
+               ::deepmind::reverb::ServerInfoResponse* response));
+  MOCK_METHOD(::grpc::ClientAsyncResponseReaderInterface<
+                  ::deepmind::reverb::ServerInfoResponse>*,
+              AsyncServerInfoRaw,
+              (::grpc::ClientContext*,
+               const ::deepmind::reverb::ServerInfoRequest&,
+               ::grpc::CompletionQueue*));
+  MOCK_METHOD(::grpc::ClientAsyncResponseReaderInterface<
+                  ::deepmind::reverb::ServerInfoResponse>*,
+              PrepareAsyncServerInfoRaw,
+              (::grpc::ClientContext*,
+               const ::deepmind::reverb::ServerInfoRequest&,
+               ::grpc::CompletionQueue*));
+  MOCK_METHOD((::grpc::ClientReaderWriterInterface<
+                  ::deepmind::reverb::InitializeConnectionRequest,
+                  ::deepmind::reverb::InitializeConnectionResponse>*),
+              InitializeConnectionRaw, (::grpc::ClientContext*));
+  MOCK_METHOD((::grpc::ClientAsyncReaderWriterInterface<
+                  ::deepmind::reverb::InitializeConnectionRequest,
+                  ::deepmind::reverb::InitializeConnectionResponse>*),
+              AsyncInitializeConnectionRaw,
+              (::grpc::ClientContext*, ::grpc::CompletionQueue*, void*));
+  MOCK_METHOD((::grpc::ClientAsyncReaderWriterInterface<
+                  ::deepmind::reverb::InitializeConnectionRequest,
+                  ::deepmind::reverb::InitializeConnectionResponse>*),
+              PrepareAsyncInitializeConnectionRaw,
+              (::grpc::ClientContext*, ::grpc::CompletionQueue*));
+  MOCK_METHOD(deepmind::reverb::/* grpc_gen:: */ReverbService::StubInterface::
+                  async_interface*,
+              async, ());
 };
 
 inline TrajectoryWriter::Options MakeOptions(int max_chunk_length,
@@ -215,9 +432,10 @@ inline TrajectoryWriter::Options MakeOptions(int max_chunk_length,
 }
 
 TEST(TrajectoryWriter, AppendValidatesDtype) {
-  auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
-  EXPECT_CALL(*stub, InsertStreamRaw(_))
-      .WillRepeatedly(ReturnNew<MockStream>());
+  AsyncInterface async;
+  auto stub = std::make_shared<MockReverbServiceAsyncStub>();
+  EXPECT_CALL(*stub, async())
+      .WillRepeatedly(Return(&async));
 
   TrajectoryWriter writer(
       stub, MakeOptions(/*max_chunk_length=*/10, /*num_keep_alive_refs=*/10));
@@ -239,9 +457,10 @@ TEST(TrajectoryWriter, AppendValidatesDtype) {
 }
 
 TEST(TrajectoryWriter, AppendValidatesShapes) {
-  auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
-  EXPECT_CALL(*stub, InsertStreamRaw(_))
-      .WillRepeatedly(ReturnNew<FakeStream>());
+  AsyncInterface async;
+  auto stub = std::make_shared<MockReverbServiceAsyncStub>();
+  EXPECT_CALL(*stub, async())
+      .WillRepeatedly(Return(&async));
 
   TrajectoryWriter writer(
       stub, MakeOptions(/*max_chunk_length=*/10, /*num_keep_alive_refs=*/10));
@@ -262,9 +481,10 @@ TEST(TrajectoryWriter, AppendValidatesShapes) {
 }
 
 TEST(TrajectoryWriter, AppendAcceptsPartialSteps) {
-  auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
-  EXPECT_CALL(*stub, InsertStreamRaw(_))
-      .WillRepeatedly(ReturnNew<FakeStream>());
+  AsyncInterface async;
+  auto stub = std::make_shared<MockReverbServiceAsyncStub>();
+  EXPECT_CALL(*stub, async())
+      .WillRepeatedly(Return(&async));
 
   TrajectoryWriter writer(
       stub, MakeOptions(/*max_chunk_length=*/10, /*num_keep_alive_refs=*/10));
@@ -282,9 +502,10 @@ TEST(TrajectoryWriter, AppendAcceptsPartialSteps) {
 }
 
 TEST(TrajectoryWriter, AppendPartialRejectsMultipleUsesOfSameColumn) {
-  auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
-  EXPECT_CALL(*stub, InsertStreamRaw(_))
-      .WillRepeatedly(ReturnNew<FakeStream>());
+  AsyncInterface async;
+  auto stub = std::make_shared<MockReverbServiceAsyncStub>();
+  EXPECT_CALL(*stub, async())
+      .WillRepeatedly(Return(&async));
 
   TrajectoryWriter writer(
       stub, MakeOptions(/*max_chunk_length=*/10, /*num_keep_alive_refs=*/10));
@@ -311,9 +532,10 @@ TEST(TrajectoryWriter, AppendPartialRejectsMultipleUsesOfSameColumn) {
 }
 
 TEST(TrajectoryWriter, AppendRejectsColumnsProvidedInPreviousPartialCall) {
-  auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
-  EXPECT_CALL(*stub, InsertStreamRaw(_))
-      .WillRepeatedly(ReturnNew<FakeStream>());
+  AsyncInterface async;
+  auto stub = std::make_shared<MockReverbServiceAsyncStub>();
+  EXPECT_CALL(*stub, async())
+      .WillRepeatedly(Return(&async));
 
   TrajectoryWriter writer(
       stub, MakeOptions(/*max_chunk_length=*/10, /*num_keep_alive_refs=*/10));
@@ -336,9 +558,10 @@ TEST(TrajectoryWriter, AppendRejectsColumnsProvidedInPreviousPartialCall) {
 }
 
 TEST(TrajectoryWriter, AppendPartialDoesNotIncrementEpisodeStep) {
-  auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
-  EXPECT_CALL(*stub, InsertStreamRaw(_))
-      .WillRepeatedly(ReturnNew<FakeStream>());
+  AsyncInterface async;
+  auto stub = std::make_shared<MockReverbServiceAsyncStub>();
+  EXPECT_CALL(*stub, async())
+      .WillRepeatedly(Return(&async));
 
   TrajectoryWriter writer(
       stub, MakeOptions(/*max_chunk_length=*/10, /*num_keep_alive_refs=*/10));
@@ -368,9 +591,10 @@ TEST(TrajectoryWriter, AppendPartialDoesNotIncrementEpisodeStep) {
 }
 
 TEST(TrajectoryWriter, ConfigureChunkerOnExistingColumn) {
-  auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
-  EXPECT_CALL(*stub, InsertStreamRaw(_))
-      .WillRepeatedly(ReturnNew<FakeStream>());
+  AsyncInterface async;
+  auto stub = std::make_shared<MockReverbServiceAsyncStub>();
+  EXPECT_CALL(*stub, async())
+      .WillRepeatedly(Return(&async));
 
   TrajectoryWriter writer(
       stub, MakeOptions(/*max_chunk_length=*/1, /*num_keep_alive_refs=*/1));
@@ -401,9 +625,10 @@ TEST(TrajectoryWriter, ConfigureChunkerOnExistingColumn) {
 }
 
 TEST(TrajectoryWriter, ConfigureChunkerOnFutureColumn) {
-  auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
-  EXPECT_CALL(*stub, InsertStreamRaw(_))
-      .WillRepeatedly(ReturnNew<FakeStream>());
+  AsyncInterface async;
+  auto stub = std::make_shared<MockReverbServiceAsyncStub>();
+  EXPECT_CALL(*stub, async())
+      .WillRepeatedly(Return(&async));
 
   TrajectoryWriter writer(
       stub, MakeOptions(/*max_chunk_length=*/1, /*num_keep_alive_refs=*/1));
@@ -447,26 +672,25 @@ TEST(TrajectoryWriter, ConfigureChunkerOnFutureColumn) {
 }
 
 TEST(TrajectoryWriter, NoDataIsSentIfNoItemsCreated) {
-  auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
-  EXPECT_CALL(*stub, InsertStreamRaw(_)).WillRepeatedly(Invoke([](auto) {
-    auto* stream = new FakeStream();
-    EXPECT_CALL(*stream, Write(_, _)).Times(0);
-    return stream;
-  }));
+  AsyncInterface async;
+  auto stub = std::make_shared<MockReverbServiceAsyncStub>();
+  EXPECT_CALL(*stub, async()).WillRepeatedly(Return(&async));
+  {
+    TrajectoryWriter writer(
+        stub, MakeOptions(/*max_chunk_length=*/1, /*num_keep_alive_refs=*/1));
+    StepRef refs;
 
-  TrajectoryWriter writer(
-      stub, MakeOptions(/*max_chunk_length=*/1, /*num_keep_alive_refs=*/1));
-  StepRef refs;
-
-  for (int i = 0; i < 10; ++i) {
-    REVERB_ASSERT_OK(writer.Append(Step({MakeTensor(kIntSpec)}), &refs));
+    for (int i = 0; i < 10; ++i) {
+      REVERB_ASSERT_OK(writer.Append(Step({MakeTensor(kIntSpec)}), &refs));
+    }
   }
+  EXPECT_TRUE(async.stream_.requests().empty());
 }
 
 TEST(TrajectoryWriter, ItemSentStraightAwayIfChunksReady) {
-  auto* stream = new FakeStream();
-  auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
-  EXPECT_CALL(*stub, InsertStreamRaw(_)).WillOnce(Return(stream));
+  AsyncInterface async;
+  auto stub = std::make_shared<MockReverbServiceAsyncStub>();
+  EXPECT_CALL(*stub, async()).WillOnce(Return(&async));
 
   TrajectoryWriter writer(stub, MakeOptions(/*max_chunk_length=*/1,
                                             /*num_keep_alive_refs=*/1));
@@ -474,32 +698,32 @@ TEST(TrajectoryWriter, ItemSentStraightAwayIfChunksReady) {
   REVERB_ASSERT_OK(writer.Append(Step({MakeTensor(kIntSpec)}), &refs));
 
   // Nothing sent before the item created.
-  EXPECT_THAT(stream->requests(), ::testing::IsEmpty());
+  EXPECT_THAT(async.stream_.requests(), ::testing::IsEmpty());
 
   // The chunk is completed so inserting an item should result in both chunk
   // and item being sent.
   REVERB_ASSERT_OK(
       writer.CreateItem("table", 1.0, MakeTrajectory({{refs[0]}})));
 
-  stream->BlockUntilNumRequestsIs(1);
+  async.stream_.BlockUntilNumRequestsIs(1);
 
   // Chunk is sent before item.
-  EXPECT_THAT(stream->requests(), ElementsAre(IsChunkAndItem()));
+  EXPECT_THAT(async.stream_.requests(), ElementsAre(IsChunkAndItem()));
 
   // Adding a second item should result in the item being sent straight away.
   // Note that the chunk is not sent again.
   REVERB_ASSERT_OK(
       writer.CreateItem("table", 0.5, MakeTrajectory({{refs[0]}})));
 
-  stream->BlockUntilNumRequestsIs(2);
+  async.stream_.BlockUntilNumRequestsIs(2);
 
-  EXPECT_THAT(stream->requests()[1], IsItem());
+  EXPECT_THAT(async.stream_.requests()[1], IsItem());
 }
 
 TEST(TrajectoryWriter, ItemIsSentWhenAllChunksDone) {
-  auto* stream = new FakeStream();
-  auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
-  EXPECT_CALL(*stub, InsertStreamRaw(_)).WillOnce(Return(stream));
+  AsyncInterface async;
+  auto stub = std::make_shared<MockReverbServiceAsyncStub>();
+  EXPECT_CALL(*stub, async()).WillOnce(Return(&async));
 
   TrajectoryWriter writer(
       stub, MakeOptions(/*max_chunk_length=*/2, /*num_keep_alive_refs=*/2));
@@ -514,7 +738,7 @@ TEST(TrajectoryWriter, ItemIsSentWhenAllChunksDone) {
                                      MakeTrajectory({{first[0]}, {first[1]}})));
 
   // No data is sent yet since the chunks are not completed.
-  EXPECT_THAT(stream->requests(), ::testing::IsEmpty());
+  EXPECT_THAT(async.stream_.requests(), ::testing::IsEmpty());
 
   // In the second step we only write to the first column. Still there is
   // no transmission as item is not ready yet.
@@ -522,7 +746,7 @@ TEST(TrajectoryWriter, ItemIsSentWhenAllChunksDone) {
   REVERB_ASSERT_OK(
       writer.Append(Step({MakeTensor(kIntSpec), absl::nullopt}), &second));
 
-  EXPECT_THAT(stream->requests(), ::testing::IsEmpty());
+  EXPECT_THAT(async.stream_.requests(), ::testing::IsEmpty());
 
   // Writing to the first column again, even if we do it twice and trigger a new
   // chunk to be completed, should not trigger any messages.
@@ -531,7 +755,7 @@ TEST(TrajectoryWriter, ItemIsSentWhenAllChunksDone) {
     REVERB_ASSERT_OK(
         writer.Append(Step({MakeTensor(kIntSpec), absl::nullopt}), &refs));
   }
-  EXPECT_THAT(stream->requests(), ::testing::IsEmpty());
+  EXPECT_THAT(async.stream_.requests(), ::testing::IsEmpty());
 
   // Writing to the second column will trigger the completion of the chunk in
   // the second column. This in turn should trigger the transmission of the
@@ -540,9 +764,10 @@ TEST(TrajectoryWriter, ItemIsSentWhenAllChunksDone) {
   REVERB_ASSERT_OK(
       writer.Append(Step({absl::nullopt, MakeTensor(kIntSpec)}), &third));
 
-  stream->BlockUntilNumRequestsIs(1);
+  async.stream_.BlockUntilNumRequestsIs(1);
 
-  EXPECT_THAT(stream->requests(), ElementsAre(HasNumChunksAndItem(2, true)));
+  EXPECT_THAT(async.stream_.requests(),
+              ElementsAre(HasNumChunksAndItem(2, true)));
 }
 
 TEST(TrajectoryWriter, ChunkersNotifiedWhenAllChunksDone) {
@@ -568,8 +793,9 @@ TEST(TrajectoryWriter, ChunkersNotifiedWhenAllChunksDone) {
     absl::BlockingCounter* counter_;
   };
 
-  auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
-  EXPECT_CALL(*stub, InsertStreamRaw(_)).WillOnce(ReturnNew<FakeStream>());
+  AsyncInterface async;
+  auto stub = std::make_shared<MockReverbServiceAsyncStub>();
+  EXPECT_CALL(*stub, async()).WillOnce(Return(&async));
 
   absl::BlockingCounter counter(2);
   TrajectoryWriter writer(stub,
@@ -591,9 +817,9 @@ TEST(TrajectoryWriter, ChunkersNotifiedWhenAllChunksDone) {
 }
 
 TEST(TrajectoryWriter, FlushSendsPendingItems) {
-  auto* stream = new FakeStream();
-  auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
-  EXPECT_CALL(*stub, InsertStreamRaw(_)).WillOnce(Return(stream));
+  AsyncInterface async;
+  auto stub = std::make_shared<MockReverbServiceAsyncStub>();
+  EXPECT_CALL(*stub, async()).WillOnce(Return(&async));
 
   TrajectoryWriter writer(
       stub, MakeOptions(/*max_chunk_length=*/2, /*num_keep_alive_refs=*/2));
@@ -608,7 +834,7 @@ TEST(TrajectoryWriter, FlushSendsPendingItems) {
       writer.CreateItem("table", 1.0, MakeTrajectory({{first[1]}})));
 
   // No data is sent yet since the chunks are not completed.
-  EXPECT_THAT(stream->requests(), ::testing::IsEmpty());
+  EXPECT_THAT(async.stream_.requests(), ::testing::IsEmpty());
 
   // Calling flush should trigger the chunk creation of the second column only.
   // Since the first column isn't referenced by the pending item there is no
@@ -618,16 +844,16 @@ TEST(TrajectoryWriter, FlushSendsPendingItems) {
   REVERB_ASSERT_OK(writer.Flush());
   EXPECT_FALSE(first[0].value().lock()->IsReady());
   EXPECT_TRUE(first[1].value().lock()->IsReady());
-  EXPECT_THAT(stream->requests(), ElementsAre(IsChunkAndItem()));
+  EXPECT_THAT(async.stream_.requests(), ElementsAre(IsChunkAndItem()));
 }
 
 TEST(TrajectoryWriter, DestructorFlushesPendingItems) {
-  auto* stream = new FakeStream();
-  auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
-  EXPECT_CALL(*stub, InsertStreamRaw(_)).WillOnce(Return(stream));
+  AsyncInterface async;
+  auto stub = std::make_shared<MockReverbServiceAsyncStub>();
+  EXPECT_CALL(*stub, async()).WillOnce(Return(&async));
 
   // The requests vector needs to outlive the stream.
-  auto requests = stream->requests_ptr();
+  auto requests = async.stream_.requests_ptr();
   {
     TrajectoryWriter writer(
         stub, MakeOptions(/*max_chunk_length=*/2, /*num_keep_alive_refs=*/2));
@@ -641,34 +867,20 @@ TEST(TrajectoryWriter, DestructorFlushesPendingItems) {
         writer.CreateItem("table", 1.0, MakeTrajectory({{first[0]}})));
 
     // No data is sent yet since the chunks are not completed.
-    EXPECT_THAT(stream->requests(), ::testing::IsEmpty());
+    EXPECT_THAT(async.stream_.requests(), ::testing::IsEmpty());
   }
 
   EXPECT_THAT(*requests, ElementsAre(IsChunkAndItem()));
 }
 
 TEST(TrajectoryWriter, RetriesOnTransientError) {
-  auto* fail_stream = new MockStream();
-  absl::Notification write_called;
+  AsyncInterface fail_stream(false);
+  AsyncInterface success_stream;
 
-  EXPECT_CALL(*fail_stream, Write(IsChunkAndItem(), _))
-      .WillOnce(Invoke([&](auto, auto) {
-        write_called.Notify();
-        return false;
-      }));
-  EXPECT_CALL(*fail_stream, Read(_)).WillOnce(Invoke([&](auto) {
-    write_called.WaitForNotification();
-    return false;
-  }));
-  EXPECT_CALL(*fail_stream, Finish())
-      .WillOnce(Return(grpc::Status(grpc::StatusCode::UNAVAILABLE, "")));
-
-  auto* success_stream = new FakeStream();
-
-  auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
-  EXPECT_CALL(*stub, InsertStreamRaw(_))
-      .WillOnce(Return(fail_stream))
-      .WillOnce(Return(success_stream));
+  auto stub = std::make_shared<MockReverbServiceAsyncStub>();
+  EXPECT_CALL(*stub, async())
+      .WillOnce(Return(&fail_stream))
+      .WillOnce(Return(&success_stream));
 
   TrajectoryWriter writer(
       stub, MakeOptions(/*max_chunk_length=*/1, /*num_keep_alive_refs=*/1));
@@ -678,6 +890,8 @@ TEST(TrajectoryWriter, RetriesOnTransientError) {
   REVERB_ASSERT_OK(writer.Append(Step({MakeTensor(kIntSpec)}), &first));
   REVERB_ASSERT_OK(
       writer.CreateItem("table", 1.0, MakeTrajectory({{first[0]}})));
+  fail_stream.stream_.BlockUntilNumRequestsIs(1);
+  writer.OnWriteDone(false);
   REVERB_ASSERT_OK(writer.Flush());
 
   // The first stream will fail on the first request (item). The writer should
@@ -685,39 +899,18 @@ TEST(TrajectoryWriter, RetriesOnTransientError) {
   // stream. The writer should then proceed to resend the chunk since there is
   // no guarantee that the new stream is connected to the same server and thus
   // the data might not exist on the server.
-  EXPECT_THAT(success_stream->requests(), ElementsAre(IsChunkAndItem()));
+  success_stream.stream_.BlockUntilNumRequestsIs(1);
+  EXPECT_THAT(success_stream.stream_.requests(), ElementsAre(IsChunkAndItem()));
 }
 
 TEST(TrajectoryWriter, RetriesNonConfirmedItemsOnTransientError) {
-  auto* fail_stream = new MockStream();
-  absl::Notification finish_called;
+  AsyncInterface fail_stream(false);
+  AsyncInterface success_stream;
 
-  // When writing the second item the stream is broken.
-  EXPECT_CALL(*fail_stream, Write(IsChunkAndItem(), _))
-      .WillOnce(Return(true))
-      .WillOnce(Return(false));
-
-  // The writer will then close the stream and find that the error is transient.
-  EXPECT_CALL(*fail_stream, Finish()).WillOnce(Invoke([&] {
-    finish_called.Notify();
-    return grpc::Status(grpc::StatusCode::UNAVAILABLE, "");
-  }));
-
-  // We block the read call from returning anything until the stream has been
-  // closed. This is done to ensure that we are testing how the writer responds
-  // to errors encountered when writing to the stream rather than when reading
-  // from the stream.
-  EXPECT_CALL(*fail_stream, Read(_)).WillOnce(Invoke([&](auto) {
-    finish_called.WaitForNotification();
-    return false;
-  }));
-
-  auto* success_stream = new FakeStream();
-
-  auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
-  EXPECT_CALL(*stub, InsertStreamRaw(_))
-      .WillOnce(Return(fail_stream))
-      .WillOnce(Return(success_stream));
+  auto stub = std::make_shared<MockReverbServiceAsyncStub>();
+  EXPECT_CALL(*stub, async())
+      .WillOnce(Return(&fail_stream))
+      .WillOnce(Return(&success_stream));
 
   TrajectoryWriter writer(
       stub, MakeOptions(/*max_chunk_length=*/1, /*num_keep_alive_refs=*/1));
@@ -729,6 +922,11 @@ TEST(TrajectoryWriter, RetriesNonConfirmedItemsOnTransientError) {
     REVERB_ASSERT_OK(
         writer.CreateItem("table", 1.0, MakeTrajectory({{step[0]}})));
   }
+
+  fail_stream.stream_.BlockUntilNumRequestsIs(1);
+  writer.OnWriteDone(true);
+  fail_stream.stream_.BlockUntilNumRequestsIs(2);
+  writer.OnWriteDone(false);
   REVERB_ASSERT_OK(writer.Flush());
 
   // The first stream will fail on the second (item). The writer should
@@ -736,33 +934,20 @@ TEST(TrajectoryWriter, RetriesNonConfirmedItemsOnTransientError) {
   // stream. The writer should realise that the first item, even though
   // successfully written to the stream, never got confirmed by the server and
   // send it again when opening a new stream.
-  EXPECT_THAT(success_stream->requests(),
+  success_stream.stream_.BlockUntilNumRequestsIs(2);
+  EXPECT_THAT(success_stream.stream_.requests(),
               ElementsAre(IsChunkAndItem(), IsChunkAndItem()));
 }
 
 TEST(TrajectoryWriter,
      RetriesNonConfirmedItemsIfReaderStoppedAndErrorIsTransient) {
-  auto* fail_stream = new MockStream();
-  absl::Notification write_called;
+  AsyncInterface fail_stream(false);
+  AsyncInterface success_stream;
 
-  EXPECT_CALL(*fail_stream, Write(IsChunkAndItem(), _))
-      .WillOnce(Invoke([&](auto, auto) {
-        write_called.Notify();
-        return true;
-      }));
-  EXPECT_CALL(*fail_stream, Read(_)).WillOnce(Invoke([&](auto) {
-    write_called.WaitForNotification();
-    return false;
-  }));
-  EXPECT_CALL(*fail_stream, Finish())
-      .WillOnce(Return(grpc::Status(grpc::StatusCode::UNAVAILABLE, "")));
-
-  auto* success_stream = new FakeStream();
-
-  auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
-  EXPECT_CALL(*stub, InsertStreamRaw(_))
-      .WillOnce(Return(fail_stream))
-      .WillOnce(Return(success_stream));
+  auto stub = std::make_shared<MockReverbServiceAsyncStub>();
+  EXPECT_CALL(*stub, async())
+      .WillOnce(Return(&fail_stream))
+      .WillOnce(Return(&success_stream));
 
   TrajectoryWriter writer(
       stub, MakeOptions(/*max_chunk_length=*/1, /*num_keep_alive_refs=*/1));
@@ -772,6 +957,8 @@ TEST(TrajectoryWriter,
   REVERB_ASSERT_OK(writer.Append(Step({MakeTensor(kIntSpec)}), &step));
   REVERB_ASSERT_OK(
       writer.CreateItem("table", 1.0, MakeTrajectory({{step[0]}})));
+  fail_stream.stream_.BlockUntilNumRequestsIs(1);
+  writer.OnReadDone(false);
   REVERB_ASSERT_OK(writer.Flush());
 
   // The first stream will accept the write but then fail when the reader worker
@@ -783,27 +970,15 @@ TEST(TrajectoryWriter,
   // writing to the stream.
   //
   // The second stream will created and succeed.
-  EXPECT_THAT(success_stream->requests(), ElementsAre(IsChunkAndItem()));
+  EXPECT_THAT(success_stream.stream_.requests(), ElementsAre(IsChunkAndItem()));
 }
 
 TEST(TrajectoryWriter, StopsOnNonTransientError) {
-  auto* fail_stream = new MockStream();
-  absl::Notification write_called;
+  AsyncInterface fail_stream(false);
 
-  EXPECT_CALL(*fail_stream, Write(IsChunkAndItem(), _))
-      .WillOnce(Invoke([&](auto, auto) {
-        write_called.Notify();
-        return false;
-      }));
-  EXPECT_CALL(*fail_stream, Read(_)).WillOnce(Invoke([&](auto) {
-    write_called.WaitForNotification();
-    return false;
-  }));
-  EXPECT_CALL(*fail_stream, Finish())
-      .WillOnce(Return(grpc::Status(grpc::StatusCode::INTERNAL, "A reason")));
-
-  auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
-  EXPECT_CALL(*stub, InsertStreamRaw(_)).WillOnce(Return(fail_stream));
+  auto stub = std::make_shared<MockReverbServiceAsyncStub>();
+  EXPECT_CALL(*stub, async())
+      .WillOnce(Return(&fail_stream));
 
   TrajectoryWriter writer(
       stub, MakeOptions(/*max_chunk_length=*/1, /*num_keep_alive_refs=*/1));
@@ -813,7 +988,10 @@ TEST(TrajectoryWriter, StopsOnNonTransientError) {
   REVERB_ASSERT_OK(writer.Append(Step({MakeTensor(kIntSpec)}), &first));
   REVERB_ASSERT_OK(
       writer.CreateItem("table", 1.0, MakeTrajectory({{first[0]}})));
-
+  fail_stream.stream_.BlockUntilNumRequestsIs(1);
+  fail_stream.stream_.SetStatus(
+      grpc::Status(grpc::StatusCode::INTERNAL, "A reason"));
+  writer.OnReadDone(false);
   // Flushing should return the error encountered by the stream worker.
   auto flush_status = writer.Flush();
   EXPECT_EQ(flush_status.code(), absl::StatusCode::kInternal);
@@ -834,25 +1012,11 @@ TEST(TrajectoryWriter, StopsOnNonTransientError) {
 }
 
 TEST(TrajectoryWriter, FlushReturnsIfTimeoutExpired) {
-  absl::Notification write_block;
-  absl::Notification read_block;
+  AsyncInterface fail_stream(false);
 
-  auto* stream = new MockStream();
-  EXPECT_CALL(*stream, Write(_, _))
-      .WillOnce(Invoke([&](auto, auto) {
-        write_block.WaitForNotification();
-        return true;
-      }))
-      .WillRepeatedly(Return(true));
-  EXPECT_CALL(*stream, Read(_)).WillOnce(Invoke([&](auto) {
-    read_block.WaitForNotification();
-    return false;
-  }));
-  EXPECT_CALL(*stream, Finish())
-      .WillOnce(Return(grpc::Status(grpc::StatusCode::INTERNAL, "")));
-
-  auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
-  EXPECT_CALL(*stub, InsertStreamRaw(_)).WillOnce(Return(stream));
+  auto stub = std::make_shared<MockReverbServiceAsyncStub>();
+  EXPECT_CALL(*stub, async())
+      .WillOnce(Return(&fail_stream));
 
   TrajectoryWriter writer(
       stub, MakeOptions(/*max_chunk_length=*/1, /*num_keep_alive_refs=*/1));
@@ -872,18 +1036,16 @@ TEST(TrajectoryWriter, FlushReturnsIfTimeoutExpired) {
       ::testing::HasSubstr("Timeout exceeded with 0 items waiting to be "
                            "written and 1 items awaiting confirmation."));
 
-  // Unblock the writer and reader.
-  write_block.Notify();
-  read_block.Notify();
-
   // Close the writer to avoid having to mock the item confirmation response.
   writer.Close();
 }
 
 TEST(TrajectoryWriter, FlushCanIgnorePendingItems) {
-  auto* stream = new FakeStream();
-  auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
-  EXPECT_CALL(*stub, InsertStreamRaw(_)).WillOnce(Return(stream));
+  AsyncInterface success_stream;
+
+  auto stub = std::make_shared<MockReverbServiceAsyncStub>();
+  EXPECT_CALL(*stub, async())
+      .WillOnce(Return(&success_stream));
 
   TrajectoryWriter writer(
       stub, MakeOptions(/*max_chunk_length=*/2, /*num_keep_alive_refs=*/2));
@@ -904,7 +1066,7 @@ TEST(TrajectoryWriter, FlushCanIgnorePendingItems) {
   REVERB_ASSERT_OK(writer.Flush(/*ignore_last_num_items=*/1));
 
   // Only one item sent.
-  EXPECT_THAT(stream->requests(), ElementsAre(IsChunkAndItem()));
+  EXPECT_THAT(success_stream.stream_.requests(), ElementsAre(IsChunkAndItem()));
 
   // The chunk of the first item is finalized while the other is not.
   EXPECT_TRUE(first[0]->lock()->IsReady());
@@ -912,9 +1074,11 @@ TEST(TrajectoryWriter, FlushCanIgnorePendingItems) {
 }
 
 TEST(TrajectoryWriter, MultipleChunksAreSentInSameMessage) {
-  auto* stream = new FakeStream();
-  auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
-  EXPECT_CALL(*stub, InsertStreamRaw(_)).WillOnce(Return(stream));
+  AsyncInterface success_stream;
+
+  auto stub = std::make_shared<MockReverbServiceAsyncStub>();
+  EXPECT_CALL(*stub, async())
+      .WillOnce(Return(&success_stream));
 
   TrajectoryWriter writer(
       stub, MakeOptions(/*max_chunk_length=*/1, /*num_keep_alive_refs=*/1));
@@ -931,13 +1095,16 @@ TEST(TrajectoryWriter, MultipleChunksAreSentInSameMessage) {
   REVERB_ASSERT_OK(writer.Flush());
 
   // Check that both chunks were sent in the same message.
-  EXPECT_THAT(stream->requests(), ElementsAre(HasNumChunksAndItem(2, true)));
+  EXPECT_THAT(success_stream.stream_.requests(),
+              ElementsAre(HasNumChunksAndItem(2, true)));
 }
 
 TEST(TrajectoryWriter, MultipleRequestsSentWhenChunksLarge) {
-  auto* stream = new FakeStream();
-  auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
-  EXPECT_CALL(*stub, InsertStreamRaw(_)).WillOnce(Return(stream));
+  AsyncInterface success_stream;
+
+  auto stub = std::make_shared<MockReverbServiceAsyncStub>();
+  EXPECT_CALL(*stub, async())
+      .WillOnce(Return(&success_stream));
 
   TrajectoryWriter writer(
       stub, MakeOptions(/*max_chunk_length=*/1, /*num_keep_alive_refs=*/1));
@@ -961,14 +1128,19 @@ TEST(TrajectoryWriter, MultipleRequestsSentWhenChunksLarge) {
 
   // Each `ChunkData` should be ~32MB so the first two chunks should be grouped
   // together into a single message and the last one should be sent on its own.
-  EXPECT_THAT(stream->requests(), ElementsAre(HasNumChunksAndItem(2, 0),
-                                              HasNumChunksAndItem(1, true)));
+  success_stream.stream_.BlockUntilNumRequestsIs(2);
+
+  EXPECT_THAT(
+      success_stream.stream_.requests(),
+      ElementsAre(HasNumChunksAndItem(2, false), HasNumChunksAndItem(1, true)));
 }
 
 TEST(TrajectoryWriter, CreateItemRejectsExpiredCellRefs) {
-  auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
-  EXPECT_CALL(*stub, InsertStreamRaw(_))
-      .WillRepeatedly(ReturnNew<FakeStream>());
+  AsyncInterface success_stream;
+
+  auto stub = std::make_shared<MockReverbServiceAsyncStub>();
+  EXPECT_CALL(*stub, async())
+      .WillRepeatedly(Return(&success_stream));
 
   TrajectoryWriter writer(
       stub, MakeOptions(/*max_chunk_length=*/1, /*num_keep_alive_refs=*/1));
@@ -988,9 +1160,10 @@ TEST(TrajectoryWriter, CreateItemRejectsExpiredCellRefs) {
 }
 
 TEST(TrajectoryWriter, KeepKeysOnlyIncludesStreamedKeys) {
-  auto* stream = new FakeStream();
-  auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
-  EXPECT_CALL(*stub, InsertStreamRaw(_)).WillOnce(Return(stream));
+  AsyncInterface success_stream;
+  auto stub = std::make_shared<MockReverbServiceAsyncStub>();
+  EXPECT_CALL(*stub, async())
+      .WillOnce(Return(&success_stream));
 
   TrajectoryWriter writer(
       stub, MakeOptions(/*max_chunk_length=*/1, /*num_keep_alive_refs=*/1));
@@ -1007,15 +1180,17 @@ TEST(TrajectoryWriter, KeepKeysOnlyIncludesStreamedKeys) {
 
   // Only the chunk of the first column has been used (and thus streamed). The
   // server should thus only be instructed to keep the one chunk around.
-  EXPECT_THAT(stream->requests(), UnorderedElementsAre(IsChunkAndItem()));
-  EXPECT_THAT(stream->requests()[0].item().keep_chunk_keys(),
+  EXPECT_THAT(success_stream.stream_.requests(),
+              UnorderedElementsAre(IsChunkAndItem()));
+  EXPECT_THAT(success_stream.stream_.requests()[0].item().keep_chunk_keys(),
               UnorderedElementsAre(first[0].value().lock()->chunk_key()));
 }
 
 TEST(TrajectoryWriter, KeepKeysOnlyIncludesLiveChunks) {
-  auto* stream = new FakeStream();
-  auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
-  EXPECT_CALL(*stub, InsertStreamRaw(_)).WillOnce(Return(stream));
+  AsyncInterface success_stream;
+  auto stub = std::make_shared<MockReverbServiceAsyncStub>();
+  EXPECT_CALL(*stub, async())
+      .WillOnce(Return(&success_stream));
 
   TrajectoryWriter writer(
       stub, MakeOptions(/*max_chunk_length=*/1, /*num_keep_alive_refs=*/2));
@@ -1028,7 +1203,7 @@ TEST(TrajectoryWriter, KeepKeysOnlyIncludesLiveChunks) {
   REVERB_ASSERT_OK(writer.Flush());
 
   // The one chunk that has been sent should be kept alive.
-  EXPECT_THAT(stream->requests().back().item().keep_chunk_keys(),
+  EXPECT_THAT(success_stream.stream_.requests().back().item().keep_chunk_keys(),
               UnorderedElementsAre(first[0].value().lock()->chunk_key()));
 
   // Take a second step and insert a trajectory.
@@ -1039,7 +1214,7 @@ TEST(TrajectoryWriter, KeepKeysOnlyIncludesLiveChunks) {
   REVERB_ASSERT_OK(writer.Flush());
 
   // Both chunks should be kept alive since num_keep_alive_refs is 2.
-  EXPECT_THAT(stream->requests().back().item().keep_chunk_keys(),
+  EXPECT_THAT(success_stream.stream_.requests().back().item().keep_chunk_keys(),
               UnorderedElementsAre(first[0].value().lock()->chunk_key(),
                                    second[0].value().lock()->chunk_key()));
 
@@ -1052,15 +1227,16 @@ TEST(TrajectoryWriter, KeepKeysOnlyIncludesLiveChunks) {
 
   // The chunk of the first step has now expired and thus the server no longer
   // need to keep it alive.
-  EXPECT_THAT(stream->requests().back().item().keep_chunk_keys(),
+  EXPECT_THAT(success_stream.stream_.requests().back().item().keep_chunk_keys(),
               UnorderedElementsAre(second[0].value().lock()->chunk_key(),
                                    third[0].value().lock()->chunk_key()));
 }
 
 TEST(TrajectoryWriter, CreateItemValidatesTrajectoryDtype) {
-  auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
-  EXPECT_CALL(*stub, InsertStreamRaw(_))
-      .WillRepeatedly(ReturnNew<FakeStream>());
+  AsyncInterface success_stream;
+  auto stub = std::make_shared<MockReverbServiceAsyncStub>();
+  EXPECT_CALL(*stub, async())
+      .WillRepeatedly(Return(&success_stream));
 
   TrajectoryWriter writer(
       stub, MakeOptions(/*max_chunk_length=*/1, /*num_keep_alive_refs=*/2));
@@ -1082,9 +1258,10 @@ TEST(TrajectoryWriter, CreateItemValidatesTrajectoryDtype) {
 }
 
 TEST(TrajectoryWriter, CreateItemValidatesTrajectoryShapes) {
-  auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
-  EXPECT_CALL(*stub, InsertStreamRaw(_))
-      .WillRepeatedly(ReturnNew<FakeStream>());
+  AsyncInterface success_stream;
+  auto stub = std::make_shared<MockReverbServiceAsyncStub>();
+  EXPECT_CALL(*stub, async())
+      .WillRepeatedly(Return(&success_stream));
 
   TrajectoryWriter writer(
       stub, MakeOptions(/*max_chunk_length=*/1, /*num_keep_alive_refs=*/2));
@@ -1111,9 +1288,10 @@ TEST(TrajectoryWriter, CreateItemValidatesTrajectoryShapes) {
 }
 
 TEST(TrajectoryWriter, CreateItemValidatesTrajectoryNotEmpty) {
-  auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
-  EXPECT_CALL(*stub, InsertStreamRaw(_))
-      .WillRepeatedly(ReturnNew<FakeStream>());
+  AsyncInterface success_stream;
+  auto stub = std::make_shared<MockReverbServiceAsyncStub>();
+  EXPECT_CALL(*stub, async())
+      .WillRepeatedly(Return(&success_stream));
 
   TrajectoryWriter writer(
       stub, MakeOptions(/*max_chunk_length=*/1, /*num_keep_alive_refs=*/1));
@@ -1136,9 +1314,10 @@ TEST(TrajectoryWriter, CreateItemValidatesTrajectoryNotEmpty) {
 }
 
 TEST(TrajectoryWriter, CreateItemValidatesSqueezedColumns) {
-  auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
-  EXPECT_CALL(*stub, InsertStreamRaw(_))
-      .WillRepeatedly(ReturnNew<FakeStream>());
+  AsyncInterface success_stream;
+  auto stub = std::make_shared<MockReverbServiceAsyncStub>();
+  EXPECT_CALL(*stub, async())
+      .WillRepeatedly(Return(&success_stream));
 
   TrajectoryWriter writer(
       stub, MakeOptions(/*max_chunk_length=*/1, /*num_keep_alive_refs=*/1));
@@ -1160,9 +1339,9 @@ TEST(TrajectoryWriter, CreateItemValidatesSqueezedColumns) {
 class TrajectoryWriterSignatureValidationTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
-    EXPECT_CALL(*stub, InsertStreamRaw(_))
-        .WillRepeatedly(ReturnNew<FakeStream>());
+    auto stub = std::make_shared<MockReverbServiceAsyncStub>();
+    EXPECT_CALL(*stub, async())
+       .WillRepeatedly(ReturnNew<AsyncInterface>());
 
     TrajectoryWriter::Options options = {
         .chunker_options = std::make_shared<ConstantChunkerOptions>(1, 1),
@@ -1336,9 +1515,9 @@ TEST_F(TrajectoryWriterSignatureValidationTest,
 }
 
 TEST(TrajectoryWriter, EndEpisodeCanClearBuffers) {
-  auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
-  EXPECT_CALL(*stub, InsertStreamRaw(_))
-      .WillRepeatedly(ReturnNew<FakeStream>());
+  auto stub = std::make_shared<MockReverbServiceAsyncStub>();
+  EXPECT_CALL(*stub, async())
+      .WillRepeatedly(ReturnNew<AsyncInterface>());
 
   TrajectoryWriter writer(
       stub, MakeOptions(/*max_chunk_length=*/2, /*num_keep_alive_refs=*/2));
@@ -1357,9 +1536,9 @@ TEST(TrajectoryWriter, EndEpisodeCanClearBuffers) {
 }
 
 TEST(TrajectoryWriter, EndEpisodeFinalizesChunksEvenIfNoItemReferenceIt) {
-  auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
-  EXPECT_CALL(*stub, InsertStreamRaw(_))
-      .WillRepeatedly(ReturnNew<FakeStream>());
+  auto stub = std::make_shared<MockReverbServiceAsyncStub>();
+  EXPECT_CALL(*stub, async())
+      .WillRepeatedly(ReturnNew<AsyncInterface>());
 
   TrajectoryWriter writer(
       stub, MakeOptions(/*max_chunk_length=*/2, /*num_keep_alive_refs=*/2));
@@ -1380,9 +1559,9 @@ TEST(TrajectoryWriter, EndEpisodeFinalizesChunksEvenIfNoItemReferenceIt) {
 }
 
 TEST(TrajectoryWriter, EndEpisodeResetsEpisodeKeyAndStep) {
-  auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
-  EXPECT_CALL(*stub, InsertStreamRaw(_))
-      .WillRepeatedly(ReturnNew<FakeStream>());
+  auto stub = std::make_shared<MockReverbServiceAsyncStub>();
+  EXPECT_CALL(*stub, async())
+      .WillRepeatedly(ReturnNew<AsyncInterface>());
 
   TrajectoryWriter writer(
       stub, MakeOptions(/*max_chunk_length=*/1, /*num_keep_alive_refs=*/2));
@@ -1404,25 +1583,10 @@ TEST(TrajectoryWriter, EndEpisodeResetsEpisodeKeyAndStep) {
 }
 
 TEST(TrajectoryWriter, EndEpisodeReturnsIfTimeoutExpired) {
-  absl::Notification write_block;
-  absl::Notification read_block;
-
-  auto* stream = new MockStream();
-  EXPECT_CALL(*stream, Write(_, _))
-      .WillOnce(Invoke([&](auto, auto) {
-        write_block.WaitForNotification();
-        return true;
-      }))
-      .WillRepeatedly(Return(true));
-  EXPECT_CALL(*stream, Read(_)).WillOnce(Invoke([&](auto) {
-    read_block.WaitForNotification();
-    return false;
-  }));
-  EXPECT_CALL(*stream, Finish())
-      .WillOnce(Return(grpc::Status(grpc::StatusCode::INTERNAL, "")));
-
-  auto stub = std::make_shared</* grpc_gen:: */MockReverbServiceStub>();
-  EXPECT_CALL(*stub, InsertStreamRaw(_)).WillOnce(Return(stream));
+  AsyncInterface fail_stream(false);
+  auto stub = std::make_shared<MockReverbServiceAsyncStub>();
+  EXPECT_CALL(*stub, async())
+     .WillOnce(Return(&fail_stream));
 
   TrajectoryWriter writer(
       stub, MakeOptions(/*max_chunk_length=*/2, /*num_keep_alive_refs=*/2));
@@ -1432,18 +1596,17 @@ TEST(TrajectoryWriter, EndEpisodeReturnsIfTimeoutExpired) {
   REVERB_ASSERT_OK(writer.Append(Step({MakeTensor(kIntSpec)}), &first));
   REVERB_ASSERT_OK(
       writer.CreateItem("table", 1.0, MakeTrajectory({{first[0]}})));
-
   // EndEpisode will not be able to complete and thus should timeout.
   auto status = writer.EndEpisode(true, absl::Milliseconds(100));
+  fail_stream.stream_.BlockUntilNumRequestsIs(1);
+  fail_stream.stream_.SetStatus(grpc::Status(grpc::StatusCode::INTERNAL, ""));
+  writer.OnReadDone(false);
+
   EXPECT_EQ(status.code(), absl::StatusCode::kDeadlineExceeded);
   EXPECT_THAT(
       std::string(status.message()),
       ::testing::HasSubstr("Timeout exceeded with 0 items waiting to be "
                            "written and 1 items awaiting confirmation."));
-
-  // Unblock the writer and reader.
-  write_block.Notify();
-  read_block.Notify();
 
   // Close the writer to avoid having to mock the item confirmation response.
   writer.Close();

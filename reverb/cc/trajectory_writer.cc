@@ -85,38 +85,6 @@ std::vector<FlatTrajectory::ChunkSlice> MergeAdjacent(
   return slices;
 }
 
-bool SendNotAlreadySentChunks(
-    grpc::ClientReaderWriterInterface<InsertStreamRequest,
-                                      InsertStreamResponse>* stream,
-    internal::flat_hash_set<uint64_t>* streamed_chunk_keys,
-    absl::Span<const std::shared_ptr<CellRef>> refs,
-    ArenaOwnedRequest* request) {
-  // Send referenced chunks which haven't already been sent.
-  for (const std::shared_ptr<CellRef>& ref : refs) {
-    if (!ref->IsReady() || streamed_chunk_keys->contains(ref->chunk_key())) {
-      continue;
-    }
-
-    request->r.mutable_chunks()->UnsafeArenaAddAllocated(
-        const_cast<ChunkData*>(ref->GetChunk()->get()));
-    streamed_chunk_keys->insert(ref->chunk_key());
-
-    // If the message has grown beyond the cutoff point then we send it.
-    if (request->r.ByteSizeLong() >= TrajectoryWriter::kMaxRequestSizeBytes) {
-      grpc::WriteOptions options;
-      options.set_no_compression();
-      if (!stream->Write(request->r, options)) {
-        return false;
-      }
-
-      // There (might) still be chunks which can be transmitted so clear the
-      // request and continue with the remaining references.
-      request->Clear();
-    }
-  }
-  // Remaining chunks will be sent together with the Item.
-  return true;
-}
 
 // Returns true if all references `refs` are ready.
 bool AllReady(absl::Span<const std::shared_ptr<CellRef>> refs) {
@@ -157,6 +125,52 @@ std::vector<internal::TensorSpec> FlatSignatureFromTrajectory(
 }
 
 }  // namespace
+
+bool TrajectoryWriter::Write(ArenaOwnedRequest* request) {
+  {
+    absl::MutexLock lock(&mu_);
+    write_inflight_ = true;
+  }
+  grpc::WriteOptions options;
+  options.set_no_compression();
+  StartWrite(&request->r, options);
+  {
+    absl::MutexLock lock(&mu_);
+    auto trigger = [&]() ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_) {
+      return !write_inflight_ || closed_ || !stream_ok_;
+    };
+    mu_.Await(absl::Condition(&trigger));
+    request->Clear();
+    return !write_inflight_;
+  }
+}
+
+bool TrajectoryWriter::SendNotAlreadySentChunks(
+    internal::flat_hash_set<uint64_t>* streamed_chunk_keys,
+    absl::Span<const std::shared_ptr<CellRef>> refs,
+    ArenaOwnedRequest* request) {
+  // Send referenced chunks which haven't already been sent.
+  for (const std::shared_ptr<CellRef>& ref : refs) {
+    if (!ref->IsReady() || streamed_chunk_keys->contains(ref->chunk_key())) {
+      continue;
+    }
+    request->r.mutable_chunks()->UnsafeArenaAddAllocated(
+        const_cast<ChunkData*>(ref->GetChunk()->get()));
+    streamed_chunk_keys->insert(ref->chunk_key());
+
+    // If the message has grown beyond the cutoff point then we send it.
+    if (request->r.ByteSizeLong() >= TrajectoryWriter::kMaxRequestSizeBytes) {
+      if (!Write(request)) {
+        return false;
+      }
+
+      // There (might) still be chunks which can be transmitted so continue with
+      // the remaining references.
+    }
+  }
+  // Remaining chunks will be sent together with the Item.
+  return true;
+}
 
 absl::Status TrajectoryWriter::Options::Validate() const {
   if (chunker_options == nullptr) {
@@ -268,7 +282,10 @@ TrajectoryWriter::TrajectoryWriter(
               } else {
                 retry_backoff = absl::Milliseconds(1);
               }
-              absl::SleepFor(retry_backoff);
+              auto trigger = [&]() ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_) {
+                return closed_;
+              };
+              mu_.AwaitWithTimeout(absl::Condition(&trigger), retry_backoff);
             }
           })) {
   REVERB_CHECK_OK(options.Validate());
@@ -440,8 +457,47 @@ void TrajectoryWriter::Close() {
   stream_worker_ = nullptr;
 }
 
-absl::Status TrajectoryWriter::SetContextAndCreateStream(
-    std::unique_ptr<TrajectoryWriter::InsertStream>* stream) {
+void TrajectoryWriter::OnReadDone(bool ok) {
+  absl::MutexLock lock(&mu_);
+  data_cv_.Signal();
+  if (!ok) {
+    stream_ok_ = false;
+    return;
+  }
+  for (uint64_t key : response_.keys()) {
+    in_flight_items_.erase(key);
+  }
+  StartRead(&response_);
+}
+
+void TrajectoryWriter::OnWriteDone(bool ok) {
+  absl::MutexLock lock(&mu_);
+  if (ok) {
+    write_inflight_ = false;
+  } else {
+    stream_ok_ = false;
+  }
+}
+
+void TrajectoryWriter::OnDone(const ::grpc::Status& s) {
+  absl::MutexLock lock(&mu_);
+  stream_ok_ = false;
+  stream_done_ = true;
+  stream_status_ = FromGrpcStatus(s);
+}
+
+absl::Status TrajectoryWriter::Finish() {
+  absl::MutexLock lock(&mu_);
+  // Release a hold from SetContextAndCreateStream.
+  RemoveHold();
+  auto trigger = [&]() ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_) {
+    return stream_done_;
+  };
+  mu_.Await(absl::Condition(&trigger));
+  return stream_status_;
+}
+
+absl::Status TrajectoryWriter::SetContextAndCreateStream() {
   absl::MutexLock lock(&mu_);
   REVERB_RETURN_IF_ERROR(unrecoverable_status_);
   if (closed_) {
@@ -449,36 +505,38 @@ absl::Status TrajectoryWriter::SetContextAndCreateStream(
   }
   context_ = absl::make_unique<grpc::ClientContext>();
   context_->set_wait_for_ready(false);
-  *stream = stub_->InsertStream(context_.get());
+  stub_->async()->InsertStream(context_.get(), this);
+  stream_ok_ = true;
+  stream_done_ = false;
+  // Use a hold since some StartWrites are invoked indirectly rather than
+  // directly from the reactor itself.
+  AddHold();
+  StartRead(&response_);
+  StartCall();
   return absl::OkStatus();
 }
 
-TrajectoryWriter::ItemAndRefs* TrajectoryWriter::GetNextPendingItem(
-    const bool& reader_stopped) const {
+TrajectoryWriter::ItemAndRefs* TrajectoryWriter::GetNextPendingItem() {
   absl::MutexLock lock(&mu_);
   auto trigger = [&]() ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_) {
-    return !write_queue_.empty() || closed_ || reader_stopped;
+    return !write_queue_.empty() || closed_ || !stream_ok_;
   };
   mu_.Await(absl::Condition(&trigger));
 
-  if (closed_ || reader_stopped) return nullptr;
-
+  if (closed_ || !stream_ok_) return nullptr;
   return write_queue_.front().get();
 }
 
 bool TrajectoryWriter::SendItem(
-    TrajectoryWriter::InsertStream* stream,
     const internal::flat_hash_set<uint64_t>& keep_keys,
-    const PrioritizedItem& item, ArenaOwnedRequest* request) const {
+    const PrioritizedItem& item, ArenaOwnedRequest* request) {
   request->r.mutable_item()->unsafe_arena_set_allocated_item(
       const_cast<PrioritizedItem*>(&item));
   request->r.mutable_item()->set_send_confirmation(true);
   for (uint64_t keep_key : keep_keys) {
     request->r.mutable_item()->add_keep_chunk_keys(keep_key);
   }
-  grpc::WriteOptions options;
-  options.set_no_compression();
-  return stream->Write(request->r, options);
+  return Write(request);
 }
 
 internal::flat_hash_set<uint64_t> TrajectoryWriter::GetKeepKeys(
@@ -509,46 +567,20 @@ internal::flat_hash_set<uint64_t> TrajectoryWriter::GetKeepKeys(
 }
 
 absl::Status TrajectoryWriter::RunStreamWorker() {
-  std::unique_ptr<InsertStream> stream;
-  REVERB_RETURN_IF_ERROR(SetContextAndCreateStream(&stream));
-
-  // We monitor the state of the reader worker so we can interrupt the writer
-  // thread if the reader is unexpectedly stopped. This is critical to avoid
-  // deadlocks when one or more items have been successfully written to the
-  // stream but then there is a delay (e.g. blocked by target table rate
-  // limiter) before the confirmation arrives. If we don't monitor the state of
-  // the read worker then the writer thread may block forever waiting for new
-  // items to write while the "main" thread (the one using the TrajectoryWriter)
-  // is waiting for a `Flush` call (i.e. waiting for items to be confirmed).
-  bool reader_stopped = false;  // Guarded by `mu_`.
-  std::unique_ptr<internal::Thread> reader =
-      internal::StartThread("TrajectoryWriter_ReaderWorker", [&] {
-        InsertStreamResponse response;
-        while (stream->Read(&response)) {
-          absl::MutexLock lock(&mu_);
-          for (uint64_t key : response.keys()) {
-            in_flight_items_.erase(key);
-          }
-        }
-
-        absl::MutexLock lock(&mu_);
-        reader_stopped = true;
-        data_cv_.Signal();
-      });
-
+  REVERB_RETURN_IF_ERROR(SetContextAndCreateStream());
   internal::flat_hash_set<uint64_t> streamed_chunk_keys;
   ArenaOwnedRequest request;
   while (true) {
-    ItemAndRefs* item_and_refs = GetNextPendingItem(reader_stopped);
+    ItemAndRefs* item_and_refs = GetNextPendingItem();
     if (item_and_refs == nullptr) {
-      return FromGrpcStatus(stream->Finish());
+      return Finish();
     }
 
     // Send referenced chunks which haven't already been sent. This call also
     // inserts the new chunk keys into `streamed_chunk_keys`.
-    if (!SendNotAlreadySentChunks(stream.get(), &streamed_chunk_keys,
-                                  item_and_refs->refs, &request)) {
-      return FromGrpcStatus(stream->Finish());
+    if (!SendNotAlreadySentChunks(&streamed_chunk_keys, item_and_refs->refs,
+                                  &request)) {
+      return Finish();
     }
 
     {
@@ -584,11 +616,9 @@ absl::Status TrajectoryWriter::RunStreamWorker() {
 
     // All chunks have been written to the stream so the item can now be
     // written.
-    if (!SendItem(stream.get(), streamed_chunk_keys, item_and_refs->item,
-                  &request)) {
-      return FromGrpcStatus(stream->Finish());
+    if (!SendItem(streamed_chunk_keys, item_and_refs->item, &request)) {
+      return Finish();
     }
-    request.Clear();
   }
 }
 
@@ -628,7 +658,6 @@ absl::Status TrajectoryWriter::FlushLocked(int ignore_last_num_items,
     if (!unrecoverable_status_.ok()) {
       return true;
     }
-
     return write_queue_.size() + in_flight_items_.size() <=
            ignore_last_num_items;
   };

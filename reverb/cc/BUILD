@@ -310,6 +310,7 @@ reverb_cc_test(
         ":chunker",
         "//reverb/cc/support:signature",
         "//reverb/cc/support:queue",
+        "//reverb/cc/platform:thread",
         "//reverb/cc/platform:logging",
         "//reverb/cc/platform:status_matchers",
         "//reverb/cc/testing:proto_test_util",

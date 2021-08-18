@@ -223,7 +223,9 @@ class ColumnWriter {
 };
 
 // With the exception of `Close`, none of the methods are thread safe.
-class TrajectoryWriter : public ColumnWriter {
+class TrajectoryWriter : public ColumnWriter,
+                         public grpc::ClientBidiReactor<InsertStreamRequest,
+                                                        InsertStreamResponse> {
  public:
   // Multiple `ChunkData` can be sent with the same `InsertStreamRequest`. If
   // the size of the message exceeds this value then the request is sent and the
@@ -306,9 +308,19 @@ class TrajectoryWriter : public ColumnWriter {
   absl::Status ConfigureChunker(int column,
                                 const std::shared_ptr<ChunkerOptions>& options);
 
+  // Async GRPC callback handlers.
+  void OnReadDone(bool ok) override;
+  void OnWriteDone(bool ok) override;
+  void OnDone(const ::grpc::Status& s) override;
+
  private:
   using InsertStream = grpc::ClientReaderWriterInterface<InsertStreamRequest,
                                                          InsertStreamResponse>;
+
+  bool SendNotAlreadySentChunks(
+      internal::flat_hash_set<uint64_t>* streamed_chunk_keys,
+      absl::Span<const std::shared_ptr<CellRef>> refs,
+      ArenaOwnedRequest* request);
 
   // See `Append` and `AppendPartial`.
   absl::Status AppendInternal(
@@ -335,21 +347,24 @@ class TrajectoryWriter : public ColumnWriter {
 
   // Sets `context_` and opens a gRPC InsertStream to the server iff the writer
   // has not yet been closed.
-  absl::Status SetContextAndCreateStream(std::unique_ptr<InsertStream>* stream)
-      ABSL_LOCKS_EXCLUDED(mu_);
+  absl::Status SetContextAndCreateStream() ABSL_LOCKS_EXCLUDED(mu_);
 
   // Blocks until `write_queue_` is non-empty then returns pointer to the front
   // element. If `reader_stopped` becomes true or `Close` called before
   // operation could complete, `nullptr` is returned.
-  ItemAndRefs* GetNextPendingItem(const bool& reader_stopped) const
-      ABSL_LOCKS_EXCLUDED(mu_);
+  ItemAndRefs* GetNextPendingItem() ABSL_LOCKS_EXCLUDED(mu_);
 
   // Build and write the item insertion request to the stream. All chunks
   // referenced by item must have been written to the stream before calling this
   // method.
-  bool SendItem(InsertStream* stream,
-                const internal::flat_hash_set<uint64_t>& keep_keys,
-                const PrioritizedItem& item, ArenaOwnedRequest* request) const;
+  bool SendItem(const internal::flat_hash_set<uint64_t>& keep_keys,
+                const PrioritizedItem& item, ArenaOwnedRequest* request);
+
+  // Sends a given request to the server.
+  bool Write(ArenaOwnedRequest* request) ABSL_LOCKS_EXCLUDED(mu_);
+
+  // Terminates connection to the server.
+  absl::Status Finish() ABSL_LOCKS_EXCLUDED(mu_);
 
   // Union of `GetChunkKeys` from all column chunkers and all the chunks
   // referenced by pending items (except for chunks only referenced by the first
@@ -418,6 +433,21 @@ class TrajectoryWriter : public ColumnWriter {
   // until the stream returns a non transient error. In both cases
   // `unrecoverable_status_` is populated before the thread is joinable.
   std::unique_ptr<internal::Thread> stream_worker_;
+
+  // Response received from the server. It is only accessed by the onReadDone.
+  InsertStreamResponse response_;
+
+  // Is there currently an inflight request to the server.
+  bool write_inflight_ ABSL_GUARDED_BY(mu_);
+
+  // Is the current connection to the server terminated.
+  bool stream_done_ ABSL_GUARDED_BY(mu_);
+
+  // Is stream good for sending/receiving requests.
+  bool stream_ok_ ABSL_GUARDED_BY(mu_);
+
+  // In case `stream_done_` == false, tha status of the terminated connection.
+  absl::Status stream_status_ ABSL_GUARDED_BY(mu_);
 };
 
 class TrajectoryColumn {
