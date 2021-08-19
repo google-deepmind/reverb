@@ -8,6 +8,9 @@
 #
 # Test that everything worked:
 #
+#
+# export PYTHON_BIN_PATH=/usr/bin/python3.7
+# $PYTHON_BIN_PATH ./configure.py
 # bazel test -c opt --test_output=streamed //reverb:tf_client_test
 
 ARG cpu_base_image="ubuntu:18.04"
@@ -21,7 +24,7 @@ LABEL maintainer="Reverb Team <no-reply@google.com>"
 ARG cpu_base_image="ubuntu:18.04"
 ARG base_image=$cpu_base_image
 ARG tensorflow_pip="tf-nightly"
-ARG python_version="python3.6"
+ARG python_version="/usr/bin/python3.6"
 ARG APT_COMMAND="apt-get -o Acquire::Retries=3 -y"
 
 # Pick up some TF dependencies
@@ -86,16 +89,18 @@ ARG pip_dependencies=' \
 
 
 # So dependencies are installed for the supported Python versions
-RUN for python in ${python_version}; do \
-    $python get-pip.py && \
-    $python -mpip uninstall -y tensorflow tensorflow-gpu tf-nightly tf-nightly-gpu && \
-    $python -mpip --no-cache-dir install ${tensorflow_pip} --upgrade && \
-    $python -mpip --no-cache-dir install $pip_dependencies; \
-  done
+RUN $python_version get-pip.py
+RUN $python_version -mpip --no-cache-dir install ${tensorflow_pip} --upgrade
+RUN $python_version -mpip --no-cache-dir install $pip_dependencies
 
 RUN rm get-pip.py
 
-# bazel assumes the python executable is "python".
+# `bazel test` ignores bazelrc and only uses /usr/bin/python3.
+# TODO(b/157223742). This also means that regardless of the version of python
+# you use for configure.py this is the pythong that will be used by
+# `bazel test`. Bazel assumes that the python executable is "python".
+RUN rm /usr/bin/python3
+RUN ln -s $python_version /usr/bin/python3
 RUN ln -s /usr/bin/python3 /usr/bin/python
 
 WORKDIR "/tmp/reverb"

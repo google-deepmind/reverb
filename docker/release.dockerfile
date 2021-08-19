@@ -9,7 +9,7 @@
 # Test that everything worked:
 #
 # bazel test -c opt --copt=-mavx --config=manylinux2010 --test_output=errors //reverb/...
-ARG cpu_base_image="tensorflow/tensorflow:2.2.0-custom-op-ubuntu16"
+ARG cpu_base_image="tensorflow/tensorflow:custom-op-ubuntu16"
 ARG base_image=$cpu_base_image
 FROM $base_image
 
@@ -17,10 +17,10 @@ LABEL maintainer="Reverb Team <no-reply@google.com>"
 
 # Re-declare args because the args declared before FROM can't be used in any
 # instruction after a FROM.
-ARG cpu_base_image="tensorflow/tensorflow:2.2.0-custom-op-ubuntu16"
+ARG cpu_base_image="tensorflow/tensorflow:custom-op-ubuntu16"
 ARG base_image=$cpu_base_image
 ARG tensorflow_pip="tf-nightly"
-ARG python_version="python3.6"
+ARG python_version="python3.7"
 ARG APT_COMMAND="apt-get -o Acquire::Retries=3 -y"
 
 # Pick up some TF dependencies
@@ -37,8 +37,6 @@ RUN ${APT_COMMAND} update && ${APT_COMMAND} install -y --no-install-recommends \
         libzmq3-dev \
         lsof \
         pkg-config \
-        python3-dev \
-        python3.6-dev \
         python3.7-dev \
         python3.8-dev \
         python3.9-dev \
@@ -86,6 +84,11 @@ RUN for python in ${python_version}; do \
     $python -mpip --no-cache-dir install $pip_dependencies; \
   done
 RUN rm get-pip.py
+
+# Removes broken links so they can be created below.
+# b/197213158
+RUN rm /dt7/usr/include/x86_64-linux-gnu/python3.9
+RUN rm /dt8/usr/include/x86_64-linux-gnu/python3.9
 
 # Needed until this is included in the base TF image.
 RUN ln -s "/usr/include/x86_64-linux-gnu/python3.8" "/dt7/usr/include/x86_64-linux-gnu/python3.8"
