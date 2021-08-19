@@ -67,24 +67,6 @@ class RateLimiter {
   // Construct and restore a RateLimiter from a previous checkpoint.
   explicit RateLimiter(const RateLimiterCheckpoint& checkpoint);
 
-  // Waits until the insert operation can proceed without violating the
-  // conditions of the rate limiter.
-  //
-  // The state is not modified as the caller must first check that the operation
-  // is still an insert op (while waiting the item may be inserted by another
-  // thread and thus the operation now is an update). If the operation remains
-  // an insert then `Insert` must be called to commit the state change.
-  absl::Status AwaitCanInsert(absl::Mutex* mu,
-                              absl::Duration timeout = kDefaultTimeout)
-      ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu);
-
-  // Waits until the sample operation can proceed without violating the
-  // conditions of the rate limiter. If the condition is fulfilled before the
-  // timeout expires or `Cancel` called then the state is updated.
-  absl::Status AwaitAndFinalizeSample(
-      absl::Mutex* mu, absl::Duration timeout = kDefaultTimeout)
-      ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu);
-
   // Register that an item has been inserted into the table. Caller must call
   // `AwaitCanInsert` before calling this method without releasing the lock in
   // between.
@@ -145,10 +127,6 @@ class RateLimiter {
   absl::Status RegisterTable(Table* table);
   void UnregisterTable(absl::Mutex* mu, Table* table) ABSL_LOCKS_EXCLUDED(mu);
 
-  // Checks if sample and insert operations can proceed and if so calls `Signal`
-  // on respective `CondVar`
-  void MaybeSignalCondVars(absl::Mutex* mu) ABSL_SHARED_LOCKS_REQUIRED(mu);
-
   // Returns Cancelled-status if `Cancel` have been called.
   absl::Status CheckIfCancelled(absl::Mutex* mu) const
       ABSL_SHARED_LOCKS_REQUIRED(mu);
@@ -185,10 +163,6 @@ class RateLimiter {
 
   // Whether `Cancel` has been called.
   bool cancelled_;
-
-  // Signal called on respective cv if operation can proceed after state change.
-  absl::CondVar can_insert_cv_;
-  absl::CondVar can_sample_cv_;
 
   // The StatsManager maintains a circular buffer of `RateLimiterEvent` and a
   // set of all time stats for calls of a single type (sample/insert).

@@ -93,58 +93,18 @@ void RateLimiter::UnregisterTable(absl::Mutex* mu, Table* table) {
   table_ = nullptr;
 }
 
-absl::Status RateLimiter::AwaitCanInsert(absl::Mutex* mu,
-                                         absl::Duration timeout) {
-  const auto deadline = absl::Now() + timeout;
-  {
-    auto event = insert_stats_.CreateEvent(mu);
-    while (!cancelled_ && !CanInsert(mu, 1)) {
-      event.set_was_blocked();
-      if (can_insert_cv_.WaitWithDeadline(mu, deadline)) {
-        return errors::RateLimiterTimeout();
-      }
-    }
-  }
-  REVERB_RETURN_IF_ERROR(CheckIfCancelled(mu));
-  return absl::OkStatus();
-}
-
 void RateLimiter::Insert(absl::Mutex* mu) {
   inserts_++;
-  MaybeSignalCondVars(mu);
 }
 
 void RateLimiter::Delete(absl::Mutex* mu) {
   deletes_++;
-  MaybeSignalCondVars(mu);
 }
 
 void RateLimiter::Reset(absl::Mutex* mu) {
   inserts_ = 0;
   samples_ = 0;
   deletes_ = 0;
-  MaybeSignalCondVars(mu);
-}
-
-absl::Status RateLimiter::AwaitAndFinalizeSample(absl::Mutex* mu,
-                                                 absl::Duration timeout) {
-  const auto deadline = absl::Now() + timeout;
-
-  {
-    auto event = sample_stats_.CreateEvent(mu);
-    while (!cancelled_ && !CanSample(mu, 1)) {
-      event.set_was_blocked();
-      if (can_sample_cv_.WaitWithDeadline(mu, deadline)) {
-        return errors::RateLimiterTimeout();
-      }
-    }
-  }
-
-  REVERB_RETURN_IF_ERROR(CheckIfCancelled(mu));
-
-  samples_++;
-  MaybeSignalCondVars(mu);
-  return absl::OkStatus();
 }
 
 bool RateLimiter::CanSample(absl::Mutex*, int num_samples) const {
@@ -164,7 +124,6 @@ bool RateLimiter::MaybeCommitSample(absl::Mutex* mu) {
   // without any rate limiting.
   sample_stats_.CreateEvent(mu);
   samples_++;
-  MaybeSignalCondVars(mu);
   return true;
 }
 
@@ -185,8 +144,6 @@ void RateLimiter::CreateInstantInsertEvent(absl::Mutex* mu) {
 
 void RateLimiter::Cancel(absl::Mutex*) {
   cancelled_ = true;
-  can_insert_cv_.SignalAll();
-  can_sample_cv_.SignalAll();
 }
 
 RateLimiterCheckpoint RateLimiter::CheckpointReader(absl::Mutex*) const {
@@ -205,11 +162,6 @@ RateLimiterCheckpoint RateLimiter::CheckpointReader(absl::Mutex*) const {
 absl::Status RateLimiter::CheckIfCancelled(absl::Mutex*) const {
   if (!cancelled_) return absl::OkStatus();
   return absl::CancelledError("RateLimiter has been cancelled");
-}
-
-void RateLimiter::MaybeSignalCondVars(absl::Mutex* mu) {
-  if (CanInsert(mu, 1)) can_insert_cv_.Signal();
-  if (CanSample(mu, 1)) can_sample_cv_.Signal();
 }
 
 RateLimiterInfo RateLimiter::Info(absl::Mutex* mu) const {
