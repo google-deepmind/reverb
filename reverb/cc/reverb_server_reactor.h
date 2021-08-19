@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef REVERB_CC_REVERB_SERVER_TABLE_REACTOR_H_
-#define REVERB_CC_REVERB_SERVER_TABLE_REACTOR_H_
+#ifndef REVERB_CC_REVERB_SERVER_REACTOR_H_
+#define REVERB_CC_REVERB_SERVER_REACTOR_H_
 
 #include <queue>
 #include <type_traits>
@@ -42,7 +42,7 @@ namespace reverb {
 // Note that writes to the stream have compression disabled. This reactor is
 // supposed to send already compressed data (or very small messages).
 template <class Request, class Response, class ResponseCtx>
-class ReverbServerTableReactor
+class ReverbServerReactor
     : public grpc::ServerBidiReactor<Request, Response> {
 
  protected:
@@ -116,7 +116,7 @@ class ReverbServerTableReactor
  * Implementation of the template                                            *
  *****************************************************************************/
 template <class Request, class Response, class ResponseCtx>
-void ReverbServerTableReactor<Request, Response,
+void ReverbServerReactor<Request, Response,
                               ResponseCtx>::MaybeSendNextResponse() {
   if (responses_to_send_.empty() || is_finished_) {
     return;
@@ -128,7 +128,7 @@ void ReverbServerTableReactor<Request, Response,
 }
 
 template <class Request, class Response, class ResponseCtx>
-void ReverbServerTableReactor<Request, Response, ResponseCtx>::OnReadDone(
+void ReverbServerReactor<Request, Response, ResponseCtx>::OnReadDone(
     bool ok) {
   // Read until the client sends a HalfClose or the stream is cancelled.
   absl::MutexLock lock(&mu_);
@@ -154,7 +154,7 @@ void ReverbServerTableReactor<Request, Response, ResponseCtx>::OnReadDone(
 }
 
 template <class Request, class Response, class ResponseCtx>
-void ReverbServerTableReactor<Request, Response, ResponseCtx>::OnWriteDone(
+void ReverbServerReactor<Request, Response, ResponseCtx>::OnWriteDone(
     bool ok) {
   absl::MutexLock lock(&mu_);
   if (is_finished_) {
@@ -183,7 +183,7 @@ void ReverbServerTableReactor<Request, Response, ResponseCtx>::OnWriteDone(
 }
 
 template <class Request, class Response, class ResponseCtx>
-void ReverbServerTableReactor<Request, Response, ResponseCtx>::OnDone() {
+void ReverbServerReactor<Request, Response, ResponseCtx>::OnDone() {
   {
     absl::MutexLock lock(&mu_);
     still_reading_ = false;
@@ -193,7 +193,7 @@ void ReverbServerTableReactor<Request, Response, ResponseCtx>::OnDone() {
 }
 
 template <class Request, class Response, class ResponseCtx>
-void ReverbServerTableReactor<Request, Response, ResponseCtx>::OnCancel() {
+void ReverbServerReactor<Request, Response, ResponseCtx>::OnCancel() {
   absl::MutexLock lock(&mu_);
   still_reading_ = false;
   if (!is_finished_) {
@@ -204,7 +204,7 @@ void ReverbServerTableReactor<Request, Response, ResponseCtx>::OnCancel() {
 }
 
 template <class Request, class Response, class ResponseCtx>
-void ReverbServerTableReactor<Request, Response,
+void ReverbServerReactor<Request, Response,
                               ResponseCtx>::MaybeStartRead() {
   absl::MutexLock lock(&mu_);
   if (still_reading_ && !is_finished_) {
@@ -213,7 +213,7 @@ void ReverbServerTableReactor<Request, Response,
 }
 
 template <class Request, class Response, class ResponseCtx>
-void ReverbServerTableReactor<
+void ReverbServerReactor<
     Request, Response, ResponseCtx>::SetReactorAsFinished(grpc::Status status)
     ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_) {
   REVERB_CHECK(!is_finished_);
@@ -229,10 +229,10 @@ void ReverbServerTableReactor<
 }
 
 template <class Request, class Response, class ResponseCtx>
-bool ReverbServerTableReactor<Request, Response, ResponseCtx>::ShouldFinish()
+bool ReverbServerReactor<Request, Response, ResponseCtx>::ShouldFinish()
     ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_) {
   return responses_to_send_.empty() && !still_reading_ && !is_finished_;
 }
 }  // namespace reverb
 }  // namespace deepmind
-#endif  // REVERB_CC_REVERB_SERVER_TABLE_REACTOR_H_
+#endif  // REVERB_CC_REVERB_SERVER_REACTOR_H_

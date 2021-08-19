@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef REVERB_CC__REVERB_SERVICE_ASYNC_IMPL_H_
-#define REVERB_CC__REVERB_SERVICE_ASYNC_IMPL_H_
+#ifndef REVERB_CC__REVERB_SERVICE_IMPL_H_
+#define REVERB_CC__REVERB_SERVICE_IMPL_H_
 
 #define GRPC_CALLBACK_API_NONEXPERIMENTAL
 
@@ -41,16 +41,16 @@ namespace reverb {
 
 // Implements ReverbService asynchronously. See reverb_service.proto for
 // documentation.
-class ReverbServiceAsyncImpl : public /* grpc_gen:: */ReverbService::CallbackService {
+class ReverbServiceImpl : public /* grpc_gen:: */ReverbService::CallbackService {
  public:
   static absl::Status Create(
       std::vector<std::shared_ptr<Table>> tables,
       std::shared_ptr<Checkpointer> checkpointer,
-      std::unique_ptr<ReverbServiceAsyncImpl>* service);
+      std::unique_ptr<ReverbServiceImpl>* service);
 
   static absl::Status Create(
       std::vector<std::shared_ptr<Table>> tables,
-      std::unique_ptr<ReverbServiceAsyncImpl>* service);
+      std::unique_ptr<ReverbServiceImpl>* service);
 
   grpc::ServerUnaryReactor* Checkpoint(grpc::CallbackServerContext* context,
                                        const CheckpointRequest* request,
@@ -131,7 +131,7 @@ class ReverbServiceAsyncImpl : public /* grpc_gen:: */ReverbService::CallbackSer
   std::string DebugString() const;
 
  private:
-  explicit ReverbServiceAsyncImpl(
+  explicit ReverbServiceImpl(
       std::shared_ptr<Checkpointer> checkpointer = nullptr);
 
   absl::Status Initialize(std::vector<std::shared_ptr<Table>> tables);
@@ -161,4 +161,4 @@ class ReverbServiceAsyncImpl : public /* grpc_gen:: */ReverbService::CallbackSer
 }  // namespace reverb
 }  // namespace deepmind
 
-#endif  // REVERB_CC__REVERB_SERVICE_ASYNC_IMPL_H_
+#endif  // REVERB_CC__REVERB_SERVICE_IMPL_H_

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "reverb/cc/reverb_service_async_impl.h"
+#include "reverb/cc/reverb_service_impl.h"
 
 #include <cfloat>
 #include <cstddef>
@@ -168,7 +168,7 @@ std::unique_ptr<RateLimiter> MakeLimiter() {
                                         kMinDiff, kMaxDiff);
 }
 
-std::unique_ptr<ReverbServiceAsyncImpl> MakeService(
+std::unique_ptr<ReverbServiceImpl> MakeService(
     int max_size, std::unique_ptr<Checkpointer> checkpointer,
     std::vector<std::shared_ptr<Table>> tables = {}) {
   tables.push_back(absl::make_unique<Table>(
@@ -180,18 +180,18 @@ std::unique_ptr<ReverbServiceAsyncImpl> MakeService(
       /*rate_limiter=*/MakeLimiter(),
       /*extensions=*/std::vector<std::shared_ptr<TableExtension>>(),
       /*signature=*/absl::make_optional(MakeSignature())));
-  std::unique_ptr<ReverbServiceAsyncImpl> service;
-  REVERB_CHECK_OK(ReverbServiceAsyncImpl::Create(
+  std::unique_ptr<ReverbServiceImpl> service;
+  REVERB_CHECK_OK(ReverbServiceImpl::Create(
       std::move(tables), std::move(checkpointer), &service));
   return service;
 }
 
-std::unique_ptr<ReverbServiceAsyncImpl> MakeService(int max_size) {
+std::unique_ptr<ReverbServiceImpl> MakeService(int max_size) {
   return MakeService(max_size, nullptr);
 }
 
-TEST(ReverbServiceAsyncImplTest, InsertSameItemWorks) {
-  std::unique_ptr<ReverbServiceAsyncImpl> service = MakeService(10);
+TEST(ReverbServiceImplTest, InsertSameItemWorks) {
+  std::unique_ptr<ReverbServiceImpl> service = MakeService(10);
   std::unique_ptr<grpc::Server> server(
       grpc::ServerBuilder().RegisterService(service.get()).BuildAndStart());
   /* grpc_gen:: */ReverbService::Stub stub(
@@ -213,8 +213,8 @@ TEST(ReverbServiceAsyncImplTest, InsertSameItemWorks) {
   PrioritizedItem item = insert_request.item().item();
 }
 
-TEST(ReverbServiceAsyncImplTest, SampleAfterInsertWorks) {
-  std::unique_ptr<ReverbServiceAsyncImpl> service = MakeService(10);
+TEST(ReverbServiceImplTest, SampleAfterInsertWorks) {
+  std::unique_ptr<ReverbServiceImpl> service = MakeService(10);
   std::unique_ptr<grpc::Server> server(
       grpc::ServerBuilder().RegisterService(service.get()).BuildAndStart());
   /* grpc_gen:: */ReverbService::Stub stub(
@@ -265,8 +265,8 @@ TEST(ReverbServiceAsyncImplTest, SampleAfterInsertWorks) {
   }
 }
 
-TEST(ReverbServiceAsyncImplTest, InsertChunksWithoutItemWorks) {
-  std::unique_ptr<ReverbServiceAsyncImpl> service = MakeService(10);
+TEST(ReverbServiceImplTest, InsertChunksWithoutItemWorks) {
+  std::unique_ptr<ReverbServiceImpl> service = MakeService(10);
   std::unique_ptr<grpc::Server> server(
       grpc::ServerBuilder().RegisterService(service.get()).BuildAndStart());
   /* grpc_gen:: */ReverbService::Stub stub(
@@ -280,8 +280,8 @@ TEST(ReverbServiceAsyncImplTest, InsertChunksWithoutItemWorks) {
   REVERB_EXPECT_OK(stream->Finish());
 }
 
-TEST(ReverbServiceAsyncImplTest, InsertSameChunkTwiceWorks) {
-  std::unique_ptr<ReverbServiceAsyncImpl> service = MakeService(10);
+TEST(ReverbServiceImplTest, InsertSameChunkTwiceWorks) {
+  std::unique_ptr<ReverbServiceImpl> service = MakeService(10);
   std::unique_ptr<grpc::Server> server(
       grpc::ServerBuilder().RegisterService(service.get()).BuildAndStart());
   /* grpc_gen:: */ReverbService::Stub stub(
@@ -295,8 +295,8 @@ TEST(ReverbServiceAsyncImplTest, InsertSameChunkTwiceWorks) {
   REVERB_EXPECT_OK(stream->Finish());
 }
 
-TEST(ReverbServiceAsyncImplTest, InsertSameChunkInMultiChunkMessageWorks) {
-  std::unique_ptr<ReverbServiceAsyncImpl> service = MakeService(10);
+TEST(ReverbServiceImplTest, InsertSameChunkInMultiChunkMessageWorks) {
+  std::unique_ptr<ReverbServiceImpl> service = MakeService(10);
   std::unique_ptr<grpc::Server> server(
       grpc::ServerBuilder().RegisterService(service.get()).BuildAndStart());
   /* grpc_gen:: */ReverbService::Stub stub(
@@ -310,8 +310,8 @@ TEST(ReverbServiceAsyncImplTest, InsertSameChunkInMultiChunkMessageWorks) {
   REVERB_EXPECT_OK(stream->Finish());
 }
 
-TEST(ReverbServiceAsyncImplTest, InsertItemWithoutKeptChunkFails) {
-  std::unique_ptr<ReverbServiceAsyncImpl> service = MakeService(10);
+TEST(ReverbServiceImplTest, InsertItemWithoutKeptChunkFails) {
+  std::unique_ptr<ReverbServiceImpl> service = MakeService(10);
   std::unique_ptr<grpc::Server> server(
       grpc::ServerBuilder().RegisterService(service.get()).BuildAndStart());
   /* grpc_gen:: */ReverbService::Stub stub(
@@ -326,8 +326,8 @@ TEST(ReverbServiceAsyncImplTest, InsertItemWithoutKeptChunkFails) {
   EXPECT_EQ(stream->Finish().error_code(), grpc::StatusCode::INTERNAL);
 }
 
-TEST(ReverbServiceAsyncImplTest, InsertItemWithKeptChunkWorks) {
-  std::unique_ptr<ReverbServiceAsyncImpl> service = MakeService(10);
+TEST(ReverbServiceImplTest, InsertItemWithKeptChunkWorks) {
+  std::unique_ptr<ReverbServiceImpl> service = MakeService(10);
   std::unique_ptr<grpc::Server> server(
       grpc::ServerBuilder().RegisterService(service.get()).BuildAndStart());
   /* grpc_gen:: */ReverbService::Stub stub(
@@ -344,8 +344,8 @@ TEST(ReverbServiceAsyncImplTest, InsertItemWithKeptChunkWorks) {
   REVERB_EXPECT_OK(stream->Finish());
 }
 
-TEST(ReverbServiceAsyncImplTest, InsertItemWithNotKeptChunkFails) {
-  std::unique_ptr<ReverbServiceAsyncImpl> service = MakeService(10);
+TEST(ReverbServiceImplTest, InsertItemWithNotKeptChunkFails) {
+  std::unique_ptr<ReverbServiceImpl> service = MakeService(10);
   std::unique_ptr<grpc::Server> server(
       grpc::ServerBuilder().RegisterService(service.get()).BuildAndStart());
   /* grpc_gen:: */ReverbService::Stub stub(
@@ -361,8 +361,8 @@ TEST(ReverbServiceAsyncImplTest, InsertItemWithNotKeptChunkFails) {
   EXPECT_EQ(stream->Finish().error_code(), grpc::StatusCode::INTERNAL);
 }
 
-TEST(ReverbServiceAsyncImplTest, InsertItemWithMissingChunksFails) {
-  std::unique_ptr<ReverbServiceAsyncImpl> service = MakeService(10);
+TEST(ReverbServiceImplTest, InsertItemWithMissingChunksFails) {
+  std::unique_ptr<ReverbServiceImpl> service = MakeService(10);
   std::unique_ptr<grpc::Server> server(
       grpc::ServerBuilder().RegisterService(service.get()).BuildAndStart());
   /* grpc_gen:: */ReverbService::Stub stub(
@@ -375,8 +375,8 @@ TEST(ReverbServiceAsyncImplTest, InsertItemWithMissingChunksFails) {
   EXPECT_EQ(stream->Finish().error_code(), grpc::StatusCode::INTERNAL);
 }
 
-TEST(ReverbServiceAsyncImplTest, InsertStreamRespondsWithItemKeys) {
-  std::unique_ptr<ReverbServiceAsyncImpl> service = MakeService(10);
+TEST(ReverbServiceImplTest, InsertStreamRespondsWithItemKeys) {
+  std::unique_ptr<ReverbServiceImpl> service = MakeService(10);
   std::unique_ptr<grpc::Server> server(
       grpc::ServerBuilder().RegisterService(service.get()).BuildAndStart());
   /* grpc_gen:: */ReverbService::Stub stub(
@@ -402,8 +402,8 @@ TEST(ReverbServiceAsyncImplTest, InsertStreamRespondsWithItemKeys) {
   EXPECT_EQ(responses[1].keys(0), first_id + 2);
 }
 
-TEST(ReverbServiceAsyncImplTest, SampleBlocksUntilEnoughInserts) {
-  std::unique_ptr<ReverbServiceAsyncImpl> service = MakeService(10);
+TEST(ReverbServiceImplTest, SampleBlocksUntilEnoughInserts) {
+  std::unique_ptr<ReverbServiceImpl> service = MakeService(10);
   std::unique_ptr<grpc::Server> server(
       grpc::ServerBuilder().RegisterService(service.get()).BuildAndStart());
   /* grpc_gen:: */ReverbService::Stub stub(
@@ -437,8 +437,8 @@ TEST(ReverbServiceAsyncImplTest, SampleBlocksUntilEnoughInserts) {
   thread = nullptr;  // Joins the thread.
 }
 
-TEST(ReverbServiceAsyncImplTest, MutateDeletionWorks) {
-  std::unique_ptr<ReverbServiceAsyncImpl> service = MakeService(10);
+TEST(ReverbServiceImplTest, MutateDeletionWorks) {
+  std::unique_ptr<ReverbServiceImpl> service = MakeService(10);
   std::unique_ptr<grpc::Server> server(
       grpc::ServerBuilder().RegisterService(service.get()).BuildAndStart());
   /* grpc_gen:: */ReverbService::Stub stub(
@@ -465,8 +465,8 @@ TEST(ReverbServiceAsyncImplTest, MutateDeletionWorks) {
   EXPECT_EQ(service->tables()["dist"]->size(), 0);
 }
 
-TEST(ReverbServiceAsyncImplTest, AnyCallWithInvalidDistributionFails) {
-  std::unique_ptr<ReverbServiceAsyncImpl> service = MakeService(10);
+TEST(ReverbServiceImplTest, AnyCallWithInvalidDistributionFails) {
+  std::unique_ptr<ReverbServiceImpl> service = MakeService(10);
   std::unique_ptr<grpc::Server> server(
       grpc::ServerBuilder().RegisterService(service.get()).BuildAndStart());
   /* grpc_gen:: */ReverbService::Stub stub(
@@ -493,8 +493,8 @@ TEST(ReverbServiceAsyncImplTest, AnyCallWithInvalidDistributionFails) {
   EXPECT_EQ(insert_stream->Finish().error_code(), grpc::StatusCode::NOT_FOUND);
 }
 
-TEST(ReverbServiceAsyncImplTest, ResetWorks) {
-  std::unique_ptr<ReverbServiceAsyncImpl> service = MakeService(10);
+TEST(ReverbServiceImplTest, ResetWorks) {
+  std::unique_ptr<ReverbServiceImpl> service = MakeService(10);
   std::unique_ptr<grpc::Server> server(
       grpc::ServerBuilder().RegisterService(service.get()).BuildAndStart());
   /* grpc_gen:: */ReverbService::Stub stub(
@@ -518,7 +518,7 @@ TEST(ReverbServiceAsyncImplTest, ResetWorks) {
   EXPECT_EQ(service->tables()["dist"]->size(), 0);
 }
 
-TEST(ReverbServiceAsyncImplTest, ServerInfoWorks) {
+TEST(ReverbServiceImplTest, ServerInfoWorks) {
   auto service = MakeService(10);
   grpc::CallbackServerContext context;
   grpc::testing::DefaultReactorTestPeer peer(&context);
@@ -579,7 +579,7 @@ TEST(ReverbServiceImplTest, CheckpointCalledWithoutCheckpointer) {
             grpc::StatusCode::INVALID_ARGUMENT);
 }
 
-TEST(ReverbServiceAsyncImplTest, CheckpointAndLoadFromCheckpoint) {
+TEST(ReverbServiceImplTest, CheckpointAndLoadFromCheckpoint) {
   std::string path = getenv("TEST_TMPDIR");
   REVERB_CHECK(tensorflow::Env::Default()->CreateUniqueFileName(&path, "temp"));
   auto service = MakeService(10, CreateDefaultCheckpointer(path));
@@ -617,8 +617,8 @@ TEST(ReverbServiceAsyncImplTest, CheckpointAndLoadFromCheckpoint) {
   EXPECT_EQ(loaded_service->tables()["dist"]->size(), 1);
 }
 
-TEST(ReverbServiceAsyncImplTest, InitializeConnectionSuccess) {
-  std::unique_ptr<ReverbServiceAsyncImpl> service = MakeService(10);
+TEST(ReverbServiceImplTest, InitializeConnectionSuccess) {
+  std::unique_ptr<ReverbServiceImpl> service = MakeService(10);
   std::unique_ptr<grpc::Server> server(
       grpc::ServerBuilder().RegisterService(service.get()).BuildAndStart());
   /* grpc_gen:: */ReverbService::Stub stub(
@@ -649,8 +649,8 @@ TEST(ReverbServiceAsyncImplTest, InitializeConnectionSuccess) {
   REVERB_EXPECT_OK(stream->Finish());
 }
 
-TEST(ReverbServiceAsyncImplTest, InitializeConnectionTableNotFound) {
-  std::unique_ptr<ReverbServiceAsyncImpl> service = MakeService(10);
+TEST(ReverbServiceImplTest, InitializeConnectionTableNotFound) {
+  std::unique_ptr<ReverbServiceImpl> service = MakeService(10);
   std::unique_ptr<grpc::Server> server(
       grpc::ServerBuilder().RegisterService(service.get()).BuildAndStart());
   /* grpc_gen:: */ReverbService::Stub stub(
@@ -672,8 +672,8 @@ TEST(ReverbServiceAsyncImplTest, InitializeConnectionTableNotFound) {
   EXPECT_EQ(stream->Finish().error_code(), grpc::StatusCode::NOT_FOUND);
 }
 
-TEST(ReverbServiceAsyncImplTest, InitializeConnectionFromOtherProcess) {
-  std::unique_ptr<ReverbServiceAsyncImpl> service = MakeService(10);
+TEST(ReverbServiceImplTest, InitializeConnectionFromOtherProcess) {
+  std::unique_ptr<ReverbServiceImpl> service = MakeService(10);
   std::unique_ptr<grpc::Server> server(
       grpc::ServerBuilder().RegisterService(service.get()).BuildAndStart());
   /* grpc_gen:: */ReverbService::Stub stub(

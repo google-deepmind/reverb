@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "reverb/cc/reverb_service_async_impl.h"
+#include "reverb/cc/reverb_service_impl.h"
 
 #include <algorithm>
 #include <limits>
@@ -33,7 +33,7 @@
 #include "absl/time/time.h"
 #include "reverb/cc/checkpointing/interface.h"
 #include "reverb/cc/chunk_store.h"
-#include "reverb/cc/reverb_server_table_reactor.h"
+#include "reverb/cc/reverb_server_reactor.h"
 #include "reverb/cc/platform/hash_map.h"
 #include "reverb/cc/platform/hash_set.h"
 #include "reverb/cc/platform/logging.h"
@@ -71,29 +71,29 @@ inline grpc::Status Internal(const std::string& message) {
 
 }  // namespace
 
-ReverbServiceAsyncImpl::ReverbServiceAsyncImpl(
+ReverbServiceImpl::ReverbServiceImpl(
     std::shared_ptr<Checkpointer> checkpointer)
     : checkpointer_(std::move(checkpointer)) {}
 
-absl::Status ReverbServiceAsyncImpl::Create(
+absl::Status ReverbServiceImpl::Create(
     std::vector<std::shared_ptr<Table>> tables,
     std::shared_ptr<Checkpointer> checkpointer,
-    std::unique_ptr<ReverbServiceAsyncImpl>* service) {
+    std::unique_ptr<ReverbServiceImpl>* service) {
   // Can't use make_unique because it can't see the Impl's private constructor.
-  auto new_service = std::unique_ptr<ReverbServiceAsyncImpl>(
-      new ReverbServiceAsyncImpl(std::move(checkpointer)));
+  auto new_service = std::unique_ptr<ReverbServiceImpl>(
+      new ReverbServiceImpl(std::move(checkpointer)));
   REVERB_RETURN_IF_ERROR(new_service->Initialize(std::move(tables)));
   std::swap(new_service, *service);
   return absl::OkStatus();
 }
 
-absl::Status ReverbServiceAsyncImpl::Create(
+absl::Status ReverbServiceImpl::Create(
     std::vector<std::shared_ptr<Table>> tables,
-    std::unique_ptr<ReverbServiceAsyncImpl>* service) {
+    std::unique_ptr<ReverbServiceImpl>* service) {
   return Create(std::move(tables), /*checkpointer=*/nullptr, service);
 }
 
-absl::Status ReverbServiceAsyncImpl::Initialize(
+absl::Status ReverbServiceImpl::Initialize(
     std::vector<std::shared_ptr<Table>> tables) {
   if (checkpointer_ != nullptr) {
     // We start by attempting to load the latest checkpoint from the root
@@ -138,7 +138,7 @@ absl::Status ReverbServiceAsyncImpl::Initialize(
   return absl::OkStatus();
 }
 
-grpc::ServerUnaryReactor* ReverbServiceAsyncImpl::Checkpoint(
+grpc::ServerUnaryReactor* ReverbServiceImpl::Checkpoint(
     grpc::CallbackServerContext* context, const CheckpointRequest* request,
     CheckpointResponse* response) {
   grpc::ServerUnaryReactor* reactor = context->DefaultReactor();
@@ -164,16 +164,16 @@ grpc::ServerUnaryReactor* ReverbServiceAsyncImpl::Checkpoint(
 
 
 grpc::ServerBidiReactor<InsertStreamRequest, InsertStreamResponse>*
-ReverbServiceAsyncImpl::InsertStream(grpc::CallbackServerContext* context) {
+ReverbServiceImpl::InsertStream(grpc::CallbackServerContext* context) {
   struct InsertStreamResponseCtx {
     InsertStreamResponse payload;
   };
 
-  class WorkerlessInsertReactor : public ReverbServerTableReactor<
+  class WorkerlessInsertReactor : public ReverbServerReactor<
       InsertStreamRequest, InsertStreamResponse, InsertStreamResponseCtx> {
    public:
-    WorkerlessInsertReactor(ReverbServiceAsyncImpl* server)
-        : ReverbServerTableReactor(),
+    WorkerlessInsertReactor(ReverbServiceImpl* server)
+        : ReverbServerReactor(),
           server_(server),
           continue_inserts_(
               std::make_shared<std::function<void(const absl::Status&)>>(
@@ -296,7 +296,7 @@ ReverbServiceAsyncImpl::InsertStream(grpc::CallbackServerContext* context) {
         chunks_;
 
     // Used to lookup tables when inserting items.
-    const ReverbServiceAsyncImpl* server_;
+    const ReverbServiceImpl* server_;
 
     // Callback called by the table when further inserts are possible. Pointer
     // to it is registered with the table to avoid memory allocations upon
@@ -309,13 +309,13 @@ ReverbServiceAsyncImpl::InsertStream(grpc::CallbackServerContext* context) {
 
 grpc::ServerBidiReactor<InitializeConnectionRequest,
                         InitializeConnectionResponse>*
-ReverbServiceAsyncImpl::InitializeConnection(
+ReverbServiceImpl::InitializeConnection(
     grpc::CallbackServerContext* context) {
   class Reactor : public grpc::ServerBidiReactor<InitializeConnectionRequest,
                                                  InitializeConnectionResponse> {
    public:
     Reactor(grpc::CallbackServerContext* context,
-            ReverbServiceAsyncImpl* server)
+            ReverbServiceImpl* server)
         : server_(server) {
       if (!IsLocalhostOrInProcess(context->peer())) {
         Finish(grpc::Status::OK);
@@ -393,7 +393,7 @@ ReverbServiceAsyncImpl::InitializeConnection(
     }
 
    private:
-    ReverbServiceAsyncImpl* server_;
+    ReverbServiceImpl* server_;
     InitializeConnectionRequest request_;
     InitializeConnectionResponse response_;
     std::shared_ptr<Table>* table_ptr_ = nullptr;
@@ -402,7 +402,7 @@ ReverbServiceAsyncImpl::InitializeConnection(
   return new Reactor(context, this);
 }
 
-grpc::ServerUnaryReactor* ReverbServiceAsyncImpl::MutatePriorities(
+grpc::ServerUnaryReactor* ReverbServiceImpl::MutatePriorities(
     grpc::CallbackServerContext* context,
     const MutatePrioritiesRequest* request,
     MutatePrioritiesResponse* response) {
@@ -421,7 +421,7 @@ grpc::ServerUnaryReactor* ReverbServiceAsyncImpl::MutatePriorities(
   return reactor;
 }
 
-grpc::ServerUnaryReactor* ReverbServiceAsyncImpl::Reset(
+grpc::ServerUnaryReactor* ReverbServiceImpl::Reset(
     grpc::CallbackServerContext* context, const ResetRequest* request,
     ResetResponse* response) {
   grpc::ServerUnaryReactor* reactor = context->DefaultReactor();
@@ -436,7 +436,7 @@ grpc::ServerUnaryReactor* ReverbServiceAsyncImpl::Reset(
 }
 
 grpc::ServerBidiReactor<SampleStreamRequest, SampleStreamResponse>*
-ReverbServiceAsyncImpl::SampleStream(grpc::CallbackServerContext* context) {
+ReverbServiceImpl::SampleStream(grpc::CallbackServerContext* context) {
   struct SampleStreamResponseCtx {
     SampleStreamResponseCtx() {}
     SampleStreamResponseCtx(const SampleStreamResponseCtx&) = delete;
@@ -477,13 +477,13 @@ ReverbServiceAsyncImpl::SampleStream(grpc::CallbackServerContext* context) {
   // usage.
   static constexpr int kMaxQueuedResponses = 3;
 
-  class WorkerlessSampleReactor : public ReverbServerTableReactor<
+  class WorkerlessSampleReactor : public ReverbServerReactor<
       SampleStreamRequest, SampleStreamResponse, SampleStreamResponseCtx> {
    public:
     using SamplingCallback = std::function<void(Table::SampleRequest*)>;
 
-    WorkerlessSampleReactor(ReverbServiceAsyncImpl* server)
-        : ReverbServerTableReactor(),
+    WorkerlessSampleReactor(ReverbServiceImpl* server)
+        : ReverbServerReactor(),
           server_(server),
           sampling_done_(std::make_shared<SamplingCallback>(
               [&](Table::SampleRequest* sample) {
@@ -528,7 +528,7 @@ ReverbServiceAsyncImpl::SampleStream(grpc::CallbackServerContext* context) {
     }
 
     void OnWriteDone(bool ok) override {
-      ReverbServerTableReactor::OnWriteDone(ok);
+      ReverbServerReactor::OnWriteDone(ok);
       absl::MutexLock lock(&mu_);
       MaybeStartSampling();
     }
@@ -641,7 +641,7 @@ ReverbServiceAsyncImpl::SampleStream(grpc::CallbackServerContext* context) {
     }
 
     // Used to lookup tables when inserting items.
-    const ReverbServiceAsyncImpl* server_;
+    const ReverbServiceImpl* server_;
 
     // Context of the current sample request.
     SampleTaskInfo task_info_ ABSL_GUARDED_BY(mu_);
@@ -661,20 +661,20 @@ ReverbServiceAsyncImpl::SampleStream(grpc::CallbackServerContext* context) {
   return new WorkerlessSampleReactor(this);
 }
 
-std::shared_ptr<Table> ReverbServiceAsyncImpl::TableByName(
+std::shared_ptr<Table> ReverbServiceImpl::TableByName(
     absl::string_view name) const {
   auto it = tables_.find(name);
   if (it == tables_.end()) return nullptr;
   return it->second;
 }
 
-void ReverbServiceAsyncImpl::Close() {
+void ReverbServiceImpl::Close() {
   for (auto& table : tables_) {
     table.second->Close();
   }
 }
 
-std::string ReverbServiceAsyncImpl::DebugString() const {
+std::string ReverbServiceImpl::DebugString() const {
   std::string str = "ReverbServiceAsync(tables=[";
   for (auto iter = tables_.cbegin(); iter != tables_.cend(); ++iter) {
     if (iter != tables_.cbegin()) {
@@ -688,7 +688,7 @@ std::string ReverbServiceAsyncImpl::DebugString() const {
   return str;
 }
 
-grpc::ServerUnaryReactor* ReverbServiceAsyncImpl::ServerInfo(
+grpc::ServerUnaryReactor* ReverbServiceImpl::ServerInfo(
     grpc::CallbackServerContext* context, const ServerInfoRequest* request,
     ServerInfoResponse* response) {
   grpc::ServerUnaryReactor* reactor = context->DefaultReactor();
@@ -701,7 +701,7 @@ grpc::ServerUnaryReactor* ReverbServiceAsyncImpl::ServerInfo(
 }
 
 internal::flat_hash_map<std::string, std::shared_ptr<Table>>
-ReverbServiceAsyncImpl::tables() const {
+ReverbServiceImpl::tables() const {
   return tables_;
 }
 

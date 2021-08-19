@@ -392,13 +392,13 @@ reverb_cc_grpc_library(
 )
 
 reverb_cc_library(
-    name = "reverb_service_async_impl",
-    srcs = ["reverb_service_async_impl.cc"],
+    name = "reverb_service_impl",
+    srcs = ["reverb_service_impl.cc"],
     hdrs = [
-        "reverb_service_async_impl.h",
+        "reverb_service_impl.h",
     ],
     deps = [
-        ":reverb_server_table_reactor",
+        ":reverb_server_reactor",
         ":task_worker",
         "//reverb/cc:chunk_store",
         "//reverb/cc:reverb_service_cc_grpc_proto",
@@ -437,8 +437,8 @@ reverb_cc_library(
 )
 
 reverb_cc_library(
-    name = "reverb_server_table_reactor",
-    hdrs = ["reverb_server_table_reactor.h"],
+    name = "reverb_server_reactor",
+    hdrs = ["reverb_server_reactor.h"],
     deps = [
         ":task_worker",
         "//reverb/cc/platform:logging",
@@ -455,10 +455,10 @@ reverb_cc_library(
 )
 
 reverb_cc_test(
-    name = "reverb_service_async_impl_test",
-    srcs = ["reverb_service_async_impl_test.cc"],
+    name = "reverb_service_impl_test",
+    srcs = ["reverb_service_impl_test.cc"],
     deps = [
-        ":reverb_service_async_impl",
+        ":reverb_service_impl",
         "//reverb/cc:reverb_service_cc_proto",
         "//reverb/cc:schema_cc_proto",
         "//reverb/cc/platform:checkpointing",

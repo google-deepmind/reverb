@@ -40,7 +40,7 @@ reverb_cc_library(
     srcs = ["server.cc"],
     deps = [
         "//reverb/cc:client",
-        "//reverb/cc:reverb_service_async_impl",
+        "//reverb/cc:reverb_service_impl",
         "//reverb/cc/checkpointing:interface",
         "//reverb/cc/platform:grpc_utils",
         "//reverb/cc/platform:logging",

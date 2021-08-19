@@ -25,7 +25,7 @@
 #include "reverb/cc/platform/grpc_utils.h"
 #include "reverb/cc/platform/logging.h"
 #include "reverb/cc/platform/status_macros.h"
-#include "reverb/cc/reverb_service_async_impl.h"
+#include "reverb/cc/reverb_service_impl.h"
 #include "reverb/cc/support/periodic_closure.h"
 
 namespace deepmind {
@@ -55,7 +55,7 @@ class ServerImpl : public Server {
                           std::shared_ptr<Checkpointer> checkpointer) {
     absl::WriterMutexLock lock(&mu_);
     REVERB_CHECK(!running_) << "Initialize() called twice?";
-    REVERB_RETURN_IF_ERROR(ReverbServiceAsyncImpl::Create(
+    REVERB_RETURN_IF_ERROR(ReverbServiceImpl::Create(
         std::move(tables), std::move(checkpointer), &reverb_service_));
     server_ = grpc::ServerBuilder()
                   .AddListeningPort(absl::StrCat("[::]:", port_),
@@ -129,7 +129,7 @@ class ServerImpl : public Server {
 
  private:
   int port_;
-  std::unique_ptr<ReverbServiceAsyncImpl> reverb_service_;
+  std::unique_ptr<ReverbServiceImpl> reverb_service_;
   std::unique_ptr<grpc::Server> server_ = nullptr;
 
   absl::Mutex mu_;
