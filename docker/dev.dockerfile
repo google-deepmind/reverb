@@ -8,9 +8,7 @@
 #
 # Test that everything worked:
 #
-#
-# export PYTHON_BIN_PATH=/usr/bin/python3.7
-# $PYTHON_BIN_PATH ./configure.py
+# python3 ./configure.py
 # bazel test -c opt --test_output=streamed //reverb:tf_client_test
 
 ARG cpu_base_image="ubuntu:18.04"
@@ -24,7 +22,7 @@ LABEL maintainer="Reverb Team <no-reply@google.com>"
 ARG cpu_base_image="ubuntu:18.04"
 ARG base_image=$cpu_base_image
 ARG tensorflow_pip="tf-nightly"
-ARG python_version="/usr/bin/python3.6"
+ARG python_version="python3.7"
 ARG APT_COMMAND="apt-get -o Acquire::Retries=3 -y"
 
 # Pick up some TF dependencies
@@ -42,8 +40,6 @@ RUN ${APT_COMMAND} update && ${APT_COMMAND} install -y --no-install-recommends \
         libzmq3-dev \
         lsof \
         pkg-config \
-        python3-distutils \
-        python3.6-dev \
         python3.7-dev \
         python3.8-dev \
         python3.8-distutils \
