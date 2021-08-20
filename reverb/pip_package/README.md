@@ -72,7 +72,7 @@ $ docker run --rm --mount "type=bind,src=$REVERB_DIR,dst=/tmp/reverb" \
 
   # Alternatively you can build the container with Python 3.8 support.
   $ docker build --tag tensorflow:reverb \
-      --build-arg python_version=/usr/bin/python3.8 \
+      --build-arg python_version=python3.8 \
       - < "$REVERB_DIR/docker/dev.dockerfile"
   ```
 
@@ -85,17 +85,10 @@ $ docker run --rm --mount "type=bind,src=$REVERB_DIR,dst=/tmp/reverb" \
     --name reverb tensorflow:reverb bash
   ```
 
-1. Define the Python version to use (python3.7 or python3.8), which needs
-   to match the version of python you built the container to support.
-
-  ```shell
-  $ export PYTHON_BIN_PATH=/usr/bin/python3.7
-  ```
-
 1. Compile Reverb.
 
   ```shell
-  $ $PYTHON_BIN_PATH configure.py
+  $ python3.7 configure.py
   $ bazel build -c opt //reverb/pip_package:build_pip_package
   ```
 
