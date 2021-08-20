@@ -324,19 +324,29 @@ def reverb_python_deps():
 def _reverb_protoc_archive(ctx):
     version = ctx.attr.version
     sha256 = ctx.attr.sha256
+    arch = ctx.execute(["uname", "-m"]).stdout.strip()
 
     override_version = ctx.os.environ.get("REVERB_PROTOC_VERSION")
     if override_version:
         sha256 = ""
         version = override_version
 
-    urls = [
-        "https://github.com/protocolbuffers/protobuf/releases/download/v%s/protoc-%s-linux-x86_64.zip" % (version, version),
-    ]
-    ctx.download_and_extract(
+    if arch in ["aarch64"]:
+      urls = [
+          "https://github.com/protocolbuffers/protobuf/releases/download/v%s/protoc-%s-linux-aarch_64.zip" % (version, version),
+      ]
+      ctx.download_and_extract(
         url = urls,
-        sha256 = sha256,
-    )
+        sha256 = sha256[1],
+      )
+    else:
+      urls = [
+          "https://github.com/protocolbuffers/protobuf/releases/download/v%s/protoc-%s-linux-x86_64.zip" % (version, version),
+      ]
+      ctx.download_and_extract(
+          url = urls,
+          sha256 = sha256[0],
+      )
 
     ctx.file(
         "BUILD",
@@ -354,7 +364,7 @@ reverb_protoc_archive = repository_rule(
     implementation = _reverb_protoc_archive,
     attrs = {
         "version": attr.string(mandatory = True),
-        "sha256": attr.string(mandatory = True),
+        "sha256": attr.string_list(mandatory = True),
     },
 )
 

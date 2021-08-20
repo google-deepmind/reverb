@@ -104,6 +104,8 @@ for python_version in $PYTHON_VERSIONS; do
     exit 1
   fi
 
+  CPU_ARCH=$(uname -m)
+
   # Configures Bazel environment for selected Python version.
   $PYTHON_BIN_PATH configure.py
 
@@ -114,10 +116,18 @@ for python_version in $PYTHON_VERSIONS; do
   # someone's system unexpectedly. We are executing the python tests after
   # installing the final package making this approach satisfactory.
   # TODO(b/157223742): Execute Python tests as well.
-  bazel test -c opt --copt=-mavx --config=manylinux2010 --test_output=errors //reverb/cc/...
+  if [ "$CPU_ARCH" = "aarch64" ]; then
+    bazel test -c opt --cxxopt="-D_GLIBCXX_USE_CXX11_ABI=1" --copt="-march=armv8-a+crypto" --test_output=errors //reverb/cc/...
+  else
+    bazel test -c opt --cxxopt="-D_GLIBCXX_USE_CXX11_ABI=0" --copt=-mavx --config=manylinux2010 --test_output=errors //reverb/cc/...
+  fi
 
   # Builds Reverb and creates the wheel package.
-  bazel build -c opt --copt=-mavx --config=manylinux2010 reverb/pip_package:build_pip_package
+  if [ "$CPU_ARCH" = "aarch64" ]; then
+    bazel build -c opt --cxxopt="-D_GLIBCXX_USE_CXX11_ABI=1" --copt="-march=armv8-a+crypto" reverb/pip_package:build_pip_package
+  else
+    bazel build -c opt --cxxopt="-D_GLIBCXX_USE_CXX11_ABI=0" --copt=-mavx --config=manylinux2010 reverb/pip_package:build_pip_package
+  fi
   ./bazel-bin/reverb/pip_package/build_pip_package --dst $OUTPUT_DIR $PIP_PKG_EXTRA_ARGS
 
   # Installs pip package.

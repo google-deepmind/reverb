@@ -14,7 +14,8 @@ workspace(name = "reverb")
 # *WARNING* If using the REVERB_PROTOC_VERSION environment variable, sha256
 # checking is disabled.  Use at your own risk.
 PROTOC_VERSION = "3.9.0"
-PROTOC_SHA256 = "15e395b648a1a6dda8fd66868824a396e9d3e89bc2c8648e3b9ab9801bea5d55"
+PROTOC_x86_SHA256 = "15e395b648a1a6dda8fd66868824a396e9d3e89bc2c8648e3b9ab9801bea5d55"
+PROTOC_aarch64_SHA256 = "7877fee5793c3aafd704e290230de9348d24e8612036f1d784c8863bc790082e"
 
 load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
 
@@ -83,4 +84,4 @@ cc_tf_configure()
 
 reverb_python_deps()
 
-reverb_protoc_deps(version = PROTOC_VERSION, sha256 = PROTOC_SHA256)
+reverb_protoc_deps(version = PROTOC_VERSION, sha256 = [ PROTOC_x86_SHA256, PROTOC_aarch64_SHA256 ])

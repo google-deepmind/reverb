@@ -20,6 +20,7 @@ function build_wheel() {
   DESTDIR="$2"
   RELEASE_FLAG="$3"
   TF_VERSION_FLAG="$4"
+  CPU_ARCH=$(uname -m)
 
   # Before we leave the top-level directory, make sure we know how to
   # call python.
@@ -32,7 +33,11 @@ function build_wheel() {
   pushd ${TMPDIR} > /dev/null
 
   echo $(date) : "=== Building wheel"
-  "${PYTHON_BIN_PATH}" setup.py bdist_wheel ${PKG_NAME_FLAG} ${RELEASE_FLAG} ${TF_VERSION_FLAG} --plat manylinux2010_x86_64 > /dev/null
+  if [ "$CPU_ARCH" = "aarch64" ]; then
+    "${PYTHON_BIN_PATH}" setup.py bdist_wheel ${PKG_NAME_FLAG} ${RELEASE_FLAG} ${TF_VERSION_FLAG} > /dev/null
+  else
+    "${PYTHON_BIN_PATH}" setup.py bdist_wheel ${PKG_NAME_FLAG} ${RELEASE_FLAG} ${TF_VERSION_FLAG} --plat manylinux2010_x86_64 > /dev/null
+  fi
   DEST=${TMPDIR}/dist/
   if [[ ! "$TMPDIR" -ef "$DESTDIR" ]]; then
     mkdir -p ${DESTDIR}
