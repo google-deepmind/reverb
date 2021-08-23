@@ -22,7 +22,7 @@ from reverb import replay_sample
 import tensorflow.compat.v1 as tf
 import tree
 
-from reverb.cc.ops import gen_dataset_op
+from reverb.cc.ops import gen_reverb_ops
 
 
 class ReplayDataset(tf.data.Dataset):
@@ -272,7 +272,7 @@ class ReplayDataset(tf.data.Dataset):
         flexible_batch_size=flexible_batch_size)
 
   def _as_variant_tensor(self):
-    return gen_dataset_op.reverb_dataset(
+    return gen_reverb_ops.reverb_dataset(
         server_address=self._server_address,
         table=self._table,
         dtypes=tree.flatten(self._dtypes),

@@ -126,7 +126,7 @@ reverb_pytype_library(
     deps = [
         ":dataset",
         ":replay_sample",
-        "//reverb/cc/ops:gen_client_ops",
+        "//reverb/cc/ops:gen_reverb_ops",
     ],
 )
 
@@ -139,7 +139,7 @@ reverb_pytype_library(
     deps = [
         ":client",
         ":replay_sample",
-        "//reverb/cc/ops:gen_dataset_op",
+        "//reverb/cc/ops:gen_reverb_ops",
     ],
 )
 
@@ -152,7 +152,7 @@ reverb_pytype_library(
     deps = [
         ":client",
         ":replay_sample",
-        "//reverb/cc/ops:gen_trajectory_dataset_op",
+        "//reverb/cc/ops:gen_reverb_ops",
     ],
 )
 
@@ -165,7 +165,7 @@ reverb_pytype_library(
     deps = [
         ":client",
         ":replay_sample",
-        "//reverb/cc/ops:gen_timestep_dataset_op",
+        "//reverb/cc/ops:gen_reverb_ops",
     ],
 )
 

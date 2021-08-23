@@ -23,7 +23,7 @@ from reverb import replay_sample
 import tensorflow.compat.v1 as tf
 import tree
 
-from reverb.cc.ops import gen_client_ops
+from reverb.cc.ops import gen_reverb_ops
 
 # TODO(b/153616873): Remove this alias once users have been refactored.
 ReplayDataset = dataset.ReplayDataset
@@ -46,7 +46,7 @@ class TFClient:
     """
     self._name = name
     self._server_address = server_address
-    self._handle = gen_client_ops.reverb_client(
+    self._handle = gen_reverb_ops.reverb_client(
         server_address=server_address, shared_name=shared_name, name=name)
 
   def sample(self,
@@ -67,7 +67,7 @@ class TFClient:
       for more details.
     """
     with tf.name_scope(name, f'{self._name}_sample', ['sample']) as scope:
-      key, probability, table_size, priority, data = gen_client_ops.reverb_client_sample(
+      key, probability, table_size, priority, data = gen_reverb_ops.reverb_client_sample(
           self._handle, table, tree.flatten(data_dtypes), name=scope)
       return replay_sample.ReplaySample(
           replay_sample.SampleInfo(
@@ -110,7 +110,7 @@ class TFClient:
       raise ValueError('priorities and tables must have the same shape')
 
     with tf.name_scope(name, f'{self._name}_insert', ['insert']) as scope:
-      return gen_client_ops.reverb_client_insert(
+      return gen_reverb_ops.reverb_client_insert(
           self._handle, data, tables, priorities, name=scope)
 
   def update_priorities(self,
@@ -134,7 +134,7 @@ class TFClient:
 
     with tf.name_scope(name, f'{self._name}_update_priorities',
                        ['update_priorities']) as scope:
-      return gen_client_ops.reverb_client_update_priorities(
+      return gen_reverb_ops.reverb_client_update_priorities(
           self._handle, table, keys, priorities, name=scope)
 
   def dataset(self,
