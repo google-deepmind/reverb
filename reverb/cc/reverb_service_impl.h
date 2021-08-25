@@ -15,8 +15,6 @@
 #ifndef REVERB_CC__REVERB_SERVICE_IMPL_H_
 #define REVERB_CC__REVERB_SERVICE_IMPL_H_
 
-#define GRPC_CALLBACK_API_NONEXPERIMENTAL
-
 #include <memory>
 
 #include "grpcpp/grpcpp.h"
