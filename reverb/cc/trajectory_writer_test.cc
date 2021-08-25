@@ -1341,7 +1341,7 @@ class TrajectoryWriterSignatureValidationTest : public ::testing::Test {
   void SetUp() override {
     auto stub = std::make_shared<MockReverbServiceAsyncStub>();
     EXPECT_CALL(*stub, async())
-       .WillRepeatedly(ReturnNew<AsyncInterface>());
+       .WillRepeatedly(Return(&success_stream_));
 
     TrajectoryWriter::Options options = {
         .chunker_options = std::make_shared<ConstantChunkerOptions>(1, 1),
@@ -1381,6 +1381,7 @@ class TrajectoryWriterSignatureValidationTest : public ::testing::Test {
 
   std::unique_ptr<TrajectoryWriter> writer_;
   StepRef step_;
+  AsyncInterface success_stream_;
 };
 
 TEST_F(TrajectoryWriterSignatureValidationTest, Valid) {
