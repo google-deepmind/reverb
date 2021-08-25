@@ -305,7 +305,7 @@ absl::Status Table::TableWorkerLoop() {
       auto wakeup = absl::InfiniteFuture();
       {
         absl::MutexLock table_lock(&mu_);
-        if (!rate_limiter_->CheckIfCancelled(&mu_).ok()) {
+        if (closed_) {
           // We need to terminate all in-flight operations, so collect
           // requests with the deadline smaller than InfiniteFuture.
           deadline = absl::InfiniteFuture();
@@ -710,7 +710,7 @@ TableInfo Table::info() const {
 void Table::Close() {
   {
     absl::MutexLock lock(&mu_);
-    rate_limiter_->Cancel(&mu_);
+    closed_ = true;
   }
   {
     // Wakeup worker, so that it can process cancellations.

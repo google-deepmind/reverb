@@ -78,9 +78,6 @@ class RateLimiter {
   // Register that the table has been fully reset.
   void Reset(absl::Mutex* mu) ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu);
 
-  // Unblocks any `Await` calls with a Cancelled-status.
-  void Cancel(absl::Mutex* mu) ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu);
-
   // Returns true iff the current state would allow for `num_samples` to be
   // sampled. Dies if `num_samples` is < 1.
   bool CanSample(absl::Mutex* mu, int num_samples) const
@@ -127,10 +124,6 @@ class RateLimiter {
   absl::Status RegisterTable(Table* table);
   void UnregisterTable(absl::Mutex* mu, Table* table) ABSL_LOCKS_EXCLUDED(mu);
 
-  // Returns Cancelled-status if `Cancel` have been called.
-  absl::Status CheckIfCancelled(absl::Mutex* mu) const
-      ABSL_SHARED_LOCKS_REQUIRED(mu);
-
   // Pointer to the table. We expect this to be available (if set), since it's
   // set by a Table calling RegisterTable(this) after it stores a shared_ptr to
   // this RateLimiter;.
@@ -160,9 +153,6 @@ class RateLimiter {
 
   // Total number of items that has been deleted from the table.
   int64_t deletes_;
-
-  // Whether `Cancel` has been called.
-  bool cancelled_;
 
   // The StatsManager maintains a circular buffer of `RateLimiterEvent` and a
   // set of all time stats for calls of a single type (sample/insert).

@@ -56,7 +56,6 @@ RateLimiter::RateLimiter(double samples_per_insert, int64_t min_size_to_sample,
       inserts_(0),
       samples_(0),
       deletes_(0),
-      cancelled_(false),
       insert_stats_(),
       sample_stats_() {
   REVERB_CHECK_GT(min_size_to_sample, 0);
@@ -142,10 +141,6 @@ void RateLimiter::CreateInstantInsertEvent(absl::Mutex* mu) {
   insert_stats_.CreateEvent(mu);
 }
 
-void RateLimiter::Cancel(absl::Mutex*) {
-  cancelled_ = true;
-}
-
 RateLimiterCheckpoint RateLimiter::CheckpointReader(absl::Mutex*) const {
   RateLimiterCheckpoint checkpoint;
   checkpoint.set_samples_per_insert(samples_per_insert_);
@@ -157,11 +152,6 @@ RateLimiterCheckpoint RateLimiter::CheckpointReader(absl::Mutex*) const {
   checkpoint.set_delete_count(deletes_);
 
   return checkpoint;
-}
-
-absl::Status RateLimiter::CheckIfCancelled(absl::Mutex*) const {
-  if (!cancelled_) return absl::OkStatus();
-  return absl::CancelledError("RateLimiter has been cancelled");
 }
 
 RateLimiterInfo RateLimiter::Info(absl::Mutex* mu) const {

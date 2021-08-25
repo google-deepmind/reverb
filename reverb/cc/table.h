@@ -455,6 +455,9 @@ class Table {
   // was created or reset most recently.
   int64_t num_unique_samples_ ABSL_GUARDED_BY(mu_);
 
+  // Is the table being closed.
+  bool closed_ ABSL_GUARDED_BY(mu_) = false;
+
   // Maximum number of items that this container can hold. InsertOrAssign()
   // respects this limit when inserting a new item.
   const int64_t max_size_;
