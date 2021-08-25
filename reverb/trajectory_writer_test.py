@@ -62,9 +62,22 @@ class TrajectoryWriterTest(parameterized.TestCase):
   def setUp(self):
     super().setUp()
 
+    self.items = []
+
+    def _mock_create_item(unused_table, unused_priority, refs_per_col,
+                          squeeze_per_col):
+      item = []
+      for refs, squeeze in zip(refs_per_col, squeeze_per_col):
+        if squeeze:
+          item.append(refs[0].data)
+        else:
+          item.append(tuple([ref.data for ref in refs]))
+      self.items.append(tuple(item))
+
     self.cpp_writer_mock = mock.Mock()
     self.cpp_writer_mock.Append.side_effect = _mock_append
     self.cpp_writer_mock.AppendPartial.side_effect = _mock_append
+    self.cpp_writer_mock.CreateItem.side_effect = _mock_create_item
 
     self.writer = trajectory_writer.TrajectoryWriter(self.cpp_writer_mock)
 
@@ -103,25 +116,32 @@ class TrajectoryWriterTest(parameterized.TestCase):
 
     self.writer.append({'w': 5})
     third = tree.map_structure(extract_data, self.writer.history)
-    self.assertDictEqual(third, {
-        'x': [1, None, None],
-        'z': [2, 3, None],
-        'y': [None, 4, None],
-        'w': [None, None, 5],
-    })
+    self.assertDictEqual(
+        third, {
+            'x': [1, None, None],
+            'z': [2, 3, None],
+            'y': [None, 4, None],
+            'w': [None, None, 5],
+        })
 
     self.writer.append({'x': 6, 'w': 7})
     forth = tree.map_structure(extract_data, self.writer.history)
-    self.assertDictEqual(forth, {
-        'x': [1, None, None, 6],
-        'z': [2, 3, None, None],
-        'y': [None, 4, None, None],
-        'w': [None, None, 5, 7],
-    })
+    self.assertDictEqual(
+        forth, {
+            'x': [1, None, None, 6],
+            'z': [2, 3, None, None],
+            'y': [None, 4, None, None],
+            'w': [None, None, 5, 7],
+        })
 
   @parameterized.named_parameters(
       ('tuple', (0,), (0, 1)),
-      ('dict', {'x': 0}, {'x': 0, 'y': 1}),
+      ('dict', {
+          'x': 0
+      }, {
+          'x': 0,
+          'y': 1
+      }),
       ('list', [0], [0, 1]),
   )
   def test_append_with_more_fields(self, first_step_data, second_step_data):
@@ -188,23 +208,66 @@ class TrajectoryWriterTest(parameterized.TestCase):
     self.writer.append({'x': 3, 'y': 2})
 
     # History automatically transforms data and thus should be valid.
-    self.writer.create_item('table', 1.0, {
-        'x': self.writer.history['x'][0],  # Just one step.
-        'y': self.writer.history['y'][:],  # Two steps.
-    })
+    self.writer.create_item(
+        'table',
+        1.0,
+        {
+            'x': self.writer.history['x'][0],  # Just one step.
+            'y': self.writer.history['y'][:],  # Two steps.
+        })
 
     # But all leaves must be TrajectoryColumn.
     with self.assertRaises(TypeError):
-      self.writer.create_item('table', 1.0, {
-          'x': self.writer.history['x'][0],
-          'y': self.writer.history['y'][:].numpy(),
-      })
+      self.writer.create_item(
+          'table', 1.0, {
+              'x': self.writer.history['x'][0],
+              'y': self.writer.history['y'][:].numpy(),
+          })
 
   def test_flush_checks_block_until_num_itmes(self):
     self.writer.flush(0)
     self.writer.flush(1)
     with self.assertRaises(ValueError):
       self.writer.flush(-1)
+
+  def test_history_can_be_indexed_by_ints(self):
+    self.writer.append({'x': 1})
+    self.writer.append({'x': 2})
+    self.writer.append({'x': 3})
+
+    self.writer.create_item('table', 1.0, {
+        'first': self.writer.history['x'][0],
+        'last': self.writer.history['x'][-1],
+    })
+
+    # Note that the columns are not tuples since the columns are squeezed.
+    self.assertEqual(self.items[0], (1, 3))
+
+  def test_history_can_be_indexed_by_slices(self):
+    self.writer.append({'x': 1})
+    self.writer.append({'x': 2})
+    self.writer.append({'x': 3})
+
+    self.writer.create_item(
+        'table', 1.0, {
+            'first_two': self.writer.history['x'][:2],
+            'last_two': self.writer.history['x'][-2:],
+        })
+
+    self.assertEqual(self.items[0], ((1, 2), (2, 3)))
+
+  def test_history_can_be_indexed_by_lists(self):
+    self.writer.append({'x': 1})
+    self.writer.append({'x': 2})
+    self.writer.append({'x': 3})
+
+    self.writer.create_item(
+        'table', 1.0, {
+            'first_and_last': self.writer.history['x'][[0, -1]],
+            'permuted': self.writer.history['x'][[1, 0, 2]],
+        })
+
+    self.assertEqual(self.items[0], ((1, 3), (2, 1, 3)))
 
   def test_configure_uses_auto_tune_when_max_chunk_length_not_set(self):
     self.writer.append({'x': 3, 'y': 2})

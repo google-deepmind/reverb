@@ -165,6 +165,7 @@ class TrajectoryWriter:
        'all_a': writer.history['a'][:],
        'first_b': writer.history['b'][0],
        'last_b': writer.history['b'][-1],
+       'first_and_last_b': writer.history['b'][[0, -1]],
     }
     writer.create_item(table='name', priority=1.0, trajectory=from_history)
     ```
@@ -190,10 +191,8 @@ class TrajectoryWriter:
     else:
       return len(self._column_history[0]) - int(self._last_step_is_open)
 
-  def configure(self, path: Tuple[Union[int, str], ...],
-                *,
-                num_keep_alive_refs: int,
-                max_chunk_length: Optional[int]):
+  def configure(self, path: Tuple[Union[int, str], ...], *,
+                num_keep_alive_refs: int, max_chunk_length: Optional[int]):
     """Override chunking options for a single column.
 
     Args:
@@ -221,8 +220,7 @@ class TrajectoryWriter:
 
     if max_chunk_length is None:
       chunker_options = pybind.AutoTunedChunkerOptions(
-          num_keep_alive_refs=num_keep_alive_refs,
-          throughput_weight=1.0)
+          num_keep_alive_refs=num_keep_alive_refs, throughput_weight=1.0)
     else:
       chunker_options = pybind.ConstantChunkerOptions(
           max_chunk_length=max_chunk_length,
@@ -280,8 +278,8 @@ class TrajectoryWriter:
       # `data` contains fields which haven't been observed before so we need
       # expand the spec using the union of the history and `data`.
       self._update_structure(
-          _tree_union(self._structure,
-                      tree.map_structure(lambda x: None, data)))
+          _tree_union(self._structure, tree.map_structure(lambda x: None,
+                                                          data)))
 
       flat_column_data = self._reorder_like_flat_structure(data_with_path_flat)
 
@@ -561,11 +559,13 @@ class _ColumnHistory:
                               squeeze=True,
                               path=path)
     elif isinstance(val, slice):
-      return TrajectoryColumn(
-          self._data_references[val], path=path)
+      return TrajectoryColumn(self._data_references[val], path=path)
+    elif isinstance(val, list):
+      return TrajectoryColumn([self._data_references[x] for x in val],
+                              path=path)
     else:
       raise TypeError(
-          f'_ColumnHistory indices must be integers, not {type(val)}')
+          f'_ColumnHistory indices must be integers or slices, not {type(val)}')
 
   def __str__(self):
     name = f'{self.__class__.__module__}.{self.__class__.__name__}'
@@ -603,10 +603,11 @@ class TrajectoryColumn:
       return TrajectoryColumn([self._data_references[val]], squeeze=True)
     elif isinstance(val, slice):
       return TrajectoryColumn(self._data_references[val])
+    elif isinstance(val, list):
+      return TrajectoryColumn([self._data_references[x] for x in val])
     else:
-      raise TypeError(
-          f'TrajectoryColumn indices must be integers or slices, '
-          f'not {type(val)}')
+      raise TypeError(f'TrajectoryColumn indices must be integers or slices, '
+                      f'not {type(val)}')
 
   @property
   def shape(self) -> Tuple[Optional[int], ...]:
@@ -647,9 +648,7 @@ class TrajectoryColumn:
 
 def _tree_filter(source, filter_wih_path_flat):
   """Extract `filter_` from `source`."""
-  path_to_index = {
-      path: i for i, (path, _) in enumerate(filter_wih_path_flat)
-  }
+  path_to_index = {path: i for i, (path, _) in enumerate(filter_wih_path_flat)}
 
   flat_target = [None] * len(path_to_index)
   for path, leaf in tree.flatten_with_path(source):
