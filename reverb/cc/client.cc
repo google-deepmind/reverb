@@ -310,33 +310,22 @@ absl::Status Client::NewSamplerWithoutSignatureCheck(
 
 absl::Status Client::GetServerInfo(absl::Duration timeout,
                                    struct ServerInfo* info) {
-  auto now = absl::Now();
-  auto deadline = now + timeout;
-  while (true) {
-    grpc::ClientContext context;
-    auto current_deadline =
-        std::chrono::system_clock::now() +
-        absl::ToChronoMilliseconds(std::min(absl::Seconds(1), deadline - now));
-    context.set_wait_for_ready(true);
-    context.set_deadline(current_deadline);
-    ServerInfoRequest request;
-    ServerInfoResponse response;
-    auto status =
-        FromGrpcStatus(stub_->ServerInfo(&context, request, &response));
-    if (absl::IsUnavailable(status) || absl::IsDeadlineExceeded(status)) {
-      now = absl::Now();
-      if (now >= deadline) {
-        return status;
-      }
-      continue;
-    }
-    REVERB_RETURN_IF_ERROR(status);
-    info->tables_state_id = MessageToUint128(response.tables_state_id());
-    for (class TableInfo& table : *response.mutable_table_info()) {
-      info->table_info.emplace_back(std::move(table));
-    }
-    return absl::OkStatus();
+  grpc::ClientContext context;
+  context.set_wait_for_ready(true);
+  if (timeout != absl::InfiniteDuration()) {
+    context.set_deadline(std::chrono::system_clock::now() +
+                         absl::ToChronoSeconds(timeout));
   }
+
+  ServerInfoRequest request;
+  ServerInfoResponse response;
+  REVERB_RETURN_IF_ERROR(
+      FromGrpcStatus(stub_->ServerInfo(&context, request, &response)));
+  info->tables_state_id = MessageToUint128(response.tables_state_id());
+  for (class TableInfo& table : *response.mutable_table_info()) {
+    info->table_info.emplace_back(std::move(table));
+  }
+  return absl::OkStatus();
 }
 
 absl::Status Client::ServerInfo(struct ServerInfo* info) {

@@ -21,7 +21,6 @@
 #include "grpcpp/impl/codegen/status.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
-#include "absl/time/time.h"
 #include "reverb/cc/chunker.h"
 #include "reverb/cc/platform/status_matchers.h"
 #include "reverb/cc/reverb_service.pb.h"
@@ -153,16 +152,6 @@ TEST(ClientTest, ServerInfoRequestFilled) {
   EXPECT_EQ(info.tables_state_id, absl::MakeUint128(1, 2));
   EXPECT_EQ(info.table_info.size(), 1);
   EXPECT_THAT(info.table_info[0], testing::EqualsProto(expected_info));
-}
-
-TEST(ClientTest, ServerInfoTimeout) {
-  // Not existing server.
-  Client client("10.0.0.1");
-  struct Client::ServerInfo info;
-  auto before = absl::Now();
-  EXPECT_EQ(client.ServerInfo(absl::Milliseconds(1), &info).code(),
-            absl::StatusCode::kDeadlineExceeded);
-  EXPECT_LT(absl::Now() - before, absl::Seconds(1));
 }
 
 TEST(ClientTest, NewTrajectoryWriterValidatesOptions) {
