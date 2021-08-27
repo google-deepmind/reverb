@@ -158,8 +158,8 @@ void ReverbServerReactor<Request, Response, ResponseCtx>::OnWriteDone(
     bool ok) {
   absl::MutexLock lock(&mu_);
   if (is_finished_) {
-    REVERB_LOG(REVERB_ERROR)
-        << "OnWriteDone was called after the reactor was finished";
+    // Reactor has been finished by the OnCancel callback. No point in
+    // processing further responses as we are waiting for onDone.
     return;
   }
   if (!ok) {
