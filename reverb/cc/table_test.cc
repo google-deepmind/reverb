@@ -852,6 +852,8 @@ TEST(TableTest, Info) {
                 num_episodes: 1
                 num_deleted_episodes: 6
                 num_unique_samples: 3
+                table_worker_time {
+                }
               )pb"));
 }
 

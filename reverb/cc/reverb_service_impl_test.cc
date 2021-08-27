@@ -558,6 +558,8 @@ TEST(ReverbServiceImplTest, ServerInfoWorks) {
   rate_limiter->mutable_insert_stats()->mutable_pending_wait_time();
   rate_limiter->mutable_sample_stats()->mutable_completed_wait_time();
   rate_limiter->mutable_sample_stats()->mutable_pending_wait_time();
+  expected_table_info.mutable_table_worker_time()->set_sleeping_ms(
+      table_info.table_worker_time().sleeping_ms());
   *expected_table_info.mutable_signature() = MakeSignature();
 
   EXPECT_THAT(table_info, testing::EqualsProto(expected_table_info));

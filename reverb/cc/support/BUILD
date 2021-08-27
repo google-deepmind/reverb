@@ -119,6 +119,24 @@ reverb_cc_test(
 )
 
 reverb_cc_library(
+    name = "state_statistics",
+    hdrs = [
+        "state_statistics.h",
+    ],
+    deps = [
+        "//reverb/cc/platform:hash_map",
+    ] + reverb_absl_deps() + reverb_tf_deps(),
+)
+
+reverb_cc_test(
+    name = "state_statistics_test",
+    srcs = ["state_statistics_test.cc"],
+    deps = [
+        ":state_statistics",
+    ] + reverb_tf_deps() + reverb_absl_deps(),
+)
+
+reverb_cc_library(
     name = "task_executor",
     srcs = ["task_executor.cc"],
     hdrs = ["task_executor.h"],

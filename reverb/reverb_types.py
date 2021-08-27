@@ -16,9 +16,9 @@
 """Pytype helpers."""
 
 import collections
+import dataclasses
 from typing import Any, Iterable, Mapping, Optional, Union, get_type_hints
 
-import dataclasses
 from reverb import pybind
 import tensorflow.compat.v1 as tf
 
@@ -72,6 +72,7 @@ class TableInfo:
   num_episodes: int
   num_deleted_episodes: int
   num_unique_samples: int
+  table_worker_time: schema_pb2.TableWorkerTime
   # LINT.ThenChange(../../reverb/schema.proto)
 
   @classmethod
@@ -95,4 +96,5 @@ class TableInfo:
         num_episodes=proto.num_episodes,
         num_deleted_episodes=proto.num_deleted_episodes,
         num_unique_samples=proto.num_unique_samples,
+        table_worker_time=proto.table_worker_time,
         )

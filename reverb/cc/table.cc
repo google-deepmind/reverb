@@ -214,7 +214,7 @@ absl::Status Table::TableWorkerLoop() {
   int64_t last_progress = 0;
   {
     absl::MutexLock lock(&worker_mu_);
-    worker_state_ = TableWorkerState::kRunning;
+    worker_time_distribution_.Enter(TableWorkerState::kRunning);
   }
   while (true) {
     {
@@ -329,14 +329,14 @@ absl::Status Table::TableWorkerLoop() {
         }
         if (sample_idx < current_sampling.size() ||
             insert_idx < current_inserts.size()) {
-          worker_state_ = TableWorkerState::kBlocked;
+          worker_time_distribution_.Enter(TableWorkerState::kBlocked);
         } else {
-          worker_state_ = TableWorkerState::kSleeping;
+          worker_time_distribution_.Enter(TableWorkerState::kSleeping);
         }
         rate_limited = !current_sampling.empty() &&
                        sample_idx != current_sampling.size();
         wakeup_worker_.WaitWithDeadline(&worker_mu_, wakeup);
-        worker_state_ = TableWorkerState::kRunning;
+        worker_time_distribution_.Enter(TableWorkerState::kRunning);
       }
     }
     if (!to_terminate.empty()) {
@@ -489,8 +489,8 @@ absl::Status Table::InsertOrAssign(Item item, absl::Duration timeout) {
     can_insert_c.WaitForNotification();
   }
   auto worker_done = [this]() ABSL_EXCLUSIVE_LOCKS_REQUIRED(worker_mu_) {
-    return worker_state_ == TableWorkerState::kSleeping &&
-           pending_inserts_.empty();
+    return worker_time_distribution_.CurrentState() ==
+        TableWorkerState::kSleeping && pending_inserts_.empty();
   };
   absl::MutexLock lock(&worker_mu_);
   if (worker_mu_.AwaitWithTimeout(absl::Condition(&worker_done), timeout)) {
@@ -511,7 +511,8 @@ absl::Status Table::InsertOrAssignAsync(
   {
     absl::MutexLock lock(&worker_mu_);
     pending_inserts_.push_back(std::move(item_ptr));
-    if (worker_state_ != TableWorkerState::kRunning) {
+    if (worker_time_distribution_.CurrentState() !=
+        TableWorkerState::kRunning) {
       wakeup_worker_.Signal();
     }
     if (!deleted_items_.empty()) {
@@ -583,7 +584,7 @@ absl::Status Table::MutateItems(absl::Span<const KeyWithPriority> updates,
   // Table worker doesn't listen on rate_limiter, so need to wake it up
   // explicitly.
   absl::MutexLock lock(&worker_mu_);
-  if (worker_state_ != TableWorkerState::kRunning) {
+  if (worker_time_distribution_.CurrentState() != TableWorkerState::kRunning) {
     wakeup_worker_.Signal();
   }
   return absl::OkStatus();
@@ -615,7 +616,8 @@ void Table::EnqueSampleRequest(int num_samples,
       to_delete = std::move(deleted_items_.back());
       deleted_items_.pop_back();
     }
-    if (worker_state_ != TableWorkerState::kRunning) {
+    if (worker_time_distribution_.CurrentState() !=
+        TableWorkerState::kRunning) {
       wakeup_worker_.Signal();
     }
   }
@@ -695,14 +697,26 @@ TableInfo Table::info() const {
     *info.mutable_signature() = *signature_;
   }
 
-  absl::MutexLock lock(&mu_);
-  *info.mutable_rate_limiter_info() = rate_limiter_->Info(&mu_);
-  *info.mutable_sampler_options() = sampler_->options();
-  *info.mutable_remover_options() = remover_->options();
-  info.set_current_size(data_.size());
-  info.set_num_episodes(episode_refs_.size());
-  info.set_num_deleted_episodes(num_deleted_episodes_);
-  info.set_num_unique_samples(num_unique_samples_);
+  {
+    absl::MutexLock lock(&mu_);
+    *info.mutable_rate_limiter_info() = rate_limiter_->Info(&mu_);
+    *info.mutable_sampler_options() = sampler_->options();
+    *info.mutable_remover_options() = remover_->options();
+    info.set_current_size(data_.size());
+    info.set_num_episodes(episode_refs_.size());
+    info.set_num_deleted_episodes(num_deleted_episodes_);
+    info.set_num_unique_samples(num_unique_samples_);
+  }
+  {
+    absl::MutexLock lock(&worker_mu_);
+    auto *worker_time = info.mutable_table_worker_time();
+    worker_time->set_running_ms(absl::ToInt64Milliseconds(
+        worker_time_distribution_.GetTotalTimeIn(TableWorkerState::kRunning)));
+    worker_time->set_sleeping_ms(absl::ToInt64Milliseconds(
+        worker_time_distribution_.GetTotalTimeIn(TableWorkerState::kSleeping)));
+    worker_time->set_blocked_ms(absl::ToInt64Milliseconds(
+        worker_time_distribution_.GetTotalTimeIn(TableWorkerState::kBlocked)));
+  }
 
   return info;
 }
@@ -1072,7 +1086,7 @@ std::string Table::DebugString() const {
 
 bool Table::worker_is_sleeping() const {
   absl::MutexLock lock(&worker_mu_);
-  return worker_state_ != TableWorkerState::kRunning;
+  return worker_time_distribution_.CurrentState() != TableWorkerState::kRunning;
 }
 
 int Table::num_pending_async_sample_requests() const {

@@ -35,6 +35,7 @@
 #include "reverb/cc/rate_limiter.h"
 #include "reverb/cc/schema.pb.h"
 #include "reverb/cc/selectors/interface.h"
+#include "reverb/cc/support/state_statistics.h"
 #include "reverb/cc/support/task_executor.h"
 #include "reverb/cc/table_extensions/interface.h"
 #include "tensorflow/core/protobuf/struct.pb.h"
@@ -506,9 +507,9 @@ class Table {
   std::vector<std::weak_ptr<std::function<void(const absl::Status&)>>>
       notify_inserts_ok_ ABSL_GUARDED_BY(worker_mu_);
 
-  // Current table worker's state.
-  TableWorkerState worker_state_ ABSL_GUARDED_BY(worker_mu_) =
-      TableWorkerState::kSleeping;
+  // Table worker execution time stats.
+  internal::StateStatistics<TableWorkerState> worker_time_distribution_
+      ABSL_GUARDED_BY(worker_mu_);
 
   // Should worker terminate. Set to true upon table termination to stop the
   // worker.
