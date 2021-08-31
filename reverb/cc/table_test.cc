@@ -825,8 +825,10 @@ TEST(TableTest, Info) {
   // `max_times_sampled` is 1.
   Table::SampledItem sample;
   REVERB_EXPECT_OK(table->Sample(&sample));
+  auto info = table->info();
+  info.clear_table_worker_time();
 
-  EXPECT_THAT(table->info(), testing::EqualsProto(R"pb(
+  EXPECT_THAT(info, testing::EqualsProto(R"pb(
                 name: 'dist'
                 sampler_options { uniform: true }
                 remover_options { fifo: true is_deterministic: true }
@@ -852,8 +854,6 @@ TEST(TableTest, Info) {
                 num_episodes: 1
                 num_deleted_episodes: 6
                 num_unique_samples: 3
-                table_worker_time {
-                }
               )pb"));
 }
 
