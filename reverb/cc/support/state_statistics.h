@@ -55,7 +55,7 @@ template <typename StateEnum> class StateStatistics {
   }
 
  private:
-  StateEnum active_state_;
+  StateEnum active_state_ = StateEnum(0);
   absl::Time last_state_change_time_ = absl::InfiniteFuture();
   internal::flat_hash_map<StateEnum, absl::Duration> time_per_state_;
 };
