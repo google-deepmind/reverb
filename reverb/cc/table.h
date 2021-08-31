@@ -355,6 +355,11 @@ class Table {
   // yet. This method is only exposed for testing purposes.
   int num_pending_async_sample_requests() const ABSL_LOCKS_EXCLUDED(worker_mu_);
 
+  // Checks whether all extensions requests, async and sync, have been
+  // processed. This is the case if there are no pending requests AND the
+  // extension worker is sleeping.
+  bool all_extensions_are_up_to_date() const ABSL_LOCKS_EXCLUDED(mu_);
+
   // Number of queued inserts that are allowed on the table without slowing down
   // further inserts.
   int max_enqueued_inserts() const { return max_enqueued_inserts_; }
@@ -528,7 +533,7 @@ class Table {
   std::unique_ptr<internal::Thread> extension_worker_;
 
   // Pending extension requests to be processed by the extension worker.
-  std::vector<ExtensionRequest> extension_requests_ ABSL_ACQUIRED_BEFORE(mu_);
+  std::vector<ExtensionRequest> extension_requests_ ABSL_GUARDED_BY(mu_);
 
   // Used for waking up extension worker when asleep.
   absl::CondVar extension_work_available_cv_ ABSL_GUARDED_BY(mu_);

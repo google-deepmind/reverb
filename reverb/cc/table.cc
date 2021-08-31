@@ -1094,5 +1094,10 @@ int Table::num_pending_async_sample_requests() const {
   return pending_sampling_.size();
 }
 
+bool Table::all_extensions_are_up_to_date() const {
+  absl::MutexLock lock(&mu_);
+  return extension_requests_.empty() && extension_worker_sleeps_;
+}
+
 }  // namespace reverb
 }  // namespace deepmind
