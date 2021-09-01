@@ -72,14 +72,13 @@ server = reverb.Server(tables=[
         max_size=100,
         rate_limiter=reverb.rate_limiters.MinSize(1)),
     ],
-    port=8000
 )
 ```
 
 Create a client to communicate with the server:
 
 ```python
-client = reverb.Client('localhost:8000')
+client = reverb.Client(f'localhost:{server.port}')
 print(client.server_info())
 ```
 
