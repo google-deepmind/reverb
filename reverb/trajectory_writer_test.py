@@ -484,10 +484,10 @@ class TrajectoryColumnTest(parameterized.TestCase):
       ('int', 0),
       ('float', 1.0),
       ('bool', True),
-      ('np ()', np.empty(())),
-      ('np (1)', np.empty((1))),
-      ('np (1, 1)', np.empty((1, 1))),
-      ('np (3, 4, 2)', np.empty((3, 4, 2))),
+      ('np ()', np.zeros(())),
+      ('np (1)', np.zeros((1))),
+      ('np (1, 1)', np.zeros((1, 1))),
+      ('np (3, 4, 2)', np.zeros((3, 4, 2))),
   )
   def test_shape(self, data):
     expected_shape = np.asarray(data).shape
