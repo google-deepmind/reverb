@@ -188,8 +188,8 @@ class Chunker : public std::enable_shared_from_this<Chunker> {
   // any of `refs` was created by this `Chunker` then `item` and a filtered
   // (only the ones created by this `Chunker`) vector of `refs` is forwarded to
   // the `ChunkerOptions` so it can adapt.
-  void OnItemFinalized(const PrioritizedItem& item,
-                       absl::Span<const std::shared_ptr<CellRef>> refs);
+  absl::Status OnItemFinalized(const PrioritizedItem& item,
+                               absl::Span<const std::shared_ptr<CellRef>> refs);
 
  private:
   friend CellRef;
@@ -264,7 +264,7 @@ class ChunkerOptions {
   // by
   //   `item`.
   //
-  virtual void OnItemFinalized(
+  virtual absl::Status OnItemFinalized(
       const PrioritizedItem& item,
       absl::Span<const std::shared_ptr<CellRef>> refs) = 0;
 
@@ -288,7 +288,7 @@ class ConstantChunkerOptions : public ChunkerOptions {
 
   bool GetDeltaEncode() const override;
 
-  void OnItemFinalized(
+  absl::Status OnItemFinalized(
       const PrioritizedItem& item,
       absl::Span<const std::shared_ptr<CellRef>> refs) override;
 
@@ -360,7 +360,7 @@ class AutoTunedChunkerOptions : public ChunkerOptions {
   // Calculates performance statistics for the item and the chunks it
   // reference and uses thse to (potentially) update the result of
   // `GetMaxChunkLength`.
-  void OnItemFinalized(
+  absl::Status OnItemFinalized(
       const PrioritizedItem& item,
       absl::Span<const std::shared_ptr<CellRef>> refs) override;
 
@@ -380,7 +380,8 @@ class AutoTunedChunkerOptions : public ChunkerOptions {
 
   // Calculates an overall score for the data in a FULL buffer then clears both
   // `items_` and `chunks_`.
-  Score ReduceAndClearBuffers() ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_);
+  absl::Status ReduceAndClearBuffers(Score* score)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_);
 
   // The maximum number of CellRef to keep alive. This value is NOT tuned.
   int num_keep_alive_refs_;

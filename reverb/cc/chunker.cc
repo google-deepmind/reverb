@@ -23,6 +23,7 @@
 
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/str_format.h"
 #include "absl/synchronization/mutex.h"
 #include "reverb/cc/platform/logging.h"
 #include "reverb/cc/platform/status_macros.h"
@@ -222,8 +223,14 @@ absl::Status Chunker::FlushLocked() {
       // Sanity check: The ref belongs to this episode (and chunk) and the ref's
       // step counter is monotonically increasing (i.e. active_refs_ is sorted
       // by insertion time).
-      REVERB_CHECK(range->episode_id() == ref->episode_id() &&
-                   range->end() < ref->episode_step());
+      if (range->episode_id() != ref->episode_id() ||
+          range->end() >= ref->episode_step()) {
+        return absl::InternalError(absl::StrFormat(
+            "Expect range->episode_id == %d == %d == ref->episode_id and "
+            "range->end() == %d < %d == ref->episode_step.",
+            range->episode_id(), ref->episode_id(), range->end(),
+            ref->episode_step()));
+      }
 
       // The chunk is sparse if not all steps are represented in the data.
 
@@ -326,19 +333,26 @@ absl::Status Chunker::CopyDataForCell(const CellRef* ref,
   return absl::OkStatus();
 }
 
-void Chunker::OnItemFinalized(const PrioritizedItem& item,
-                              absl::Span<const std::shared_ptr<CellRef>> refs) {
+absl::Status Chunker::OnItemFinalized(
+    const PrioritizedItem& item,
+    absl::Span<const std::shared_ptr<CellRef>> refs) {
   std::vector<std::shared_ptr<CellRef>> child_refs;
   for (const auto& ref : refs) {
     auto chunker_sp = ref->chunker().lock();
-    REVERB_CHECK(chunker_sp);
+    if (!chunker_sp) {
+      return absl::FailedPreconditionError(absl::StrCat(
+          "Chunker::OnItemFinalized: Unable to lock the weak_ptr for the "
+          "chunker associated with chunk_key: ",
+          ref->chunk_key()));
+    }
     if (chunker_sp.get() == this) {
       child_refs.push_back(ref);
     }
   }
   if (!child_refs.empty()) {
-    options_->OnItemFinalized(item, child_refs);
+    REVERB_RETURN_IF_ERROR(options_->OnItemFinalized(item, child_refs));
   }
+  return absl::OkStatus();
 }
 
 absl::Status ValidateChunkerOptions(const ChunkerOptions* options) {
@@ -377,9 +391,11 @@ int ConstantChunkerOptions::GetNumKeepAliveRefs() const {
 
 bool ConstantChunkerOptions::GetDeltaEncode() const { return delta_encode_; }
 
-void ConstantChunkerOptions::OnItemFinalized(
+absl::Status ConstantChunkerOptions::OnItemFinalized(
     const PrioritizedItem& item,
-    absl::Span<const std::shared_ptr<CellRef>> refs) {}
+    absl::Span<const std::shared_ptr<CellRef>> refs) {
+  return absl::OkStatus();
+}
 
 std::shared_ptr<ChunkerOptions> ConstantChunkerOptions::Clone() const {
   return std::make_shared<ConstantChunkerOptions>(max_chunk_length_,
@@ -429,10 +445,13 @@ void AutoTunedChunkerOptions::PushItem(
   }
 }
 
-void AutoTunedChunkerOptions::OnItemFinalized(
+absl::Status AutoTunedChunkerOptions::OnItemFinalized(
     const PrioritizedItem& item,
     absl::Span<const std::shared_ptr<CellRef>> refs) {
-  REVERB_CHECK(!refs.empty());
+  if (refs.empty()) {
+    return absl::InvalidArgumentError(
+        "AutoTunedChunkerOptions::OnItemFinalized: refs is empty");
+  }
 
   absl::MutexLock lock(&mu_);
 
@@ -442,10 +461,11 @@ void AutoTunedChunkerOptions::OnItemFinalized(
 
   // If there isn't enough examples yet then don't make any changes.
   if (items_.size() < kNumItemsToScore || chunks_.size() < kNumChunksToScore) {
-    return;
+    return absl::OkStatus();
   }
 
-  auto new_score = ReduceAndClearBuffers();
+  Score new_score;
+  REVERB_RETURN_IF_ERROR(ReduceAndClearBuffers(&new_score));
   items_.clear();
   chunks_.clear();
 
@@ -456,14 +476,14 @@ void AutoTunedChunkerOptions::OnItemFinalized(
     prev_score_ = new_score;
     max_chunk_length_ = std::min(max_chunk_length_ + kPosMaxChunkLengthDiff,
                                  num_keep_alive_refs_);
-    return;
+    return absl::OkStatus();
   }
 
   // If the needle hasn't moved enough then remove the oldest item from the
   // buffer and wait for the next item.
   if (std::abs(new_score.average_chunk_length - max_chunk_length_) >
       kMaxChunkLengthError) {
-    return;
+    return absl::OkStatus();
   }
 
   bool cost_reduced = new_score.cost < prev_score_.cost;
@@ -479,15 +499,26 @@ void AutoTunedChunkerOptions::OnItemFinalized(
     prev_score_ = new_score;
     max_chunk_length_ = new_max_chunk_length;
   }
+  return absl::OkStatus();
 }
 
-AutoTunedChunkerOptions::Score
-AutoTunedChunkerOptions::ReduceAndClearBuffers() {
+absl::Status AutoTunedChunkerOptions::ReduceAndClearBuffers(
+    AutoTunedChunkerOptions::Score* score) {
   // We can't use REVERB_CHECK_EQ here since takes arguments by reference and
   // you can't take the address of a static member which doesn't have an
   // out-of-class definition (https://www.stroustrup.com/bs_faq2.html#in-class).
-  REVERB_CHECK(items_.size() == kNumItemsToScore);
-  REVERB_CHECK(chunks_.size() == kNumChunksToScore);
+  if (items_.size() != kNumItemsToScore) {
+    return absl::FailedPreconditionError(
+        absl::StrFormat("AutoTunedChunkerOptions::ReduceAndClearBuffers: "
+                        "items_.size() == %d != %d == kNumItemsToScore",
+                        chunks_.size(), kNumChunksToScore));
+  }
+  if (chunks_.size() != kNumChunksToScore) {
+    return absl::FailedPreconditionError(
+        absl::StrFormat("AutoTunedChunkerOptions::ReduceAndClearBuffers: "
+                        "chunks_.size() == %d != %d == kNumChunksToScore",
+                        chunks_.size(), kNumChunksToScore));
+  }
 
   double avg_chunk_length_sum = 0;
 
@@ -503,7 +534,7 @@ AutoTunedChunkerOptions::ReduceAndClearBuffers() {
     avg_chunk_length_sum += summary.average_chunk_length;
   }
 
-  Score score = {
+  *score = {
       avg_chunk_length_sum / (items_.size() + chunks_.size()),
       avg_bytes_per_chunk_step + avg_bytes_per_item_step * throughput_weight_,
   };
@@ -511,7 +542,7 @@ AutoTunedChunkerOptions::ReduceAndClearBuffers() {
   items_.clear();
   chunks_.clear();
 
-  return score;
+  return absl::OkStatus();
 }
 
 void AutoTunedChunkerOptions::PushChunks(

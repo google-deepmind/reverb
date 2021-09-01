@@ -33,12 +33,12 @@
 #include "absl/time/time.h"
 #include "reverb/cc/checkpointing/interface.h"
 #include "reverb/cc/chunk_store.h"
-#include "reverb/cc/reverb_server_reactor.h"
 #include "reverb/cc/platform/hash_map.h"
 #include "reverb/cc/platform/hash_set.h"
 #include "reverb/cc/platform/logging.h"
 #include "reverb/cc/platform/status_macros.h"
 #include "reverb/cc/platform/thread.h"
+#include "reverb/cc/reverb_server_reactor.h"
 #include "reverb/cc/reverb_service.grpc.pb.h"
 #include "reverb/cc/reverb_service.pb.h"
 #include "reverb/cc/sampler.h"
@@ -71,8 +71,7 @@ inline grpc::Status Internal(const std::string& message) {
 
 }  // namespace
 
-ReverbServiceImpl::ReverbServiceImpl(
-    std::shared_ptr<Checkpointer> checkpointer)
+ReverbServiceImpl::ReverbServiceImpl(std::shared_ptr<Checkpointer> checkpointer)
     : checkpointer_(std::move(checkpointer)) {}
 
 absl::Status ReverbServiceImpl::Create(
@@ -162,15 +161,15 @@ grpc::ServerUnaryReactor* ReverbServiceImpl::Checkpoint(
   return reactor;
 }
 
-
 grpc::ServerBidiReactor<InsertStreamRequest, InsertStreamResponse>*
 ReverbServiceImpl::InsertStream(grpc::CallbackServerContext* context) {
   struct InsertStreamResponseCtx {
     InsertStreamResponse payload;
   };
 
-  class WorkerlessInsertReactor : public ReverbServerReactor<
-      InsertStreamRequest, InsertStreamResponse, InsertStreamResponseCtx> {
+  class WorkerlessInsertReactor
+      : public ReverbServerReactor<InsertStreamRequest, InsertStreamResponse,
+                                   InsertStreamResponseCtx> {
    public:
     WorkerlessInsertReactor(ReverbServiceImpl* server)
         : ReverbServerReactor(),
@@ -192,7 +191,13 @@ ReverbServiceImpl::InsertStream(grpc::CallbackServerContext* context) {
 
     grpc::Status ProcessIncomingRequest(InsertStreamRequest* request) override
         ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_) {
-      REVERB_CHECK(!request->chunks().empty() || request->has_item());
+      if (request->chunks().empty() && !request->has_item()) {
+        return grpc::Status(
+            grpc::StatusCode::INVALID_ARGUMENT,
+            absl::StrCat("ProcessIncomingRequest: Request lacks both chunks "
+                         "and item.  Request: ",
+                         request->ShortDebugString()));
+      }
       if (auto status = SaveChunks(request); !status.ok()) {
         return status;
       }
@@ -205,7 +210,11 @@ ReverbServiceImpl::InsertStream(grpc::CallbackServerContext* context) {
       if (auto status = GetItemWithChunks(&item, request); !status.ok()) {
         return status;
       }
-      ReleaseOutOfRangeChunks(request->item().keep_chunk_keys());
+      if (auto status =
+              ReleaseOutOfRangeChunks(request->item().keep_chunk_keys());
+          !status.ok()) {
+        return status;
+      }
       const auto& table_name = item.item.table();
       // Check that table name is valid.
       auto table = server_->TableByName(table_name);
@@ -215,8 +224,9 @@ ReverbServiceImpl::InsertStream(grpc::CallbackServerContext* context) {
       bool can_insert;
       const bool send_confirmation = request->item().send_confirmation();
       const auto key = item.item.key();
-      if (auto status = table->InsertOrAssignAsync(std::move(item),
-          &can_insert, continue_inserts_); !status.ok()) {
+      if (auto status = table->InsertOrAssignAsync(std::move(item), &can_insert,
+                                                   continue_inserts_);
+          !status.ok()) {
         return ToGrpcStatus(status);
       }
       if (can_insert) {
@@ -267,7 +277,7 @@ ReverbServiceImpl::InsertStream(grpc::CallbackServerContext* context) {
       return grpc::Status::OK;
     }
 
-    void ReleaseOutOfRangeChunks(absl::Span<const uint64_t> keep_keys) {
+    grpc::Status ReleaseOutOfRangeChunks(absl::Span<const uint64_t> keep_keys) {
       for (auto it = chunks_.cbegin(); it != chunks_.cend();) {
         if (std::find(keep_keys.begin(), keep_keys.end(), it->first) ==
             keep_keys.end()) {
@@ -276,8 +286,15 @@ ReverbServiceImpl::InsertStream(grpc::CallbackServerContext* context) {
           ++it;
         }
       }
-      REVERB_CHECK_EQ(chunks_.size(), keep_keys.size())
-          << "Kept less chunks than expected.";
+      if (chunks_.size() != keep_keys.size()) {
+        return grpc::Status(
+            grpc::StatusCode::FAILED_PRECONDITION,
+            absl::StrCat("ReleaseOutOfRangeChunks: Kept less chunks than "
+                         "expected.  chunks_.size() == ",
+                         chunks_.size(),
+                         " != keep_keys.size() == ", keep_keys.size()));
+      }
+      return grpc::Status::OK;
     }
 
     // Incoming messages are handled one at a time. That is StartRead is not
@@ -309,13 +326,11 @@ ReverbServiceImpl::InsertStream(grpc::CallbackServerContext* context) {
 
 grpc::ServerBidiReactor<InitializeConnectionRequest,
                         InitializeConnectionResponse>*
-ReverbServiceImpl::InitializeConnection(
-    grpc::CallbackServerContext* context) {
+ReverbServiceImpl::InitializeConnection(grpc::CallbackServerContext* context) {
   class Reactor : public grpc::ServerBidiReactor<InitializeConnectionRequest,
                                                  InitializeConnectionResponse> {
    public:
-    Reactor(grpc::CallbackServerContext* context,
-            ReverbServiceImpl* server)
+    Reactor(grpc::CallbackServerContext* context, ReverbServiceImpl* server)
         : server_(server) {
       if (!IsLocalhostOrInProcess(context->peer())) {
         Finish(grpc::Status::OK);
@@ -477,8 +492,9 @@ ReverbServiceImpl::SampleStream(grpc::CallbackServerContext* context) {
   // usage.
   static constexpr int kMaxQueuedResponses = 3;
 
-  class WorkerlessSampleReactor : public ReverbServerReactor<
-      SampleStreamRequest, SampleStreamResponse, SampleStreamResponseCtx> {
+  class WorkerlessSampleReactor
+      : public ReverbServerReactor<SampleStreamRequest, SampleStreamResponse,
+                                   SampleStreamResponseCtx> {
    public:
     using SamplingCallback = std::function<void(Table::SampleRequest*)>;
 
@@ -655,7 +671,7 @@ ReverbServiceImpl::SampleStream(grpc::CallbackServerContext* context) {
 
     // True if the reactor is awaiting the result of a sampling request already
     // enqueued in the target table.
-    bool waiting_for_enqueued_sample_  ABSL_GUARDED_BY(mu_);
+    bool waiting_for_enqueued_sample_ ABSL_GUARDED_BY(mu_);
   };
 
   return new WorkerlessSampleReactor(this);

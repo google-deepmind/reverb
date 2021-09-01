@@ -342,7 +342,7 @@ absl::Status TFRecordCheckpointer::Load(
 
       if (insert_item.item.has_deprecated_sequence_range()) {
         std::vector<std::shared_ptr<ChunkStore::Chunk>> trajectory_chunks;
-        REVERB_CHECK_OK(FromTensorflowStatus(chunk_store->Get(
+        REVERB_RETURN_IF_ERROR(FromTensorflowStatus(chunk_store->Get(
             insert_item.item.deprecated_chunk_keys(), &trajectory_chunks)));
 
         *insert_item.item.mutable_flat_trajectory() =
@@ -357,13 +357,18 @@ absl::Status TFRecordCheckpointer::Load(
 
       for (const auto& key :
            internal::GetChunkKeys(insert_item.item.flat_trajectory())) {
-        REVERB_CHECK(chunk_by_key.contains(key));
+        if (!chunk_by_key.contains(key)) {
+          return absl::DataLossError(absl::StrCat(
+              "TFRecordCheckpointer::Load: chunk_by_key does not contain key: ",
+              key));
+        }
         insert_item.chunks.push_back(chunk_by_key[key]);
       }
 
       // The original table has already been destroyed so if this fails then
       // there is way to recover.
-      REVERB_CHECK_OK(table->InsertCheckpointItem(std::move(insert_item)));
+      REVERB_RETURN_IF_ERROR(
+          table->InsertCheckpointItem(std::move(insert_item)));
     }
 
     tables->at(index).swap(table);

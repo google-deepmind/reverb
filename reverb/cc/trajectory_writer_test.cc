@@ -779,10 +779,11 @@ TEST(TrajectoryWriter, ChunkersNotifiedWhenAllChunksDone) {
     int GetNumKeepAliveRefs() const override { return 1; }
     bool GetDeltaEncode() const override { return false; }
 
-    void OnItemFinalized(
+    absl::Status OnItemFinalized(
         const PrioritizedItem& item,
         absl::Span<const std::shared_ptr<CellRef>> refs) override {
       counter_->DecrementCount();
+      return absl::OkStatus();
     }
 
     std::shared_ptr<ChunkerOptions> Clone() const override {

@@ -611,7 +611,8 @@ absl::Status TrajectoryWriter::RunStreamWorker() {
     }
 
     for (auto& [_, chunker] : chunkers_) {
-      chunker->OnItemFinalized(item_and_refs->item, item_and_refs->refs);
+      REVERB_RETURN_IF_ERROR(
+          chunker->OnItemFinalized(item_and_refs->item, item_and_refs->refs));
     }
 
     // All chunks have been written to the stream so the item can now be

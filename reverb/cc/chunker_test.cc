@@ -100,7 +100,7 @@ class MockChunkerOptions : public ChunkerOptions {
   MOCK_METHOD(int, GetMaxChunkLength, (), (const override));
   MOCK_METHOD(int, GetNumKeepAliveRefs, (), (const override));
   MOCK_METHOD(bool, GetDeltaEncode, (), (const override));
-  MOCK_METHOD(void, OnItemFinalized,
+  MOCK_METHOD(absl::Status, OnItemFinalized,
               (const PrioritizedItem& item,
                absl::Span<const std::shared_ptr<CellRef>> refs),
               (override));
@@ -610,9 +610,9 @@ TEST(Chunker, OnItemFinalizedIsNoopIfNoRefsCreatedByChunker) {
   // The call should be ignored by the other chunker since none of the refs
   // came from it.
   EXPECT_CALL(*options_b, OnItemFinalized(_, _)).Times(0);
-  chunker_b->OnItemFinalized(
+  REVERB_EXPECT_OK(chunker_b->OnItemFinalized(
       testing::MakePrioritizedItem(1, 1.0, {*step.lock()->GetChunk()->get()}),
-      {step.lock()});
+      {step.lock()}));
 }
 
 TEST(Chunker, OnItemFinalizedFiltersRefsAndForwardsToOptions) {
@@ -649,12 +649,12 @@ TEST(Chunker, OnItemFinalizedFiltersRefsAndForwardsToOptions) {
   EXPECT_CALL(*options_a, OnItemFinalized(testing::EqualsProto(item),
                                           ElementsAre(ref_a.lock())))
       .Times(1);
-  chunker_a->OnItemFinalized(item, refs);
+  REVERB_EXPECT_OK(chunker_a->OnItemFinalized(item, refs));
 
   EXPECT_CALL(*options_b, OnItemFinalized(testing::EqualsProto(item),
                                           ElementsAre(ref_b.lock())))
       .Times(1);
-  chunker_b->OnItemFinalized(item, refs);
+  REVERB_EXPECT_OK(chunker_b->OnItemFinalized(item, refs));
 }
 
 TEST(Chunker, ApplyConfigRejectsInvalidOptions) {
@@ -760,7 +760,8 @@ TEST(AutoTunedChunkerOptions, SingleStepItemsAndRandomData) {
         chunker->Append(MakeRandomTensor<tensorflow::DT_FLOAT>(shape, 0, 1),
                         {/*episode_id=*/1, /*step=*/i}, &ref));
     if (ref.lock()->IsReady()) {
-      chunker->OnItemFinalized(PrioritizedItem(), {ref.lock()});
+      REVERB_EXPECT_OK(
+          chunker->OnItemFinalized(PrioritizedItem(), {ref.lock()}));
     }
   }
 
@@ -792,9 +793,9 @@ TEST(AutoTunedChunkerOptions, MultiOverlapStepItemsAndRandomData) {
 
     if (std::all_of(last_10_refs.begin(), last_10_refs.end(),
                     [](const auto& r) { return r->IsReady(); })) {
-      chunker->OnItemFinalized(PrioritizedItem(),
-                               std::vector<std::shared_ptr<CellRef>>(
-                                   last_10_refs.begin(), last_10_refs.end()));
+      REVERB_EXPECT_OK(chunker->OnItemFinalized(
+          PrioritizedItem(), std::vector<std::shared_ptr<CellRef>>(
+                                 last_10_refs.begin(), last_10_refs.end())));
     }
   }
 
@@ -824,9 +825,9 @@ TEST(AutoTunedChunkerOptions, ConstantNonOverlappingItems) {
 
     if (std::all_of(last_10_refs.begin(), last_10_refs.end(),
                     [](const auto& r) { return r->IsReady(); })) {
-      chunker->OnItemFinalized(PrioritizedItem(),
-                               std::vector<std::shared_ptr<CellRef>>(
-                                   last_10_refs.begin(), last_10_refs.end()));
+      REVERB_EXPECT_OK(chunker->OnItemFinalized(
+          PrioritizedItem(), std::vector<std::shared_ptr<CellRef>>(
+                                 last_10_refs.begin(), last_10_refs.end())));
       last_10_refs.clear();
     }
   }

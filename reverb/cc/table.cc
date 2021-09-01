@@ -93,7 +93,7 @@ inline absl::Status CheckItemValidity(const Table::Item& item) {
 }  // namespace
 
 void Table::FinalizeSampleRequest(std::unique_ptr<Table::SampleRequest> request,
-                           absl::Status status) {
+                                  absl::Status status) {
   Table::SampleRequest* r = request.release();
   r->status = status;
   callback_executor_->Schedule([r] {
@@ -256,8 +256,8 @@ absl::Status Table::TableWorkerLoop() {
           while (rate_limiter_->MaybeCommitSample(&mu_)) {
             progress++;
             request->samples.emplace_back();
-            REVERB_RETURN_IF_ERROR(SampleInternal(
-                rate_limited, &request->samples.back()));
+            REVERB_RETURN_IF_ERROR(
+                SampleInternal(rate_limited, &request->samples.back()));
             // Capacity of the samples collection indicates how many items
             // should be sampled.
             if (request->samples.capacity() == request->samples.size()) {
@@ -272,8 +272,7 @@ absl::Status Table::TableWorkerLoop() {
     }
     {
       absl::MutexLock lock(&worker_mu_);
-      if (insert_idx == current_inserts.size() &&
-          !pending_inserts_.empty()) {
+      if (insert_idx == current_inserts.size() && !pending_inserts_.empty()) {
         // Get a new batch of insert requests as previous batch is done.
         progress++;
         insert_idx = 0;
@@ -283,8 +282,7 @@ absl::Status Table::TableWorkerLoop() {
         // know it is fine to continue with the inserts.
         std::swap(notify_inserts_ok, notify_inserts_ok_);
       }
-      if (sample_idx == current_sampling.size() &&
-          !pending_sampling_.empty()) {
+      if (sample_idx == current_sampling.size() && !pending_sampling_.empty()) {
         // Get a new batch of sample requests as previous batch is done.
         progress++;
         sample_idx = 0;
@@ -333,8 +331,8 @@ absl::Status Table::TableWorkerLoop() {
         } else {
           worker_time_distribution_.Enter(TableWorkerState::kSleeping);
         }
-        rate_limited = !current_sampling.empty() &&
-                       sample_idx != current_sampling.size();
+        rate_limited =
+            !current_sampling.empty() && sample_idx != current_sampling.size();
         wakeup_worker_.WaitWithDeadline(&worker_mu_, wakeup);
         worker_time_distribution_.Enter(TableWorkerState::kRunning);
       }
@@ -371,7 +369,12 @@ absl::Status Table::ExtensionsWorkerLoop() {
     }
     {
       absl::MutexLock lock(&mu_);
-      REVERB_CHECK(extension_requests.empty());
+      if (!extension_requests.empty()) {
+        return absl::InvalidArgumentError(absl::StrCat(
+            "ExtensionsWorkerLoop: extension_requests expected to be empty but "
+            "contains ",
+            extension_requests.size(), " items."));
+      }
       if (extension_requests_.empty()) {
         // No more work to do, go to sleep.
         if (stop_extension_worker_) {
@@ -490,7 +493,8 @@ absl::Status Table::InsertOrAssign(Item item, absl::Duration timeout) {
   }
   auto worker_done = [this]() ABSL_EXCLUSIVE_LOCKS_REQUIRED(worker_mu_) {
     return worker_time_distribution_.CurrentState() ==
-        TableWorkerState::kSleeping && pending_inserts_.empty();
+               TableWorkerState::kSleeping &&
+           pending_inserts_.empty();
   };
   absl::MutexLock lock(&worker_mu_);
   if (worker_mu_.AwaitWithTimeout(absl::Condition(&worker_done), timeout)) {
@@ -628,12 +632,14 @@ absl::Status Table::SampleFlexibleBatch(std::vector<SampledItem>* items,
                                         absl::Duration timeout) {
   if (!items->empty()) {
     return absl::InvalidArgumentError(
-        "Table::SampleFlexibleBatch called with non-empty output vector.");
+        absl::StrCat("Table::SampleFlexibleBatch called with non-empty output "
+                     "vector.  Items count: ",
+                     items->size()));
   }
   absl::Status result = absl::OkStatus();
   absl::Notification notification;
-  auto callback = std::make_shared<SamplingCallback>(
-      [&](Table::SampleRequest* sample) {
+  auto callback =
+      std::make_shared<SamplingCallback>([&](Table::SampleRequest* sample) {
         if (!sample->status.ok()) {
           result = sample->status;
         } else {
@@ -709,7 +715,7 @@ TableInfo Table::info() const {
   }
   {
     absl::MutexLock lock(&worker_mu_);
-    auto *worker_time = info.mutable_table_worker_time();
+    auto* worker_time = info.mutable_table_worker_time();
     worker_time->set_running_ms(absl::ToInt64Milliseconds(
         worker_time_distribution_.GetTotalTimeIn(TableWorkerState::kRunning)));
     worker_time->set_sleeping_ms(absl::ToInt64Milliseconds(
@@ -741,7 +747,11 @@ absl::Status Table::DeleteItem(Table::Key key,
   // Decrement counts to the episodes the item is referencing.
   for (const auto& chunk : it->second->chunks) {
     auto ep_it = episode_refs_.find(chunk->episode_id());
-    REVERB_CHECK(ep_it != episode_refs_.end());
+    if (ep_it == episode_refs_.end()) {
+      return absl::FailedPreconditionError(
+          absl::StrCat("Unable to find chunk episode_id ", chunk->episode_id(),
+                       " in refs table."));
+    }
     if (--(ep_it->second) == 0) {
       episode_refs_.erase(ep_it);
       num_deleted_episodes_++;
@@ -904,11 +914,16 @@ Table::CheckpointAndChunks Table::Checkpoint() {
 
 absl::Status Table::InsertCheckpointItem(Table::Item item) {
   absl::MutexLock lock(&mu_);
-  REVERB_CHECK_LE(data_.size() + 1, max_size_)
-      << "InsertCheckpointItem called on already full Table";
-  REVERB_CHECK(!data_.contains(item.item.key()))
-      << "InsertCheckpointItem called for item with already present key: "
-      << item.item.key();
+  if (data_.size() + 1 > max_size_) {
+    return absl::FailedPreconditionError(absl::StrCat(
+        "InsertCheckpointItem called on already full Table. table size: ",
+        data_.size(), ", maximum size: ", max_size_));
+  }
+  if (data_.contains(item.item.key())) {
+    return absl::FailedPreconditionError(absl::StrCat(
+        "InsertCheckpointItem called for item with already present key: ",
+        item.item.key()));
+  }
 
   REVERB_RETURN_IF_ERROR(
       sampler_->Insert(item.item.key(), item.item.priority()));
@@ -1052,12 +1067,9 @@ std::string Table::DebugString() const {
   absl::MutexLock lock(&mu_);
   std::string str = absl::StrCat(
       "Table(sampler=", sampler_->DebugString(),
-      ", remover=", remover_->DebugString(),
-      ", max_size=", max_size_,
-      ", max_times_sampled=", max_times_sampled_,
-      ", name=", name_,
-      ", rate_limiter=", rate_limiter_->DebugString(),
-      ", signature=",
+      ", remover=", remover_->DebugString(), ", max_size=", max_size_,
+      ", max_times_sampled=", max_times_sampled_, ", name=", name_,
+      ", rate_limiter=", rate_limiter_->DebugString(), ", signature=",
       (signature_.has_value() ? signature_.value().DebugString() : "nullptr"));
 
   {
