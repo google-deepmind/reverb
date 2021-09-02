@@ -18,6 +18,7 @@
 #include <cstddef>
 
 #include "absl/random/distributions.h"
+#include "absl/random/random.h"
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 #include "reverb/cc/platform/logging.h"
@@ -50,10 +51,13 @@ absl::Status CheckValidPriority(double priority) {
 
 }  // namespace
 
-PrioritizedSelector::PrioritizedSelector(double priority_exponent)
-    : priority_exponent_(priority_exponent), capacity_(std::pow(2, 17)) {
+PrioritizedSelector::PrioritizedSelector(double priority_exponent,
+                                         absl::BitGen bit_gen)
+    : priority_exponent_(priority_exponent),
+      capacity_(std::pow(2, 17)),
+      sum_tree_(capacity_),
+      bit_gen_(std::move(bit_gen)) {
   REVERB_CHECK_GE(priority_exponent_, 0);
-  sum_tree_.resize(capacity_);
 }
 
 absl::Status PrioritizedSelector::Delete(Key key) {

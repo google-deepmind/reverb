@@ -42,7 +42,8 @@ namespace reverb {
 //
 class PrioritizedSelector : public ItemSelector {
  public:
-  explicit PrioritizedSelector(double priority_exponent);
+  PrioritizedSelector(double priority_exponent,
+                      absl::BitGen bit_gen = absl::BitGen());
 
   // O(log n) time.
   absl::Status Delete(Key key) override;
