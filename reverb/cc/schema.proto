@@ -237,14 +237,32 @@ message RateLimiterInfo {
 }
 
 message TableWorkerTime {
-  // Cumulative time the table worker was running.
+  // Cumulative time the table worker is performing general work.
   int64 running_ms = 1;
 
-  // Cumulative time the table worker was sleeping.
-  int64 sleeping_ms = 2;
+  // Cumulative time the table worker is actively processing sampling requests.
+  int64 sampling_ms = 2;
 
-  // Cumulative time the table worker was blocked.
-  int64 blocked_ms = 3;
+  // Cumulative time the table worker is actively processing insert requests.
+  int64 inserting_ms = 3;
+
+  // Cumulative time the table worker is sleeping as there is no work to do
+  // (there are no pending insert/sample requests to process).
+  int64 sleeping_ms = 4;
+
+  // Cumulative time the table worker is blocked waiting for sampling requests
+  // There are pending insert requests which are blocked by the rate limiter,
+  // while there are no sampling requests which could unblock inserts.
+  // The system can't make further progress and the worker is put to sleep until
+  // sample request arives.
+  int64 waiting_for_sampling_ms = 5;
+
+  // Cumulative time the table worker is blocked waiting for insert requests
+  // There are pending sample requests which are blocked by the rate
+  // limiter, while there are no insert requests which could unblock sampling.
+  // The system can't make further progress and the worker is put to sleep until
+  // insert request arives.
+  int64 waiting_for_inserts_ms = 6;
 }
 
 // Metadata about sampler or remover.  Describes its configuration.

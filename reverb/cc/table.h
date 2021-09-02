@@ -318,7 +318,9 @@ class Table {
 
   const std::string& name() const;
 
-  // Metadata about the table, including the current state of the rate limiter.
+  // Metadata about the table, including the current state of the rate limiter
+  // and table worker execution time. Execution time is slightly out of sync, as
+  // it is updated periodically by the table worker thread.
   TableInfo info() const;
 
   // Signature (if any) of the table.
@@ -347,8 +349,8 @@ class Table {
   // Make table worker use provided executor for executing callbacks.
   void SetCallbackExecutor(std::shared_ptr<TaskExecutor> executor);
 
-  // Check whether the worker is currently sleeping. This method is only exposed
-  // for testing purposes.
+  // Check whether the worker is currently sleeping (either no work to do or
+  // blocked). This method is only exposed for testing purposes.
   bool worker_is_sleeping() const ABSL_LOCKS_EXCLUDED(worker_mu_);
 
   // Get the number of sample requests which hasn't been picked up by the worker
@@ -367,14 +369,23 @@ class Table {
  private:
   // State of the table worker.
   enum class TableWorkerState {
-    // Worker is actively processing requests.
+    // Worker is performing general work.
     kRunning,
+
+    // Worker is actively processing sampling requests.
+    kActivelySampling,
+
+    // Worker is actively processing insert requests.
+    kActivelyInserting,
 
     // Worker is sleeping as there is no work to do.
     kSleeping,
 
-    // Worker is blocked on rate limiter.
-    kBlocked,
+    // Worker is blocked waiting for sampling requests (can't process inserts).
+    kWaitingForSamples,
+
+    // Worker is blocked waiting for insert requests (can't process sampling).
+    kWaitingForInserts,
   };
 
   struct ExtensionRequest {
@@ -512,7 +523,9 @@ class Table {
   std::vector<std::weak_ptr<std::function<void(const absl::Status&)>>>
       notify_inserts_ok_ ABSL_GUARDED_BY(worker_mu_);
 
-  // Table worker execution time stats.
+  // Table worker execution time stats. It is updated periodically as table
+  // worker state changes frequently and we don't want to grab `worker_mu_` each
+  // time that happens.
   internal::StateStatistics<TableWorkerState> worker_time_distribution_
       ABSL_GUARDED_BY(worker_mu_);
 

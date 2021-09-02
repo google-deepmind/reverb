@@ -185,6 +185,7 @@ Table::~Table() {
 }
 
 absl::Status Table::TableWorkerLoop() {
+  internal::StateStatistics<TableWorkerState> worker_stats;
   // Sampling requests that exceeded deadline and should be terminated.
   std::vector<std::unique_ptr<Table::SampleRequest>> to_terminate;
   // Status to be send to the already timed out sample requests (changes upon
@@ -214,7 +215,7 @@ absl::Status Table::TableWorkerLoop() {
   int64_t last_progress = 0;
   {
     absl::MutexLock lock(&worker_mu_);
-    worker_time_distribution_.Enter(TableWorkerState::kRunning);
+    worker_stats.Enter(TableWorkerState::kRunning);
   }
   while (true) {
     {
@@ -238,6 +239,7 @@ absl::Status Table::TableWorkerLoop() {
       while (prev_progress < progress) {
         prev_progress = progress;
         // Try processing an insert request.
+        worker_stats.Enter(TableWorkerState::kActivelyInserting);
         if (insert_idx < current_inserts.size() &&
             rate_limiter_->CanInsert(&mu_, 1)) {
           rate_limiter_->CreateInstantInsertEvent(&mu_);
@@ -246,6 +248,7 @@ absl::Status Table::TableWorkerLoop() {
           progress++;
         }
         // Skip sampling requests which timed out already.
+        worker_stats.Enter(TableWorkerState::kActivelySampling);
         while (sample_idx < current_sampling.size() &&
                current_sampling[sample_idx] == nullptr) {
           sample_idx++;
@@ -270,9 +273,15 @@ absl::Status Table::TableWorkerLoop() {
         }
       }
     }
+    worker_stats.Enter(TableWorkerState::kRunning);
     {
       absl::MutexLock lock(&worker_mu_);
-      if (insert_idx == current_inserts.size() && !pending_inserts_.empty()) {
+      // `worker_time_distribution_` is protected by `worker_mu_`. We don't want
+      // to hold this mutex each time worker stats are updated, so
+      // `worker_time_distribution_` is updated periodically.
+      worker_time_distribution_ = worker_stats;
+      if (insert_idx == current_inserts.size() &&
+          !pending_inserts_.empty()) {
         // Get a new batch of insert requests as previous batch is done.
         progress++;
         insert_idx = 0;
@@ -282,7 +291,8 @@ absl::Status Table::TableWorkerLoop() {
         // know it is fine to continue with the inserts.
         std::swap(notify_inserts_ok, notify_inserts_ok_);
       }
-      if (sample_idx == current_sampling.size() && !pending_sampling_.empty()) {
+      if (sample_idx == current_sampling.size() &&
+          !pending_sampling_.empty()) {
         // Get a new batch of sample requests as previous batch is done.
         progress++;
         sample_idx = 0;
@@ -325,16 +335,18 @@ absl::Status Table::TableWorkerLoop() {
         if (stop_worker_) {
           return absl::OkStatus();
         }
-        if (sample_idx < current_sampling.size() ||
-            insert_idx < current_inserts.size()) {
-          worker_time_distribution_.Enter(TableWorkerState::kBlocked);
+        if (sample_idx < current_sampling.size()) {
+          worker_stats.Enter(TableWorkerState::kWaitingForInserts);
+        } else if (insert_idx < current_inserts.size()) {
+          worker_stats.Enter(TableWorkerState::kWaitingForSamples);
         } else {
-          worker_time_distribution_.Enter(TableWorkerState::kSleeping);
+          worker_stats.Enter(TableWorkerState::kSleeping);
         }
-        rate_limited =
-            !current_sampling.empty() && sample_idx != current_sampling.size();
+        worker_time_distribution_ = worker_stats;
+        rate_limited = !current_sampling.empty() &&
+                       sample_idx != current_sampling.size();
         wakeup_worker_.WaitWithDeadline(&worker_mu_, wakeup);
-        worker_time_distribution_.Enter(TableWorkerState::kRunning);
+        worker_stats.Enter(TableWorkerState::kRunning);
       }
     }
     if (!to_terminate.empty()) {
@@ -515,10 +527,7 @@ absl::Status Table::InsertOrAssignAsync(
   {
     absl::MutexLock lock(&worker_mu_);
     pending_inserts_.push_back(std::move(item_ptr));
-    if (worker_time_distribution_.CurrentState() !=
-        TableWorkerState::kRunning) {
-      wakeup_worker_.Signal();
-    }
+    wakeup_worker_.Signal();
     if (!deleted_items_.empty()) {
       to_delete = std::move(deleted_items_.back());
       deleted_items_.pop_back();
@@ -588,9 +597,7 @@ absl::Status Table::MutateItems(absl::Span<const KeyWithPriority> updates,
   // Table worker doesn't listen on rate_limiter, so need to wake it up
   // explicitly.
   absl::MutexLock lock(&worker_mu_);
-  if (worker_time_distribution_.CurrentState() != TableWorkerState::kRunning) {
-    wakeup_worker_.Signal();
-  }
+  wakeup_worker_.Signal();
   return absl::OkStatus();
 }
 
@@ -620,10 +627,7 @@ void Table::EnqueSampleRequest(int num_samples,
       to_delete = std::move(deleted_items_.back());
       deleted_items_.pop_back();
     }
-    if (worker_time_distribution_.CurrentState() !=
-        TableWorkerState::kRunning) {
-      wakeup_worker_.Signal();
-    }
+    wakeup_worker_.Signal();
   }
 }
 
@@ -718,10 +722,20 @@ TableInfo Table::info() const {
     auto* worker_time = info.mutable_table_worker_time();
     worker_time->set_running_ms(absl::ToInt64Milliseconds(
         worker_time_distribution_.GetTotalTimeIn(TableWorkerState::kRunning)));
+    worker_time->set_sampling_ms(
+        absl::ToInt64Milliseconds(worker_time_distribution_.GetTotalTimeIn(
+            TableWorkerState::kActivelySampling)));
+    worker_time->set_inserting_ms(
+        absl::ToInt64Milliseconds(worker_time_distribution_.GetTotalTimeIn(
+            TableWorkerState::kActivelyInserting)));
     worker_time->set_sleeping_ms(absl::ToInt64Milliseconds(
         worker_time_distribution_.GetTotalTimeIn(TableWorkerState::kSleeping)));
-    worker_time->set_blocked_ms(absl::ToInt64Milliseconds(
-        worker_time_distribution_.GetTotalTimeIn(TableWorkerState::kBlocked)));
+    worker_time->set_waiting_for_sampling_ms(
+        absl::ToInt64Milliseconds(worker_time_distribution_.GetTotalTimeIn(
+            TableWorkerState::kWaitingForSamples)));
+    worker_time->set_waiting_for_inserts_ms(
+        absl::ToInt64Milliseconds(worker_time_distribution_.GetTotalTimeIn(
+            TableWorkerState::kWaitingForInserts)));
   }
 
   return info;
@@ -1098,7 +1112,8 @@ std::string Table::DebugString() const {
 
 bool Table::worker_is_sleeping() const {
   absl::MutexLock lock(&worker_mu_);
-  return worker_time_distribution_.CurrentState() != TableWorkerState::kRunning;
+  return worker_time_distribution_.CurrentState() >=
+         TableWorkerState::kSleeping;
 }
 
 int Table::num_pending_async_sample_requests() const {
