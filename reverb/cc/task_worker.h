@@ -31,8 +31,6 @@ namespace deepmind {
 namespace reverb {
 
 struct InsertTaskInfo {
-  bool send_confirmation;  // If a confirmation should be sent once the task is
-                           // completed.
   Table::Item item;        // Item to be inserted.
   std::shared_ptr<Table> table;  // Table where the item should be inserted
   std::string DebugString() const {

@@ -329,7 +329,6 @@ absl::Status StreamingTrajectoryWriter::SendItem(PrioritizedItem item) {
   InsertStreamRequest request;
 
   *request.mutable_item()->mutable_item() = std::move(item);
-  request.mutable_item()->set_send_confirmation(true);
 
   // Keep all chunk keys belonging to this episode since we don't know which
   // chunks that aren't referenced by any item at the moment will be needed by

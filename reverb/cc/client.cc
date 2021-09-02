@@ -110,7 +110,7 @@ absl::Status Client::MaybeUpdateServerInfoCache(
 
 absl::Status Client::NewWriter(int chunk_length, int max_timesteps,
                                bool delta_encoded,
-                               absl::optional<int> max_in_flight_items,
+                               int max_in_flight_items,
                                std::unique_ptr<Writer>* writer) {
   // TODO(b/154928265): caching this request?  For example, if
   // it's been N seconds or minutes, it may be time to
@@ -123,15 +123,15 @@ absl::Status Client::NewWriter(int chunk_length, int max_timesteps,
                                                     &cached_flat_signatures));
   *writer = absl::make_unique<Writer>(
       stub_, chunk_length, max_timesteps, delta_encoded,
-      std::move(cached_flat_signatures), std::move(max_in_flight_items));
+      std::move(cached_flat_signatures), max_in_flight_items);
   return absl::OkStatus();
 }
 
 absl::Status Client::NewWriter(int chunk_length, int max_timesteps,
                                bool delta_encoded,
                                std::unique_ptr<Writer>* writer) {
-  return NewWriter(chunk_length, max_timesteps, delta_encoded, absl::nullopt,
-                   writer);
+  return NewWriter(chunk_length, max_timesteps, delta_encoded,
+                   Writer::kDefaultMaxInFlightItems, writer);
 }
 
 absl::Status Client::MutatePriorities(

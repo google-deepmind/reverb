@@ -65,8 +65,7 @@ class ReverbServiceImpl : public /* grpc_gen:: */ReverbService::CallbackService 
   // in-flight and there is enough free space in the InsertWorker queue.
   //
   // Once an insertion task is completed, the reactor writes confirmations of
-  // inserted messages iff the InsertStreamRequest sets the send_confirmation
-  // bit.
+  // inserted messages.
   //
   // Once the reactor is done, it waits for all the items to be inserted before
   // destroying itself. If the reactor is cancelled, pending items won't be

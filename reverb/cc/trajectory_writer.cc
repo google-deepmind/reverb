@@ -532,7 +532,6 @@ bool TrajectoryWriter::SendItem(
     const PrioritizedItem& item, ArenaOwnedRequest* request) {
   request->r.mutable_item()->unsafe_arena_set_allocated_item(
       const_cast<PrioritizedItem*>(&item));
-  request->r.mutable_item()->set_send_confirmation(true);
   for (uint64_t keep_key : keep_keys) {
     request->r.mutable_item()->add_keep_chunk_keys(keep_key);
   }

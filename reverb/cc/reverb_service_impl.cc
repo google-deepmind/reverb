@@ -222,7 +222,6 @@ ReverbServiceImpl::InsertStream(grpc::CallbackServerContext* context) {
         return TableNotFound(table_name);
       }
       bool can_insert;
-      const bool send_confirmation = request->item().send_confirmation();
       const auto key = item.item.key();
       if (auto status = table->InsertOrAssignAsync(std::move(item), &can_insert,
                                                    continue_inserts_);
@@ -234,16 +233,14 @@ ReverbServiceImpl::InsertStream(grpc::CallbackServerContext* context) {
         // requests.
         StartRead(&request_);
       }
-      if (send_confirmation) {
-        // The first element is the one in flight, modify not yet in flight
-        // response if possible.
-        if (responses_to_send_.size() < 2) {
-          responses_to_send_.emplace();
-        }
-        responses_to_send_.back().payload.add_keys(key);
-        if (responses_to_send_.size() == 1) {
-          MaybeSendNextResponse();
-        }
+      // The first element is the one in flight, modify not yet in flight
+      // response if possible.
+      if (responses_to_send_.size() < 2) {
+        responses_to_send_.emplace();
+      }
+      responses_to_send_.back().payload.add_keys(key);
+      if (responses_to_send_.size() == 1) {
+        MaybeSendNextResponse();
       }
       return grpc::Status::OK;
     }

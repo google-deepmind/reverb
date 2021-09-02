@@ -634,11 +634,11 @@ PYBIND11_MODULE(libpybind, m) {
       .def(
           "NewWriter",
           [](Client *client, int chunk_length, int max_timesteps,
-             bool delta_encoded, absl::optional<int> max_in_flight_items) {
+             bool delta_encoded, int max_in_flight_items) {
             std::unique_ptr<Writer> writer;
             MaybeRaiseFromStatus(
                 client->NewWriter(chunk_length, max_timesteps, delta_encoded,
-                                  std::move(max_in_flight_items), &writer));
+                                  max_in_flight_items, &writer));
             return writer;
           },
           py::call_guard<py::gil_scoped_release>(), py::arg("chunk_length"),

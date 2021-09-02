@@ -47,12 +47,13 @@ namespace reverb {
 class Writer {
  public:
   static constexpr int64_t kMaxRequestSizeBytes = 40 * 1024 * 1024;  // 40MB.
+  static constexpr int kDefaultMaxInFlightItems = 25;
 
   // The client must not be deleted while any of its writer instances exist.
   Writer(std::shared_ptr</* grpc_gen:: */ReverbService::StubInterface> stub,
          int chunk_length, int max_timesteps, bool delta_encoded = false,
          std::shared_ptr<internal::FlatSignatureMap> signatures = nullptr,
-         absl::optional<int> max_in_flight_items = absl::nullopt);
+         int max_in_flight_items = kDefaultMaxInFlightItems);
   ~Writer();
 
   // Appends a timestamp to internal `buffer_`. If the size of the buffer
@@ -168,13 +169,12 @@ class Writer {
   // Whether chunks should be delta encoded before compressed.
   const bool delta_encoded_;
 
-  // The maximum number if items that is allowed to be "in flight" (i.e sent to
+  // The maximum number of items that is allowed to be "in flight" (i.e sent to
   // the server but not yet confirmed to be completed) at the same time. If this
   // value is reached and an item is about to be sent then the operation will
   // block until the completion of a previously transmitted item has been
-  // confirmed. When set to `absl::nullopt` the number of concurrent "in flight"
-  // items is unlimited.
-  const absl::optional<int> max_in_flight_items_;
+  // confirmed.
+  const int max_in_flight_items_;
 
   // Number of items that have been sent to the server but the response
   // confirming the completion of the operation haven't been read yet.

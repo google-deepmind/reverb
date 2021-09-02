@@ -60,19 +60,21 @@ int PositiveModulo(int value, int divisor) {
 Writer::Writer(std::shared_ptr</* grpc_gen:: */ReverbService::StubInterface> stub,
                int chunk_length, int max_timesteps, bool delta_encoded,
                std::shared_ptr<internal::FlatSignatureMap> signatures,
-               absl::optional<int> max_in_flight_items)
+               int max_in_flight_items)
     : stub_(std::move(stub)),
       chunk_length_(chunk_length),
       max_timesteps_(max_timesteps),
       delta_encoded_(delta_encoded),
-      max_in_flight_items_(std::move(max_in_flight_items)),
+      max_in_flight_items_(max_in_flight_items),
       num_items_in_flight_(0),
       signatures_(std::move(signatures)),
       next_chunk_key_(NewID()),
       episode_id_(NewID()),
       index_within_episode_(0),
       closed_(false),
-      inserted_dtypes_and_shapes_(max_timesteps) {}
+      inserted_dtypes_and_shapes_(max_timesteps) {
+  CHECK_GT(max_in_flight_items_, 0);
+}
 
 Writer::~Writer() {
   if (!closed_) Close().IgnoreError();
@@ -292,23 +294,14 @@ absl::Status Writer::Flush() {
 std::string Writer::DebugString() const {
   std::string str = absl::StrCat(
       "Writer(chunk_length=", chunk_length_, ", max_timesteps=", max_timesteps_,
-      ", delta_encoded=", delta_encoded_, ", max_in_flight_items=");
-  if (max_in_flight_items_.has_value()) {
-    absl::StrAppend(&str, max_in_flight_items_.value());
-  } else {
-    absl::StrAppend(&str, "nullopt");
-  }
-  absl::StrAppend(&str, ", episode_id=", episode_id_,
+      ", delta_encoded=", delta_encoded_, ", max_in_flight_items=",
+      max_in_flight_items_, ", episode_id=", episode_id_,
                   ", index_within_episode=", index_within_episode_,
                   ", closed=", closed_, ")");
   return str;
 }
 
 absl::Status Writer::StopItemConfirmationWorker() {
-  // There is nothing to stop if there are no limitations on the number of
-  // in flight items.
-  if (!max_in_flight_items_.has_value()) return absl::OkStatus();
-
   absl::MutexLock lock(&mu_);
   item_confirmation_worker_stop_requested_ = true;
 
@@ -331,9 +324,6 @@ absl::Status Writer::StopItemConfirmationWorker() {
 }
 
 void Writer::StartItemConfirmationWorker() {
-  // Don't do anything if confirmations are not going to be sent anyway.
-  if (!max_in_flight_items_.has_value()) return;
-
   absl::MutexLock lock(&mu_);
 
   // Sanity check the state of the writer. None of these should ever trigger in
@@ -518,25 +508,20 @@ bool Writer::WritePendingData() {
     }
   }
   while (!pending_items_.empty()) {
-    if (max_in_flight_items_.has_value() &&
-        !ConfirmItems(max_in_flight_items_.value() - 1)) {
+    if (!ConfirmItems(max_in_flight_items_ - 1)) {
       return false;
     }
     *request.r.mutable_item()->mutable_item() = pending_items_.front();
     *request.r.mutable_item()->mutable_keep_chunk_keys() = {
         keep_chunk_keys.begin(), keep_chunk_keys.end()};
-    request.r.mutable_item()->set_send_confirmation(
-        max_in_flight_items_.has_value());
     bool ok = stream_->Write(request.r, options);
     if (!ok) return false;
     for (const auto& chunk : request.r.chunks()) {
       streamed_chunk_keys_.insert(chunk.chunk_key());
     }
     pending_items_.pop_front();
-    if (request.r.item().send_confirmation()) {
-      absl::MutexLock lock(&mu_);
-      ++num_items_in_flight_;
-    }
+    absl::MutexLock lock(&mu_);
+    ++num_items_in_flight_;
   }
 
   return true;

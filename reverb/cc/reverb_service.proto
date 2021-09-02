@@ -100,9 +100,8 @@ message InsertStreamRequest {
     // until the next priority insertion.
     repeated uint64 keep_chunk_keys = 2;
 
-    // If set then the server will send a confirmation when the item has been
-    // inserted/updated. Only
-    bool send_confirmation = 3;
+    // Deleted field `send_confirmation`.
+    bool reserved = 3;
   }
 
   // Chunk that can be referenced by a PrioritizedItem.

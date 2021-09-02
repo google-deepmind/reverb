@@ -330,9 +330,13 @@ class Client:
           'chunk_length (%d) must be a positive integer le to max_sequence_length (%d)'
           % (chunk_length, max_sequence_length))
 
-    if max_in_flight_items is not None and max_in_flight_items < 1:
+    if max_in_flight_items is None:
+      # Mimic 'unlimited' number of "in flight" items with a big value.
+      max_in_flight_items = 1_000_000
+
+    if max_in_flight_items < 1:
       raise ValueError(
-          f'max_in_flight_items ({max_in_flight_items}) must be None or a '
+          f'max_in_flight_items ({max_in_flight_items}) must be a '
           f'positive integer')
 
     return Writer(

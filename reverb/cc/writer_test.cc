@@ -147,9 +147,7 @@ class FakeInsertStream
   bool Write(const InsertStreamRequest& msg,
              grpc::WriteOptions options) override {
     requests_->push_back(msg);
-    if (msg.item().send_confirmation()) {
-      written_item_ids_.push(msg.item().item().key());
-    }
+    written_item_ids_.push(msg.item().item().key());
     return num_success_writes_-- > 0;
   }
 

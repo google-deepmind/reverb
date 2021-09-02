@@ -81,7 +81,7 @@ MATCHER_P2(HasNumChunksAndItem, size, item, "") {
   return arg.chunks_size() == size && arg.has_item() == item;
 }
 
-MATCHER(IsItem, "") { return arg.item().send_confirmation(); }
+MATCHER(IsItem, "") { return arg.has_item(); }
 
 inline std::string Int32Str() {
   return tensorflow::DataTypeString(tensorflow::DT_INT32);
@@ -178,10 +178,8 @@ class FakeStream : public ::grpc::ClientCallbackReaderWriter<
     {
       absl::MutexLock lock(&mu_);
       requests_->push_back(*msg);
-      if (msg->item().send_confirmation()) {
-        pending_confirmation_.push(msg->item().item().key());
-        confirm_cnt = 1;
-      }
+      pending_confirmation_.push(msg->item().item().key());
+      confirm_cnt = 1;
       if (!generate_responses_) {
         return;
       }

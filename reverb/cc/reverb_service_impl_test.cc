@@ -118,8 +118,7 @@ InsertStreamRequest InsertChunkRequest(int64_t key) {
 
 InsertStreamRequest InsertItemRequest(
     absl::string_view table, const std::vector<int64_t>& sequence_chunks,
-    const std::vector<int64_t>& keep_chunks = {},
-    bool send_confirmation = false) {
+    const std::vector<int64_t>& keep_chunks = {}) {
   PrioritizedItem item;
   item.set_key(nextId++);
   item.set_table(table.data(), table.size());
@@ -139,7 +138,6 @@ InsertStreamRequest InsertItemRequest(
   *request.mutable_item()->mutable_keep_chunk_keys() = {keep_chunks.begin(),
                                                         keep_chunks.end()};
   *request.mutable_item()->mutable_item() = item;
-  request.mutable_item()->set_send_confirmation(send_confirmation);
 
   return request;
 }
@@ -202,12 +200,15 @@ TEST(ReverbServiceImplTest, InsertSameItemWorks) {
   ASSERT_TRUE(insert_stream->Write(InsertChunkRequest(3)));
 
   InsertStreamRequest insert_request = InsertItemRequest("dist", {2, 3});
+  InsertStreamResponse response;
   ASSERT_TRUE(insert_stream->Write(insert_request));
+  ASSERT_TRUE(insert_stream->Read(&response));
 
   // The same item again.
   ASSERT_TRUE(insert_stream->Write(InsertMultiChunkRequest({1, 2})));
   ASSERT_TRUE(insert_stream->Write(InsertChunkRequest(3)));
   ASSERT_TRUE(insert_stream->Write(insert_request));
+  ASSERT_TRUE(insert_stream->Read(&response));
   ASSERT_TRUE(insert_stream->WritesDone());
   REVERB_EXPECT_OK(insert_stream->Finish());
   PrioritizedItem item = insert_request.item().item();
@@ -222,10 +223,12 @@ TEST(ReverbServiceImplTest, SampleAfterInsertWorks) {
   grpc::ClientContext context;
   auto insert_stream = stub.InsertStream(&context);
   ASSERT_TRUE(insert_stream->Write(InsertMultiChunkRequest({1, 2})));
+  InsertStreamResponse response;
   ASSERT_TRUE(insert_stream->Write(InsertChunkRequest(3)));
 
   InsertStreamRequest insert_request = InsertItemRequest("dist", {2, 3});
   ASSERT_TRUE(insert_stream->Write(insert_request));
+  ASSERT_TRUE(insert_stream->Read(&response));
   ASSERT_TRUE(insert_stream->WritesDone());
   REVERB_EXPECT_OK(insert_stream->Finish());
   PrioritizedItem item = insert_request.item().item();
@@ -322,6 +325,8 @@ TEST(ReverbServiceImplTest, InsertItemWithoutKeptChunkFails) {
   ASSERT_TRUE(stream->Write(InsertChunkRequest(1)));
   ASSERT_TRUE(stream->Write(InsertChunkRequest(2)));
   ASSERT_TRUE(stream->Write(InsertItemRequest("dist", {1, 2})));
+  InsertStreamResponse response;
+  ASSERT_TRUE(stream->Read(&response));
   ASSERT_TRUE(stream->Write(InsertItemRequest("dist", {2, 3})));
   EXPECT_EQ(stream->Finish().error_code(), grpc::StatusCode::INTERNAL);
 }
@@ -339,7 +344,10 @@ TEST(ReverbServiceImplTest, InsertItemWithKeptChunkWorks) {
   ASSERT_TRUE(stream->Write(InsertChunkRequest(2)));
   ASSERT_TRUE(stream->Write(InsertChunkRequest(3)));
   ASSERT_TRUE(stream->Write(InsertItemRequest("dist", {1, 2}, {2, 3})));
+  InsertStreamResponse response;
+  ASSERT_TRUE(stream->Read(&response));
   ASSERT_TRUE(stream->Write(InsertItemRequest("dist", {2, 3})));
+  ASSERT_TRUE(stream->Read(&response));
   ASSERT_TRUE(stream->WritesDone());
   REVERB_EXPECT_OK(stream->Finish());
 }
@@ -357,6 +365,8 @@ TEST(ReverbServiceImplTest, InsertItemWithNotKeptChunkFails) {
   ASSERT_TRUE(stream->Write(InsertChunkRequest(2)));
   ASSERT_TRUE(stream->Write(InsertChunkRequest(3)));
   ASSERT_TRUE(stream->Write(InsertItemRequest("dist", {1, 2}, {2})));
+  InsertStreamResponse response;
+  ASSERT_TRUE(stream->Read(&response));
   ASSERT_TRUE(stream->Write(InsertItemRequest("dist", {2, 3})));
   EXPECT_EQ(stream->Finish().error_code(), grpc::StatusCode::INTERNAL);
 }
@@ -387,11 +397,9 @@ TEST(ReverbServiceImplTest, InsertStreamRespondsWithItemKeys) {
   ASSERT_TRUE(stream->Write(InsertChunkRequest(1)));
   auto first_id = nextId;
   ASSERT_TRUE(stream->Write(
-      InsertItemRequest("dist", {1}, {1}, /*send_confirmation=*/true)));
+      InsertItemRequest("dist", {1}, {1})));
   ASSERT_TRUE(stream->Write(
-      InsertItemRequest("dist", {1}, {1}, /*send_confirmation=*/false)));
-  ASSERT_TRUE(stream->Write(
-      InsertItemRequest("dist", {1}, {}, /*send_confirmation=*/true)));
+      InsertItemRequest("dist", {1}, {})));
   ASSERT_TRUE(stream->WritesDone());
   InsertStreamResponse responses[3];
   ASSERT_TRUE(stream->Read(&responses[0]));
@@ -399,7 +407,7 @@ TEST(ReverbServiceImplTest, InsertStreamRespondsWithItemKeys) {
   ASSERT_FALSE(stream->Read(&responses[2]));
   REVERB_EXPECT_OK(stream->Finish());
   EXPECT_EQ(responses[0].keys(0), first_id);
-  EXPECT_EQ(responses[1].keys(0), first_id + 2);
+  EXPECT_EQ(responses[1].keys(0), first_id + 1);
 }
 
 TEST(ReverbServiceImplTest, SampleBlocksUntilEnoughInserts) {
@@ -428,6 +436,8 @@ TEST(ReverbServiceImplTest, SampleBlocksUntilEnoughInserts) {
   auto stream = stub.InsertStream(&context);
   ASSERT_TRUE(stream->Write(InsertChunkRequest(1)));
   ASSERT_TRUE(stream->Write(InsertItemRequest("dist", {1})));
+  InsertStreamResponse response;
+  ASSERT_TRUE(stream->Read(&response));
   ASSERT_TRUE(stream->WritesDone());
   REVERB_EXPECT_OK(stream->Finish());
 
@@ -449,6 +459,8 @@ TEST(ReverbServiceImplTest, MutateDeletionWorks) {
   auto insert_request = InsertItemRequest("dist", {1});
   PrioritizedItem item = insert_request.item().item();
   ASSERT_TRUE(stream->Write(insert_request));
+  InsertStreamResponse response;
+  ASSERT_TRUE(stream->Read(&response));
   ASSERT_TRUE(stream->WritesDone());
   REVERB_EXPECT_OK(stream->Finish());
 
@@ -504,6 +516,8 @@ TEST(ReverbServiceImplTest, ResetWorks) {
   auto stream = stub.InsertStream(&context);
   ASSERT_TRUE(stream->Write(InsertChunkRequest(1)));
   ASSERT_TRUE(stream->Write(InsertItemRequest("dist", {1})));
+  InsertStreamResponse response;
+  ASSERT_TRUE(stream->Read(&response));
   ASSERT_TRUE(stream->WritesDone());
   REVERB_EXPECT_OK(stream->Finish());
 
@@ -599,6 +613,8 @@ TEST(ReverbServiceImplTest, CheckpointAndLoadFromCheckpoint) {
     auto stream = stub.InsertStream(&context);
     ASSERT_TRUE(stream->Write(InsertChunkRequest(1)));
     ASSERT_TRUE(stream->Write(InsertItemRequest("dist", {1})));
+    InsertStreamResponse response;
+    ASSERT_TRUE(stream->Read(&response));
     ASSERT_TRUE(stream->WritesDone());
     REVERB_EXPECT_OK(stream->Finish());
   }
