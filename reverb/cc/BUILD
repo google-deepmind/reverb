@@ -388,7 +388,9 @@ reverb_cc_grpc_library(
     name = "reverb_service_cc_grpc_proto",
     srcs = ["reverb_service.proto"],
     generate_mocks = True,
-    visibility = ["//reverb:__subpackages__"],
+    visibility = [
+        "//reverb:__subpackages__",
+    ],
     deps = [":reverb_service_cc_proto"],
 )
 
