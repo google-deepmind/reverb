@@ -156,7 +156,6 @@ tensorflow::StructuredValue StructuredValueFromChunkData(
     const auto& chunk = chunk_data.data().tensors(i);
     tensorflow::PartialTensorShape shape(chunk.tensor_shape());
     shape.RemoveDim(0);
-
     auto* spec =
         value.mutable_list_value()->add_values()->mutable_tensor_spec_value();
     spec->set_dtype(chunk.dtype());
@@ -164,6 +163,61 @@ tensorflow::StructuredValue StructuredValueFromChunkData(
   }
 
   return value;
+}
+
+absl::Status AddBatchDim(tensorflow::StructuredValue* value, int batch_size) {
+  switch (value->kind_case()) {
+    case tensorflow::StructuredValue::kTensorSpecValue: {
+      tensorflow::TensorSpecProto spec = value->tensor_spec_value();
+      spec.clear_shape();
+
+      spec.mutable_shape()->add_dim()->set_size(batch_size);
+      for (const auto& dim : value->tensor_spec_value().shape().dim()) {
+        spec.mutable_shape()->add_dim()->CopyFrom(dim);
+      }
+
+      *value->mutable_tensor_spec_value() = std::move(spec);
+    } break;
+    case tensorflow::StructuredValue::kBoundedTensorSpecValue: {
+      tensorflow::BoundedTensorSpecProto spec =
+          value->bounded_tensor_spec_value();
+      spec.clear_shape();
+
+      spec.mutable_shape()->add_dim()->set_size(batch_size);
+      for (const auto& dim : value->bounded_tensor_spec_value().shape().dim()) {
+        spec.mutable_shape()->add_dim()->CopyFrom(dim);
+      }
+      *value->mutable_bounded_tensor_spec_value() = std::move(spec);
+    } break;
+    case tensorflow::StructuredValue::kListValue: {
+      for (auto& list_value : *value->mutable_list_value()->mutable_values()) {
+        REVERB_RETURN_IF_ERROR(AddBatchDim(&list_value, batch_size));
+      }
+    } break;
+    case tensorflow::StructuredValue::kTupleValue: {
+      for (auto& tuple_value :
+           *value->mutable_tuple_value()->mutable_values()) {
+        REVERB_RETURN_IF_ERROR(AddBatchDim(&tuple_value, batch_size));
+      }
+    } break;
+    case tensorflow::StructuredValue::kDictValue: {
+      for (auto& field : *value->mutable_dict_value()->mutable_fields()) {
+        REVERB_RETURN_IF_ERROR(AddBatchDim(&field.second, batch_size));
+      }
+    } break;
+    case tensorflow::StructuredValue::kNamedTupleValue: {
+      for (auto& p : *value->mutable_named_tuple_value()->mutable_values()) {
+        REVERB_RETURN_IF_ERROR(AddBatchDim(p.mutable_value(), batch_size));
+      }
+    } break;
+    case tensorflow::StructuredValue::KIND_NOT_SET:
+      return absl::OkStatus();
+    default:
+      return absl::InvalidArgumentError(
+          absl::StrCat("Saw unsupported encoded subtree in signature: '",
+                       value->DebugString(), "'"));
+  }
+  return absl::OkStatus();
 }
 
 tensorflow::StructuredValue StructuredValueFromItem(const TableItem& item) {
@@ -207,7 +261,6 @@ std::vector<internal::TensorSpec> SpecsFromTensors(
   }
   return spec;
 }
-
 
 }  // namespace internal
 }  // namespace reverb

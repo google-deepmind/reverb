@@ -17,6 +17,7 @@
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "absl/strings/string_view.h"
+#include "reverb/cc/testing/proto_test_util.h"
 #include "tensorflow/core/framework/tensor_shape.h"
 #include "tensorflow/core/framework/types.pb.h"
 #include "tensorflow/core/protobuf/struct.pb.h"
@@ -25,6 +26,9 @@ namespace deepmind {
 namespace reverb {
 namespace internal {
 namespace {
+
+using ::deepmind::reverb::testing::CreateProto;
+using ::deepmind::reverb::testing::EqualsProto;
 
 tensorflow::StructuredValue MakeLeaf(
     const std::string& name,
@@ -173,6 +177,158 @@ TEST(FlatSignatureFromStructuredValueTest, EmptyLeaf) {
   EXPECT_EQ(dtypes_and_shapes.value()[0].name, "a/0/one");
   EXPECT_EQ(dtypes_and_shapes.value()[1].name, "a/1");
   EXPECT_EQ(dtypes_and_shapes.value()[2].name, "b/two");
+}
+
+TEST(AddBatchDim, EmptyStructure) {
+  tensorflow::StructuredValue value;
+  EXPECT_OK(AddBatchDim(&value, 10));
+  EXPECT_THAT(value, EqualsProto(""));
+}
+
+TEST(AddBatchDim, NestedStructure) {
+  auto value = testing::CreateProto<tensorflow::StructuredValue>(R"pb(
+    dict_value {
+      fields {
+        key: "a"
+        value {
+          list_value {
+            values {
+              tensor_spec_value {
+                name: "spec_1"
+                shape {
+                  dim { size: 5 }
+                }
+                dtype: DT_FLOAT
+              }
+            }
+            values {
+              bounded_tensor_spec_value {
+                name: "bounded_spec_1"
+                shape {}
+                dtype: DT_INT32
+                minimum {
+                  dtype: DT_INT32
+                  tensor_shape {}
+                  int_val: 1
+                }
+                maximum {
+                  dtype: DT_INT32
+                  tensor_shape {}
+                  int_val: 3
+                }
+              }
+            }
+          }
+        }
+      }
+      fields {
+        key: "b"
+        value {
+          tuple_value {
+            values {
+              tensor_spec_value {
+                name: "spec_2"
+                shape {
+                  dim { size: 1 }
+                }
+                dtype: DT_DOUBLE
+              }
+            }
+            values {
+              named_tuple_value {
+                name: "named_tuple"
+                values {
+                  key: "first"
+                  value {
+                    tensor_spec_value {
+                      name: "spec_3"
+                      shape {}
+                      dtype: DT_BFLOAT16
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  )pb");
+  EXPECT_OK(AddBatchDim(&value, 10));
+  EXPECT_THAT(value, EqualsProto(R"pb(
+    dict_value {
+      fields {
+        key: "a"
+        value {
+          list_value {
+            values {
+              tensor_spec_value {
+                name: "spec_1"
+                shape {
+                   dim { size: 10 }
+                   dim { size: 5 }
+                }
+                dtype: DT_FLOAT
+              }
+            }
+            values {
+              bounded_tensor_spec_value {
+                name: "bounded_spec_1"
+                shape {
+                  dim { size: 10 }
+                }
+                dtype: DT_INT32
+                minimum {
+                  dtype: DT_INT32
+                  tensor_shape {}
+                  int_val: 1
+                }
+                maximum {
+                  dtype: DT_INT32
+                  tensor_shape {}
+                  int_val: 3
+                }
+              }
+            }
+          }
+        }
+      }
+      fields {
+        key: "b"
+        value {
+          tuple_value {
+            values {
+              tensor_spec_value {
+                name: "spec_2"
+                shape {
+                  dim { size: 10 }
+                  dim { size: 1 }
+                }
+                dtype: DT_DOUBLE
+              }
+            }
+            values {
+              named_tuple_value {
+                name: "named_tuple"
+                values {
+                  key: "first"
+                  value {
+                    tensor_spec_value {
+                      name: "spec_3"
+                      shape {
+                        dim { size: 10 }
+                      }
+                      dtype: DT_BFLOAT16
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  )pb"));
 }
 
 }  // namespace

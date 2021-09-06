@@ -115,6 +115,7 @@ reverb_cc_test(
     srcs = ["signature_test.cc"],
     deps = [
         ":signature",
+        "//reverb/cc/testing:proto_test_util",
     ] + reverb_tf_deps() + reverb_absl_deps(),
 )
 

@@ -50,6 +50,8 @@ absl::Status FlatSignatureFromStructuredValue(
     const tensorflow::StructuredValue& value,
     DtypesAndShapes* dtypes_and_shapes);
 
+absl::Status AddBatchDim(tensorflow::StructuredValue* value, int batch_size);
+
 tensorflow::StructuredValue StructuredValueFromChunkData(
     const ChunkData& chunk_data);
 
