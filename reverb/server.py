@@ -322,12 +322,6 @@ class Server:
     if self._server.Wait():
       raise KeyboardInterrupt
 
-  def in_process_client(self):
-    """Gets a local in process client.
-
-    This bypasses proto serialization and network overhead.
-
-    Returns:
-      Client. Must not be used after this ReplayServer has been stopped!
-    """
-    return client.Client(f'[::1]:{self._port}', self._server.InProcessClient())
+  def localhost_client(self):
+    """Creates a client connect to the localhost channel."""
+    return client.Client(f'localhost:{self._port}')

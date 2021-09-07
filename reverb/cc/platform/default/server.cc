@@ -110,15 +110,6 @@ class ServerImpl : public Server {
     return stop_signalled_;
   }
 
-  std::unique_ptr<Client> InProcessClient() override {
-    grpc::ChannelArguments arguments;
-    arguments.SetMaxReceiveMessageSize(kMaxMessageSize);
-    arguments.SetMaxSendMessageSize(kMaxMessageSize);
-    absl::WriterMutexLock lock(&mu_);
-    return absl::make_unique<Client>(
-        /* grpc_gen:: */ReverbService::NewStub(server_->InProcessChannel(arguments)));
-  }
-
   std::string DebugString() const override {
     return absl::StrCat("Server(port=", port_,
                         ", reverb_service=", reverb_service_->DebugString(),

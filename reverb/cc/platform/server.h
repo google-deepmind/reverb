@@ -41,11 +41,6 @@ class Server {
   // was stopped by a SIGINT signal.
   virtual bool Wait() = 0;
 
-  // Gets a local in process client. This bypasses proto serialization and
-  // network overhead. Careful: The resulting client instance must not be used
-  // after this server instance has terminated.
-  virtual std::unique_ptr<Client> InProcessClient() = 0;
-
   // Returns a summary string description.
   virtual std::string DebugString() const = 0;
 };

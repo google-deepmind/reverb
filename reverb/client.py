@@ -214,17 +214,14 @@ class Client:
   Whenever possible, prefer to use TFClient (see ./tf_client.py).
   """
 
-  def __init__(self,
-               server_address: str,
-               client: Optional[pybind.Client] = None):
+  def __init__(self, server_address: str):
     """Constructor of Client.
 
     Args:
       server_address: Address to the Reverb ReverbService.
-      client: Optional pre-existing Client. For internal use only.
     """
     self._server_address = server_address
-    self._client = client if client else pybind.Client(server_address)
+    self._client = pybind.Client(server_address)
     self._signature_cache = {}
 
   def __reduce__(self):
@@ -579,4 +576,3 @@ class Client:
           f'{", ".join(self._signature_cache.keys())}.')
 
     return self._signature_cache[table]
-

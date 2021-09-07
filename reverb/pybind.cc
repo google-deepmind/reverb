@@ -767,8 +767,6 @@ PYBIND11_MODULE(libpybind, m) {
           py::arg("checkpointer") = nullptr)
       .def("Stop", &Server::Stop, py::call_guard<py::gil_scoped_release>())
       .def("Wait", &Server::Wait, py::call_guard<py::gil_scoped_release>())
-      .def("InProcessClient", &Server::InProcessClient,
-           py::call_guard<py::gil_scoped_release>())
       .def("__repr__", &Server::DebugString,
            py::call_guard<py::gil_scoped_release>());
 

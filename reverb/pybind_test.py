@@ -31,7 +31,7 @@ class TestNdArrayToTensorAndBack(parameterized.TestCase):
         tables=[reverb.Table.queue(TABLE_NAME, 1000)],
         port=None,
     )
-    cls._client = cls._server.in_process_client()
+    cls._client = cls._server.localhost_client()
 
   def tearDown(self):
     super(TestNdArrayToTensorAndBack, self).tearDown()

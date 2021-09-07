@@ -45,7 +45,7 @@ class ServerTest(absltest.TestCase):
                 rate_limiter=rate_limiters.MinSize(2)),
         ],
         port=None)
-    my_client = my_server.in_process_client()
+    my_client = my_server.localhost_client()
     my_client.reset(TABLE_NAME)
     del my_client
     my_server.stop()
@@ -82,7 +82,7 @@ class ServerTest(absltest.TestCase):
         max_times_sampled=1,
         rate_limiter=rate_limiters.MinSize(2))
     my_server = server.Server(tables=[table], port=None)
-    my_client = my_server.in_process_client()
+    my_client = my_server.localhost_client()
     self.assertFalse(table.can_sample(1))
     self.assertTrue(table.can_insert(1))
     my_client.insert(1, {TABLE_NAME: 1.0})
