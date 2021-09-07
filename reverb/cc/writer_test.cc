@@ -15,6 +15,7 @@
 #include "reverb/cc/writer.h"
 
 #include <algorithm>
+#include <memory>
 #include <queue>
 #include <string>
 
@@ -138,16 +139,19 @@ class FakeInsertStream
  public:
   FakeInsertStream(std::vector<InsertStreamRequest>* requests,
                    int num_success_writes, grpc::Status bad_status,
-                   internal::Queue<uint64_t>* response_ids = nullptr)
+                   bool automatic_response_ids = true)
       : requests_(requests),
         num_success_writes_(num_success_writes),
         bad_status_(std::move(bad_status)),
-        response_ids_(response_ids) {}
+        response_ids_(std::make_shared<internal::Queue<uint64_t>>(100)),
+        automatic_response_ids_(automatic_response_ids) {}
 
   bool Write(const InsertStreamRequest& msg,
              grpc::WriteOptions options) override {
     requests_->push_back(msg);
-    written_item_ids_.push(msg.item().item().key());
+    if (automatic_response_ids_) {
+      response_ids_->Push(msg.item().item().key());
+    }
     return num_success_writes_-- > 0;
   }
 
@@ -155,26 +159,17 @@ class FakeInsertStream
     // If an explicit response IDs queue was provided then we block until it is
     // nonempty.
     response->Clear();
-    if (response_ids_ != nullptr) {
-      uint64_t id;
-      // There should be at least one id in the response.
-      CHECK(response_ids_->Pop(&id));
-      response->add_keys(id);
-      // But in case of batching there might be more.
-      while (response_ids_->size() > 0) {
-        CHECK(response_ids_->Pop(&id));
-        response->add_keys(id);
-      }
-      return true;
-    }
 
-    // If the response IDs queue wasn't explicitly provided then we fallback to
-    // return IDs of that has been sent to the fake server
-    if (written_item_ids_.empty()) {
-      return false;
+    uint64_t id;
+    // There should be at least one id in the response.
+    REVERB_CHECK(response_ids_->Pop(&id));
+    response->add_keys(id);
+
+    // But in case of batching there might be more.
+    while (response_ids_->size() > 0) {
+      REVERB_CHECK(response_ids_->Pop(&id));
+      response->add_keys(id);
     }
-    response->add_keys(written_item_ids_.front());
-    written_item_ids_.pop();
     return true;
   }
 
@@ -185,7 +180,7 @@ class FakeInsertStream
   bool WritesDone() override { return num_success_writes_-- > 0; }
 
   bool NextMessageSize(uint32_t* sz) override {
-    if (written_item_ids_.empty()) {
+    if (response_ids_->size() == 0) {
       return false;
     }
     InsertStreamResponse response;
@@ -195,12 +190,17 @@ class FakeInsertStream
 
   void WaitForInitialMetadata() override {}
 
+  std::shared_ptr<internal::Queue<uint64_t>> response_ids() const {
+    return response_ids_;
+  }
+
  private:
   std::vector<InsertStreamRequest>* requests_;
   std::queue<uint64_t> written_item_ids_;
   int num_success_writes_;
   grpc::Status bad_status_;
-  internal::Queue<uint64_t>* response_ids_;
+  std::shared_ptr<internal::Queue<uint64_t>> response_ids_;
+  bool automatic_response_ids_;
 };
 
 class FakeStub : public /* grpc_gen:: */MockReverbServiceStub {
@@ -857,14 +857,13 @@ TEST(WriterTest, WriteTimeStepsInconsistentShapeErrorAgainstBoundedSpec) {
                   "dtype float and shape compatible with [?]"));
 }
 
-std::pair<std::shared_ptr<FakeStub>, std::unique_ptr<internal::Queue<uint64_t>>>
+std::pair<std::shared_ptr<FakeStub>, std::shared_ptr<internal::Queue<uint64_t>>>
 MakeStubWithExplicitResponseQueue(std::vector<InsertStreamRequest>* requests) {
-  auto response_ids = absl::make_unique<internal::Queue<uint64_t>>(100);
   FakeInsertStream* stream = new FakeInsertStream(
       requests, 10000, ToGrpcStatus(absl::InternalError("")),
-      response_ids.get());
+      /*automatic_response_ids=*/false);
   auto stub = std::make_shared<FakeStub>(std::list<FakeInsertStream*>{stream});
-  return {std::move(stub), std::move(response_ids)};
+  return {std::move(stub), stream->response_ids()};
 }
 
 TEST(WriterTest, CloseBlocksUntilAllItemsConfirmed) {
