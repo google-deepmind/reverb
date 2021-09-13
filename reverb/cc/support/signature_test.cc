@@ -17,6 +17,7 @@
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "absl/strings/string_view.h"
+#include "reverb/cc/platform/status_matchers.h"
 #include "reverb/cc/testing/proto_test_util.h"
 #include "tensorflow/core/framework/tensor_shape.h"
 #include "tensorflow/core/framework/types.pb.h"
@@ -181,7 +182,7 @@ TEST(FlatSignatureFromStructuredValueTest, EmptyLeaf) {
 
 TEST(AddBatchDim, EmptyStructure) {
   tensorflow::StructuredValue value;
-  EXPECT_OK(AddBatchDim(&value, 10));
+  REVERB_EXPECT_OK(AddBatchDim(&value, 10));
   EXPECT_THAT(value, EqualsProto(""));
 }
 
@@ -254,7 +255,7 @@ TEST(AddBatchDim, NestedStructure) {
       }
     }
   )pb");
-  EXPECT_OK(AddBatchDim(&value, 10));
+  REVERB_EXPECT_OK(AddBatchDim(&value, 10));
   EXPECT_THAT(value, EqualsProto(R"pb(
     dict_value {
       fields {
