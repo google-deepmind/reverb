@@ -60,7 +60,7 @@ using ::testing::SizeIs;
 MATCHER_P(HasItemKey, key, "") { return arg.item.key() == key; }
 MATCHER_P(HasSampledItemKey, key, "") { return arg.ref->item.key() == key; }
 
-template <typename ...Ts>
+template <typename... Ts>
 std::unique_ptr<Table> MakeTable(Ts... args) {
   auto table = absl::make_unique<Table>(args...);
   table->SetCallbackExecutor(std::make_shared<TaskExecutor>(1, "worker"));
@@ -94,8 +94,8 @@ std::unique_ptr<Table> MakeUniformTable(const std::string& name,
                                         int64_t max_size = 1000,
                                         int32_t max_times_sampled = 0) {
   auto table = MakeTable(name, std::make_shared<UniformSelector>(),
-                               std::make_shared<FifoSelector>(), max_size,
-                               max_times_sampled, MakeLimiter(1));
+                         std::make_shared<FifoSelector>(), max_size,
+                         max_times_sampled, MakeLimiter(1));
   return table;
 }
 
@@ -264,8 +264,7 @@ TEST(TableTest, EnqueSampleRequestSetsRateLimitedIfBlocked) {
   bool can_insert_more;
   REVERB_ASSERT_OK(table->InsertOrAssignAsync(
       MakeItem(1, 1), &can_insert_more,
-      std::make_shared<std::function<void(const absl::Status&)>>(
-          [](absl::Status) {})));
+      std::make_shared<Table::InsertCallback>([](uint64_t) {})));
   ASSERT_TRUE(can_insert_more);
   ASSERT_TRUE(first_done.WaitForNotificationWithTimeout(kTimeout));
   EXPECT_TRUE(rate_limited_item.rate_limited);
@@ -530,10 +529,11 @@ TEST(TableTest, CheckpointSanityCheck) {
   tensorflow::TensorShapeProto shape;
   tensorflow::TensorShape({1, 2}).AsProto(spec->mutable_shape());
 
-  auto table = MakeTable("dist", std::make_shared<UniformSelector>(),
-              std::make_shared<FifoSelector>(), 10, 1,
-              std::make_shared<RateLimiter>(1.0, 3, -10, 7),
-              std::vector<std::shared_ptr<TableExtension>>(), signature);
+  auto table =
+      MakeTable("dist", std::make_shared<UniformSelector>(),
+                std::make_shared<FifoSelector>(), 10, 1,
+                std::make_shared<RateLimiter>(1.0, 3, -10, 7),
+                std::vector<std::shared_ptr<TableExtension>>(), signature);
 
   REVERB_EXPECT_OK(table->InsertOrAssign(MakeItem(1, 123)));
 
@@ -569,12 +569,8 @@ TEST(TableTest, CheckpointSanityCheck) {
                     values: {
                       tensor_spec_value: {
                         shape: {
-                          dim: {
-                            size: 1
-                          }
-                          dim: {
-                            size: 2
-                          }
+                          dim: { size: 1 }
+                          dim: { size: 2 }
                         }
                         dtype: DT_FLOAT
                       }

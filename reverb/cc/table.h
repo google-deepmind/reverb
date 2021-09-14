@@ -110,6 +110,7 @@ class Table {
   using Key = ItemSelector::Key;
   using Item = TableItem;
   using SamplingCallback = std::function<void(SampleRequest*)>;
+  using InsertCallback = std::function<void(uint64_t on_insert_completed)>;
 
   // Used as the return of Sample(). Note that this returns the probability of
   // an item instead as opposed to the raw priority value.
@@ -133,6 +134,12 @@ class Table {
     absl::Time deadline;
     absl::Status status;
     std::weak_ptr<SamplingCallback> on_batch_done;
+  };
+
+  // Represents asynchronous insert request processed by the table worker.
+  struct InsertRequest {
+    std::shared_ptr<Item> item;
+    std::weak_ptr<InsertCallback> insert_completed;
   };
 
   // Used when checkpointing to ensure that none of the chunks referenced by the
@@ -188,15 +195,14 @@ class Table {
       Item item, absl::Duration timeout = absl::InfiniteDuration());
 
   // Similar to the InsertOrAssign, but insert operation is queued inside the
-  // table instead of blocking the caller. can_insert_more is set to true if
-  // further inserts can be performed right away. When can_insert_more is set
-  // to false, insert_more_callback callback will be called when further inserts
-  // are allowed (with OK status), or with an error in case system is being
-  // terminated.
+  // table instead of blocking the caller. insert_completed callback will be
+  // called when insert operation has completed. can_insert_more is set to true
+  // if further inserts can be performed right away. When can_insert_more is set
+  // to false, further inserts can be executed only after insert_completed
+  // callback is called.
   absl::Status InsertOrAssignAsync(
       Item item, bool* can_insert_more,
-      std::weak_ptr<std::function<void(const absl::Status&)>>
-          insert_more_callback);
+      std::weak_ptr<InsertCallback> insert_completed);
 
   // Inserts an item without consulting or modifying the RateLimiter about the
   // operation.
@@ -505,8 +511,7 @@ class Table {
   std::unique_ptr<internal::Thread> table_worker_;
 
   // Pending asynchronous insert requests to the table.
-  std::vector<std::shared_ptr<Item>> pending_inserts_
-      ABSL_GUARDED_BY(worker_mu_);
+  std::vector<InsertRequest> pending_inserts_ ABSL_GUARDED_BY(worker_mu_);
 
   // Pending sample requests to the table (not yet picked up by the worker).
   std::vector<std::unique_ptr<SampleRequest>> pending_sampling_
@@ -515,13 +520,6 @@ class Table {
   // Items collected by the worker for asynchronous deletion by the clients.
   // This way we avoid expensive memory dealocation inside the worker.
   std::vector<std::shared_ptr<Item>> deleted_items_ ABSL_GUARDED_BY(worker_mu_);
-
-  // Callbacks to be executed when further asynchronous insertions into the
-  // table are allowed. Callbacks are provided with asynchronous inserts
-  // and only pushed to this list if more inserts were not possible straight
-  // away.
-  std::vector<std::weak_ptr<std::function<void(const absl::Status&)>>>
-      notify_inserts_ok_ ABSL_GUARDED_BY(worker_mu_);
 
   // Table worker execution time stats. It is updated periodically as table
   // worker state changes frequently and we don't want to grab `worker_mu_` each

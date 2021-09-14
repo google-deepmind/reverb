@@ -60,6 +60,10 @@ namespace {
 // remaining chunks are sent with other messages.
 static constexpr int64_t kMaxSampleResponseSizeBytes = 1 * 1024 * 1024;  // 1MB.
 
+// How often to check whether callback execution finished before deleting
+// reactor.
+constexpr absl::Duration kCallbackWaitTime = absl::Milliseconds(1);
+
 inline grpc::Status TableNotFound(absl::string_view name) {
   return grpc::Status(grpc::StatusCode::NOT_FOUND,
                       absl::StrCat("Priority table ", name, " was not found"));
@@ -174,23 +178,42 @@ ReverbServiceImpl::InsertStream(grpc::CallbackServerContext* context) {
     WorkerlessInsertReactor(ReverbServiceImpl* server)
         : ReverbServerReactor(),
           server_(server),
-          continue_inserts_(
-              std::make_shared<std::function<void(const absl::Status&)>>(
-                  [&](const absl::Status& status) {
-                    if (!status.ok()) {
-                      absl::MutexLock lock(&mu_);
-                      if (!is_finished_) {
-                        SetReactorAsFinished(ToGrpcStatus(status));
-                      }
-                      return;
-                    }
-                    MaybeStartRead();
-                  })) {
+          insert_completed_(
+              std::make_shared<Table::InsertCallback>([&](uint64_t key) {
+                absl::MutexLock lock(&mu_);
+                if (!read_in_flight_) {
+                  read_in_flight_ = true;
+                  StartRead(&request_);
+                }
+                if (!is_finished_) {
+                  // The first element is the one in flight, modify not yet
+                  // in flight response if possible.
+                  if (responses_to_send_.size() < 2) {
+                    responses_to_send_.emplace();
+                  }
+                  responses_to_send_.back().payload.add_keys(key);
+                  if (responses_to_send_.size() == 1) {
+                    MaybeSendNextResponse();
+                  }
+                }
+              })),
+          read_in_flight_(true) {
       MaybeStartRead();
+    }
+
+    ~WorkerlessInsertReactor() {
+      // As callback references Reactor's memory make sure it can't be executed
+      // anymore.
+      std::weak_ptr<Table::InsertCallback> weak_ptr = insert_completed_;
+      insert_completed_.reset();
+      while (weak_ptr.lock()) {
+        absl::SleepFor(kCallbackWaitTime);
+      }
     }
 
     grpc::Status ProcessIncomingRequest(InsertStreamRequest* request) override
         ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_) {
+      read_in_flight_ = false;
       if (request->chunks().empty() && !request->has_item()) {
         return grpc::Status(
             grpc::StatusCode::INVALID_ARGUMENT,
@@ -203,6 +226,7 @@ ReverbServiceImpl::InsertStream(grpc::CallbackServerContext* context) {
       }
       if (!request->has_item()) {
         // No item to add to the table - continue reading next requests.
+        read_in_flight_ = true;
         StartRead(&request_);
         return grpc::Status::OK;
       }
@@ -222,25 +246,16 @@ ReverbServiceImpl::InsertStream(grpc::CallbackServerContext* context) {
         return TableNotFound(table_name);
       }
       bool can_insert;
-      const auto key = item.item.key();
       if (auto status = table->InsertOrAssignAsync(std::move(item), &can_insert,
-                                                   continue_inserts_);
+                                                   insert_completed_);
           !status.ok()) {
         return ToGrpcStatus(status);
       }
       if (can_insert) {
         // Insert didn't exceed table's buffer, we can continue reading next
         // requests.
+        read_in_flight_ = true;
         StartRead(&request_);
-      }
-      // The first element is the one in flight, modify not yet in flight
-      // response if possible.
-      if (responses_to_send_.size() < 2) {
-        responses_to_send_.emplace();
-      }
-      responses_to_send_.back().payload.add_keys(key);
-      if (responses_to_send_.size() == 1) {
-        MaybeSendNextResponse();
       }
       return grpc::Status::OK;
     }
@@ -312,10 +327,10 @@ ReverbServiceImpl::InsertStream(grpc::CallbackServerContext* context) {
     // Used to lookup tables when inserting items.
     const ReverbServiceImpl* server_;
 
-    // Callback called by the table when further inserts are possible. Pointer
-    // to it is registered with the table to avoid memory allocations upon
-    // registering callback.
-    std::shared_ptr<std::function<void(const absl::Status&)>> continue_inserts_;
+    // Callback called by the table when insert operation is completed.
+    std::shared_ptr<Table::InsertCallback> insert_completed_;
+    // Is there a GRPC read in flight.
+    bool read_in_flight_ ABSL_GUARDED_BY(mu_);
   };
 
   return new WorkerlessInsertReactor(this);
@@ -480,9 +495,6 @@ ReverbServiceImpl::SampleStream(grpc::CallbackServerContext* context) {
     std::vector<std::shared_ptr<TableItem>> table_items;
   };
 
-  // How often to check whether callback execution finished before deleting
-  // reactor.
-  static constexpr absl::Duration kCallbackWaitTime = absl::Milliseconds(1);
   // Maximal number of queued SampleStreamResponse-messages waiting to be send
   // to the client. When this limit is reached enqueuing of sampling requests on
   // the target table is paused. The limit is in place to cap reactor's memory

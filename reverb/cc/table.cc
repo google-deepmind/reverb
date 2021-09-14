@@ -128,6 +128,16 @@ void GetExpiredRequests(
   }
 }
 
+void NotifyPendingInserts(const std::vector<Table::InsertRequest>& requests) {
+  for (auto& r : requests) {
+    auto to_notify = r.insert_completed.lock();
+    // Callback might have been destroyed in the meantime.
+    if (to_notify != nullptr) {
+      (*to_notify)(r.item->item.key());
+    }
+  }
+}
+
 Table::Table(std::string name, std::shared_ptr<ItemSelector> sampler,
              std::shared_ptr<ItemSelector> remover, int64_t max_size,
              int32_t max_times_sampled, std::shared_ptr<RateLimiter> rate_limiter,
@@ -161,11 +171,6 @@ Table::Table(std::string name, std::shared_ptr<ItemSelector> sampler,
 Table::~Table() {
   Close();
   {
-    absl::MutexLock lock(&worker_mu_);
-    stop_worker_ = true;
-    wakeup_worker_.Signal();
-  }
-  {
     absl::MutexLock lock(&mu_);
     stop_extension_worker_ = true;
     extension_buffer_available_cv_.SignalAll();
@@ -191,15 +196,8 @@ absl::Status Table::TableWorkerLoop() {
   // Status to be send to the already timed out sample requests (changes upon
   // table shutdown to distinguish between timeout and table shutdown).
   absl::Status sampling_status = errors::RateLimiterTimeout();
-  // Status to be send to the inserters once there is more place to insert
-  // (changes upon table shutdown).
-  absl::Status insert_status = absl::OkStatus();
-  // Collection of callbacks for insert operations waiting for more space in
-  // the table.
-  std::vector<std::weak_ptr<std::function<void(const absl::Status&)>>>
-      notify_inserts_ok;
   // Collection of items waiting to the added to the table.
-  std::vector<std::shared_ptr<Item>> current_inserts;
+  std::vector<InsertRequest> current_inserts;
   // Index of the next item in the `pending_inserts` to be processed.
   int insert_idx = 0;
   // Collection of sample requests to be processed.
@@ -220,20 +218,6 @@ absl::Status Table::TableWorkerLoop() {
   while (true) {
     {
       absl::MutexLock lock(&mu_);
-      // Notify clients waiting to insert
-      if (!notify_inserts_ok.empty()) {
-        callback_executor_->Schedule(
-            [notify_inserts_ok = std::move(notify_inserts_ok), insert_status] {
-              for (auto& notify : notify_inserts_ok) {
-                auto to_notify = notify.lock();
-                // Callback might have been destroyed in the meantime.
-                if (to_notify != nullptr) {
-                  (*to_notify)(insert_status);
-                }
-              }
-            });
-        notify_inserts_ok.clear();
-      }
       // Tracks whether while loop below makes progress.
       int64_t prev_progress = progress - 1;
       while (prev_progress < progress) {
@@ -243,8 +227,19 @@ absl::Status Table::TableWorkerLoop() {
         if (insert_idx < current_inserts.size() &&
             rate_limiter_->CanInsert(&mu_, 1)) {
           rate_limiter_->CreateInstantInsertEvent(&mu_);
-          REVERB_RETURN_IF_ERROR(
-              InsertOrAssignInternal(current_inserts[insert_idx++]));
+          uint64_t id = current_inserts[insert_idx].item->item.key();
+          REVERB_RETURN_IF_ERROR(InsertOrAssignInternal(
+              std::move(current_inserts[insert_idx].item)));
+          auto callback =
+              std::move(current_inserts[insert_idx].insert_completed);
+          callback_executor_->Schedule([callback, id] {
+            auto to_notify = callback.lock();
+            // Callback might have been destroyed in the meantime.
+            if (to_notify != nullptr) {
+              (*to_notify)(id);
+            }
+          });
+          insert_idx++;
           progress++;
         }
         // Skip sampling requests which timed out already.
@@ -287,9 +282,6 @@ absl::Status Table::TableWorkerLoop() {
         insert_idx = 0;
         current_inserts.clear();
         std::swap(current_inserts, pending_inserts_);
-        // As `pending_inserts_` is empty now, we should let waiting users
-        // know it is fine to continue with the inserts.
-        std::swap(notify_inserts_ok, notify_inserts_ok_);
       }
       if (sample_idx == current_sampling.size() &&
           !pending_sampling_.empty()) {
@@ -312,26 +304,23 @@ absl::Status Table::TableWorkerLoop() {
       auto deadline = absl::Now();
       auto wakeup = absl::InfiniteFuture();
       {
-        absl::MutexLock table_lock(&mu_);
-        if (closed_) {
+        if (stop_worker_) {
           // We need to terminate all in-flight operations, so collect
           // requests with the deadline smaller than InfiniteFuture.
           deadline = absl::InfiniteFuture();
           sampling_status =
               absl::CancelledError("RateLimiter has been cancelled");
-          insert_status =
-              absl::CancelledError("RateLimiter has been cancelled");
-          if (notify_inserts_ok.empty() && !notify_inserts_ok_.empty()) {
-            std::swap(notify_inserts_ok, notify_inserts_ok_);
-          }
-          // Also abandon pending inserts.
+          // Also notify pending inserts.
+          NotifyPendingInserts(current_inserts);
+          NotifyPendingInserts(pending_inserts_);
           current_inserts.clear();
+          pending_inserts_.clear();
           insert_idx = 0;
         }
       }
       GetExpiredRequests(deadline, &current_sampling, &to_terminate, &wakeup);
       GetExpiredRequests(deadline, &pending_sampling_, &to_terminate, &wakeup);
-      if (to_terminate.empty() && notify_inserts_ok.empty()) {
+      if (to_terminate.empty()) {
         if (stop_worker_) {
           return absl::OkStatus();
         }
@@ -494,22 +483,12 @@ absl::Status Table::InsertOrAssign(Item item, absl::Duration timeout) {
   // table that has a table worker. To be removed together with this entire
   // function once async server is fully enabled.
   bool can_insert;
-  absl::Notification can_insert_c;
-  auto can_insert_f =
-      std::make_shared<std::function<void(const absl::Status&)>>(
-          [&](absl::Status status) { can_insert_c.Notify(); });
-  REVERB_RETURN_IF_ERROR(
-      InsertOrAssignAsync(std::move(item), &can_insert, can_insert_f));
-  if (!can_insert) {
-    can_insert_c.WaitForNotification();
-  }
-  auto worker_done = [this]() ABSL_EXCLUSIVE_LOCKS_REQUIRED(worker_mu_) {
-    return worker_time_distribution_.CurrentState() ==
-               TableWorkerState::kSleeping &&
-           pending_inserts_.empty();
-  };
-  absl::MutexLock lock(&worker_mu_);
-  if (worker_mu_.AwaitWithTimeout(absl::Condition(&worker_done), timeout)) {
+  absl::Notification insert_done_c;
+  auto insert_done = std::make_shared<InsertCallback>(
+      [&](uint64_t) { insert_done_c.Notify(); });
+  REVERB_RETURN_IF_ERROR(InsertOrAssignAsync(std::move(item), &can_insert,
+                                             insert_done));
+  if (insert_done_c.WaitForNotificationWithTimeout(timeout)) {
     return absl::OkStatus();
   }
   return errors::RateLimiterTimeout();
@@ -517,28 +496,25 @@ absl::Status Table::InsertOrAssign(Item item, absl::Duration timeout) {
 
 absl::Status Table::InsertOrAssignAsync(
     Item item, bool* can_insert_more,
-    std::weak_ptr<std::function<void(const absl::Status&)>>
-        insert_more_callback) {
+    std::weak_ptr<InsertCallback> insert_completed) {
   REVERB_RETURN_IF_ERROR(CheckItemValidity(item));
-  auto item_ptr = std::make_shared<Item>(std::move(item));
+  InsertRequest request{std::make_shared<Item>(std::move(item)),
+                        std::move(insert_completed)};
   // Table worker doesn't release memory of removed items, clients do that
   // asynchrously.
   std::shared_ptr<Item> to_delete;
   {
     absl::MutexLock lock(&worker_mu_);
-    pending_inserts_.push_back(std::move(item_ptr));
+    if (stop_worker_) {
+      return absl::CancelledError("RateLimiter has been cancelled");
+    }
+    pending_inserts_.push_back(std::move(request));
     wakeup_worker_.Signal();
     if (!deleted_items_.empty()) {
       to_delete = std::move(deleted_items_.back());
       deleted_items_.pop_back();
     }
     *can_insert_more = pending_inserts_.size() < max_enqueued_inserts_;
-    if (!*can_insert_more) {
-      // Caller is not allowed to do any more inserts immediately.
-      // A callback is registered, so that when there is space for more
-      // requests, client is notified.
-      notify_inserts_ok_.push_back(insert_more_callback);
-    }
   }
   return absl::OkStatus();
 }
@@ -622,6 +598,15 @@ void Table::EnqueSampleRequest(int num_samples,
   std::shared_ptr<Item> to_delete;
   {
     absl::MutexLock lock(&worker_mu_);
+    if (stop_worker_) {
+      request->status = absl::CancelledError(
+          "EnqueSampleRequest: RateLimiter has been cancelled");
+      auto to_notify = request->on_batch_done.lock();
+      if (to_notify != nullptr) {
+        (*to_notify)(request.get());
+      }
+      return;
+    }
     pending_sampling_.push_back(std::move(request));
     if (!deleted_items_.empty()) {
       to_delete = std::move(deleted_items_.back());
@@ -747,8 +732,8 @@ void Table::Close() {
     closed_ = true;
   }
   {
-    // Wakeup worker, so that it can process cancellations.
     absl::MutexLock lock(&worker_mu_);
+    stop_worker_ = true;
     wakeup_worker_.Signal();
   }
 }

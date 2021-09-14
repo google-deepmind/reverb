@@ -66,9 +66,7 @@ class FakeSelector : public ItemSelector {
   FakeSelector(std::queue<absl::Status> insert_statuses)
       : insert_statuses_(std::move(insert_statuses)) {}
 
-  absl::Status Delete(Key key) override {
-    return absl::OkStatus();
-  }
+  absl::Status Delete(Key key) override { return absl::OkStatus(); }
 
   absl::Status Insert(Key key, double priority) override {
     if (insert_statuses_.empty()) {
@@ -179,8 +177,8 @@ std::unique_ptr<ReverbServiceImpl> MakeService(
       /*extensions=*/std::vector<std::shared_ptr<TableExtension>>(),
       /*signature=*/absl::make_optional(MakeSignature())));
   std::unique_ptr<ReverbServiceImpl> service;
-  REVERB_CHECK_OK(ReverbServiceImpl::Create(
-      std::move(tables), std::move(checkpointer), &service));
+  REVERB_CHECK_OK(ReverbServiceImpl::Create(std::move(tables),
+                                            std::move(checkpointer), &service));
   return service;
 }
 
@@ -244,7 +242,7 @@ TEST(ReverbServiceImplTest, SampleAfterInsertWorks) {
     ASSERT_TRUE(sample_stream->Read(&sample_response));
     ASSERT_FALSE(sample_stream->Read(&sample_response2));
     REVERB_EXPECT_OK(sample_stream->Finish());
-    item.set_times_sampled(2*i + 2);
+    item.set_times_sampled(2 * i + 2);
 
     sample_response.mutable_entries(0)
         ->mutable_info()
@@ -400,10 +398,10 @@ TEST(ReverbServiceImplTest, InsertStreamRespondsWithItemKeys) {
       InsertItemRequest("dist", {1}, {1})));
   ASSERT_TRUE(stream->Write(
       InsertItemRequest("dist", {1}, {})));
-  ASSERT_TRUE(stream->WritesDone());
   InsertStreamResponse responses[3];
   ASSERT_TRUE(stream->Read(&responses[0]));
   ASSERT_TRUE(stream->Read(&responses[1]));
+  ASSERT_TRUE(stream->WritesDone());
   ASSERT_FALSE(stream->Read(&responses[2]));
   REVERB_EXPECT_OK(stream->Finish());
   EXPECT_EQ(responses[0].keys(0), first_id);
@@ -728,13 +726,12 @@ TEST(InsertWorkerTest, InsertWorkerReturnsCorrectStats) {
     insert_worker->Schedule(
         task_info,
         [&counter](InsertTaskInfo task_info, const absl::Status& status,
-                                bool enough_queue_slots) {
-          counter.DecrementCount();
-        });
+                   bool enough_queue_slots) { counter.DecrementCount(); });
   }
   counter.Wait();
 
-  while (insert_worker->GetThreadStats()[0].num_tasks_processed < 2) {}
+  while (insert_worker->GetThreadStats()[0].num_tasks_processed < 2) {
+  }
 
   auto stats = insert_worker->GetThreadStats();
   ASSERT_THAT(stats, ::testing::SizeIs(1));
