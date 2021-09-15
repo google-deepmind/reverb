@@ -551,7 +551,7 @@ TEST(ReverbServiceImplTest, ServerInfoWorks) {
             std::make_pair(uint64_t{0}, uint64_t{0}));
 
   EXPECT_EQ(server_info_response.table_info_size(), 1);
-  const auto& table_info = server_info_response.table_info()[0];
+  auto table_info = server_info_response.table_info()[0];
 
   TableInfo expected_table_info;
   expected_table_info.set_name("dist");
@@ -570,8 +570,7 @@ TEST(ReverbServiceImplTest, ServerInfoWorks) {
   rate_limiter->mutable_insert_stats()->mutable_pending_wait_time();
   rate_limiter->mutable_sample_stats()->mutable_completed_wait_time();
   rate_limiter->mutable_sample_stats()->mutable_pending_wait_time();
-  expected_table_info.mutable_table_worker_time()->set_sleeping_ms(
-      table_info.table_worker_time().sleeping_ms());
+  table_info.clear_table_worker_time();
   *expected_table_info.mutable_signature() = MakeSignature();
 
   EXPECT_THAT(table_info, testing::EqualsProto(expected_table_info));
