@@ -983,13 +983,6 @@ bool Table::CanInsert(int num_inserts) const {
   return rate_limiter_->CanInsert(&mu_, num_inserts);
 }
 
-RateLimiterEventHistory Table::GetRateLimiterEventHistory(
-    size_t min_insert_event_id, size_t min_sample_event_id) const {
-  absl::MutexLock lock(&mu_);
-  return rate_limiter_->GetEventHistory(&mu_, min_insert_event_id,
-                                        min_sample_event_id);
-}
-
 int64_t Table::num_episodes() const {
   absl::MutexLock lock(&mu_);
   return episode_refs_.size();

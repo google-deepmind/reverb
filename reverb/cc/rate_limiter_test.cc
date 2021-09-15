@@ -358,12 +358,8 @@ TEST(RateLimiterTest, Info) {
                           "min_diff: 0 "
                           "max_diff: 5 "
                           "insert_stats: { "
-                          "  completed_wait_time: {} "
-                          "  pending_wait_time: {} "
                           "} "
                           "sample_stats: { "
-                          "  completed_wait_time: {} "
-                          "  pending_wait_time: {} "
                           "}"));
   EXPECT_THAT(RateLimiter(1.5, 14, -10, 5.3).Info(&mu),
               EqualsProto("samples_per_insert: 1.5 "
@@ -371,12 +367,8 @@ TEST(RateLimiterTest, Info) {
                           "min_diff: -10 "
                           "max_diff: 5.3 "
                           "insert_stats: { "
-                          "  completed_wait_time: {} "
-                          "  pending_wait_time: {} "
                           "} "
                           "sample_stats: { "
-                          "  completed_wait_time: {} "
-                          "  pending_wait_time: {} "
                           "}"));
 }
 

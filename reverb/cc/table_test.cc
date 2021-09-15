@@ -837,13 +837,9 @@ TEST(TableTest, Info) {
                   min_size_to_sample: 1
                   insert_stats {
                     completed: 2
-                    completed_wait_time {}
-                    pending_wait_time {}
                   }
                   sample_stats {
                     completed: 1
-                    completed_wait_time {}
-                    pending_wait_time {}
                   }
                 }
                 current_size: 1

@@ -197,21 +197,10 @@ message TableInfo {
 // LINT.ThenChange(../py/reverb/reverb_types.py)
 
 message RateLimiterCallStats {
-  // The number of calls that are currently blocked.
-  int64 pending = 1;
-
   // The total number of completed calls.
   int64 completed = 2;
 
-  // Out of the completed calls, how many of these were blocked for any amount
-  // of time.
-  int64 limited = 3;
-
-  // Total waiting time for all the COMPLETED calls.
-  google.protobuf.Duration completed_wait_time = 4;
-
-  // Total waiting time for all calls that are pending right now.
-  google.protobuf.Duration pending_wait_time = 5;
+  reserved 1, 3, 4, 5;
 }
 
 message RateLimiterInfo {

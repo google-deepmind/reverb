@@ -566,10 +566,8 @@ TEST(ReverbServiceImplTest, ServerInfoWorks) {
   rate_limiter->set_min_size_to_sample(kMinSizeToSample);
   rate_limiter->set_min_diff(kMinDiff);
   rate_limiter->set_max_diff(kMaxDiff);
-  rate_limiter->mutable_insert_stats()->mutable_completed_wait_time();
-  rate_limiter->mutable_insert_stats()->mutable_pending_wait_time();
-  rate_limiter->mutable_sample_stats()->mutable_completed_wait_time();
-  rate_limiter->mutable_sample_stats()->mutable_pending_wait_time();
+  rate_limiter->mutable_insert_stats();
+  rate_limiter->mutable_sample_stats();
   table_info.clear_table_worker_time();
   *expected_table_info.mutable_signature() = MakeSignature();
 

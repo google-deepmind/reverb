@@ -34,9 +34,6 @@ class Table;
 
 constexpr absl::Duration kDefaultTimeout = absl::InfiniteDuration();
 
-// Maximum number of events in the ciruclar buffer owned by the StatsManager.
-constexpr size_t kEventHistoryBufferSize = 1000000;
-
 // Details about the waiting time for a call to the RateLimiter.
 struct RateLimiterEvent {
   // Unique identifier of the call. The ID is created by incrementing the most
@@ -45,15 +42,6 @@ struct RateLimiterEvent {
 
   // Time when the rate limiter recieved the call.
   absl::Time start;
-
-  // The time the rate limiter spent waiting for "permission" to allow the call.
-  // If set to ZeroDuration then the call was NOT BLOCKED AT ALL.
-  absl::Duration blocked_for;
-};
-
-struct RateLimiterEventHistory {
-  std::vector<RateLimiterEvent> insert;
-  std::vector<RateLimiterEvent> sample;
 };
 
 // RateLimiter manages the data throughput for a `Table` by blocking
@@ -108,13 +96,6 @@ class RateLimiter {
   // table.
   RateLimiterInfo InfoWithoutCallStats() const;
 
-  // Creates a copy of all COMPLETED events created since (inclusive)
-  // `min_X_event_id`.
-  RateLimiterEventHistory GetEventHistory(absl::Mutex* mu,
-                                          size_t min_insert_event_id,
-                                          size_t min_sample_event_id) const
-      ABSL_SHARED_LOCKS_REQUIRED(mu);
-
   // Returns a summary string description.
   std::string DebugString() const;
 
@@ -160,75 +141,16 @@ class RateLimiter {
    public:
     StatsManager();
 
-    // ScopedEvent automatically marks the event as completed when it goes out
-    // of scope.
-    class ScopedEvent {
-     public:
-      ScopedEvent(StatsManager* parent, RateLimiterEvent* event);
-
-      // Should be called to indicate that the event was blocked for any time at
-      // all. If this is never called then `blocked_for` will remain as
-      // ZeroDuration, ignoring the actual wall time.
-      void set_was_blocked();
-
-      ~ScopedEvent();
-
-     private:
-      StatsManager* parent_;
-      RateLimiterEvent* event_;
-      bool was_blocked_;
-    };
-
-    // Creates an event using the current time as `start`. The event object is
-    // owned by the StatsManager and the pointer must only be used within the
-    // RateLimiter.
-    ScopedEvent CreateEvent(absl::Mutex* mu) ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu);
-
-    // Marks the event as completed by removing it from `active_` and
-    // updating the summary metrics. This method should only be called by
-    // ScopedEvent.
-    void CompleteEvent(RateLimiterEvent* event);
+    // Creates an event using the current time as `start`.
+    void CreateEvent(absl::Mutex* mu) ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu);
 
     // Encode the current state as a `RateLimiterCallStats`-proto.
     void ToProto(absl::Mutex* mu, RateLimiterCallStats* proto) const
         ABSL_SHARED_LOCKS_REQUIRED(mu);
 
-    // Creates a copy of all events starting from `min_event_id` until (but not
-    // including) the oldest active event. If no events are currently active
-    // all events from `min_event_id` are included in the copy.
-    std::vector<RateLimiterEvent> GetEventHistory(absl::Mutex* mu,
-                                                  size_t min_event_id) const
-        ABSL_SHARED_LOCKS_REQUIRED(mu);
-
    private:
-    // Preallocated buffer of events to avoid allocation while holding the lock
-    // on the parent table. The size of the FIXED SIZE
-    // (`kEventHistoryBufferSize`) container is set in the constructor of
-    // StatsManager.
-    absl::FixedArray<RateLimiterEvent> events_;
-
-    // Event IDs are incremented with each created events. Since no concurrent
-    // operations are possible we can safely assume that events with larger IDs
-    // were started after events with smaller IDs.
-    size_t next_event_id_;
-
-    // IDs of events that currently are "active". An event is "active" until
-    // for as long as the call is blocked. If no blocking occurs then the event
-    // will be added and removed from the set while holding the lock and thus
-    // it is never possible to observe an active event that weren't blocked by
-    // the rate limiter.
-    absl::flat_hash_set<size_t> active_;
-
     // Number of calls that have been completed.
     int64_t completed_;
-
-    // Number of calls that were blocked for any time at all.
-    int64_t limited_;
-
-    // The total time spent waiting for the all the blocked COMPLETED calls.
-    // Note that concurrent calls are counted independently so the value can be
-    // much larger than the "wall time" since the rate limiter was created.
-    absl::Duration total_wait_;
   };
 
   // Summary statistics and a (large) buffers of recent events.

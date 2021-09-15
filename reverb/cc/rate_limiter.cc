@@ -170,13 +170,6 @@ RateLimiterInfo RateLimiter::InfoWithoutCallStats() const {
   return info_proto;
 }
 
-RateLimiterEventHistory RateLimiter::GetEventHistory(
-    absl::Mutex* mu, size_t min_insert_event_id,
-    size_t min_sample_event_id) const {
-  return {insert_stats_.GetEventHistory(mu, min_insert_event_id),
-          sample_stats_.GetEventHistory(mu, min_sample_event_id)};
-}
-
 std::string RateLimiter::DebugString() const {
   return absl::StrCat("RateLimiter(samples_per_insert=", samples_per_insert_,
                       ", min_diff_=", min_diff_, ", max_diff=", max_diff_,
@@ -184,91 +177,17 @@ std::string RateLimiter::DebugString() const {
 }
 
 RateLimiter::StatsManager::StatsManager()
-    : events_(kEventHistoryBufferSize),
-      next_event_id_(0),
-      active_(),
-      completed_(0),
-      limited_(0),
-      total_wait_(absl::ZeroDuration()) {}
+    : completed_(0) {}
 
-RateLimiter::StatsManager::ScopedEvent RateLimiter::StatsManager::CreateEvent(
-    absl::Mutex* mu) ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu) {
-  // IDs are incremented with each event and the fixed size of `events_` means
-  // that it is theoretically possible for collisions between active events.
-  // However, this is EXTREMELY unlikely in practice as it would require
-  // `kEventHistoryBufferSize` (very large) calls to be blocked concurrently
-  // which would grind the system to a halt long before the buffer is exceeded.
-  const size_t id = next_event_id_++;
-  events_[id % events_.size()] = {id, absl::Now(), absl::ZeroDuration()};
-  active_.insert(id);
-  return ScopedEvent(this, &events_[id % events_.size()]);
-}
-
-void RateLimiter::StatsManager::CompleteEvent(RateLimiterEvent* event) {
-  active_.erase(event->id);
+void RateLimiter::StatsManager::CreateEvent(absl::Mutex* mu)
+    ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu) {
   completed_++;
-  limited_ += event->blocked_for > absl::ZeroDuration() ? 1 : 0;
-  total_wait_ += event->blocked_for;
 }
 
 void RateLimiter::StatsManager::ToProto(absl::Mutex* mu,
                                         RateLimiterCallStats* proto) const
     ABSL_SHARED_LOCKS_REQUIRED(mu) {
-  const auto now = absl::Now();
-
-  proto->set_pending(active_.size());
   proto->set_completed(completed_);
-  proto->set_limited(limited_);
-  EncodeAsDurationProto(total_wait_, proto->mutable_completed_wait_time());
-  absl::Duration pending_wait_time;
-  for (size_t id : active_) {
-    pending_wait_time += now - events_[id % events_.size()].start;
-  }
-  EncodeAsDurationProto(pending_wait_time, proto->mutable_pending_wait_time());
-}
-
-std::vector<RateLimiterEvent> RateLimiter::StatsManager::GetEventHistory(
-    absl::Mutex* mu, size_t min_event_id) const ABSL_SHARED_LOCKS_REQUIRED(mu) {
-  REVERB_CHECK_LE(min_event_id, next_event_id_);
-
-  if (const auto diff = next_event_id_ - min_event_id; diff >= events_.size()) {
-    REVERB_LOG(REVERB_ERROR)
-        << "Requested rate limiter events older that the maximum age. Request "
-           "will be rewritten to include the last "
-        << events_.size() << " events. This mean that (up to) "
-        << diff - events_.size() << " events will be ignored";
-    min_event_id = next_event_id_ - events_.size();
-  }
-
-  // Non inclusive upper limit.
-  const size_t max_event_id =
-      active_.empty() ? next_event_id_
-                      : *std::min_element(active_.begin(), active_.end());
-  if (max_event_id < min_event_id + 1) {
-    return {};
-  }
-
-  std::vector<RateLimiterEvent> copy(max_event_id - min_event_id - 1);
-  for (size_t i = 0; i < copy.size(); i++) {
-    copy[i] = events_[(min_event_id + i) % events_.size()];
-  }
-
-  return copy;
-}
-
-RateLimiter::StatsManager::ScopedEvent::ScopedEvent(
-    RateLimiter::StatsManager* parent, RateLimiterEvent* event)
-    : parent_(parent), event_(event), was_blocked_(false) {}
-
-void RateLimiter::StatsManager::ScopedEvent::set_was_blocked() {
-  was_blocked_ = true;
-}
-
-RateLimiter::StatsManager::ScopedEvent::~ScopedEvent() {
-  if (was_blocked_) {
-    event_->blocked_for = absl::Now() - event_->start;
-  }
-  parent_->CompleteEvent(event_);
 }
 
 }  // namespace reverb

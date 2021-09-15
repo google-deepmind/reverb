@@ -332,12 +332,6 @@ class Table {
   // Signature (if any) of the table.
   const absl::optional<tensorflow::StructuredValue>& signature() const;
 
-  // Makes a copy of all COMPLETED rate limiter events since (inclusive)
-  // `min_X_event_id`.
-  RateLimiterEventHistory GetRateLimiterEventHistory(
-      size_t min_insert_event_id, size_t min_sample_event_id) const
-      ABSL_LOCKS_EXCLUDED(mu_);
-
   // Cancels pending calls and marks object as closed. Object must be
   // abandoned after `Close` called.
   void Close();
