@@ -443,7 +443,7 @@ TEST(TableTest, CloseCancelsPendingCalls) {
   table->Close();
 
   EXPECT_TRUE(notification.WaitForNotificationWithTimeout(kTimeout));
-  REVERB_EXPECT_OK(status);
+  EXPECT_OK(status);
 
   thread = nullptr;  // Joins the thread.
 }
