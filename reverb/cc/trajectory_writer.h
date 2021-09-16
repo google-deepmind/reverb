@@ -354,14 +354,14 @@ class TrajectoryWriter : public ColumnWriter,
   // operation could complete, `nullptr` is returned.
   ItemAndRefs* GetNextPendingItem() ABSL_LOCKS_EXCLUDED(mu_);
 
-  // Build and write the item insertion request to the stream. All chunks
+  // Add an item to the insertion request. All chunks
   // referenced by item must have been written to the stream before calling this
   // method.
-  bool SendItem(const internal::flat_hash_set<uint64_t>& keep_keys,
+  void AddItemToRequest(const internal::flat_hash_set<uint64_t>& keep_keys,
                 const PrioritizedItem& item, ArenaOwnedRequest* request);
 
-  // Sends a given request to the server.
-  bool Write(ArenaOwnedRequest* request) ABSL_LOCKS_EXCLUDED(mu_);
+  // Sends a given request to the server (if not empty).
+  bool WriteIfNotEmpty(ArenaOwnedRequest* request) ABSL_LOCKS_EXCLUDED(mu_);
 
   // Terminates connection to the server.
   absl::Status Finish() ABSL_LOCKS_EXCLUDED(mu_);

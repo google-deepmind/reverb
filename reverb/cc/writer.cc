@@ -511,10 +511,11 @@ bool Writer::WritePendingData() {
     if (!ConfirmItems(max_in_flight_items_ - 1)) {
       return false;
     }
-    *request.r.mutable_item()->mutable_item() = pending_items_.front();
-    *request.r.mutable_item()->mutable_keep_chunk_keys() = {
+    *request.r.add_items() = pending_items_.front();
+    *request.r.mutable_keep_chunk_keys() = {
         keep_chunk_keys.begin(), keep_chunk_keys.end()};
     bool ok = stream_->Write(request.r, options);
+    request.r.clear_items();
     if (!ok) return false;
     for (const auto& chunk : request.r.chunks()) {
       streamed_chunk_keys_.insert(chunk.chunk_key());

@@ -328,13 +328,13 @@ absl::Status StreamingTrajectoryWriter::StreamChunks(
 absl::Status StreamingTrajectoryWriter::SendItem(PrioritizedItem item) {
   InsertStreamRequest request;
 
-  *request.mutable_item()->mutable_item() = std::move(item);
+  *request.add_items() = std::move(item);
 
   // Keep all chunk keys belonging to this episode since we don't know which
   // chunks that aren't referenced by any item at the moment will be needed by
   // the next item.
   for (uint64_t keep_key : streamed_chunk_keys_) {
-    request.mutable_item()->add_keep_chunk_keys(keep_key);
+    request.add_keep_chunk_keys(keep_key);
   }
 
   return WriteStream(request);
@@ -345,17 +345,21 @@ absl::Status StreamingTrajectoryWriter::WriteStream(
   grpc::WriteOptions options;
   options.set_no_compression();
 
-  // If this request contains an item, mark it as "in-flight".
-  if (request.has_item()) {
+  // If this request contains items, mark them as "in-flight".
+  if (request.items_size() > 0) {
     absl::MutexLock lock(&mutex_);
-    in_flight_items_.insert(request.item().item().key());
+    for (auto& item : request.items()) {
+      in_flight_items_.insert(item.key());
+    }
   }
 
   if (!stream_->Write(request, options)) {
-    // We won't get a confirmation for this item.
-    if (request.has_item()) {
+    // We won't get a confirmation these items.
+    if (request.items_size() > 0) {
       absl::MutexLock lock(&mutex_);
-      in_flight_items_.erase(request.item().item().key());
+      for (auto& item : request.items()) {
+        in_flight_items_.erase(item.key());
+      }
     }
 
     // We can recover from transient errors as they only corrupt the current

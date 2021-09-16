@@ -214,7 +214,7 @@ ReverbServiceImpl::InsertStream(grpc::CallbackServerContext* context) {
     grpc::Status ProcessIncomingRequest(InsertStreamRequest* request) override
         ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_) {
       read_in_flight_ = false;
-      if (request->chunks().empty() && !request->has_item()) {
+      if (request->chunks_size() == 0 && request->items_size() == 0) {
         return grpc::Status(
             grpc::StatusCode::INVALID_ARGUMENT,
             absl::StrCat("ProcessIncomingRequest: Request lacks both chunks "
@@ -224,32 +224,34 @@ ReverbServiceImpl::InsertStream(grpc::CallbackServerContext* context) {
       if (auto status = SaveChunks(request); !status.ok()) {
         return status;
       }
-      if (!request->has_item()) {
+      if (request->items_size() == 0) {
         // No item to add to the table - continue reading next requests.
         read_in_flight_ = true;
         StartRead(&request_);
         return grpc::Status::OK;
       }
-      Table::Item item;
-      if (auto status = GetItemWithChunks(&item, request); !status.ok()) {
-        return status;
+      bool can_insert = true;
+      for (auto& request_item : *request->mutable_items()) {
+        Table::Item item;
+        if (auto status = GetItemWithChunks(&item, &request_item);
+            !status.ok()) {
+          return status;
+        }
+        const auto& table_name = item.item.table();
+        // Check that table name is valid.
+        auto table = server_->TableByName(table_name);
+        if (table == nullptr) {
+          return TableNotFound(table_name);
+        }
+        if (auto status = table->InsertOrAssignAsync(
+                std::move(item), &can_insert, insert_completed_);
+            !status.ok()) {
+          return ToGrpcStatus(status);
+        }
       }
-      if (auto status =
-              ReleaseOutOfRangeChunks(request->item().keep_chunk_keys());
+      if (auto status = ReleaseOutOfRangeChunks(request->keep_chunk_keys());
           !status.ok()) {
         return status;
-      }
-      const auto& table_name = item.item.table();
-      // Check that table name is valid.
-      auto table = server_->TableByName(table_name);
-      if (table == nullptr) {
-        return TableNotFound(table_name);
-      }
-      bool can_insert;
-      if (auto status = table->InsertOrAssignAsync(std::move(item), &can_insert,
-                                                   insert_completed_);
-          !status.ok()) {
-        return ToGrpcStatus(status);
       }
       if (can_insert) {
         // Insert didn't exceed table's buffer, we can continue reading next
@@ -272,10 +274,11 @@ ReverbServiceImpl::InsertStream(grpc::CallbackServerContext* context) {
       return grpc::Status::OK;
     }
 
-    grpc::Status GetItemWithChunks(Table::Item* item,
-                                   InsertStreamRequest* request) {
+    grpc::Status GetItemWithChunks(
+        Table::Item* item,
+        PrioritizedItem* request_item) {
       for (ChunkStore::Key key :
-           internal::GetChunkKeys(request->item().item().flat_trajectory())) {
+           internal::GetChunkKeys(request_item->flat_trajectory())) {
         auto it = chunks_.find(key);
         if (it == chunks_.end()) {
           return Internal(
@@ -284,7 +287,7 @@ ReverbServiceImpl::InsertStream(grpc::CallbackServerContext* context) {
         item->chunks.push_back(it->second);
       }
 
-      item->item = std::move(*request->mutable_item()->mutable_item());
+      item->item = std::move(*request_item);
 
       return grpc::Status::OK;
     }

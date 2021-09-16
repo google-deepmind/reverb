@@ -91,28 +91,20 @@ message CheckpointResponse {
 }
 
 message InsertStreamRequest {
-  message PriorityInsertion {
-    // The item that should be inserted.
-    PrioritizedItem item = 1;
-
-    // Specifies which chunk keys are needed in the next request. This will
-    // result in an internal reference which prevents the chunks from deletion
-    // until the next priority insertion.
-    repeated uint64 keep_chunk_keys = 2;
-
-    // Deleted field `send_confirmation`.
-    bool reserved = 3;
-  }
-
-  // Chunk that can be referenced by a PrioritizedItem.
+  // Chunks that can be referenced by PrioritizedItems.
   repeated ChunkData chunks = 1;
 
-  // Item for inserting into tables. The item must only reference
-  // chunks that has been sent been sent on the stream thus far and kept after
+  // Items for inserting into tables. The items must only reference
+  // chunks that has been sent on the stream thus far and kept after
   // previous insertion requests. If a request contains an item and chunks, the
   // chunks are added to the table before the item. Hence, the item may
   // reference these chunks.
-  PriorityInsertion item = 2;
+  repeated PrioritizedItem items = 2;
+
+  // Specifies which chunk keys are needed in the next request. This will
+  // result in an internal reference which prevents the chunks from deletion
+  // until the next priority insertion.
+  repeated uint64 keep_chunk_keys = 3;
 }
 
 message InsertStreamResponse {

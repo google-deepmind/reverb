@@ -71,17 +71,18 @@ const auto kFloatSpec = internal::TensorSpec{"0", tensorflow::DT_FLOAT, {1}};
 
 MATCHER(IsChunk, "") { return arg.chunks_size() == 1; }
 
-MATCHER(IsChunkAndItem, "") { return arg.chunks_size() == 1 && arg.has_item(); }
+MATCHER(IsChunkAndItem, "") {
+  return arg.chunks_size() == 1 && arg.items_size() > 0; }
 
 MATCHER(IsChunkAndItemPtr, "") {
-  return arg->chunks_size() == 1 && arg->has_item();
+  return arg->chunks_size() == 1 && arg->items_size() > 0;
 }
 
 MATCHER_P2(HasNumChunksAndItem, size, item, "") {
-  return arg.chunks_size() == size && arg.has_item() == item;
+  return arg.chunks_size() == size && (arg.items_size() > 0) == item;
 }
 
-MATCHER(IsItem, "") { return arg.has_item(); }
+MATCHER(IsItem, "") { return arg.items_size() > 0; }
 
 inline std::string Int32Str() {
   return tensorflow::DataTypeString(tensorflow::DT_INT32);
@@ -178,8 +179,10 @@ class FakeStream : public ::grpc::ClientCallbackReaderWriter<
     {
       absl::MutexLock lock(&mu_);
       requests_->push_back(*msg);
-      pending_confirmation_.push(msg->item().item().key());
-      confirm_cnt = 1;
+      for (auto& item : msg->items()) {
+        pending_confirmation_.push(item.key());
+        confirm_cnt++;
+      }
       if (!generate_responses_) {
         return;
       }
@@ -1181,7 +1184,7 @@ TEST(TrajectoryWriter, KeepKeysOnlyIncludesStreamedKeys) {
   // server should thus only be instructed to keep the one chunk around.
   EXPECT_THAT(success_stream.stream_.requests(),
               UnorderedElementsAre(IsChunkAndItem()));
-  EXPECT_THAT(success_stream.stream_.requests()[0].item().keep_chunk_keys(),
+  EXPECT_THAT(success_stream.stream_.requests()[0].keep_chunk_keys(),
               UnorderedElementsAre(first[0].value().lock()->chunk_key()));
 }
 
@@ -1202,7 +1205,7 @@ TEST(TrajectoryWriter, KeepKeysOnlyIncludesLiveChunks) {
   REVERB_ASSERT_OK(writer.Flush());
 
   // The one chunk that has been sent should be kept alive.
-  EXPECT_THAT(success_stream.stream_.requests().back().item().keep_chunk_keys(),
+  EXPECT_THAT(success_stream.stream_.requests().back().keep_chunk_keys(),
               UnorderedElementsAre(first[0].value().lock()->chunk_key()));
 
   // Take a second step and insert a trajectory.
@@ -1213,7 +1216,7 @@ TEST(TrajectoryWriter, KeepKeysOnlyIncludesLiveChunks) {
   REVERB_ASSERT_OK(writer.Flush());
 
   // Both chunks should be kept alive since num_keep_alive_refs is 2.
-  EXPECT_THAT(success_stream.stream_.requests().back().item().keep_chunk_keys(),
+  EXPECT_THAT(success_stream.stream_.requests().back().keep_chunk_keys(),
               UnorderedElementsAre(first[0].value().lock()->chunk_key(),
                                    second[0].value().lock()->chunk_key()));
 
@@ -1226,7 +1229,7 @@ TEST(TrajectoryWriter, KeepKeysOnlyIncludesLiveChunks) {
 
   // The chunk of the first step has now expired and thus the server no longer
   // need to keep it alive.
-  EXPECT_THAT(success_stream.stream_.requests().back().item().keep_chunk_keys(),
+  EXPECT_THAT(success_stream.stream_.requests().back().keep_chunk_keys(),
               UnorderedElementsAre(second[0].value().lock()->chunk_key(),
                                    third[0].value().lock()->chunk_key()));
 }

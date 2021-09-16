@@ -81,14 +81,14 @@ MATCHER(IsChunk, "") { return arg.chunks_size() == 1; }
 MATCHER(IsChunkAndItem, "") { return arg.chunks_size() == 1 && arg.has_item(); }
 
 MATCHER_P2(HasNumChunksAndItem, size, item, "") {
-  return arg.chunks_size() == size && arg.has_item() == item;
+  return arg.chunks_size() == size && (arg.items_size() > 0) == item;
 }
 
 MATCHER_P2(StatusIs, code, message, "") {
   return arg.code() == code && absl::StrContains(arg.message(), message);
 }
 
-MATCHER(IsItem, "") { return arg.has_item(); }
+MATCHER(IsItem, "") { return arg.items_size() > 0; }
 
 inline std::string Int32Str() {
   return tensorflow::DataTypeString(tensorflow::DT_INT32);
@@ -160,8 +160,9 @@ class FakeStream : public MockStream {
              grpc::WriteOptions options) override {
     absl::MutexLock lock(&mu_);
     requests_->push_back(msg);
-
-    REVERB_CHECK(pending_confirmation_.Push(msg.item().item().key()));
+    for (auto& item : msg.items()) {
+      REVERB_CHECK(pending_confirmation_.Push(item.key()));
+    }
 
     return true;
   }
@@ -692,7 +693,7 @@ TEST(StreamingTrajectoryWriter, KeepKeysIncludesAllEpisodeKeys) {
   // All chunks belonging to this episode should be keps.
   EXPECT_THAT(stream->requests(),
               ElementsAre(HasNumChunksAndItem(2, false), IsItem()));
-  EXPECT_THAT(stream->requests()[1].item().keep_chunk_keys(),
+  EXPECT_THAT(stream->requests()[1].keep_chunk_keys(),
               UnorderedElementsAre(first[0].value().lock()->chunk_key(),
                                    first[1].value().lock()->chunk_key()));
 }

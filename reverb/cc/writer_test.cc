@@ -105,29 +105,29 @@ MATCHER(IsChunk, "") {
 
 MATCHER_P4(IsItemWithRangeAndPriorityAndTable, offset, length, priority, table,
            "") {
-  if (!arg.has_item()) {
+  if (arg.items_size() == 0) {
     return false;
   }
 
-  if (arg.item().item().flat_trajectory().columns(0).chunk_slices(0).offset() !=
-      offset) {
+  if (arg.items(0).flat_trajectory().columns(0)
+      .chunk_slices(0).offset() != offset) {
     return false;
   }
 
   int total_length = 0;
   for (const auto& slice :
-       arg.item().item().flat_trajectory().columns(0).chunk_slices()) {
+       arg.items(0).flat_trajectory().columns(0).chunk_slices()) {
     total_length += slice.length();
   }
   if (length != total_length) {
     return false;
   }
 
-  if (arg.item().item().priority() != priority) {
+  if (arg.items(0).priority() != priority) {
     return false;
   }
 
-  if (arg.item().item().table() != table) {
+  if (arg.items(0).table() != table) {
     return false;
   }
   return true;
@@ -150,7 +150,9 @@ class FakeInsertStream
              grpc::WriteOptions options) override {
     requests_->push_back(msg);
     if (automatic_response_ids_) {
-      response_ids_->Push(msg.item().item().key());
+      for (auto& item : msg.items()) {
+        response_ids_->Push(item.key());
+      }
     }
     return num_success_writes_-- > 0;
   }
@@ -295,7 +297,7 @@ TEST(WriterTest, OnlySendsChunksWhichAreUsedByItems) {
   EXPECT_THAT(requests[0],
               IsItemWithRangeAndPriorityAndTable(1, 3, 1.0, "dist"));
   EXPECT_THAT(
-      internal::GetChunkKeys(requests[0].item().item().flat_trajectory()),
+      internal::GetChunkKeys(requests[0].items(0).flat_trajectory()),
       ElementsAre(requests[0].chunks(0).chunk_key(),
                   requests[0].chunks(1).chunk_key()));
 }
@@ -317,7 +319,7 @@ TEST(WriterTest, DoesNotSendAlreadySentChunks) {
   EXPECT_THAT(requests[0],
               IsItemWithRangeAndPriorityAndTable(1, 1, 1.5, "dist"));
   EXPECT_THAT(
-      internal::GetChunkKeys(requests[0].item().item().flat_trajectory()),
+      internal::GetChunkKeys(requests[0].items(0).flat_trajectory()),
       ElementsAre(first_chunk_key));
 
   requests.clear();
@@ -332,7 +334,7 @@ TEST(WriterTest, DoesNotSendAlreadySentChunks) {
   EXPECT_THAT(requests[0],
               IsItemWithRangeAndPriorityAndTable(1, 3, 1.3, "dist"));
   EXPECT_THAT(
-      internal::GetChunkKeys(requests[0].item().item().flat_trajectory()),
+      internal::GetChunkKeys(requests[0].items(0).flat_trajectory()),
       ElementsAre(first_chunk_key, second_chunk_key));
 }
 
@@ -353,7 +355,7 @@ TEST(WriterTest, SendsPendingDataOnClose) {
   EXPECT_THAT(requests[0],
               IsItemWithRangeAndPriorityAndTable(0, 1, 1.0, "dist"));
   EXPECT_THAT(
-      internal::GetChunkKeys(requests[0].item().item().flat_trajectory()),
+      internal::GetChunkKeys(requests[0].items(0).flat_trajectory()),
       ElementsAre(requests[0].chunks(0).chunk_key()));
 }
 
@@ -387,7 +389,7 @@ TEST(WriterTest, RetriesOnTransientError) {
   EXPECT_THAT(requests[1],
               IsItemWithRangeAndPriorityAndTable(1, 1, 1.0, "dist"));
   EXPECT_THAT(
-      internal::GetChunkKeys(requests[1].item().item().flat_trajectory()),
+      internal::GetChunkKeys(requests[1].items(0).flat_trajectory()),
       ElementsAre(requests[0].chunks(0).chunk_key()));
 }
 
@@ -452,13 +454,13 @@ TEST(WriterTest, ResendsOnlyTheChunksTheRemainingItemsNeedWithNewStream) {
   EXPECT_THAT(requests[0],
               IsItemWithRangeAndPriorityAndTable(0, 3, 1.0, "dist"));
   EXPECT_THAT(
-      internal::GetChunkKeys(requests[0].item().item().flat_trajectory()),
+      internal::GetChunkKeys(requests[0].items(0).flat_trajectory()),
       ElementsAre(first_chunk_key, second_chunk_key));
 
   EXPECT_THAT(requests[1], IsItemWithRangeAndPriorityAndTable(
                                0, 1, 1.0, "dist2"));  // Failed
   EXPECT_THAT(
-      internal::GetChunkKeys(requests[1].item().item().flat_trajectory()),
+      internal::GetChunkKeys(requests[1].items(0).flat_trajectory()),
       ElementsAre(second_chunk_key));
 
   // Stream is opened and only the second chunk is sent again.
@@ -466,7 +468,7 @@ TEST(WriterTest, ResendsOnlyTheChunksTheRemainingItemsNeedWithNewStream) {
   EXPECT_THAT(requests[1],
               IsItemWithRangeAndPriorityAndTable(0, 1, 1.0, "dist2"));
   EXPECT_THAT(
-      internal::GetChunkKeys(requests[1].item().item().flat_trajectory()),
+      internal::GetChunkKeys(requests[1].items(0).flat_trajectory()),
       ElementsAre(second_chunk_key));
 }
 
@@ -485,8 +487,7 @@ TEST(WriterTest, TellsServerToKeepStreamedItemsStillInClient) {
 
   EXPECT_THAT(requests[0],
               IsItemWithRangeAndPriorityAndTable(1, 1, 1.0, "dist"));
-  EXPECT_THAT(requests[0].item().keep_chunk_keys(),
-              ElementsAre(first_chunk_key));
+  EXPECT_THAT(requests[0].keep_chunk_keys(), ElementsAre(first_chunk_key));
 
   requests.clear();
 
@@ -503,7 +504,7 @@ TEST(WriterTest, TellsServerToKeepStreamedItemsStillInClient) {
 
   EXPECT_THAT(requests[0],
               IsItemWithRangeAndPriorityAndTable(1, 1, 1.0, "dist"));
-  EXPECT_THAT(requests[0].item().keep_chunk_keys(),
+  EXPECT_THAT(requests[0].keep_chunk_keys(),
               ElementsAre(first_chunk_key, third_chunk_key));
 
   requests.clear();
@@ -519,7 +520,7 @@ TEST(WriterTest, TellsServerToKeepStreamedItemsStillInClient) {
 
   EXPECT_THAT(requests[0],
               IsItemWithRangeAndPriorityAndTable(1, 1, 1.0, "dist"));
-  EXPECT_THAT(requests[0].item().keep_chunk_keys(),
+  EXPECT_THAT(requests[0].keep_chunk_keys(),
               ElementsAre(third_chunk_key, forth_chunk_key));
 }
 
@@ -683,13 +684,13 @@ TEST(WriterTest, MultiChunkItemsAreCorrect) {
               IsItemWithRangeAndPriorityAndTable(1, 1, 1.0, "dist"));
 
   EXPECT_THAT(
-      internal::GetChunkKeys(requests[0].item().item().flat_trajectory()),
+      internal::GetChunkKeys(requests[0].items(0).flat_trajectory()),
       SizeIs(1));
   EXPECT_THAT(
-      internal::GetChunkKeys(requests[1].item().item().flat_trajectory()),
+      internal::GetChunkKeys(requests[1].items(0).flat_trajectory()),
       SizeIs(2));
   EXPECT_THAT(
-      internal::GetChunkKeys(requests[2].item().item().flat_trajectory()),
+      internal::GetChunkKeys(requests[2].items(0).flat_trajectory()),
       SizeIs(1));
 }
 

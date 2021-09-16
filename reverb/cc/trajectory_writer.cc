@@ -53,10 +53,10 @@ class ArenaOwnedRequest {
     while (!r.chunks().empty()) {
       r.mutable_chunks()->UnsafeArenaReleaseLast();
     }
-    if (r.has_item()) {
-      r.mutable_item()->unsafe_arena_release_item();
-      r.clear_item();
+    while (!r.items().empty()) {
+      r.mutable_items()->UnsafeArenaReleaseLast();
     }
+    r.clear_keep_chunk_keys();
   }
   InsertStreamRequest r;
 };
@@ -126,7 +126,10 @@ std::vector<internal::TensorSpec> FlatSignatureFromTrajectory(
 
 }  // namespace
 
-bool TrajectoryWriter::Write(ArenaOwnedRequest* request) {
+bool TrajectoryWriter::WriteIfNotEmpty(ArenaOwnedRequest* request) {
+  if (request->r.items_size() == 0 && request->r.chunks_size() == 0) {
+    return true;
+  }
   {
     absl::MutexLock lock(&mu_);
     write_inflight_ = true;
@@ -160,7 +163,7 @@ bool TrajectoryWriter::SendNotAlreadySentChunks(
 
     // If the message has grown beyond the cutoff point then we send it.
     if (request->r.ByteSizeLong() >= TrajectoryWriter::kMaxRequestSizeBytes) {
-      if (!Write(request)) {
+      if (!WriteIfNotEmpty(request)) {
         return false;
       }
 
@@ -527,15 +530,15 @@ TrajectoryWriter::ItemAndRefs* TrajectoryWriter::GetNextPendingItem() {
   return write_queue_.front().get();
 }
 
-bool TrajectoryWriter::SendItem(
+void TrajectoryWriter::AddItemToRequest(
     const internal::flat_hash_set<uint64_t>& keep_keys,
     const PrioritizedItem& item, ArenaOwnedRequest* request) {
-  request->r.mutable_item()->unsafe_arena_set_allocated_item(
+  request->r.mutable_items()->UnsafeArenaAddAllocated(
       const_cast<PrioritizedItem*>(&item));
+  request->r.clear_keep_chunk_keys();
   for (uint64_t keep_key : keep_keys) {
-    request->r.mutable_item()->add_keep_chunk_keys(keep_key);
+    request->r.add_keep_chunk_keys(keep_key);
   }
-  return Write(request);
 }
 
 internal::flat_hash_set<uint64_t> TrajectoryWriter::GetKeepKeys(
@@ -615,8 +618,11 @@ absl::Status TrajectoryWriter::RunStreamWorker() {
     }
 
     // All chunks have been written to the stream so the item can now be
-    // written.
-    if (!SendItem(streamed_chunk_keys, item_and_refs->item, &request)) {
+    // added to the request.
+    AddItemToRequest(streamed_chunk_keys, item_and_refs->item, &request);
+    // The item is being sent right away without batching. It may change in the
+    // future.
+    if (!WriteIfNotEmpty(&request)) {
       return Finish();
     }
   }

@@ -133,9 +133,8 @@ InsertStreamRequest InsertItemRequest(
   }
 
   InsertStreamRequest request;
-  *request.mutable_item()->mutable_keep_chunk_keys() = {keep_chunks.begin(),
-                                                        keep_chunks.end()};
-  *request.mutable_item()->mutable_item() = item;
+  *request.add_items() = std::move(item);
+  *request.mutable_keep_chunk_keys() = {keep_chunks.begin(), keep_chunks.end()};
 
   return request;
 }
@@ -209,7 +208,6 @@ TEST(ReverbServiceImplTest, InsertSameItemWorks) {
   ASSERT_TRUE(insert_stream->Read(&response));
   ASSERT_TRUE(insert_stream->WritesDone());
   REVERB_EXPECT_OK(insert_stream->Finish());
-  PrioritizedItem item = insert_request.item().item();
 }
 
 TEST(ReverbServiceImplTest, SampleAfterInsertWorks) {
@@ -229,7 +227,7 @@ TEST(ReverbServiceImplTest, SampleAfterInsertWorks) {
   ASSERT_TRUE(insert_stream->Read(&response));
   ASSERT_TRUE(insert_stream->WritesDone());
   REVERB_EXPECT_OK(insert_stream->Finish());
-  PrioritizedItem item = insert_request.item().item();
+  PrioritizedItem item = insert_request.items(0);
 
   for (int i = 0; i < 5; i++) {
     grpc::ClientContext sample_context;
@@ -455,7 +453,7 @@ TEST(ReverbServiceImplTest, MutateDeletionWorks) {
   auto stream = stub.InsertStream(&context);
   ASSERT_TRUE(stream->Write(InsertChunkRequest(1)));
   auto insert_request = InsertItemRequest("dist", {1});
-  PrioritizedItem item = insert_request.item().item();
+  PrioritizedItem item = insert_request.items(0);
   ASSERT_TRUE(stream->Write(insert_request));
   InsertStreamResponse response;
   ASSERT_TRUE(stream->Read(&response));
