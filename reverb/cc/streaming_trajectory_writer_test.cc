@@ -567,9 +567,9 @@ TEST(StreamingTrajectoryWriter, CorruptEpisodeOnTransientError) {
               StatusIs(absl::StatusCode::kDataLoss, ""));
 
   // Start a new episode.
-  EXPECT_OK(writer.EndEpisode(true));
+  REVERB_EXPECT_OK(writer.EndEpisode(true));
 
-  EXPECT_OK(writer.Append(Step({MakeTensor(kIntSpec)}), &first));
+  REVERB_EXPECT_OK(writer.Append(Step({MakeTensor(kIntSpec)}), &first));
   REVERB_ASSERT_OK(
       writer.CreateItem("table", 1.0, MakeTrajectory({{first[0]}})));
   REVERB_EXPECT_OK(writer.Flush());
