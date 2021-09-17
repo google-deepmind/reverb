@@ -30,6 +30,7 @@ PYTHON_VERSIONS=3.7 # Options 3.7 (default), 3.8, or 3.9.
 CLEAN=false # Set to true to run bazel clean.
 OUTPUT_DIR=/tmp/reverb/dist/
 PYTHON_TESTS=true
+DEBUG_BUILD=false
 
 ABI=cp36
 PIP_PKG_EXTRA_ARGS="" # Extra args passed to `build_pip_package`.
@@ -43,6 +44,7 @@ if [[ $# -lt 1 ]] ; then
   echo "                    Examples: tensorflow==2.3.0rc0  or tensorflow>=2.3.0]"
   echo "--python_tests  [true (default) to run python tests.]"
   echo "--output_dir  [location to copy .whl file.]"
+  echo "--debug_build  [true to build a debug binary.]"
   exit 1
 fi
 
@@ -66,6 +68,10 @@ while [[ $# -gt -0 ]]; do
       ;;
       --output_dir)
       OUTPUT_DIR="$2"
+      shift
+      ;;
+      --debug_build)
+      DEBUG_BUILD="$2"
       shift
       ;;
       --tf_dep_override)
@@ -114,8 +120,12 @@ for python_version in $PYTHON_VERSIONS; do
   # TODO(b/157223742): Execute Python tests as well.
   bazel test -c opt --copt=-mavx --config=manylinux2010 --test_output=errors //reverb/cc/...
 
+  EXTRA_OPT=""
+  if [ "$DEBUG_BUILD" = "true" ]; then
+     EXTRA_OPT="--copt=-g2"
+  fi
   # Builds Reverb and creates the wheel package.
-  bazel build -c opt --copt=-mavx --config=manylinux2010 reverb/pip_package:build_pip_package
+  bazel build -c opt --copt=-mavx $EXTRA_OPT --config=manylinux2010 reverb/pip_package:build_pip_package
   ./bazel-bin/reverb/pip_package/build_pip_package --dst $OUTPUT_DIR $PIP_PKG_EXTRA_ARGS
 
   # Installs pip package.
