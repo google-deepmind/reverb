@@ -49,6 +49,7 @@ class Writer:
     return self
 
   def __exit__(self, *_):
+    self.flush()
     self.close()
 
   def __del__(self):
