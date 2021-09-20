@@ -126,9 +126,14 @@ std::vector<internal::TensorSpec> FlatSignatureFromTrajectory(
 
 }  // namespace
 
-bool TrajectoryWriter::WriteIfNotEmpty(ArenaOwnedRequest* request) {
+bool TrajectoryWriter::WriteIfNotEmpty(
+    const internal::flat_hash_set<uint64_t>& keep_keys,
+    ArenaOwnedRequest* request) {
   if (request->r.items_size() == 0 && request->r.chunks_size() == 0) {
     return true;
+  }
+  for (uint64_t keep_key : keep_keys) {
+    request->r.add_keep_chunk_keys(keep_key);
   }
   {
     absl::MutexLock lock(&mu_);
@@ -163,7 +168,7 @@ bool TrajectoryWriter::SendNotAlreadySentChunks(
 
     // If the message has grown beyond the cutoff point then we send it.
     if (request->r.ByteSizeLong() >= TrajectoryWriter::kMaxRequestSizeBytes) {
-      if (!WriteIfNotEmpty(request)) {
+      if (!WriteIfNotEmpty(*streamed_chunk_keys, request)) {
         return false;
       }
 
@@ -519,26 +524,19 @@ absl::Status TrajectoryWriter::SetContextAndCreateStream() {
   return absl::OkStatus();
 }
 
-TrajectoryWriter::ItemAndRefs* TrajectoryWriter::GetNextPendingItem() {
-  absl::MutexLock lock(&mu_);
+bool TrajectoryWriter::WaitForPendingItems() {
   auto trigger = [&]() ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_) {
     return !write_queue_.empty() || closed_ || !stream_ok_;
   };
   mu_.Await(absl::Condition(&trigger));
-
-  if (closed_ || !stream_ok_) return nullptr;
-  return write_queue_.front().get();
+  return !closed_ && stream_ok_;
 }
 
 void TrajectoryWriter::AddItemToRequest(
-    const internal::flat_hash_set<uint64_t>& keep_keys,
     const PrioritizedItem& item, ArenaOwnedRequest* request) {
   request->r.mutable_items()->UnsafeArenaAddAllocated(
       const_cast<PrioritizedItem*>(&item));
   request->r.clear_keep_chunk_keys();
-  for (uint64_t keep_key : keep_keys) {
-    request->r.add_keep_chunk_keys(keep_key);
-  }
 }
 
 internal::flat_hash_set<uint64_t> TrajectoryWriter::GetKeepKeys(
@@ -572,10 +570,23 @@ absl::Status TrajectoryWriter::RunStreamWorker() {
   REVERB_RETURN_IF_ERROR(SetContextAndCreateStream());
   internal::flat_hash_set<uint64_t> streamed_chunk_keys;
   ArenaOwnedRequest request;
+
+  // How many more items to add to the current request. When a new request is
+  // started this value is set to the number of currently pending items, so that
+  // all of them are written in one go, but items enqueued in the meantime are
+  // not.
+  int add_items_to_batch = 0;
   while (true) {
-    ItemAndRefs* item_and_refs = GetNextPendingItem();
-    if (item_and_refs == nullptr) {
-      return Finish();
+    ItemAndRefs* item_and_refs;
+    {
+      absl::WriterMutexLock lock(&mu_);
+      if (!WaitForPendingItems()) {
+        break;
+      }
+      if (add_items_to_batch == 0) {
+        add_items_to_batch = write_queue_.size();
+      }
+      item_and_refs = write_queue_.front().get();
     }
 
     // Send referenced chunks which haven't already been sent. This call also
@@ -585,22 +596,26 @@ absl::Status TrajectoryWriter::RunStreamWorker() {
       return Finish();
     }
 
+    // Check whether all chunks referenced by the item have been written to
+    // the stream. If not, then at least one chunk is incomplete and the
+    // worker will wait for the chunk state to change and then retry.
+    if (!ContainsAll(streamed_chunk_keys, item_and_refs->refs)) {
+      // Before going to sleep send ready items for better pipelining.
+      if (!WriteIfNotEmpty(streamed_chunk_keys, &request)) {
+        return Finish();
+      }
+      absl::WriterMutexLock lock(&mu_);
+      // Do a final check that the chunks didn't change since the lock was
+      // last held. If the item still references incomplete chunks then we
+      // sleep until the chunks changed. If all the chunks are now completed
+      // then we move straight to the top of the loop.
+      if (!AllReady(item_and_refs->refs)) {
+        data_cv_.Wait(&mu_);
+      }
+      continue;
+    }
     {
       absl::WriterMutexLock lock(&mu_);
-      // Check whether all chunks referenced by the item have been written to
-      // the stream. If not, then at least one chunk is incomplete and the
-      // worker will wait for the chunk state to change and then retry.
-      if (!ContainsAll(streamed_chunk_keys, item_and_refs->refs)) {
-        // Do a final check that the chunks didn't change since the lock was
-        // last held. If the item still references incomplete chunks then we
-        // sleep until the chunks changed. If all the chunks are now completed
-        // then we move straight to the top of the loop.
-        if (!AllReady(item_and_refs->refs)) {
-          data_cv_.Wait(&mu_);
-        }
-        continue;
-      }
-
       // Item is about to be written - move from write_queue_ to
       // in_flight_items_.
       in_flight_items_[item_and_refs->item.key()] =
@@ -619,13 +634,15 @@ absl::Status TrajectoryWriter::RunStreamWorker() {
 
     // All chunks have been written to the stream so the item can now be
     // added to the request.
-    AddItemToRequest(streamed_chunk_keys, item_and_refs->item, &request);
-    // The item is being sent right away without batching. It may change in the
-    // future.
-    if (!WriteIfNotEmpty(&request)) {
-      return Finish();
+    AddItemToRequest(item_and_refs->item, &request);
+
+    if (--add_items_to_batch == 0) {
+      if (!WriteIfNotEmpty(streamed_chunk_keys, &request)) {
+        return Finish();
+      }
     }
   }
+  return Finish();
 }
 
 absl::Status TrajectoryWriter::Flush(int ignore_last_num_items,

@@ -78,8 +78,8 @@ MATCHER(IsChunkAndItemPtr, "") {
   return arg->chunks_size() == 1 && arg->items_size() > 0;
 }
 
-MATCHER_P2(HasNumChunksAndItem, size, item, "") {
-  return arg.chunks_size() == size && (arg.items_size() > 0) == item;
+MATCHER_P2(HasNumChunksAndItems, chunks, items, "") {
+  return arg.chunks_size() == chunks && arg.items_size() == items;
 }
 
 MATCHER(IsItem, "") { return arg.items_size() > 0; }
@@ -741,34 +741,64 @@ TEST(TrajectoryWriter, ItemIsSentWhenAllChunksDone) {
   // No data is sent yet since the chunks are not completed.
   EXPECT_THAT(async.stream_.requests(), ::testing::IsEmpty());
 
-  // In the second step we only write to the first column. Still there is
-  // no transmission as item is not ready yet.
+  // In the second step we only write to the first column. Only a single chunk
+  // is being transmitted.
   StepRef second;
   REVERB_ASSERT_OK(
       writer.Append(Step({MakeTensor(kIntSpec), absl::nullopt}), &second));
 
-  EXPECT_THAT(async.stream_.requests(), ::testing::IsEmpty());
+  async.stream_.BlockUntilNumRequestsIs(1);
+  EXPECT_THAT(async.stream_.requests(), ElementsAre(IsChunk()));
 
   // Writing to the first column again, even if we do it twice and trigger a new
-  // chunk to be completed, should not trigger any messages.
+  // chunk to be completed, should not trigger any new messages.
   for (int i = 0; i < 2; i++) {
     StepRef refs;
     REVERB_ASSERT_OK(
         writer.Append(Step({MakeTensor(kIntSpec), absl::nullopt}), &refs));
   }
-  EXPECT_THAT(async.stream_.requests(), ::testing::IsEmpty());
+  EXPECT_THAT(async.stream_.requests(), ElementsAre(IsChunk()));
 
   // Writing to the second column will trigger the completion of the chunk in
   // the second column. This in turn should trigger the transmission of the
-  // chunks and the item.
+  // second chunk and the item.
   StepRef third;
   REVERB_ASSERT_OK(
       writer.Append(Step({absl::nullopt, MakeTensor(kIntSpec)}), &third));
 
-  async.stream_.BlockUntilNumRequestsIs(1);
+  async.stream_.BlockUntilNumRequestsIs(2);
 
   EXPECT_THAT(async.stream_.requests(),
-              ElementsAre(HasNumChunksAndItem(2, true)));
+              ElementsAre(IsChunk(), HasNumChunksAndItems(1, 1)));
+}
+
+TEST(TrajectoryWriter, ItemsAreBatched) {
+  AsyncInterface async;
+  auto stub = std::make_shared<MockReverbServiceAsyncStub>();
+  EXPECT_CALL(*stub, async()).WillOnce(Return(&async));
+
+  TrajectoryWriter writer(stub, MakeOptions(/*max_chunk_length=*/1,
+                                            /*num_keep_alive_refs=*/1));
+  StepRef refs;
+  REVERB_ASSERT_OK(writer.Append(Step({MakeTensor(kIntSpec)}), &refs));
+
+  // Make the first item being sent.
+  REVERB_ASSERT_OK(
+      writer.CreateItem("table", 1.0, MakeTrajectory({{refs[0]}})));
+  async.stream_.BlockUntilNumRequestsIs(1);
+  EXPECT_THAT(async.stream_.requests()[0], HasNumChunksAndItems(1, 1));
+
+  while (async.stream_.requests().back().items_size() < 2) {
+    REVERB_ASSERT_OK(
+        writer.CreateItem("table", 1.0, MakeTrajectory({{refs[0]}})));
+  }
+  // The loop above exits upon the first batched request. Below we just check
+  // that all but the first and last request contain no chunks (as all items use
+  // the only chunk sent in the first request).
+  for (int x = 1; x < async.stream_.requests().size() &&
+      async.stream_.requests()[x].items_size() == 1; x++) {
+    EXPECT_THAT(async.stream_.requests()[x], HasNumChunksAndItems(0, 1));
+  }
 }
 
 TEST(TrajectoryWriter, ChunkersNotifiedWhenAllChunksDone) {
@@ -923,12 +953,9 @@ TEST(TrajectoryWriter, RetriesNonConfirmedItemsOnTransientError) {
     REVERB_ASSERT_OK(writer.Append(Step({MakeTensor(kIntSpec)}), &step));
     REVERB_ASSERT_OK(
         writer.CreateItem("table", 1.0, MakeTrajectory({{step[0]}})));
+    fail_stream.stream_.BlockUntilNumRequestsIs(i + 1);
+    writer.OnWriteDone(i == 0);
   }
-
-  fail_stream.stream_.BlockUntilNumRequestsIs(1);
-  writer.OnWriteDone(true);
-  fail_stream.stream_.BlockUntilNumRequestsIs(2);
-  writer.OnWriteDone(false);
   REVERB_ASSERT_OK(writer.Flush());
 
   // The first stream will fail on the second (item). The writer should
@@ -936,9 +963,9 @@ TEST(TrajectoryWriter, RetriesNonConfirmedItemsOnTransientError) {
   // stream. The writer should realise that the first item, even though
   // successfully written to the stream, never got confirmed by the server and
   // send it again when opening a new stream.
-  success_stream.stream_.BlockUntilNumRequestsIs(2);
+  success_stream.stream_.BlockUntilNumRequestsIs(1);
   EXPECT_THAT(success_stream.stream_.requests(),
-              ElementsAre(IsChunkAndItem(), IsChunkAndItem()));
+              ElementsAre(HasNumChunksAndItems(2, 2)));
 }
 
 TEST(TrajectoryWriter,
@@ -1098,7 +1125,7 @@ TEST(TrajectoryWriter, MultipleChunksAreSentInSameMessage) {
 
   // Check that both chunks were sent in the same message.
   EXPECT_THAT(success_stream.stream_.requests(),
-              ElementsAre(HasNumChunksAndItem(2, true)));
+              ElementsAre(HasNumChunksAndItems(2, 1)));
 }
 
 TEST(TrajectoryWriter, MultipleRequestsSentWhenChunksLarge) {
@@ -1134,7 +1161,7 @@ TEST(TrajectoryWriter, MultipleRequestsSentWhenChunksLarge) {
 
   EXPECT_THAT(
       success_stream.stream_.requests(),
-      ElementsAre(HasNumChunksAndItem(2, false), HasNumChunksAndItem(1, true)));
+      ElementsAre(HasNumChunksAndItems(2, 0), HasNumChunksAndItems(1, 1)));
 }
 
 TEST(TrajectoryWriter, CreateItemRejectsExpiredCellRefs) {

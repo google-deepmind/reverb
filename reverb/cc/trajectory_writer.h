@@ -349,19 +349,21 @@ class TrajectoryWriter : public ColumnWriter,
   // has not yet been closed.
   absl::Status SetContextAndCreateStream() ABSL_LOCKS_EXCLUDED(mu_);
 
-  // Blocks until `write_queue_` is non-empty then returns pointer to the front
-  // element. If `reader_stopped` becomes true or `Close` called before
-  // operation could complete, `nullptr` is returned.
-  ItemAndRefs* GetNextPendingItem() ABSL_LOCKS_EXCLUDED(mu_);
+  // Blocks until `write_queue_` is non-empty or the writer is being closed.
+  // False is returned when writer should terminate without processing further
+  // items.
+  bool WaitForPendingItems() ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_);
 
   // Add an item to the insertion request. All chunks
   // referenced by item must have been written to the stream before calling this
   // method.
-  void AddItemToRequest(const internal::flat_hash_set<uint64_t>& keep_keys,
-                const PrioritizedItem& item, ArenaOwnedRequest* request);
+  void AddItemToRequest(const PrioritizedItem& item,
+                        ArenaOwnedRequest* request);
 
-  // Sends a given request to the server (if not empty).
-  bool WriteIfNotEmpty(ArenaOwnedRequest* request) ABSL_LOCKS_EXCLUDED(mu_);
+  // Sends a given request to the server (if not empty). Tells server to keep
+  // specified chunks for processing further requests.
+  bool WriteIfNotEmpty(const internal::flat_hash_set<uint64_t>& keep_keys,
+                       ArenaOwnedRequest* request) ABSL_LOCKS_EXCLUDED(mu_);
 
   // Terminates connection to the server.
   absl::Status Finish() ABSL_LOCKS_EXCLUDED(mu_);
