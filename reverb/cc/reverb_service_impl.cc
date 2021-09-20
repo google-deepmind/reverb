@@ -181,10 +181,7 @@ ReverbServiceImpl::InsertStream(grpc::CallbackServerContext* context) {
           insert_completed_(
               std::make_shared<Table::InsertCallback>([&](uint64_t key) {
                 absl::MutexLock lock(&mu_);
-                if (!read_in_flight_) {
-                  read_in_flight_ = true;
-                  StartRead(&request_);
-                }
+                MaybeStartRead();
                 if (!is_finished_) {
                   // The first element is the one in flight, modify not yet
                   // in flight response if possible.
@@ -196,8 +193,8 @@ ReverbServiceImpl::InsertStream(grpc::CallbackServerContext* context) {
                     MaybeSendNextResponse();
                   }
                 }
-              })),
-          read_in_flight_(true) {
+              })) {
+      absl::MutexLock lock(&mu_);
       MaybeStartRead();
     }
 
@@ -213,7 +210,6 @@ ReverbServiceImpl::InsertStream(grpc::CallbackServerContext* context) {
 
     grpc::Status ProcessIncomingRequest(InsertStreamRequest* request) override
         ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_) {
-      read_in_flight_ = false;
       if (request->chunks_size() == 0 && request->items_size() == 0) {
         return grpc::Status(
             grpc::StatusCode::INVALID_ARGUMENT,
@@ -226,8 +222,7 @@ ReverbServiceImpl::InsertStream(grpc::CallbackServerContext* context) {
       }
       if (request->items_size() == 0) {
         // No item to add to the table - continue reading next requests.
-        read_in_flight_ = true;
-        StartRead(&request_);
+        MaybeStartRead();
         return grpc::Status::OK;
       }
       bool can_insert = true;
@@ -256,8 +251,7 @@ ReverbServiceImpl::InsertStream(grpc::CallbackServerContext* context) {
       if (can_insert) {
         // Insert didn't exceed table's buffer, we can continue reading next
         // requests.
-        read_in_flight_ = true;
-        StartRead(&request_);
+        MaybeStartRead();
       }
       return grpc::Status::OK;
     }
@@ -332,8 +326,6 @@ ReverbServiceImpl::InsertStream(grpc::CallbackServerContext* context) {
 
     // Callback called by the table when insert operation is completed.
     std::shared_ptr<Table::InsertCallback> insert_completed_;
-    // Is there a GRPC read in flight.
-    bool read_in_flight_ ABSL_GUARDED_BY(mu_);
   };
 
   return new WorkerlessInsertReactor(this);
@@ -515,33 +507,32 @@ ReverbServiceImpl::SampleStream(grpc::CallbackServerContext* context) {
           server_(server),
           sampling_done_(std::make_shared<SamplingCallback>(
               [&](Table::SampleRequest* sample) {
-                {
-                  absl::MutexLock lock(&mu_);
-                  waiting_for_enqueued_sample_ = false;
-                  if (!sample->status.ok()) {
-                    if (!is_finished_) {
-                      SetReactorAsFinished(ToGrpcStatus(sample->status));
-                    }
-                    return;
+                absl::MutexLock lock(&mu_);
+                waiting_for_enqueued_sample_ = false;
+                if (!sample->status.ok()) {
+                  if (!is_finished_) {
+                    SetReactorAsFinished(ToGrpcStatus(sample->status));
                   }
-                  task_info_.fetched_samples += sample->samples.size();
-                  bool already_writing = !responses_to_send_.empty();
-                  for (Table::SampledItem& sample : sample->samples) {
-                    ProcessSample(&sample, already_writing);
-                  }
-                  if (!already_writing) {
-                    MaybeSendNextResponse();
-                  }
-                  const int next_batch_size = task_info_.NextSampleSize();
-                  if (next_batch_size != 0) {
-                    MaybeStartSampling();
-                    return;
-                  }
+                  return;
+                }
+                task_info_.fetched_samples += sample->samples.size();
+                bool already_writing = !responses_to_send_.empty();
+                for (Table::SampledItem& sample : sample->samples) {
+                  ProcessSample(&sample, already_writing);
+                }
+                if (!already_writing) {
+                  MaybeSendNextResponse();
+                }
+                const int next_batch_size = task_info_.NextSampleSize();
+                if (next_batch_size != 0) {
+                  MaybeStartSampling();
+                  return;
                 }
                 // Current request is finalized, ask for another one.
                 MaybeStartRead();
               })),
           waiting_for_enqueued_sample_(false) {
+      absl::MutexLock lock(&mu_);
       MaybeStartRead();
     }
 

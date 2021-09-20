@@ -110,6 +110,9 @@ class ReverbServerReactor
   // Once this is true, we cannot write or read. It is used to signal that
   // Finish has been called.
   bool is_finished_ ABSL_GUARDED_BY(mu_) = false;
+
+  // Is there a GRPC read in flight.
+  bool read_in_flight_ ABSL_GUARDED_BY(mu_) = false;
 };
 
 /*****************************************************************************
@@ -132,6 +135,7 @@ void ReverbServerReactor<Request, Response, ResponseCtx>::OnReadDone(
     bool ok) {
   // Read until the client sends a HalfClose or the stream is cancelled.
   absl::MutexLock lock(&mu_);
+  read_in_flight_ = false;
 
   if (!ok || is_finished_) {
     // A half close has been received and thus there will be no more reads.
@@ -204,10 +208,10 @@ void ReverbServerReactor<Request, Response, ResponseCtx>::OnCancel() {
 }
 
 template <class Request, class Response, class ResponseCtx>
-void ReverbServerReactor<Request, Response,
-                              ResponseCtx>::MaybeStartRead() {
-  absl::MutexLock lock(&mu_);
-  if (still_reading_ && !is_finished_) {
+void ReverbServerReactor<Request, Response, ResponseCtx>::MaybeStartRead()
+    ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_) {
+  if (!read_in_flight_ && still_reading_ && !is_finished_) {
+    read_in_flight_ = true;
     grpc::ServerBidiReactor<Request, Response>::StartRead(&request_);
   }
 }

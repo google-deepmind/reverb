@@ -95,6 +95,11 @@ inline absl::Status CheckItemValidity(const Table::Item& item) {
 void Table::FinalizeSampleRequest(std::unique_ptr<Table::SampleRequest> request,
                                   absl::Status status) {
   Table::SampleRequest* r = request.release();
+  // Sampling request could have been already finalized due to a timeout,
+  // in such case it is a nullptr.
+  if (!r) {
+    return;
+  }
   r->status = status;
   callback_executor_->Schedule([r] {
     auto to_notify = r->on_batch_done.lock();
@@ -191,11 +196,6 @@ Table::~Table() {
 
 absl::Status Table::TableWorkerLoop() {
   internal::StateStatistics<TableWorkerState> worker_stats;
-  // Sampling requests that exceeded deadline and should be terminated.
-  std::vector<std::unique_ptr<Table::SampleRequest>> to_terminate;
-  // Status to be send to the already timed out sample requests (changes upon
-  // table shutdown to distinguish between timeout and table shutdown).
-  absl::Status sampling_status = errors::RateLimiterTimeout();
   // Collection of items waiting to the added to the table.
   std::vector<InsertRequest> current_inserts;
   // Index of the next item in the `pending_inserts` to be processed.
@@ -269,8 +269,13 @@ absl::Status Table::TableWorkerLoop() {
       }
     }
     worker_stats.Enter(TableWorkerState::kRunning);
+    // Sampling requests that exceeded deadline and should be terminated.
+    std::vector<std::unique_ptr<Table::SampleRequest>> to_terminate;
     {
       absl::MutexLock lock(&worker_mu_);
+      if (stop_worker_) {
+        break;
+      }
       // `worker_time_distribution_` is protected by `worker_mu_`. We don't want
       // to hold this mutex each time worker stats are updated, so
       // `worker_time_distribution_` is updated periodically.
@@ -303,27 +308,9 @@ absl::Status Table::TableWorkerLoop() {
       }
       auto deadline = absl::Now();
       auto wakeup = absl::InfiniteFuture();
-      {
-        if (stop_worker_) {
-          // We need to terminate all in-flight operations, so collect
-          // requests with the deadline smaller than InfiniteFuture.
-          deadline = absl::InfiniteFuture();
-          sampling_status =
-              absl::CancelledError("RateLimiter has been cancelled");
-          // Also notify pending inserts.
-          NotifyPendingInserts(current_inserts);
-          NotifyPendingInserts(pending_inserts_);
-          current_inserts.clear();
-          pending_inserts_.clear();
-          insert_idx = 0;
-        }
-      }
       GetExpiredRequests(deadline, &current_sampling, &to_terminate, &wakeup);
       GetExpiredRequests(deadline, &pending_sampling_, &to_terminate, &wakeup);
       if (to_terminate.empty()) {
-        if (stop_worker_) {
-          return absl::OkStatus();
-        }
         if (sample_idx < current_sampling.size()) {
           worker_stats.Enter(TableWorkerState::kWaitingForInserts);
         } else if (insert_idx < current_inserts.size()) {
@@ -342,11 +329,36 @@ absl::Status Table::TableWorkerLoop() {
       // Notify sample requests which exceeded deadline.
       absl::MutexLock lock(&mu_);
       for (auto& sample : to_terminate) {
-        FinalizeSampleRequest(std::move(sample), sampling_status);
+        FinalizeSampleRequest(std::move(sample), errors::RateLimiterTimeout());
       }
       to_terminate.clear();
     }
   }
+
+  // Append all enqueued requests to the worker's local lists and terminate
+  // all pending requests.
+  {
+    absl::MutexLock lock(&worker_mu_);
+    current_inserts.insert(
+      current_inserts.end(),
+      std::make_move_iterator(pending_inserts_.begin()),
+      std::make_move_iterator(pending_inserts_.end())
+    );
+    current_sampling.insert(
+      current_sampling.end(),
+      std::make_move_iterator(pending_sampling_.begin()),
+      std::make_move_iterator(pending_sampling_.end())
+    );
+  }
+  auto status = absl::CancelledError("RateLimiter has been cancelled");
+  {
+    absl::MutexLock lock(&mu_);
+    for (auto& r : current_sampling) {
+      FinalizeSampleRequest(std::move(r), status);
+    }
+  }
+  NotifyPendingInserts(current_inserts);
+  return absl::OkStatus();
 }
 
 absl::Status Table::ExtensionsWorkerLoop() {
