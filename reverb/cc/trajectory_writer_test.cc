@@ -220,6 +220,16 @@ class FakeStream : public ::grpc::ClientCallbackReaderWriter<
     return *requests_;
   }
 
+  const int requests_size() const {
+    absl::MutexLock lock(&mu_);
+    return requests_->size();
+  }
+
+  InsertStreamRequest request(int idx) const {
+    absl::MutexLock lock(&mu_);
+    return (*requests_)[idx];
+  }
+
   std::shared_ptr<std::vector<InsertStreamRequest>> requests_ptr() const {
     absl::MutexLock lock(&mu_);
     return requests_;
@@ -788,15 +798,16 @@ TEST(TrajectoryWriter, ItemsAreBatched) {
   async.stream_.BlockUntilNumRequestsIs(1);
   EXPECT_THAT(async.stream_.requests()[0], HasNumChunksAndItems(1, 1));
 
-  while (async.stream_.requests().back().items_size() < 2) {
+  while (async.stream_.request(async.stream_.requests_size() - 1).items_size() <
+         2) {
     REVERB_ASSERT_OK(
         writer.CreateItem("table", 1.0, MakeTrajectory({{refs[0]}})));
   }
   // The loop above exits upon the first batched request. Below we just check
   // that all but the first and last request contain no chunks (as all items use
   // the only chunk sent in the first request).
-  for (int x = 1; x < async.stream_.requests().size() &&
-      async.stream_.requests()[x].items_size() == 1; x++) {
+  for (int x = 1; x < async.stream_.requests_size() &&
+      async.stream_.request(x).items_size() == 1; x++) {
     EXPECT_THAT(async.stream_.requests()[x], HasNumChunksAndItems(0, 1));
   }
 }
