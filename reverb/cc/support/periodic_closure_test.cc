@@ -50,8 +50,8 @@ TEST(PeriodicClosureTest, ObeyInterval) {
   // at time kPeriod, once at time kPeriod*2, up to once at time
   // kPeriod*kCalls.  It could be called fewer times if, say, the machine is
   // overloaded, so let's check that:
-  //   (kCalls - 5) <= actual_calls <= (kCalls + 1).
-  ASSERT_LE(kCalls - 5, actual_calls);
+  //   1 <= actual_calls <= (kCalls + 1).
+  ASSERT_LE(1, actual_calls);
   ASSERT_LE(actual_calls, kCalls + 1);
 }
 
@@ -70,10 +70,10 @@ TEST(PeriodicClosureTest, MinInterval) {
   test::WaitFor([&]() { return actual_calls > 0 && actual_calls < 3; },
                 kCallDuration, 100);
 
+  REVERB_EXPECT_OK(pc.Stop());  // we should be able to Stop()
+
   ASSERT_GT(actual_calls, 0);
   ASSERT_LT(actual_calls, 3);
-
-  REVERB_EXPECT_OK(pc.Stop());  // we should be able to Stop()
 }
 
 std::function<void()> DoNothing() {
