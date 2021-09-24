@@ -808,7 +808,7 @@ TEST(TrajectoryWriter, ItemsAreBatched) {
   // the only chunk sent in the first request).
   for (int x = 1; x < async.stream_.requests_size() &&
       async.stream_.request(x).items_size() == 1; x++) {
-    EXPECT_THAT(async.stream_.requests()[x], HasNumChunksAndItems(0, 1));
+    EXPECT_THAT(async.stream_.request(x), HasNumChunksAndItems(0, 1));
   }
 }
 
@@ -1056,7 +1056,7 @@ TEST(TrajectoryWriter, FlushReturnsIfTimeoutExpired) {
 
   auto stub = std::make_shared<MockReverbServiceAsyncStub>();
   EXPECT_CALL(*stub, async())
-      .WillOnce(Return(&fail_stream));
+      .WillRepeatedly(Return(&fail_stream));
 
   TrajectoryWriter writer(
       stub, MakeOptions(/*max_chunk_length=*/1, /*num_keep_alive_refs=*/1));
@@ -1073,8 +1073,7 @@ TEST(TrajectoryWriter, FlushReturnsIfTimeoutExpired) {
   EXPECT_EQ(status.code(), absl::StatusCode::kDeadlineExceeded);
   EXPECT_THAT(
       std::string(status.message()),
-      ::testing::HasSubstr("Timeout exceeded with 0 items waiting to be "
-                           "written and 1 items awaiting confirmation."));
+      ::testing::HasSubstr("Timeout exceeded"));
 
   // Close the writer to avoid having to mock the item confirmation response.
   writer.Close();
@@ -1627,7 +1626,7 @@ TEST(TrajectoryWriter, EndEpisodeReturnsIfTimeoutExpired) {
   AsyncInterface fail_stream(false);
   auto stub = std::make_shared<MockReverbServiceAsyncStub>();
   EXPECT_CALL(*stub, async())
-     .WillOnce(Return(&fail_stream));
+     .WillRepeatedly(Return(&fail_stream));
 
   TrajectoryWriter writer(
       stub, MakeOptions(/*max_chunk_length=*/2, /*num_keep_alive_refs=*/2));
@@ -1646,8 +1645,7 @@ TEST(TrajectoryWriter, EndEpisodeReturnsIfTimeoutExpired) {
   EXPECT_EQ(status.code(), absl::StatusCode::kDeadlineExceeded);
   EXPECT_THAT(
       std::string(status.message()),
-      ::testing::HasSubstr("Timeout exceeded with 0 items waiting to be "
-                           "written and 1 items awaiting confirmation."));
+      ::testing::HasSubstr("Timeout exceeded"));
 
   // Close the writer to avoid having to mock the item confirmation response.
   writer.Close();

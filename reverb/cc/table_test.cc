@@ -51,6 +51,7 @@ namespace reverb {
 namespace {
 
 const absl::Duration kTimeout = absl::Milliseconds(250);
+const absl::Duration kLongTimeout = absl::Seconds(1);
 
 using ::deepmind::reverb::testing::Partially;
 using ::testing::ElementsAre;
@@ -181,7 +182,7 @@ TEST(TableTest, SampleBlocksWhenNotEnoughItems) {
 
   // Inserting an item should allow the call to complete.
   REVERB_EXPECT_OK(table->InsertOrAssign(MakeItem(3, 123)));
-  EXPECT_TRUE(notification.WaitForNotificationWithTimeout(kTimeout));
+  EXPECT_TRUE(notification.WaitForNotificationWithTimeout(kLongTimeout));
 
   sample_thread = nullptr;  // Joins the thread.
 }
@@ -252,7 +253,7 @@ TEST(TableTest, EnqueSampleRequestSetsRateLimitedIfBlocked) {
         first_done.Notify();
       });
 
-  table->EnqueSampleRequest(1, first_callback, kTimeout);
+  table->EnqueSampleRequest(1, first_callback, kLongTimeout);
 
   // Wait until the worker has picked up the request and gone back to sleep
   // since it was unable to do anything.
@@ -266,7 +267,7 @@ TEST(TableTest, EnqueSampleRequestSetsRateLimitedIfBlocked) {
       MakeItem(1, 1), &can_insert_more,
       std::make_shared<Table::InsertCallback>([](uint64_t) {})));
   ASSERT_TRUE(can_insert_more);
-  ASSERT_TRUE(first_done.WaitForNotificationWithTimeout(kTimeout));
+  ASSERT_TRUE(first_done.WaitForNotificationWithTimeout(kLongTimeout));
   EXPECT_TRUE(rate_limited_item.rate_limited);
 
   absl::Notification second_done;
@@ -277,8 +278,8 @@ TEST(TableTest, EnqueSampleRequestSetsRateLimitedIfBlocked) {
         second_done.Notify();
       });
 
-  table->EnqueSampleRequest(1, second_callback, kTimeout);
-  ASSERT_TRUE(second_done.WaitForNotificationWithTimeout(kTimeout));
+  table->EnqueSampleRequest(1, second_callback, kLongTimeout);
+  ASSERT_TRUE(second_done.WaitForNotificationWithTimeout(kLongTimeout));
   EXPECT_FALSE(not_rate_limited_item.rate_limited);
 }
 
@@ -345,7 +346,7 @@ TEST(TableTest, UseAsQueue) {
     EXPECT_THAT(item, HasSampledItemKey(i));
   }
 
-  EXPECT_TRUE(insert.WaitForNotificationWithTimeout(kTimeout));
+  EXPECT_TRUE(insert.WaitForNotificationWithTimeout(kLongTimeout));
 
   insert_thread = nullptr;  // Joins the thread.
 
@@ -363,7 +364,7 @@ TEST(TableTest, UseAsQueue) {
 
   // Inserting a new item should result in it being sampled straight away.
   REVERB_EXPECT_OK(queue.InsertOrAssign(MakeItem(100, 123)));
-  EXPECT_TRUE(sample.WaitForNotificationWithTimeout(kTimeout));
+  EXPECT_TRUE(sample.WaitForNotificationWithTimeout(kLongTimeout));
 
   EXPECT_EQ(queue.size(), 0);
 
@@ -442,7 +443,7 @@ TEST(TableTest, CloseCancelsPendingCalls) {
 
   table->Close();
 
-  EXPECT_TRUE(notification.WaitForNotificationWithTimeout(kTimeout));
+  EXPECT_TRUE(notification.WaitForNotificationWithTimeout(kLongTimeout));
   REVERB_EXPECT_OK(status);
 
   thread = nullptr;  // Joins the thread.
@@ -475,7 +476,7 @@ TEST(TableTest, ResetResetsRateLimiter) {
   // Resetting the table should unblock new inserts.
   REVERB_ASSERT_OK(table->Reset());
 
-  EXPECT_TRUE(notification.WaitForNotificationWithTimeout(kTimeout));
+  EXPECT_TRUE(notification.WaitForNotificationWithTimeout(kLongTimeout));
 
   thread = nullptr;  // Joins the thread.
 }
@@ -618,7 +619,7 @@ TEST(TableTest, BlocksSamplesWhenSizeToSmallDueToAutoDelete) {
 
   // Inserting a new item should unblock the sampling.
   REVERB_EXPECT_OK(table->InsertOrAssign(MakeItem(4, 1)));
-  EXPECT_TRUE(notification.WaitForNotificationWithTimeout(kTimeout));
+  EXPECT_TRUE(notification.WaitForNotificationWithTimeout(kLongTimeout));
 
   sample_thread = nullptr;  // Joins the thread.
 }
@@ -657,7 +658,7 @@ TEST(TableTest, BlocksSamplesWhenSizeToSmallDueToExplicitDelete) {
 
   // Inserting a new item should unblock the sampling.
   REVERB_EXPECT_OK(table->InsertOrAssign(MakeItem(4, 1)));
-  EXPECT_TRUE(notification.WaitForNotificationWithTimeout(kTimeout));
+  EXPECT_TRUE(notification.WaitForNotificationWithTimeout(kLongTimeout));
 
   sample_thread = nullptr;  // Joins the thread.
 
@@ -701,6 +702,7 @@ TEST(TableTest, SampleSetsTableSize) {
 }
 
 TEST(PriorityTableDeathTest, DiesIfUnsafeAddExtensionCalledWhenNonEmpty) {
+  ::testing::GTEST_FLAG(death_test_style) = "threadsafe";
   auto table = MakeUniformTable("dist");
   REVERB_EXPECT_OK(table->InsertOrAssign(MakeItem(1, 1)));
   ASSERT_DEATH(table->UnsafeAddExtension(nullptr), "");
@@ -787,12 +789,14 @@ TEST(TableTest, NumDeletedEpisodes) {
 }
 
 TEST(TableDeathTest, SetNumDeletedEpisodesFromCheckpointOnNonEmptyTable) {
+  ::testing::GTEST_FLAG(death_test_style) = "threadsafe";
   auto table = MakeUniformTable("dist");
   REVERB_EXPECT_OK(table->InsertOrAssign(MakeItem(1, 1)));
   ASSERT_DEATH(table->set_num_deleted_episodes_from_checkpoint(1), "");
 }
 
 TEST(TableDeathTest, SetNumDeletedEpisodesFromCheckpointCalledTwice) {
+  ::testing::GTEST_FLAG(death_test_style) = "threadsafe";
   auto table = MakeUniformTable("dist");
   table->set_num_deleted_episodes_from_checkpoint(1);
   ASSERT_DEATH(table->set_num_deleted_episodes_from_checkpoint(1), "");
