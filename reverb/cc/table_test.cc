@@ -242,6 +242,17 @@ TEST(TableTest, SampleFlexibleBatchRequireEmptyOutputVector) {
           "Table::SampleFlexibleBatch called with non-empty output vector."));
 }
 
+TEST(TableTest, SampleNotFullBatch) {
+  auto table = MakeUniformTable("dist", 10, 1);
+
+  REVERB_EXPECT_OK(table->InsertOrAssign(MakeItem(3, 123)));
+
+  std::vector<Table::SampledItem> items;
+
+  REVERB_ASSERT_OK(table->SampleFlexibleBatch(&items, 2));
+  EXPECT_EQ(items.size(), 1);
+}
+
 TEST(TableTest, EnqueSampleRequestSetsRateLimitedIfBlocked) {
   auto table = MakeUniformTable("table");
 

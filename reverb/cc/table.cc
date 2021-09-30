@@ -312,6 +312,17 @@ absl::Status Table::TableWorkerLoop() {
       GetExpiredRequests(deadline, &pending_sampling_, &to_terminate, &wakeup);
       if (to_terminate.empty()) {
         if (sample_idx < current_sampling.size()) {
+          if (!current_sampling[sample_idx]->samples.empty()) {
+            // No more data to sample, so send out already sampled items for the
+            // current sampling batch.
+            worker_stats.Enter(TableWorkerState::kActivelySampling);
+            {
+              absl::MutexLock table_lock(&mu_);
+              FinalizeSampleRequest(std::move(current_sampling[sample_idx]),
+                                    absl::OkStatus());
+              sample_idx++;
+            }
+          }
           worker_stats.Enter(TableWorkerState::kWaitingForInserts);
         } else if (insert_idx < current_inserts.size()) {
           worker_stats.Enter(TableWorkerState::kWaitingForSamples);
