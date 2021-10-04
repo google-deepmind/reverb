@@ -16,7 +16,7 @@
 
 import datetime
 import itertools
-from typing import Any, Iterator, List, Mapping, Optional, Sequence, Tuple, Union
+from typing import Any, Iterator, List, Mapping, MutableMapping, MutableSequence, Optional, Sequence, Tuple, Union
 
 import numpy as np
 from reverb import errors
@@ -118,7 +118,7 @@ class TrajectoryWriter:
     # Mapping from structured paths (i.e as received from
     # `tree.flatten_with_path`) to position in `_column_history`. This is used
     # in `_flatten`.
-    self._path_to_column_index: Mapping[str, int] = {}
+    self._path_to_column_index: MutableMapping[str, int] = {}
 
     # The inverse of `_path_to_column_index`. That is the mapping describes the
     # swaps required to go from the order of `column_history` (and the C++
@@ -526,7 +526,7 @@ class _ColumnHistory:
         history.
     """
     self._path = path
-    self._data_references: Sequence[Optional[pybind.WeakCellRef]] = (
+    self._data_references: MutableSequence[Optional[pybind.WeakCellRef]] = (
         [None] * history_padding)
 
   def append(self, ref: Optional[pybind.WeakCellRef]):
