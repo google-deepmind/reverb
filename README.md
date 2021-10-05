@@ -313,11 +313,11 @@ Checkpointing is done with a call from the Reverb `Client`:
 checkpoint_path = client.checkpoint()
 ```
 
-To restore the a `reverb.Server` from a checkpoint:
+To restore the `reverb.Server` from a checkpoint:
 
 ```python
 checkpointer = reverb.checkpointers.DefaultCheckpointer(path=checkpoint_path)
-# The arguments passed to `tables=` must be the as those used by the `Server`
+# The arguments passed to `tables=` must be the  as those used by the `Server`
 # that wrote the checkpoint.
 server = reverb.Server(tables=[...], checkpointer=checkpointer)
 ```
