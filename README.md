@@ -317,7 +317,7 @@ To restore the `reverb.Server` from a checkpoint:
 
 ```python
 checkpointer = reverb.checkpointers.DefaultCheckpointer(path=checkpoint_path)
-# The arguments passed to `tables=` must be the  as those used by the `Server`
+# The arguments passed to `tables=` must be the same as those used by the `Server`
 # that wrote the checkpoint.
 server = reverb.Server(tables=[...], checkpointer=checkpointer)
 ```
