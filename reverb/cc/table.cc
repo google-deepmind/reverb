@@ -226,7 +226,6 @@ absl::Status Table::TableWorkerLoop() {
         worker_stats.Enter(TableWorkerState::kActivelyInserting);
         if (insert_idx < current_inserts.size() &&
             rate_limiter_->CanInsert(&mu_, 1)) {
-          rate_limiter_->CreateInstantInsertEvent(&mu_);
           uint64_t id = current_inserts[insert_idx].item->item.key();
           REVERB_RETURN_IF_ERROR(InsertOrAssignInternal(
               std::move(current_inserts[insert_idx].item)));

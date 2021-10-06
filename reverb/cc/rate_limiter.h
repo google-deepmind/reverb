@@ -81,10 +81,6 @@ class RateLimiter {
   bool CanInsert(absl::Mutex* mu, int num_inserts) const
       ABSL_SHARED_LOCKS_REQUIRED(mu);
 
-  // Creates an insert stats event.
-  void CreateInstantInsertEvent(absl::Mutex* mu)
-      ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu);
-
   // Creates a checkpoint of the current state for the rate limiter.
   RateLimiterCheckpoint CheckpointReader(absl::Mutex* mu) const
       ABSL_SHARED_LOCKS_REQUIRED(mu);
@@ -134,28 +130,6 @@ class RateLimiter {
 
   // Total number of items that has been deleted from the table.
   int64_t deletes_;
-
-  // The StatsManager maintains a circular buffer of `RateLimiterEvent` and a
-  // set of all time stats for calls of a single type (sample/insert).
-  class StatsManager {
-   public:
-    StatsManager();
-
-    // Creates an event using the current time as `start`.
-    void CreateEvent(absl::Mutex* mu) ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu);
-
-    // Encode the current state as a `RateLimiterCallStats`-proto.
-    void ToProto(absl::Mutex* mu, RateLimiterCallStats* proto) const
-        ABSL_SHARED_LOCKS_REQUIRED(mu);
-
-   private:
-    // Number of calls that have been completed.
-    int64_t completed_;
-  };
-
-  // Summary statistics and a (large) buffers of recent events.
-  StatsManager insert_stats_;
-  StatsManager sample_stats_;
 };
 
 }  // namespace reverb

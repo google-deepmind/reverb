@@ -55,9 +55,7 @@ RateLimiter::RateLimiter(double samples_per_insert, int64_t min_size_to_sample,
       min_size_to_sample_(min_size_to_sample),
       inserts_(0),
       samples_(0),
-      deletes_(0),
-      insert_stats_(),
-      sample_stats_() {
+      deletes_(0) {
   REVERB_CHECK_GT(min_size_to_sample, 0);
 }
 
@@ -119,9 +117,6 @@ bool RateLimiter::MaybeCommitSample(absl::Mutex* mu) {
   if (!CanSample(mu, 1)) {
     return false;
   }
-  // Create and complete the event to register that the sample was completed
-  // without any rate limiting.
-  sample_stats_.CreateEvent(mu);
   samples_++;
   return true;
 }
@@ -135,10 +130,6 @@ bool RateLimiter::CanInsert(absl::Mutex*, int num_inserts) const {
 
   double diff = (num_inserts + inserts_) * samples_per_insert_ - samples_;
   return diff <= max_diff_;
-}
-
-void RateLimiter::CreateInstantInsertEvent(absl::Mutex* mu) {
-  insert_stats_.CreateEvent(mu);
 }
 
 RateLimiterCheckpoint RateLimiter::CheckpointReader(absl::Mutex*) const {
@@ -156,8 +147,8 @@ RateLimiterCheckpoint RateLimiter::CheckpointReader(absl::Mutex*) const {
 
 RateLimiterInfo RateLimiter::Info(absl::Mutex* mu) const {
   RateLimiterInfo info_proto = InfoWithoutCallStats();
-  insert_stats_.ToProto(mu, info_proto.mutable_insert_stats());
-  sample_stats_.ToProto(mu, info_proto.mutable_sample_stats());
+  info_proto.mutable_insert_stats()->set_completed(inserts_);
+  info_proto.mutable_sample_stats()->set_completed(samples_);
   return info_proto;
 }
 
@@ -174,20 +165,6 @@ std::string RateLimiter::DebugString() const {
   return absl::StrCat("RateLimiter(samples_per_insert=", samples_per_insert_,
                       ", min_diff_=", min_diff_, ", max_diff=", max_diff_,
                       ", min_size_to_sample=", min_size_to_sample_, ")");
-}
-
-RateLimiter::StatsManager::StatsManager()
-    : completed_(0) {}
-
-void RateLimiter::StatsManager::CreateEvent(absl::Mutex* mu)
-    ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu) {
-  completed_++;
-}
-
-void RateLimiter::StatsManager::ToProto(absl::Mutex* mu,
-                                        RateLimiterCallStats* proto) const
-    ABSL_SHARED_LOCKS_REQUIRED(mu) {
-  proto->set_completed(completed_);
 }
 
 }  // namespace reverb
