@@ -106,6 +106,11 @@ class Table {
   static constexpr int64_t kMaxPendingExtensionOps = 1000;
   static constexpr float kMaxPendingExtensionOpsPerc = 0.1;
 
+  // Multiple `ChunkData` can be sent with the same `SampleStreamResponseCtx`.
+  // If the size of the message exceeds this value then the request is sent and
+  // the remaining chunks are sent with other messages.
+  static constexpr int64_t kMaxSampleResponseSizeBytes = 1 * 1024 * 1024;  // 1MB.
+
   struct SampleRequest;
   using Key = ItemSelector::Key;
   using Item = TableItem;
@@ -339,9 +344,6 @@ class Table {
   // Asserts that `mu_` is held at runtime and calls UpdateItem.
   absl::Status UnsafeUpdateItem(Key key, double priority)
       ABSL_ASSERT_EXCLUSIVE_LOCK(mu_);
-
-  // Suggestion of default batch size to use in `SampleFlexibleBatch`.
-  int32_t DefaultFlexibleBatchSize() const;
 
   // Returns a summary string description.
   std::string DebugString() const;

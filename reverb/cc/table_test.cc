@@ -864,40 +864,6 @@ TEST(TableTest, Info) {
               )pb"));
 }
 
-TEST(TableTest, DefaultFlexibleBatchSize) {
-  // If a sample to insert ratio is set then that should be used.
-  Table samples_per_insert_table(
-      /*name=*/"samples_per_insert_table",
-      /*sampler=*/std::make_shared<UniformSelector>(),
-      /*remover=*/std::make_shared<FifoSelector>(),
-      /*max_size=*/100,
-      /*max_times_sampled=*/0,
-      /*rate_limiter=*/std::make_shared<RateLimiter>(3.0, 5, -10, 10));
-  EXPECT_EQ(samples_per_insert_table.DefaultFlexibleBatchSize(), 3);
-
-  // If a min size limiter is used without `max_times_sampled` then it should
-  // default to a batch size of 64.
-  Table min_size_table(
-      /*name=*/"min_size_table",
-      /*sampler=*/std::make_shared<UniformSelector>(),
-      /*remover=*/std::make_shared<FifoSelector>(),
-      /*max_size=*/100,
-      /*max_times_sampled=*/0,
-      /*rate_limiter=*/std::make_shared<RateLimiter>(1, 5, -DBL_MAX, DBL_MIN));
-  EXPECT_EQ(min_size_table.DefaultFlexibleBatchSize(), 64);
-
-  // If a min size limiter is used and `max_times_sampled` is set then it should
-  // default to `max_times_sampled`.
-  Table max_times_sampled_table(
-      /*name=*/"max_times_sampled_table",
-      /*sampler=*/std::make_shared<UniformSelector>(),
-      /*remover=*/std::make_shared<FifoSelector>(),
-      /*max_size=*/100,
-      /*max_times_sampled=*/11,
-      /*rate_limiter=*/std::make_shared<RateLimiter>(1, 5, -DBL_MAX, DBL_MIN));
-  EXPECT_EQ(max_times_sampled_table.DefaultFlexibleBatchSize(), 11);
-}
-
 TEST(TableTest, InsertOrAssignOfItemWithoutTrajectory) {
   auto table = MakeUniformTable("dist");
 

@@ -139,12 +139,10 @@ InsertStreamRequest InsertItemRequest(
   return request;
 }
 
-SampleStreamRequest SampleRequest(absl::string_view table, int num_samples,
-                                  int flexible_batch_size = -1) {
+SampleStreamRequest SampleRequest(absl::string_view table, int num_samples) {
   SampleStreamRequest request;
   request.set_table(table.data(), table.size());
   request.set_num_samples(num_samples);
-  request.set_flexible_batch_size(flexible_batch_size);
 
   return request;
 }
@@ -232,7 +230,7 @@ TEST(ReverbServiceImplTest, SampleAfterInsertWorks) {
   for (int i = 0; i < 5; i++) {
     grpc::ClientContext sample_context;
     auto sample_stream = stub.SampleStream(&sample_context);
-    SampleStreamRequest sample_request = SampleRequest("dist", 2, 2);
+    SampleStreamRequest sample_request = SampleRequest("dist", 2);
     SampleStreamResponse sample_response;
     SampleStreamResponse sample_response2;
     sample_stream->Write(sample_request);

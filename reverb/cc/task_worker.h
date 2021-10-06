@@ -42,18 +42,14 @@ struct InsertTaskInfo {
 struct SampleTaskInfo {
   absl::Duration timeout;        // Timeout used when running the callback.
   std::shared_ptr<Table> table;  // Table to sample from.
-  int32_t flexible_batch_size;     // Batch size for sampling.
   int32_t fetched_samples;  // Number of samples fetched before this task.
   int32_t requested_samples;  // Number of total samples requested.
+  int32_t last_batch_size;  // # of items retrieved in the previous response.
   std::string DebugString() const {
     return absl::StrFormat(
         "SampleTask{table: %s, requested_samples: %d, samples_fetched_so_far: "
         "%d}",
         table->name(), requested_samples, fetched_samples);
-  }
-  int NextSampleSize() const {
-    return std::min<int>(flexible_batch_size,
-                         requested_samples - fetched_samples);
   }
 };
 

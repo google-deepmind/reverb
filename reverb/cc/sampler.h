@@ -262,14 +262,9 @@ class Sampler {
 
     // --- EXPERIMENTAL ---
     //
-    // The maximum number of items to sampled from `Table` with single call.
-    // Values > 1 enables `Table::SampleFlexibleBatch` to return more than one
-    // item (but no more than `flexible_batch_size`) in a single call without
-    // releasing the table lock iff the rate limiter allows it.
-    //
-    // When set to `kAutoSelectValue`, `kDefaultFlexibleBatchSize` is used.
+    // Deprecated and unused.
+    // TODO(b/201275395): Remove.
     int flexible_batch_size = kAutoSelectValue;
-
     // Checks that field values are valid and returns `InvalidArgument` if any
     // field value invalid.
     absl::Status Validate() const;

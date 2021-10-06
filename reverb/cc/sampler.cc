@@ -50,6 +50,11 @@ namespace deepmind {
 namespace reverb {
 namespace {
 
+// Initial sampling batch size is kept relatively low to not allocate a lot
+// of memory for the response when table is close to empty and only a few items
+// can be fetched.
+constexpr int64_t kInitialSampleBatchSize = 8;
+
 template <typename T>
 tensorflow::Tensor InitializeTensor(T value, int64_t length) {
   tensorflow::Tensor tensor(tensorflow::DataTypeToEnum<T>::v(),
@@ -170,12 +175,10 @@ class GrpcSamplerWorker : public SamplerWorker {
   // Constructs a new worker without creating a stream to a server.
   GrpcSamplerWorker(
       std::shared_ptr</* grpc_gen:: */ReverbService::StubInterface> stub,
-      std::string table_name, int64_t samples_per_request,
-      int flexible_batch_size)
+      std::string table_name, int64_t samples_per_request)
       : stub_(std::move(stub)),
         table_name_(std::move(table_name)),
-        samples_per_request_(samples_per_request),
-        flexible_batch_size_(flexible_batch_size) {}
+        samples_per_request_(samples_per_request) {}
 
   // Cancels the stream and marks the worker as closed. Active and future
   // calls to `OpenStreamAndFetch` will return status `CANCELLED`.
@@ -217,7 +220,6 @@ class GrpcSamplerWorker : public SamplerWorker {
           std::min(samples_per_request_, num_samples - num_samples_returned));
       request.mutable_rate_limiter_timeout()->set_milliseconds(
           NonnegativeDurationToInt64Millis(rate_limiter_timeout));
-      request.set_flexible_batch_size(flexible_batch_size_);
 
       if (!stream->Write(request)) {
         return {num_samples_returned, FromGrpcStatus(stream->Finish())};
@@ -292,11 +294,6 @@ class GrpcSamplerWorker : public SamplerWorker {
   // The maximum number of samples to request in a "batch".
   const int64_t samples_per_request_;
 
-  // Upper limit of the number of items that may be sampled in a single call
-  // to
-  // `Table::SampleFlexibleBatch` (lock not released between samples).
-  const int flexible_batch_size_;
-
   // Context of the active stream.
   std::unique_ptr<grpc::ClientContext> context_ ABSL_GUARDED_BY(mu_);
 
@@ -309,9 +306,11 @@ class GrpcSamplerWorker : public SamplerWorker {
 class LocalSamplerWorker : public SamplerWorker {
  public:
   // Constructs a new worker without creating a stream to a server.
-  LocalSamplerWorker(std::shared_ptr<Table> table, int flexible_batch_size)
-      : table_(table), flexible_batch_size_(flexible_batch_size) {
-    REVERB_CHECK_GE(flexible_batch_size_, 1);
+  LocalSamplerWorker(std::shared_ptr<Table> table,
+                     int max_in_flight_samples)
+      : table_(table),
+        max_in_flight_samples_(max_in_flight_samples) {
+    REVERB_CHECK_GE(max_in_flight_samples_, 1);
   }
 
   void Cancel() override {
@@ -326,6 +325,7 @@ class LocalSamplerWorker : public SamplerWorker {
     auto final_deadline = absl::Now() + rate_limiter_timeout;
 
     int64_t num_samples_returned = 0;
+    int64_t prev_batch_size = kInitialSampleBatchSize;
     while (num_samples_returned < num_samples) {
       {
         absl::MutexLock lock(&mu_);
@@ -341,13 +341,16 @@ class LocalSamplerWorker : public SamplerWorker {
       auto timeout =
           std::min(final_deadline, absl::Now() + kWakeupTimeout) - absl::Now();
 
-      // Select the biggest batch size constrained by`flexible_batch_size_` and
-      // the number of samples remaining.
-      auto batch_size = std::min<int>(flexible_batch_size_,
-                                      num_samples - num_samples_returned);
+      // Try to double previously returned response batch size while not
+      // exceeding the limits.
+      auto batch_size =
+          std::min<int64_t>(max_in_flight_samples_,
+                          std::min<int64_t>(2 * prev_batch_size,
+                                          num_samples - num_samples_returned));
 
       std::vector<Table::SampledItem> items;
       auto status = table_->SampleFlexibleBatch(&items, batch_size, timeout);
+      prev_batch_size = items.size();
 
       // If the deadline is exceeded but the "real deadline" is still in the
       // future then we are only waking up to check for cancellation.
@@ -395,7 +398,7 @@ class LocalSamplerWorker : public SamplerWorker {
 
  private:
   std::shared_ptr<Table> table_;
-  const int flexible_batch_size_;
+  const int64_t max_in_flight_samples_;
   bool closed_ ABSL_GUARDED_BY(mu_) = false;
   absl::Mutex mu_;
 };
@@ -425,8 +428,7 @@ std::vector<std::unique_ptr<SamplerWorker>> MakeGrpcWorkers(
   workers.reserve(num_workers);
   for (int i = 0; i < num_workers; i++) {
     workers.push_back(absl::make_unique<GrpcSamplerWorker>(
-        stub, table_name, options.max_in_flight_samples_per_worker,
-        options.flexible_batch_size));
+        stub, table_name, options.max_in_flight_samples_per_worker));
   }
 
   return workers;
@@ -436,26 +438,12 @@ std::vector<std::unique_ptr<SamplerWorker>> MakeLocalWorkers(
     std::shared_ptr<Table> table, const Sampler::Options& options) {
   int64_t num_workers = GetNumWorkers(options);
   REVERB_CHECK_GE(num_workers, 1);
-  int flexible_batch_size =
-      options.flexible_batch_size == Sampler::kAutoSelectValue
-          ? table->DefaultFlexibleBatchSize()
-          : options.flexible_batch_size;
-
-  // Local workers do not send `SampleStreamRequest` and thus will not make
-  // explicit use of `max_in_flight_samples_per_worker`. It would however be
-  // incorrect to allow more than `max_in_flight_samples_per_worker` to be
-  // sampled in a simple call so we limit `flexible_batch_size` by it. This will
-  // have the desired effect as workers fetch new samples once the previous
-  // batch has been depleted effectively limiting the number of in flight items
-  // to `flexible_batch_size` (and thus `max_in_flight_samples_per_worker`).
-  flexible_batch_size =
-      std::min(flexible_batch_size, options.max_in_flight_samples_per_worker);
 
   std::vector<std::unique_ptr<SamplerWorker>> workers;
   workers.reserve(num_workers);
   for (int i = 0; i < num_workers; ++i) {
-    workers.push_back(
-        absl::make_unique<LocalSamplerWorker>(table, flexible_batch_size));
+    workers.push_back(absl::make_unique<LocalSamplerWorker>(
+        table, options.max_in_flight_samples_per_worker));
   }
   return workers;
 }
@@ -487,8 +475,6 @@ Sampler::Sampler(std::vector<std::unique_ptr<SamplerWorker>> workers,
   REVERB_CHECK_GT(options.max_in_flight_samples_per_worker, 0);
   REVERB_CHECK(options.num_workers == kAutoSelectValue ||
                options.num_workers > 0);
-  REVERB_CHECK(options.flexible_batch_size == kAutoSelectValue ||
-               options.flexible_batch_size > 0);
 
   for (int i = 0; i < workers_.size(); i++) {
     worker_threads_.push_back(internal::StartThread(

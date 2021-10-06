@@ -206,6 +206,9 @@ absl::Status Table::TableWorkerLoop() {
   int sample_idx = 0;
   // Whether the next sample was rate limited.
   bool rate_limited = false;
+  // Response size of the currently processed sampling request. Used to make
+  // sure response doesn't exceed a certain size limit.
+  int current_sampling_response_size_bytes = 0;
 
   // Progress of handling insert/sample requests. Used for detecting whether
   // worker has something to do (making progress) or should go to sleep.
@@ -252,13 +255,23 @@ absl::Status Table::TableWorkerLoop() {
           auto& request = current_sampling[sample_idx];
           while (rate_limiter_->MaybeCommitSample(&mu_)) {
             progress++;
+            if (request->samples.empty()) {
+              current_sampling_response_size_bytes = 0;
+            }
             request->samples.emplace_back();
             REVERB_RETURN_IF_ERROR(
                 SampleInternal(rate_limited, &request->samples.back()));
             // Capacity of the samples collection indicates how many items
             // should be sampled.
-            if (request->samples.capacity() == request->samples.size()) {
+            for (const auto& chunk : request->samples.back().ref->chunks) {
+              current_sampling_response_size_bytes += chunk->DataByteSizeLong();
+            }
+            if (request->samples.capacity() == request->samples.size() ||
+                current_sampling_response_size_bytes >=
+                    kMaxSampleResponseSizeBytes) {
               // Finalized request is moved out of sampling_requests.
+              // As we break from the request processing loop, there is no need
+              // to reset current_sampling_response_size_bytes.
               FinalizeSampleRequest(std::move(request), absl::OkStatus());
               sample_idx++;
               break;
@@ -1047,31 +1060,6 @@ void Table::set_num_unique_samples_from_checkpoint(int64_t value) {
   absl::MutexLock lock(&mu_);
   REVERB_CHECK(data_.empty() && num_unique_samples_ == 0);
   num_unique_samples_ = value;
-}
-
-int32_t Table::DefaultFlexibleBatchSize() const {
-  const auto& rl_info = rate_limiter_->InfoWithoutCallStats();
-  // When a samples per insert ratio is provided then match the batch size with
-  // the ratio. Bigger values can result in worse performance when the error
-  // range (min_diff -> max_diff) is small.
-  if (rl_info.samples_per_insert() > 1) {
-    return rl_info.samples_per_insert();
-  }
-
-  // If a min size limiter is used then we allow for big batches (64) to enable
-  // the samplers to run almost completely unconstrained. If a max_times_sampled
-  // is used then we reduce the batch size to avoid a single sample stream
-  // consuming all the items and starving the other. Note that we check for
-  // negative error buffers as very large/small max/min diffs could result in
-  // overflow (which only occurs when using a min size limiter).
-  double error_buffer = rl_info.max_diff() - rl_info.min_diff();
-  if (rl_info.samples_per_insert() == 1 &&
-      (error_buffer > max_size_ * 1000 || error_buffer < 0)) {
-    return max_times_sampled_ < 1 ? 64 : max_times_sampled_;
-  }
-
-  // If all else fails, default to one sample per call.
-  return 1;
 }
 
 std::string Table::DebugString() const {

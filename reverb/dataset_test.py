@@ -738,7 +738,8 @@ class LocalReplayDatasetTest(tf.test.TestCase, parameterized.TestCase):
                                     np.ones((3, 3), dtype=np.int32))
 
   @parameterized.parameters(1, 3, 7)
-  def test_respects_flexible_batch_size(self, flexible_batch_size):
+  def test_respects_max_in_flight_samples_per_worker(
+      self, max_in_flight_samples_per_worker):
     if not self.USE_LOCALHOST:
       self.skipTest('TODO(b/190761815): test broken in Nonlocal case')
 
@@ -750,8 +751,7 @@ class LocalReplayDatasetTest(tf.test.TestCase, parameterized.TestCase):
         table='dist',
         dtypes=(tf.int32,),
         shapes=(tf.TensorShape([3, 3]),),
-        max_in_flight_samples_per_worker=100,
-        flexible_batch_size=flexible_batch_size)
+        max_in_flight_samples_per_worker=max_in_flight_samples_per_worker)
 
     iterator = dataset.make_initializable_iterator()
     dataset_item = iterator.get_next()
@@ -760,8 +760,10 @@ class LocalReplayDatasetTest(tf.test.TestCase, parameterized.TestCase):
     for _ in range(100):
       self.evaluate(dataset_item)
 
-      # Check that the buffer is incremented by steps of flexible_batch_size.
-      self.assertEqual(self._get_num_samples('dist') % flexible_batch_size, 0)
+      # Check that the buffer is incremented by steps of
+      # max_in_flight_samples_per_worker.
+      self.assertEqual(
+          self._get_num_samples('dist') % max_in_flight_samples_per_worker, 0)
 
   def test_iterate_over_batched_blobs(self):
     for _ in range(10):

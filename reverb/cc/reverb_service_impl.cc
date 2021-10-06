@@ -57,8 +57,19 @@ namespace {
 
 // Multiple `ChunkData` can be sent with the same `SampleStreamResponseCtx`. If
 // the size of the message exceeds this value then the request is sent and the
-// remaining chunks are sent with other messages.
-static constexpr int64_t kMaxSampleResponseSizeBytes = 1 * 1024 * 1024;  // 1MB.
+// remaining chunks are sent with other messages. The value is set to twice the
+// size of the table's sample response to avoid a situation when table's
+// response slightly exceeding the size limit will be split into 2 messages (one
+// close to the limit and one tiny). That could happen otherwise, as table has
+// per-item size resolution while the message - per chunk.
+static constexpr int64_t kMaxSampleResponseSizeBytes =
+    2 * Table::kMaxSampleResponseSizeBytes;
+
+// Initial sampling batch size (adjusted on each iteration later on). It is
+// relatively high to limit the number of small response round trips. The cost
+// of trying to retrieve a big batch when the table is empty is hidden by the
+// cost of establishing GRPC connection anyway.
+constexpr int64_t kInitialGrpcSampleBatchSize = 64;
 
 // How often to check whether callback execution finished before deleting
 // reactor.
@@ -515,6 +526,7 @@ ReverbServiceImpl::SampleStream(grpc::CallbackServerContext* context) {
                   }
                   return;
                 }
+                task_info_.last_batch_size = sample->samples.size();
                 task_info_.fetched_samples += sample->samples.size();
                 bool already_writing = !responses_to_send_.empty();
                 for (Table::SampledItem& sample : sample->samples) {
@@ -523,13 +535,13 @@ ReverbServiceImpl::SampleStream(grpc::CallbackServerContext* context) {
                 if (!already_writing) {
                   MaybeSendNextResponse();
                 }
-                const int next_batch_size = task_info_.NextSampleSize();
-                if (next_batch_size != 0) {
+                if (task_info_.requested_samples ==
+                    task_info_.fetched_samples) {
+                  // Current request is finalized, ask for another one.
+                  MaybeStartRead();
+                } else {
                   MaybeStartSampling();
-                  return;
                 }
-                // Current request is finalized, ask for another one.
-                MaybeStartRead();
               })),
           waiting_for_enqueued_sample_(false) {
       absl::MutexLock lock(&mu_);
@@ -559,14 +571,6 @@ ReverbServiceImpl::SampleStream(grpc::CallbackServerContext* context) {
                             absl::StrCat("`num_samples` must be > 0 (got",
                                          request->num_samples(), ")."));
       }
-      if (request->flexible_batch_size() <= 0 &&
-          request->flexible_batch_size() != Sampler::kAutoSelectValue) {
-        return grpc::Status(
-            grpc::StatusCode::INVALID_ARGUMENT,
-            absl::StrCat("`flexible_batch_size` must be > 0 or ",
-                         Sampler::kAutoSelectValue, " (for auto tuning). Got",
-                         request->flexible_batch_size(), "."));
-      }
       if (request->has_rate_limiter_timeout() &&
           request->rate_limiter_timeout().milliseconds() > 0) {
         task_info_.timeout =
@@ -579,10 +583,6 @@ ReverbServiceImpl::SampleStream(grpc::CallbackServerContext* context) {
       if (task_info_.table == nullptr) {
         return TableNotFound(request->table());
       }
-      task_info_.flexible_batch_size =
-          request->flexible_batch_size() == Sampler::kAutoSelectValue
-              ? task_info_.table->DefaultFlexibleBatchSize()
-              : request->flexible_batch_size();
       task_info_.fetched_samples = 0;
       task_info_.requested_samples = request->num_samples();
       MaybeStartSampling();
@@ -591,17 +591,26 @@ ReverbServiceImpl::SampleStream(grpc::CallbackServerContext* context) {
 
    private:
     void MaybeStartSampling() ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_) {
-      const int next_batch_size = task_info_.NextSampleSize();
+      // We start with a batch size of `kInitialGrpcSampleBatchSize` to not
+      // pre-allocate too long response vector if there is not enough items in
+      // the table. Each time batch size doubles. Response size is limited by
+      // the table based on the payload size.
+      const int next_batch_size = std::min<int>(
+          task_info_.fetched_samples == 0 ? kInitialGrpcSampleBatchSize
+                                          : 2 * task_info_.last_batch_size,
+          task_info_.requested_samples - task_info_.fetched_samples);
       if (next_batch_size == 0) {
-        // Current request has been fully processed.
+        // Current request has been fully processed, no more sampling needed.
         return;
       }
       if (waiting_for_enqueued_sample_) {
-        // There is already an inflight sample request.
+        // There is already an inflight sample request, sampling will be
+        // triggered by the sampling callback.
         return;
       }
       if (responses_to_send_.size() >= kMaxQueuedResponses) {
-        // There are too many pending responses to send to the client.
+        // There are too many pending responses to send to the client, sampling
+        // will be triggered by OnWriteDone callback.
         return;
       }
       waiting_for_enqueued_sample_ = true;
