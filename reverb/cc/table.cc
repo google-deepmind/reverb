@@ -829,7 +829,7 @@ void Table::ExtensionOperation(ExtensionRequest::CallType type,
     return;
   }
   while (extension_requests_.size() >= max_enqueued_extension_ops_) {
-    // TODO(stanczyk): Track time spent waiting here.
+    // TODO(b/202245365): Track time spent waiting here.
     extension_buffer_available_cv_.Wait(&mu_);
   }
   ExtensionItem e_item(item);
