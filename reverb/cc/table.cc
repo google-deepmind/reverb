@@ -622,12 +622,9 @@ void Table::EnqueSampleRequest(int num_samples,
   {
     absl::MutexLock lock(&worker_mu_);
     if (stop_worker_) {
-      request->status = absl::CancelledError(
-          "EnqueSampleRequest: RateLimiter has been cancelled");
-      auto to_notify = request->on_batch_done.lock();
-      if (to_notify != nullptr) {
-        (*to_notify)(request.get());
-      }
+      absl::MutexLock table_lock(&mu_);
+      FinalizeSampleRequest(std::move(request), absl::CancelledError(
+          "EnqueSampleRequest: RateLimiter has been cancelled"));
       return;
     }
     pending_sampling_.push_back(std::move(request));

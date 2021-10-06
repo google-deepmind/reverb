@@ -981,6 +981,30 @@ TEST(TableTest, CloseWithWorker) {
   notification.WaitForNotification();
 }
 
+TEST(TableTest, SampleFromClosedTable) {
+  absl::Notification notification;
+  absl::Mutex mu;
+  auto callback = std::make_shared<Table::SamplingCallback>(
+      [&](Table::SampleRequest* sample) {
+        absl::MutexLock lock(&mu);
+        EXPECT_EQ(sample->status.code(), absl::StatusCode::kCancelled);
+        EXPECT_THAT(
+            std::string(sample->status.message()),
+            ::testing::HasSubstr(
+                "EnqueSampleRequest: RateLimiter has been cancelled"));
+        notification.Notify();
+      });
+  auto table = MakeUniformTable("table");
+  table->Close();
+  {
+    // Make sure that callback is not executed on the same thread to avoid
+    // hangs.
+    absl::MutexLock lock(&mu);
+    table->EnqueSampleRequest(100, callback);
+  }
+  notification.WaitForNotification();
+}
+
 }  // namespace
 }  // namespace reverb
 }  // namespace deepmind
