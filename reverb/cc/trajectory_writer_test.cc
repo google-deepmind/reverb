@@ -782,36 +782,6 @@ TEST(TrajectoryWriter, ItemIsSentWhenAllChunksDone) {
               ElementsAre(IsChunk(), HasNumChunksAndItems(1, 1)));
 }
 
-TEST(TrajectoryWriter, ItemsAreBatched) {
-  AsyncInterface async;
-  auto stub = std::make_shared<MockReverbServiceAsyncStub>();
-  EXPECT_CALL(*stub, async()).WillOnce(Return(&async));
-
-  TrajectoryWriter writer(stub, MakeOptions(/*max_chunk_length=*/1,
-                                            /*num_keep_alive_refs=*/1));
-  StepRef refs;
-  REVERB_ASSERT_OK(writer.Append(Step({MakeTensor(kIntSpec)}), &refs));
-
-  // Make the first item being sent.
-  REVERB_ASSERT_OK(
-      writer.CreateItem("table", 1.0, MakeTrajectory({{refs[0]}})));
-  async.stream_.BlockUntilNumRequestsIs(1);
-  EXPECT_THAT(async.stream_.requests()[0], HasNumChunksAndItems(1, 1));
-
-  while (async.stream_.request(async.stream_.requests_size() - 1).items_size() <
-         2) {
-    REVERB_ASSERT_OK(
-        writer.CreateItem("table", 1.0, MakeTrajectory({{refs[0]}})));
-  }
-  // The loop above exits upon the first batched request. Below we just check
-  // that all but the first and last request contain no chunks (as all items use
-  // the only chunk sent in the first request).
-  for (int x = 1; x < async.stream_.requests_size() &&
-      async.stream_.request(x).items_size() == 1; x++) {
-    EXPECT_THAT(async.stream_.request(x), HasNumChunksAndItems(0, 1));
-  }
-}
-
 TEST(TrajectoryWriter, ChunkersNotifiedWhenAllChunksDone) {
   class FakeChunkerOptions : public ChunkerOptions {
    public:
