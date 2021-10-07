@@ -326,6 +326,36 @@ Refer to
 [tfrecord_checkpointer.h](https://github.com/deepmind/reverb/tree/master/reverb/cc/platform/tfrecord_checkpointer.h)
 for details on the implementation of checkpointing in Reverb.
 
+## Starting Reverb using `reverb_server` (beta)
+
+Installing `dm-reverb` using `pip` will install a `reverb_server` script, which
+accepts its config as a textproto. For example:
+
+```bash
+$ reverb_server --config="
+port: 8000
+tables: {
+  table_name: \"my_table\"
+  sampler: {
+    fifo: true
+  }
+  remover: {
+    fifo: true
+  }
+  max_size: 200 max_times_sampled: 5
+  rate_limiter: {
+    min_size_to_sample: 1
+    samples_per_insert: 1
+    min_diff: $(python3 -c "import sys; print(-sys.float_info.max)")
+    max_diff: $(python3 -c "import sys; print(sys.float_info.max)")
+  }
+}"
+```
+
+The `rate_limiter` config is equivalent to the Python expression `MinSize(1)`,
+see `rate_limiters.py`.
+
+
 ## Citation
 
 If you use this code, please cite the

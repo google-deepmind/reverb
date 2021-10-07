@@ -94,7 +94,7 @@ def reverb_cc_proto_library(name, srcs = [], deps = [], **kwargs):
             "@tensorflow_includes//:protos",
         ],
         cmd = """
-        OUTDIR=$$(echo $(RULEDIR) | sed -e 's#reverb/.*##')
+        OUTDIR=$$(echo $(RULEDIR) | sed -E -e 's#reverb(/.*|$$)##')
         $(location @protobuf_protoc//:protoc_bin) \
           --proto_path=external/tensorflow_includes/tensorflow_includes/ \
           --proto_path=. \
@@ -141,7 +141,7 @@ def reverb_py_proto_library(name, srcs = [], deps = [], **kwargs):
        files.
 
     Args:
-      name: The name, should end with "_cc_proto".
+      name: The name, should end with "_py_pb2".
       srcs: The .proto files.
       deps: Any reverb_cc_proto_library targets.
       **kwargs: Any additional args for the cc_library rule.
@@ -169,7 +169,7 @@ def reverb_py_proto_library(name, srcs = [], deps = [], **kwargs):
             "@tensorflow_includes//:protos",
         ],
         cmd = """
-        OUTDIR=$$(echo $(RULEDIR) | sed -e 's#reverb/.*##')
+        OUTDIR=$$(echo $(RULEDIR) | sed -E -e 's#reverb(/.*|$$)##')
         $(location @protobuf_protoc//:protoc_bin) \
           --proto_path=external/tensorflow_includes/tensorflow_includes/ \
           --proto_path=. \
@@ -343,6 +343,8 @@ def reverb_pytype_library(**kwargs):
 
 reverb_pytype_strict_library = native.py_library
 
+reverb_pytype_strict_binary = native.py_binary
+
 def _make_search_paths(prefix, levels_to_root):
     return ",".join(
         [
@@ -508,6 +510,8 @@ def reverb_py_test(
         python_version = "PY3",
         **kwargs):
     size = kwargs.pop("size", "small")
+    if "enable_dashboard" in kwargs:
+        kwargs.pop("enable_dashboard")
     native.py_test(
         name = name,
         size = size,

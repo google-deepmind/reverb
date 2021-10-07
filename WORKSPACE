@@ -38,6 +38,9 @@ http_archive(
     ],
 )
 
+# Note that the Python dependencies are not tracked by bazel here, but
+# in setup.py.
+
 ## Begin GRPC related deps
 http_archive(
     name = "com_github_grpc_grpc",

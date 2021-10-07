@@ -16,6 +16,7 @@ load(
     _reverb_pybind_deps = "reverb_pybind_deps",
     _reverb_pybind_extension = "reverb_pybind_extension",
     _reverb_pytype_library = "reverb_pytype_library",
+    _reverb_pytype_strict_binary = "reverb_pytype_strict_binary",
     _reverb_pytype_strict_library = "reverb_pytype_strict_library",
     _reverb_tf_deps = "reverb_tf_deps",
     _reverb_tf_ops_visibility = "reverb_tf_ops_visibility",
@@ -36,5 +37,6 @@ reverb_pybind_deps = _reverb_pybind_deps
 reverb_pybind_extension = _reverb_pybind_extension
 reverb_pytype_library = _reverb_pytype_library
 reverb_pytype_strict_library = _reverb_pytype_strict_library
+reverb_pytype_strict_binary = _reverb_pytype_strict_binary
 reverb_tf_ops_visibility = _reverb_tf_ops_visibility
 reverb_tf_deps = _reverb_tf_deps

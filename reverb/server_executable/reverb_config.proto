@@ -1,0 +1,10 @@
+syntax = "proto3";
+
+package deepmind.reverb;
+
+import "reverb/cc/checkpointing/checkpoint.proto";
+
+message ReverbServerConfig {
+  repeated PriorityTableCheckpoint tables = 1;
+  int32 port = 2;
+}

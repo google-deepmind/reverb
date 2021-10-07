@@ -21,5 +21,6 @@ sh_binary(
         ":licenses",
         ":reverb_version",
         "//reverb",
+        "//reverb/server_executable:server_main",
     ],
 )

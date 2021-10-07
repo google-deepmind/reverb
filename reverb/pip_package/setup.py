@@ -134,6 +134,11 @@ class SetupToolsHelper(object):
         cmdclass={
             'install': InstallCommand,
         },
+        entry_points={
+            'console_scripts': [
+                'reverb_server=reverb.server_executable.server_main:app_run_main'
+            ],
+        },
         python_requires='>=3',
         classifiers=[
             'Development Status :: 3 - Alpha',
