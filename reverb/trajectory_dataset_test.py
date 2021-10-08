@@ -139,16 +139,6 @@ class TrajectoryDatasetTest(tf.test.TestCase, parameterized.TestCase):
           'max_in_flight_samples_per_worker': -1,
           'want_error': ValueError,
       },
-      {
-          'testcase_name': 'flexible_batch_size_is_minus_2',
-          'flexible_batch_size': -2,
-          'want_error': ValueError,
-      },
-      {
-          'testcase_name': 'flexible_batch_size_is_0',
-          'flexible_batch_size': 0,
-          'want_error': ValueError,
-      },
   )
   def test_sampler_parameter_validation(self, **kwargs):
     if 'max_in_flight_samples_per_worker' not in kwargs:
@@ -179,8 +169,7 @@ class TrajectoryDatasetTest(tf.test.TestCase, parameterized.TestCase):
         table=tf.constant(TABLE),
         dtypes=DTYPES,
         shapes=SHAPES,
-        max_in_flight_samples_per_worker=1,
-        flexible_batch_size=1)
+        max_in_flight_samples_per_worker=1)
 
     tree.assert_same_structure(
         self._sample_from(dataset, 1)[0],
@@ -213,8 +202,7 @@ class TrajectoryDatasetTest(tf.test.TestCase, parameterized.TestCase):
             'last': tf.TensorShape([3, 3]),
             'all': tf.TensorShape([None, 3, 3]),
         },
-        max_in_flight_samples_per_worker=1,
-        flexible_batch_size=1)
+        max_in_flight_samples_per_worker=1)
 
     # Continue sample until we have observed all the trajectories.
     seen_lengths = set()

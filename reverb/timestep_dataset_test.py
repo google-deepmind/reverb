@@ -178,16 +178,6 @@ class TimestepDatasetTest(tf.test.TestCase, parameterized.TestCase):
           'max_in_flight_samples_per_worker': -1,
           'want_error': ValueError,
       },
-      {
-          'testcase_name': 'flexible_batch_size_is_minus_2',
-          'flexible_batch_size': -2,
-          'want_error': ValueError,
-      },
-      {
-          'testcase_name': 'flexible_batch_size_is_0',
-          'flexible_batch_size': 0,
-          'want_error': ValueError,
-      },
   )
   def test_sampler_parameter_validation(self, **kwargs):
     dtypes = (tf.float32,)
@@ -213,8 +203,7 @@ class TimestepDatasetTest(tf.test.TestCase, parameterized.TestCase):
         table=tf.constant('dist'),
         dtypes=(tf.float32,),
         shapes=(tf.TensorShape([3, 3]),),
-        max_in_flight_samples_per_worker=100,
-        flexible_batch_size=2)
+        max_in_flight_samples_per_worker=100)
     got = self._sample_from(dataset, 10)
     for sample in got:
       self.assertIsInstance(sample, replay_sample.ReplaySample)

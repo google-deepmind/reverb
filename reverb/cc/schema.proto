@@ -2,7 +2,6 @@ syntax = "proto3";
 
 package deepmind.reverb;
 
-import "google/protobuf/duration.proto";
 import "google/protobuf/timestamp.proto";
 import "tensorflow/core/framework/tensor.proto";
 import "tensorflow/core/protobuf/struct.proto";

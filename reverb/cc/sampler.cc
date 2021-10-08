@@ -892,11 +892,6 @@ absl::Status Sampler::Options::Validate() const {
         "rate_limiter_timeout (", absl::FormatDuration(rate_limiter_timeout),
         ") must not be negative."));
   }
-  if (flexible_batch_size < 1 && flexible_batch_size != kAutoSelectValue) {
-    return absl::InvalidArgumentError(
-        absl::StrCat("flexible_batch_size (", flexible_batch_size, ") must be ",
-                     kAutoSelectValue, " or >= 1"));
-  }
   return absl::OkStatus();
 }
 

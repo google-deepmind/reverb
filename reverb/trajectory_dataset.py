@@ -47,8 +47,7 @@ class TrajectoryDataset(tf.data.Dataset):
                max_in_flight_samples_per_worker: int,
                num_workers_per_iterator: int = -1,
                max_samples_per_stream: int = -1,
-               rate_limiter_timeout_ms: int = -1,
-               flexible_batch_size: int = -1):
+               rate_limiter_timeout_ms: int = -1):
     """Constructs a new TrajectoryDataset.
 
     Args:
@@ -79,16 +78,6 @@ class TrajectoryDataset(tf.data.Dataset):
           allow sampling. The first time that a request times out (across any of
           the workers), the Dataset iterator is closed and the sequence is
           considered finished.
-      flexible_batch_size: (Defaults to -1: auto selected) The maximum number of
-        items to sampled from `Table` with single call. Values > 1 enables
-        `Table::SampleFlexibleBatch` to return more than one item (but no more
-          than `flexible_batch_size`) in a single call without releasing the
-          table lock iff the rate limiter allows it. NOTE! It is unlikely that
-          you need to tune this value yourself. The auto selected value should
-          almost always be preferred. Larger `flexible_batch_size` values result
-          a bias towards sampling over inserts. In highly overloaded systems
-          this results in higher sample QPS and lower insert QPS compared to
-          lower `flexible_batch_size` values.
 
     Raises:
       ValueError: If `dtypes` and `shapes` don't share the same structure.
@@ -97,7 +86,6 @@ class TrajectoryDataset(tf.data.Dataset):
       ValueError: If `num_workers_per_iterator` is not a positive integer or -1.
       ValueError: If `max_samples_per_stream` is not a positive integer or -1.
       ValueError: If `rate_limiter_timeout_ms < -1`.
-      ValueError: If `flexible_batch_size` is not a positive integer or -1.
     """
     tree.assert_same_structure(dtypes, shapes, False)
     if max_in_flight_samples_per_worker < 1:
@@ -115,10 +103,6 @@ class TrajectoryDataset(tf.data.Dataset):
     if rate_limiter_timeout_ms < -1:
       raise ValueError('rate_limiter_timeout_ms (%d) must be an integer >= -1' %
                        rate_limiter_timeout_ms)
-    if flexible_batch_size < 1 and flexible_batch_size != -1:
-      raise ValueError(
-          'flexible_batch_size (%d) must be a positive integer or -1' %
-          flexible_batch_size)
 
     # Add the info fields (all scalars).
     dtypes = replay_sample.ReplaySample(
@@ -144,7 +128,6 @@ class TrajectoryDataset(tf.data.Dataset):
     self._num_workers_per_iterator = num_workers_per_iterator
     self._max_samples_per_stream = max_samples_per_stream
     self._rate_limiter_timeout_ms = rate_limiter_timeout_ms
-    self._flexible_batch_size = flexible_batch_size
 
     if _is_tf1_runtime():
       # Disabling to avoid errors given the different tf.data.Dataset init args
@@ -164,8 +147,7 @@ class TrajectoryDataset(tf.data.Dataset):
                            num_workers_per_iterator: int = -1,
                            max_samples_per_stream: int = -1,
                            rate_limiter_timeout_ms: int = -1,
-                           get_signature_timeout_secs: Optional[int] = None,
-                           flexible_batch_size: int = -1):
+                           get_signature_timeout_secs: Optional[int] = None):
     """Constructs a TrajectoryDataset using the table's signature to infer specs.
 
     Note: The target `Table` must specify a signature which represent the entire
@@ -182,7 +164,6 @@ class TrajectoryDataset(tf.data.Dataset):
       get_signature_timeout_secs: Timeout in seconds to wait for server to
         respond when fetching the table signature. By default no timeout is set
         and the call will block indefinitely if the server does not respond.
-      flexible_batch_size: See __init__ for details.
 
     Returns:
       TrajectoryDataset using the specs defined by the table signature to build
@@ -217,8 +198,7 @@ class TrajectoryDataset(tf.data.Dataset):
         max_in_flight_samples_per_worker=max_in_flight_samples_per_worker,
         num_workers_per_iterator=num_workers_per_iterator,
         max_samples_per_stream=max_samples_per_stream,
-        rate_limiter_timeout_ms=rate_limiter_timeout_ms,
-        flexible_batch_size=flexible_batch_size)
+        rate_limiter_timeout_ms=rate_limiter_timeout_ms)
 
   def _as_variant_tensor(self):
     return gen_reverb_ops.reverb_trajectory_dataset(
@@ -229,8 +209,7 @@ class TrajectoryDataset(tf.data.Dataset):
         max_in_flight_samples_per_worker=self._max_in_flight_samples_per_worker,
         num_workers_per_iterator=self._num_workers_per_iterator,
         max_samples_per_stream=self._max_samples_per_stream,
-        rate_limiter_timeout_ms=self._rate_limiter_timeout_ms,
-        flexible_batch_size=self._flexible_batch_size)
+        rate_limiter_timeout_ms=self._rate_limiter_timeout_ms)
 
   def _inputs(self) -> List[Any]:
     return []

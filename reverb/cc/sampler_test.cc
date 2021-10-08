@@ -614,7 +614,6 @@ TEST(LocalSamplerTest, RespectsMaxInFlightItems) {
   Sampler::Options options;
   options.max_samples = 100;
   options.max_in_flight_samples_per_worker = 3;
-  options.flexible_batch_size = 5;
   Sampler sampler(table, options);
 
   for (int i = 0; i < options.max_samples; i++) {
@@ -1099,16 +1098,6 @@ TEST(SamplerOptionsTest, ValidateChecksRateLimiterTimeout) {
   EXPECT_EQ(options.Validate().code(), absl::StatusCode::kInvalidArgument);
   options.rate_limiter_timeout = absl::ZeroDuration();
   REVERB_EXPECT_OK(options.Validate());
-}
-
-TEST(SamplerOptionsTest, ValidateChecksFlexibleBatchSize) {
-  Sampler::Options options;
-  options.flexible_batch_size = 0;
-  EXPECT_EQ(options.Validate().code(), absl::StatusCode::kInvalidArgument);
-  options.flexible_batch_size = Sampler::kAutoSelectValue;
-  REVERB_EXPECT_OK(options.Validate());
-  options.flexible_batch_size = -2;
-  EXPECT_EQ(options.Validate().code(), absl::StatusCode::kInvalidArgument);
 }
 
 }  // namespace

@@ -260,11 +260,6 @@ class Sampler {
     // `Close` is called, whichever comes first.
     absl::Duration rate_limiter_timeout = absl::InfiniteDuration();
 
-    // --- EXPERIMENTAL ---
-    //
-    // Deprecated and unused.
-    // TODO(b/201275395): Remove.
-    int flexible_batch_size = kAutoSelectValue;
     // Checks that field values are valid and returns `InvalidArgument` if any
     // field value invalid.
     absl::Status Validate() const;
