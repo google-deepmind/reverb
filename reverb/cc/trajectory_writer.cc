@@ -50,15 +50,40 @@ class ArenaOwnedRequest {
   ~ArenaOwnedRequest() { Clear(); }
 
   void Clear() {
-    while (!r.chunks().empty()) {
-      r.mutable_chunks()->UnsafeArenaReleaseLast();
+    while (!r_.chunks().empty()) {
+      r_.mutable_chunks()->UnsafeArenaReleaseLast();
     }
-    while (!r.items().empty()) {
-      r.mutable_items()->UnsafeArenaReleaseLast();
+    while (!r_.items().empty()) {
+      r_.mutable_items()->UnsafeArenaReleaseLast();
     }
-    r.clear_keep_chunk_keys();
+    r_.clear_keep_chunk_keys();
+    request_size_bytes_ = 0;
   }
-  InsertStreamRequest r;
+  inline const InsertStreamRequest& Request() {
+    return r_;
+  }
+  inline void AddAllocatedChunks(ChunkData* data) {
+    r_.mutable_chunks()->UnsafeArenaAddAllocated(data);
+    request_size_bytes_ += data->ByteSizeLong();
+  }
+  inline int64_t RequestSize() {
+    return request_size_bytes_;
+  }
+  inline void AddKeepChunkKeys(uint64_t keep_key) {
+    r_.add_keep_chunk_keys(keep_key);
+    request_size_bytes_ += sizeof(uint64_t);
+  }
+  inline void AddItem(const PrioritizedItem& item) {
+    r_.mutable_items()->UnsafeArenaAddAllocated(
+      const_cast<PrioritizedItem*>(&item));
+    request_size_bytes_ += item.ByteSizeLong();
+    request_size_bytes_ -= r_.keep_chunk_keys_size() * sizeof(uint64_t);
+    r_.clear_keep_chunk_keys();
+  }
+
+ private:
+  InsertStreamRequest r_;
+  int64_t request_size_bytes_ = 0;
 };
 
 namespace {
@@ -129,11 +154,11 @@ std::vector<internal::TensorSpec> FlatSignatureFromTrajectory(
 bool TrajectoryWriter::WriteIfNotEmpty(
     const internal::flat_hash_set<uint64_t>& keep_keys,
     ArenaOwnedRequest* request) {
-  if (request->r.items_size() == 0 && request->r.chunks_size() == 0) {
+  if (request->RequestSize() == 0) {
     return true;
   }
   for (uint64_t keep_key : keep_keys) {
-    request->r.add_keep_chunk_keys(keep_key);
+    request->AddKeepChunkKeys(keep_key);
   }
   {
     absl::MutexLock lock(&mu_);
@@ -141,7 +166,7 @@ bool TrajectoryWriter::WriteIfNotEmpty(
   }
   grpc::WriteOptions options;
   options.set_no_compression();
-  StartWrite(&request->r, options);
+  StartWrite(&request->Request(), options);
   {
     absl::MutexLock lock(&mu_);
     auto trigger = [&]() ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_) {
@@ -162,12 +187,12 @@ bool TrajectoryWriter::SendNotAlreadySentChunks(
     if (!ref->IsReady() || streamed_chunk_keys->contains(ref->chunk_key())) {
       continue;
     }
-    request->r.mutable_chunks()->UnsafeArenaAddAllocated(
-        const_cast<ChunkData*>(ref->GetChunk()->get()));
+    ChunkData* chunk_data = const_cast<ChunkData*>(ref->GetChunk()->get());
+    request->AddAllocatedChunks(chunk_data);
     streamed_chunk_keys->insert(ref->chunk_key());
 
     // If the message has grown beyond the cutoff point then we send it.
-    if (request->r.ByteSizeLong() >= TrajectoryWriter::kMaxRequestSizeBytes) {
+    if (request->RequestSize() >= TrajectoryWriter::kMaxRequestSizeBytes) {
       if (!WriteIfNotEmpty(*streamed_chunk_keys, request)) {
         return false;
       }
@@ -532,13 +557,6 @@ bool TrajectoryWriter::WaitForPendingItems() {
   return !closed_ && stream_ok_;
 }
 
-void TrajectoryWriter::AddItemToRequest(
-    const PrioritizedItem& item, ArenaOwnedRequest* request) {
-  request->r.mutable_items()->UnsafeArenaAddAllocated(
-      const_cast<PrioritizedItem*>(&item));
-  request->r.clear_keep_chunk_keys();
-}
-
 internal::flat_hash_set<uint64_t> TrajectoryWriter::GetKeepKeys(
     const internal::flat_hash_set<uint64_t>& streamed_chunk_keys) const {
   internal::flat_hash_set<uint64_t> keys;
@@ -634,7 +652,7 @@ absl::Status TrajectoryWriter::RunStreamWorker() {
 
     // All chunks have been written to the stream so the item can now be
     // added to the request.
-    AddItemToRequest(item_and_refs->item, &request);
+    request.AddItem(item_and_refs->item);
 
     if (--add_items_to_batch == 0) {
       if (!WriteIfNotEmpty(streamed_chunk_keys, &request)) {
