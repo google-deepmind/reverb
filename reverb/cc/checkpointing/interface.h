@@ -46,11 +46,11 @@ class Checkpointer {
   // Finds the most recent checkpoint within the active workspace. See `Load`
   // for more details.
   virtual absl::Status LoadLatest(
-      ChunkStore* chunk_store, std::vector<std::shared_ptr<Table>>* tables) = 0;
+      std::vector<std::shared_ptr<Table>>* tables) = 0;
 
   // Attempts to load a specific fallback checkpoint, if provided.
   virtual absl::Status LoadFallbackCheckpoint(
-      ChunkStore* chunk_store, std::vector<std::shared_ptr<Table>>* tables) = 0;
+      std::vector<std::shared_ptr<Table>>* tables) = 0;
 
   // Returns a summary string description.
   virtual std::string DebugString() const = 0;

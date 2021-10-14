@@ -94,13 +94,11 @@ class TFRecordCheckpointer : public Checkpointer {
                     std::vector<std::shared_ptr<Table>>* tables) override;
 
   // Finds the most recent checkpoint within `root_dir_` and calls `Load`.
-  absl::Status LoadLatest(ChunkStore* chunk_store,
-                          std::vector<std::shared_ptr<Table>>* tables) override;
+  absl::Status LoadLatest(std::vector<std::shared_ptr<Table>>* tables) override;
 
   // Attempts to load the fallback checkpoint. If no fallback_checkpoint_path
   // was set or if the no checkpoint found then `NotFoundError` is returned.
   absl::Status LoadFallbackCheckpoint(
-      ChunkStore* chunk_store,
       std::vector<std::shared_ptr<Table>>* tables) override;
 
   // Returns a summary string description.

@@ -24,7 +24,6 @@
 #include "absl/strings/string_view.h"
 #include "absl/time/time.h"
 #include "reverb/cc/checkpointing/interface.h"
-#include "reverb/cc/chunk_store.h"
 #include "reverb/cc/task_worker.h"
 #include "reverb/cc/platform/hash_map.h"
 #include "reverb/cc/reverb_service.grpc.pb.h"
@@ -141,10 +140,7 @@ class ReverbServiceImpl : public /* grpc_gen:: */ReverbService::CallbackService 
   // `Checkpoint` will return an `InvalidArgumentError`.
   std::shared_ptr<Checkpointer> checkpointer_;
 
-  // Stores chunks and keeps references to them.
-  ChunkStore chunk_store_;
-
-  // Priority tables. Must be destroyed after `chunk_store_`.
+  // Priority tables.
   internal::flat_hash_map<std::string, std::shared_ptr<Table>> tables_;
 
   absl::BitGen rnd_;

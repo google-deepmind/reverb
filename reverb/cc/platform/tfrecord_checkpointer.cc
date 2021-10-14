@@ -381,7 +381,8 @@ absl::Status TFRecordCheckpointer::Load(
 }
 
 absl::Status TFRecordCheckpointer::LoadLatest(
-    ChunkStore* chunk_store, std::vector<std::shared_ptr<Table>>* tables) {
+    std::vector<std::shared_ptr<Table>>* tables) {
+  ChunkStore chunk_store;
   REVERB_LOG(REVERB_INFO) << "Loading latest checkpoint from " << root_dir_;
   std::vector<std::string> filenames;
   REVERB_RETURN_IF_ERROR(
@@ -392,7 +393,7 @@ absl::Status TFRecordCheckpointer::LoadLatest(
     if (HasDone(*it)) {
       return Load(
           tensorflow::io::JoinPath(root_dir_, tensorflow::io::Basename(*it)),
-          chunk_store, tables);
+          &chunk_store, tables);
     }
   }
   return absl::NotFoundError(
@@ -400,12 +401,13 @@ absl::Status TFRecordCheckpointer::LoadLatest(
 }
 
 absl::Status TFRecordCheckpointer::LoadFallbackCheckpoint(
-    ChunkStore* chunk_store, std::vector<std::shared_ptr<Table>>* tables) {
+    std::vector<std::shared_ptr<Table>>* tables) {
+  ChunkStore chunk_store;
   if (!fallback_checkpoint_path_.has_value()) {
     return absl::NotFoundError("No fallback checkpoint path provided.");
   }
   if (HasDone(fallback_checkpoint_path_.value())) {
-    return Load(fallback_checkpoint_path_.value(), chunk_store, tables);
+    return Load(fallback_checkpoint_path_.value(), &chunk_store, tables);
   }
   return absl::NotFoundError(absl::StrCat("No checkpoint found in ",
                                           fallback_checkpoint_path_.value()));

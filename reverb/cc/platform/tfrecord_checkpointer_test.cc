@@ -250,17 +250,15 @@ TEST(TFRecordCheckpointerTest, KeepLatestZeroReturnsError) {
 
 TEST(TFRecordCheckpointerTest, LoadLatestInEmptyDir) {
   TFRecordCheckpointer checkpointer(MakeRoot());
-  ChunkStore chunk_store;
   std::vector<std::shared_ptr<Table>> tables;
-  EXPECT_EQ(checkpointer.LoadLatest(&chunk_store, &tables).code(),
+  EXPECT_EQ(checkpointer.LoadLatest(&tables).code(),
             absl::StatusCode::kNotFound);
 }
 
 TEST(TFRecordCheckpointerTest, LoadMissingFallbackCheckpoint) {
   TFRecordCheckpointer checkpointer(MakeRoot(), "", MakeRoot());
-  ChunkStore chunk_store;
   std::vector<std::shared_ptr<Table>> tables;
-  EXPECT_EQ(checkpointer.LoadFallbackCheckpoint(&chunk_store, &tables).code(),
+  EXPECT_EQ(checkpointer.LoadFallbackCheckpoint(&tables).code(),
             absl::StatusCode::kNotFound);
 }
 
@@ -299,14 +297,12 @@ TEST(TFRecordCheckpointerTest, LoadFallbackCheckpoint) {
       &path));
 
   TFRecordCheckpointer second_checkpointer(MakeRoot(), "", path);
-  ChunkStore loaded_chunk_store;
   std::vector<std::shared_ptr<Table>> loaded_tables;
   loaded_tables.push_back(MakeUniformTable("uniform"));
   loaded_tables.push_back(MakePrioritizedTable("prioritized_a", 0.5));
   loaded_tables.push_back(MakePrioritizedTable("prioritized_b", 0.9));
   loaded_tables.push_back(MakeSignatureTable("signature"));
-  REVERB_ASSERT_OK(second_checkpointer.LoadFallbackCheckpoint(
-      &loaded_chunk_store, &loaded_tables));
+  REVERB_ASSERT_OK(second_checkpointer.LoadFallbackCheckpoint(&loaded_tables));
 }
 
 }  // namespace
