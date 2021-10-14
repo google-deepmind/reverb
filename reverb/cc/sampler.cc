@@ -212,6 +212,7 @@ class GrpcSamplerWorker : public SamplerWorker {
     }
 
     int64_t num_samples_returned = 0;
+    SampleStreamResponse response;
     while (num_samples_returned < num_samples) {
       // TODO(b/190237214): Ignore timeouts when data is not being requested.
       SampleStreamRequest request;
@@ -227,7 +228,6 @@ class GrpcSamplerWorker : public SamplerWorker {
 
       std::vector<SampleStreamResponse::SampleEntry> parts_of_next_sample;
       for (int64_t sampled = 0; sampled < request.num_samples();) {
-        SampleStreamResponse response;
         if (!stream->Read(&response)) {
           auto status = FromGrpcStatus(stream->Finish());
           if (errors::IsRateLimiterTimeout(status) &&
