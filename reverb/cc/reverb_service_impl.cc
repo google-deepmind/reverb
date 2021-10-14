@@ -526,7 +526,6 @@ ReverbServiceImpl::SampleStream(grpc::CallbackServerContext* context) {
                   }
                   return;
                 }
-                task_info_.last_batch_size = sample->samples.size();
                 task_info_.fetched_samples += sample->samples.size();
                 bool already_writing = !responses_to_send_.empty();
                 for (Table::SampledItem& sample : sample->samples) {
@@ -540,10 +539,12 @@ ReverbServiceImpl::SampleStream(grpc::CallbackServerContext* context) {
                   // Current request is finalized, ask for another one.
                   MaybeStartRead();
                 } else {
+                  task_info_.last_batch_size = sample->samples.size();
                   MaybeStartSampling();
                 }
               })),
           waiting_for_enqueued_sample_(false) {
+      task_info_.last_batch_size = kInitialGrpcSampleBatchSize;
       absl::MutexLock lock(&mu_);
       MaybeStartRead();
     }
@@ -596,8 +597,7 @@ ReverbServiceImpl::SampleStream(grpc::CallbackServerContext* context) {
       // the table. Each time batch size doubles. Response size is limited by
       // the table based on the payload size.
       const int next_batch_size = std::min<int>(
-          task_info_.fetched_samples == 0 ? kInitialGrpcSampleBatchSize
-                                          : 2 * task_info_.last_batch_size,
+          2 * task_info_.last_batch_size,
           task_info_.requested_samples - task_info_.fetched_samples);
       if (next_batch_size == 0) {
         // Current request has been fully processed, no more sampling needed.
