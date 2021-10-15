@@ -25,9 +25,7 @@
 #include "absl/synchronization/mutex.h"
 #include "absl/types/span.h"
 #include "reverb/cc/platform/hash_map.h"
-#include "reverb/cc/platform/thread.h"
 #include "reverb/cc/schema.pb.h"
-#include "reverb/cc/support/queue.h"
 #include "tensorflow/core/framework/tensor.h"
 #include "tensorflow/core/framework/tensor_shape.h"
 #include "tensorflow/core/lib/core/status.h"
@@ -104,13 +102,6 @@ class ChunkStore {
     mutable absl::once_flag data_byte_size_once_;
   };
 
-  // Starts `cleaner_`. `cleanup_batch_size` is the number of keys the cleaner
-  // should wait for before acquiring the lock and erasing them from `data_`.
-  explicit ChunkStore(int cleanup_batch_size = 1000);
-
-  // Stops `cleaner_` closes `delete_keys_`.
-  ~ChunkStore();
-
   // Attempts to insert a Chunk into the map using the key inside `item`. If no
   // entry existed for the key, a new Chunk is created, inserted and returned.
   // Otherwise, the existing chunk is returned.
@@ -123,14 +114,6 @@ class ChunkStore {
                          std::vector<std::shared_ptr<Chunk>>* chunks)
       ABSL_LOCKS_EXCLUDED(mu_);
 
-  // Blocks until `num_chunks` expired entries have been cleaned up from
-  // `data_`. This method is called automatically by a background thread to
-  // limit memory size, but does not have any effect on the semantics of Get()
-  // or Insert() calls.
-  //
-  // Returns false if `delete_keys_` closed before `num_chunks` could be popped.
-  bool CleanupInternal(int num_chunks) ABSL_LOCKS_EXCLUDED(mu_);
-
  private:
   // Gets an item. Returns nullptr if the item does not exist.
   std::shared_ptr<Chunk> GetItem(Key key) ABSL_SHARED_LOCKS_REQUIRED(mu_);
@@ -142,15 +125,6 @@ class ChunkStore {
 
   // Mutex protecting access to `data_`.
   mutable absl::Mutex mu_;
-
-  // Queue of keys of deleted items that will be cleaned up by `cleaner_`. Note
-  // the queue have to be allocated on the heap in order to avoid dereferencing
-  // errors caused by a stack allocated ChunkStore getting destroyed before all
-  // Chunk have been destroyed.
-  std::shared_ptr<internal::Queue<Key>> delete_keys_;
-
-  // Consumes `delete_keys_` to remove dead pointers in `data_`.
-  std::unique_ptr<internal::Thread> cleaner_;
 };
 
 }  // namespace reverb

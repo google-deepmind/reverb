@@ -25,9 +25,7 @@
 #include "absl/types/span.h"
 #include "reverb/cc/platform/hash_map.h"
 #include "reverb/cc/platform/logging.h"
-#include "reverb/cc/platform/thread.h"
 #include "reverb/cc/schema.pb.h"
-#include "reverb/cc/support/queue.h"
 #include "reverb/cc/tensor_compression.h"
 #include "tensorflow/core/framework/tensor.h"
 #include "tensorflow/core/lib/core/errors.h"
@@ -64,31 +62,12 @@ int ChunkStore::Chunk::num_columns() const {
   return data_.data().tensors_size();
 }
 
-ChunkStore::ChunkStore(int cleanup_batch_size)
-    : delete_keys_(std::make_shared<internal::Queue<Key>>(10000000)),
-      cleaner_(internal::StartThread(
-          "ChunkStore-Cleaner", [this, cleanup_batch_size] {
-            while (CleanupInternal(cleanup_batch_size)) {
-            }
-          })) {}
-
-ChunkStore::~ChunkStore() {
-  // Closing the queue makes all calls to `CleanupInternal` to return false
-  // which will break the loop in `cleaner_` making it joinable.
-  delete_keys_->Close();
-  cleaner_ = nullptr;  // Joins thread.
-}
-
 std::shared_ptr<ChunkStore::Chunk> ChunkStore::Insert(ChunkData item) {
   absl::WriterMutexLock lock(&mu_);
   std::weak_ptr<Chunk>& wp = data_[item.chunk_key()];
   std::shared_ptr<Chunk> sp = wp.lock();
   if (sp == nullptr) {
-    wp = (sp = std::shared_ptr<Chunk>(new Chunk(std::move(item)),
-                                      [q = delete_keys_](Chunk* chunk) {
-                                        q->Push(chunk->key());
-                                        delete chunk;
-                                      }));
+    wp = (sp = std::make_shared<Chunk>(std::move(item)));
   }
   return sp;
 }
@@ -112,21 +91,6 @@ tensorflow::Status ChunkStore::Get(
 std::shared_ptr<ChunkStore::Chunk> ChunkStore::GetItem(Key key) {
   auto it = data_.find(key);
   return it == data_.end() ? nullptr : it->second.lock();
-}
-
-bool ChunkStore::CleanupInternal(int num_chunks) {
-  std::vector<Key> popped_keys;
-  popped_keys.reserve(num_chunks);
-  if (!delete_keys_->PopBatch(num_chunks, &popped_keys).ok()) {
-    return false;
-  }
-
-  absl::WriterMutexLock data_lock(&mu_);
-  for (const Key& key : popped_keys) {
-    data_.erase(key);
-  }
-
-  return true;
 }
 
 }  // namespace reverb

@@ -141,8 +141,6 @@ reverb_cc_library(
         ":tensor_compression",
         "//reverb/cc/platform:hash_map",
         "//reverb/cc/platform:logging",
-        "//reverb/cc/platform:thread",
-        "//reverb/cc/support:queue",
     ] + reverb_tf_deps() + reverb_absl_deps(),
 )
 

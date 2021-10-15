@@ -80,30 +80,6 @@ TEST(ChunkStoreTest, InsertingTwiceSucceedsWhenChunkIsDestroyed) {
   EXPECT_NE(second, nullptr);
 }
 
-TEST(ChunkStoreTest, CleanupDoesNotDeleteRequiredChunks) {
-  ChunkStore store(/*cleanup_batch_size=*/1);
-
-  // Keep this one around.
-  std::shared_ptr<ChunkStore::Chunk> first =
-      store.Insert(testing::MakeChunkData(1));
-
-  // Let this one expire.
-  {
-    std::shared_ptr<ChunkStore::Chunk> second =
-        store.Insert(testing::MakeChunkData(2));
-  }
-
-  // The first one should still be available.
-  ChunkVector chunks;
-  TF_EXPECT_OK(store.Get({1}, &chunks));
-
-  // The second one should be gone eventually.
-  tensorflow::Status status;
-  while (status.code() != tensorflow::error::NOT_FOUND) {
-    status = store.Get({2}, &chunks);
-  }
-}
-
 TEST(ChunkStoreTest, ConcurrentCalls) {
   ChunkStore store;
   std::vector<std::unique_ptr<internal::Thread>> bundle;
