@@ -1,4 +1,3 @@
-# Lint as: python3
 # Copyright 2019 DeepMind Technologies Limited.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -13,10 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""TFClient provides tf-ops for interacting with Reverb."""
+"""DEPRECATED dataset to sample items written by the legacy `Writer`.
+
+Note! Use of ReplayDataset is strongly discouraged and TrajectoryDataset should
+be treated as the default choice. If the behaviour of `emit_timesteps=True` is
+required for your usecase then TimestepDataset should be used.
+"""
 
 from typing import Any, List, Optional, Union
 
+from absl import logging
 from reverb import client as reverb_client
 from reverb import replay_sample
 import tensorflow.compat.v1 as tf
@@ -26,13 +31,16 @@ from reverb.cc.ops import gen_reverb_ops
 
 
 class ReplayDataset(tf.data.Dataset):
-  """A tf.data.Dataset which samples timesteps from the ReverbService.
+  """DEPRECATED tf.data.Dataset which samples timesteps from the ReverbService.
 
-  Note: The dataset returns `ReplaySample` where `data` with the structure of
-  `dtypes` and `shapes`.
+  NOTE: ReplayDataset has been deprecated in favour of TrajectoryDataset and
+  TimestepDataset.
 
-  Note: Uses of Python lists are converted into tuples as nest used by the
+  NOTE: Uses of Python lists are converted into tuples as nest used by the
   tf.data API doesn't have good support for lists.
+
+  The dataset returns `ReplaySample` where `data` with the structure of
+  `dtypes` and `shapes`.
 
   Timesteps are streamed through the dataset as follows:
 
@@ -109,6 +117,9 @@ class ReplayDataset(tf.data.Dataset):
         `sequence_length` as its leading dimension.
       ValueError: If `rate_limiter_timeout_ms < -1`.
     """
+    logging.warning(
+        'ReplayDataset has been DEPRECATED in favour of TrajectoryDataset and '
+        'TimestepDataset.')
     tree.assert_same_structure(dtypes, shapes, False)
     if max_in_flight_samples_per_worker < 1:
       raise ValueError(

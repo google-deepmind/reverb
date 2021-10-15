@@ -12,12 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Dataset to sample items created using the EXPERIMENTAL TrajectoryWriter.
-
-NOTE! The content of this file should be considered experimental and breaking
-changes may occur without notice. Please talk to cassirer@ if you wish to alpha
-test these features.
-"""
+"""Dataset to sample items created using the TrajectoryWriter."""
 
 from typing import Any, List, Optional, Union
 
