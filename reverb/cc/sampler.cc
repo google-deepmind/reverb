@@ -350,7 +350,6 @@ class LocalSamplerWorker : public SamplerWorker {
 
       std::vector<Table::SampledItem> items;
       auto status = table_->SampleFlexibleBatch(&items, batch_size, timeout);
-      prev_batch_size = items.size();
 
       // If the deadline is exceeded but the "real deadline" is still in the
       // future then we are only waking up to check for cancellation.
@@ -369,6 +368,9 @@ class LocalSamplerWorker : public SamplerWorker {
       if (!status.ok()) {
         return {num_samples_returned, status};
       }
+      // Update `prev_batch_size` after handling timeouts and errors. Otherwise
+      // batch size would get reset to a small value affecting performance.
+      prev_batch_size = items.size();
 
       // We received new items, so reset the timeout deadline.
       final_deadline = absl::Now() + rate_limiter_timeout;
