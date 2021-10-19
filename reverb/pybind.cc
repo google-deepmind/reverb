@@ -585,8 +585,18 @@ PYBIND11_MODULE(libpybind, m) {
            py::call_guard<py::gil_scoped_release>())
       .def(
           "Flush",
-          [](Writer *writer) { MaybeRaiseFromStatus(writer->Flush()); },
-          py::call_guard<py::gil_scoped_release>())
+          [](Writer *writer) {
+            // Release the GIL only when waiting for the call to complete. If
+            // the GIL is not held when `MaybeRaiseFromStatus` is called it can
+            // result in segfaults as the Python exception is populated with
+            // details from the status.
+            absl::Status status;
+            {
+              py::gil_scoped_release g;
+              status = writer->Flush();
+            }
+            MaybeRaiseFromStatus(status);
+          })
       .def("Close", &Writer::Close, py::call_guard<py::gil_scoped_release>())
       .def("__repr__", &Writer::DebugString,
            py::call_guard<py::gil_scoped_release>());
@@ -636,14 +646,22 @@ PYBIND11_MODULE(libpybind, m) {
           [](Client *client, int chunk_length, int max_timesteps,
              bool delta_encoded, int max_in_flight_items) {
             std::unique_ptr<Writer> writer;
-            MaybeRaiseFromStatus(
-                client->NewWriter(chunk_length, max_timesteps, delta_encoded,
-                                  max_in_flight_items, &writer));
+            // Release the GIL only when waiting for the call to complete. If
+            // the GIL is not held when `MaybeRaiseFromStatus` is called it can
+            // result in segfaults as the Python exception is populated with
+            // details from the status.
+            absl::Status status;
+            {
+              py::gil_scoped_release g;
+              status = client->NewWriter(
+                  chunk_length, max_timesteps, delta_encoded,
+                  max_in_flight_items, &writer);
+            }
+            MaybeRaiseFromStatus(status);
             return writer;
           },
-          py::call_guard<py::gil_scoped_release>(), py::arg("chunk_length"),
-          py::arg("max_timesteps"), py::arg("delta_encoded") = false,
-          py::arg("max_in_flight_items"))
+          py::arg("chunk_length"), py::arg("max_timesteps"),
+          py::arg("delta_encoded") = false, py::arg("max_in_flight_items"))
       .def(
           "NewSampler",
           [](Client *client, const std::string &table, int64_t max_samples,
@@ -652,11 +670,19 @@ PYBIND11_MODULE(libpybind, m) {
             Sampler::Options options;
             options.max_samples = max_samples;
             options.max_in_flight_samples_per_worker = buffer_size;
-            MaybeRaiseFromStatus(client->NewSamplerWithoutSignatureCheck(
-                table, options, &sampler));
+            // Release the GIL only when waiting for the call to complete. If
+            // the GIL is not held when `MaybeRaiseFromStatus` is called it can
+            // result in segfaults as the Python exception is populated with
+            // details from the status.
+            absl::Status status;
+            {
+              py::gil_scoped_release g;
+              status = client->NewSamplerWithoutSignatureCheck(
+                table, options, &sampler);
+            }
+            MaybeRaiseFromStatus(status);
             return sampler;
-          },
-          py::call_guard<py::gil_scoped_release>())
+          })
       .def("NewTrajectoryWriter",
            [](Client *client, std::shared_ptr<ChunkerOptions> chunker_options,
               absl::optional<int> get_signature_timeout_ms) {
