@@ -16,7 +16,6 @@
 #include "reverb/cc/client.h"
 #include "reverb/cc/errors.h"
 #include "reverb/cc/platform/logging.h"
-#include "reverb/cc/platform/tf_utils.h"
 #include "reverb/cc/sampler.h"
 #include "reverb/cc/support/tf_util.h"
 #include "tensorflow/core/framework/common_shape_fns.h"
@@ -137,9 +136,7 @@ class ReverbTimestepDatasetOp : public tensorflow::data::DatasetOpKernel {
           shapes_(std::move(shapes)),
           table_(std::move(table)),
           sampler_options_(sampler_options),
-          client_(absl::make_unique<Client>(server_address_)) {
-      RecordTFDataExperiments();
-    }
+          client_(absl::make_unique<Client>(server_address_)) {}
 
     std::unique_ptr<tensorflow::data::IteratorBase> MakeIteratorInternal(
         const std::string& prefix) const override {
