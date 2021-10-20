@@ -544,7 +544,7 @@ class _ColumnHistory:
 
   @property
   def can_set_last(self) -> bool:
-    return self._data_references and self._data_references[-1] is None
+    return bool(self._data_references) and self._data_references[-1] is None
 
   def __len__(self) -> int:
     return len(self._data_references)
@@ -612,7 +612,7 @@ class TrajectoryColumn:
   @property
   def shape(self) -> Tuple[Optional[int], ...]:
     if self.is_squeezed:
-      return self._data_references[0].shape
+      return tuple(self._data_references[0].shape)
     else:
       return (len(self._data_references), *self._data_references[0].shape)
 
