@@ -22,60 +22,70 @@
 #include "absl/strings/str_cat.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/time/time.h"
+#include "reverb/cc/platform/logging.h"
 
 namespace deepmind {
 namespace reverb {
 namespace internal {
 
-// Thread-safe and closable queue with fixed capacity (buffered channel).
+// Thread-safe and closable queue with fixed capacity (buffered channel) and
+// pre-reservations.
 //
 // A call to `Push()` inserts an item while `Pop` removes and retrieves an
-// item in fifo order. Once the maximum capacity has been reached, calls to
-// `Push` block until the queue is no longer full. Similarly, `Pop` blocks
-// if there are no items in the queue. `Close` can be called to unblock any
-// pending and future calls to `Push` and `Pop`.
+// item in fifo order. `Push()` call has to be preceded with `Reserve()` call.
+// Once the maximum capacity has been reached, calls to
+// `Reserve` block until there is sufficient space in the queue. Similarly,
+// `Pop` blocks if there are no items in the queue. `Close` can be called to
+// unblock any pending and future calls to `Reserve` and `Pop`.
 //
-// When `SetLastItemPushed` is called, all pending and future calls to `Push`
+// When `SetLastItemPushed` is called, all pending and future calls to `Reserve`
 // will return immediately just as if `Close` had been called. When the queue is
 // empty and `SetLastItemPushed` has been called, then the `Close` is
 // automatically called. Note that this can occur with the call to
-// `SetLastItemPushed` or with subsequent calls to `Pop`
+// `SetLastItemPushed` or with subsequent calls to `Pop`.
 //
 template <typename T>
 class Queue {
  public:
   // `capacity` is the maximum number of elements which the queue can hold.
   explicit Queue(int capacity)
-      : buffer_(capacity),
+      : buffer_(std::max(0, capacity)),
         pushes_(0),
         pops_(0),
+        reserved_(0),
         closed_(false),
         last_item_pushed_(false) {}
 
-  // Closes the queue. All pending and future calls to `Push()` and `Pop()` are
-  // unblocked and return false without performing the operation. Additional
+  // Closes the queue. All pending and future calls to `Reserve()` and `Pop()`
+  // are unblocked and return false without performing the operation. Additional
   // calls of Close after the first one have no effect.
   void Close() ABSL_LOCKS_EXCLUDED(mu_) {
     absl::MutexLock lock(&mu_);
     closed_ = true;
   }
 
-  // Pushes an item to the queue. Blocks if the queue has reached `capacity`. On
-  // success, `true` is returned. If the queue is closed, `false` is returned.
-  bool Push(T x) ABSL_LOCKS_EXCLUDED(mu_) {
+  // Reserves a given number of slots in the queue. Blocks if there is not
+  // sufficient space in the queue. On success, `true` is returned.
+  // If the queue is closed, `false` is returned.
+  bool Reserve(int count) ABSL_LOCKS_EXCLUDED(mu_) {
     absl::MutexLock lock(&mu_);
-    ScopedIncrement ticket(&num_waiting_to_push_);
 
-    mu_.Await(absl::Condition(
-        +[](Queue* q) {
-          return q->closed_ || q->last_item_pushed_ ||
-                 q->pushes_ - q->pops_ < q->buffer_.size();
-        },
-        this));
-    if (closed_ || last_item_pushed_) return false;
+    auto trigger = [&]() ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_) {
+      return closed_ || last_item_pushed_ ||
+             pushes_ + reserved_ - pops_ + count <= buffer_.size();
+    };
+    mu_.Await(absl::Condition(&trigger));
+    reserved_ += count;
+    return !(closed_ || last_item_pushed_);
+  }
+
+  // Pushes an item to the queue. It is required to reserve space in the queue
+  // beforehand.
+  void Push(T x) ABSL_LOCKS_EXCLUDED(mu_) {
+    absl::MutexLock lock(&mu_);
+    REVERB_CHECK_GE(--reserved_, 0);
     buffer_[pushes_ % buffer_.size()] = std::move(x);
     ++pushes_;
-    return true;
   }
 
   // Blocks until queue contains at least `batch_size` items then pops and
@@ -180,11 +190,6 @@ class Queue {
     return num_waiting_to_pop_;
   }
 
-  int num_waiting_to_push() const ABSL_LOCKS_EXCLUDED(mu_) {
-    absl::ReaderMutexLock lock(&mu_);
-    return num_waiting_to_push_;
-  }
-
   int num_pushes() const ABSL_LOCKS_EXCLUDED(mu_) {
     absl::ReaderMutexLock lock(&mu_);
     return pushes_;
@@ -209,6 +214,9 @@ class Queue {
   // Total number of pushed elements.
   int64_t pushes_ ABSL_GUARDED_BY(mu_);
 
+  // Number of slots reserved for the future pushes.
+  int64_t reserved_ ABSL_GUARDED_BY(mu_);
+
   // Total number of poped elements.
   int64_t pops_ ABSL_GUARDED_BY(mu_);
 
@@ -222,7 +230,6 @@ class Queue {
 
   // The number of threads which are currently waiting on the queue.
   int num_waiting_to_pop_ ABSL_GUARDED_BY(mu_) = 0;
-  int num_waiting_to_push_ ABSL_GUARDED_BY(mu_) = 0;
 } ABSL_CACHELINE_ALIGNED;
 static_assert(sizeof(Queue<bool>) >= ABSL_CACHELINE_SIZE,
               "Queue has to take the entire cache line so that its lock is not "

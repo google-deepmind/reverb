@@ -284,7 +284,7 @@ class Sampler {
           internal::DtypesAndShapes dtypes_and_shapes = absl::nullopt);
 
   // Joins worker threads through call to `Close`.
-  virtual ~Sampler();
+  ~Sampler();
 
   // Blocks until a timestep has been retrieved or until a non transient error
   // is encountered or `Close` has been called.

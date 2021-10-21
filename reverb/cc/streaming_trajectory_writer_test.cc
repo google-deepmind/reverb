@@ -161,7 +161,8 @@ class FakeStream : public MockStream {
     absl::MutexLock lock(&mu_);
     requests_->push_back(msg);
     for (auto& item : msg.items()) {
-      REVERB_CHECK(pending_confirmation_.Push(item.key()));
+      REVERB_CHECK(pending_confirmation_.Reserve(1));
+      pending_confirmation_.Push(item.key());
     }
 
     return true;

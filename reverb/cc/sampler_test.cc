@@ -674,12 +674,9 @@ TEST(GrpcSamplerTest, RespectsBufferSizeAndMaxSamples) {
   ASSERT_THAT(stub->requests(), SizeIs(1));
   EXPECT_EQ(stub->requests()[0].num_samples(), kMaxInFlightSamplesPerWorker);
 
-  // The queue outside the workers has size `num_workers` (i.e 1 here) so in
-  // addition to the samples actually returned to the user, an additional
-  // sample is considered to been "consumed" from the perspective of the worker.
-
-  // The first 9 (9 + 1 = 10) pops should not result in a new request.
-  for (int i = 0; i < kMaxInFlightSamplesPerWorker - kNumWorkers - 1; i++) {
+  // Worker will issue another request when there is space for 9 elements in the
+  // buffer. Retrieving 8 elements is not trigerring a request.
+  for (int i = 0; i < 8; i++) {
     REVERB_EXPECT_OK(sampler.GetNextTimestep(&sample, &end_of_sequence));
   }
 
@@ -687,8 +684,7 @@ TEST(GrpcSamplerTest, RespectsBufferSizeAndMaxSamples) {
                 absl::Milliseconds(10), 100);
   EXPECT_THAT(stub->requests(), SizeIs(1));
 
-  // The 10th sample (+1 in the queue) mean that all the requested samples
-  // have been received and thus a new request is sent to retrieve more.
+  // Getting 9th elements allows worker to complete (kMaxSamples == 11 + 9).
   REVERB_EXPECT_OK(sampler.GetNextTimestep(&sample, &end_of_sequence));
   test::WaitFor(
       [&]() {

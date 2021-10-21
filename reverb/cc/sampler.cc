@@ -178,7 +178,8 @@ class GrpcSamplerWorker : public SamplerWorker {
       std::string table_name, int64_t samples_per_request)
       : stub_(std::move(stub)),
         table_name_(std::move(table_name)),
-        samples_per_request_(samples_per_request) {}
+        samples_per_request_(samples_per_request),
+        reserved_slots_(0) {}
 
   // Cancels the stream and marks the worker as closed. Active and future
   // calls to `OpenStreamAndFetch` will return status `CANCELLED`.
@@ -221,6 +222,13 @@ class GrpcSamplerWorker : public SamplerWorker {
           std::min(samples_per_request_, num_samples - num_samples_returned));
       request.mutable_rate_limiter_timeout()->set_milliseconds(
           NonnegativeDurationToInt64Millis(rate_limiter_timeout));
+      // Reservation can be negative if previously reserved slots are being
+      // returned.
+      if (!queue->Reserve(request.num_samples() - reserved_slots_)) {
+          return {num_samples_returned,
+                  absl::CancelledError("`Close` called on Sampler")};
+      }
+      reserved_slots_ = request.num_samples();
 
       if (!stream->Write(request)) {
         return {num_samples_returned, FromGrpcStatus(stream->Finish())};
@@ -256,10 +264,13 @@ class GrpcSamplerWorker : public SamplerWorker {
           if (!status.ok()) {
             return {num_samples_returned, status};
           }
-          if (!queue->Push(std::move(sample))) {
+          if (--reserved_slots_ < 0) {
             return {num_samples_returned,
-                    absl::CancelledError("`Close` called on Sampler")};
+                    absl::InternalError(
+                        "This should never happen. Please file a bug to the "
+                        "Reverb team if you encounter this error.")};
           }
+          queue->Push(std::move(sample));
           // The sample was successfully received from the stream and pushed to
           // the queue. There might still be more samples, or partial samples,
           // in the same SampleStreamResponse so we'll continue reading the
@@ -294,6 +305,9 @@ class GrpcSamplerWorker : public SamplerWorker {
   // The maximum number of samples to request in a "batch".
   const int64_t samples_per_request_;
 
+  // Number of reserved slots in the queue;
+  int64_t reserved_slots_;
+
   // Context of the active stream.
   std::unique_ptr<grpc::ClientContext> context_ ABSL_GUARDED_BY(mu_);
 
@@ -309,7 +323,8 @@ class LocalSamplerWorker : public SamplerWorker {
   LocalSamplerWorker(std::shared_ptr<Table> table,
                      int max_in_flight_samples)
       : table_(table),
-        max_in_flight_samples_(max_in_flight_samples) {
+        max_in_flight_samples_(max_in_flight_samples),
+        reserved_slots_(0) {
     REVERB_CHECK_GE(max_in_flight_samples_, 1);
   }
 
@@ -347,7 +362,13 @@ class LocalSamplerWorker : public SamplerWorker {
           std::min<int64_t>(max_in_flight_samples_,
                           std::min<int64_t>(2 * prev_batch_size,
                                           num_samples - num_samples_returned));
-
+      // Reservation can be negative if previously reserved slots are being
+      // returned.
+      if (!queue->Reserve(batch_size - reserved_slots_)) {
+        return {num_samples_returned,
+                absl::CancelledError("`Close` called on Sampler")};
+      }
+      reserved_slots_ = batch_size;
       std::vector<Table::SampledItem> items;
       auto status = table_->SampleFlexibleBatch(&items, batch_size, timeout);
 
@@ -381,10 +402,13 @@ class LocalSamplerWorker : public SamplerWorker {
         if (status = AsSample(item, &sample); !status.ok()) {
           return {num_samples_returned, status};
         }
-        if (!queue->Push(std::move(sample))) {
+        if (--reserved_slots_ < 0) {
           return {num_samples_returned,
-                  absl::CancelledError("`Close` called on Sampler")};
+                  absl::InternalError(
+                      "This should never happen. Please file a bug to the "
+                      "Reverb team if you encounter this error.")};
         }
+        queue->Push(std::move(sample));
         ++num_samples_returned;
       }
     }
@@ -401,6 +425,7 @@ class LocalSamplerWorker : public SamplerWorker {
  private:
   std::shared_ptr<Table> table_;
   const int64_t max_in_flight_samples_;
+  int64_t reserved_slots_;
   bool closed_ ABSL_GUARDED_BY(mu_) = false;
   absl::Mutex mu_;
 };
@@ -471,7 +496,8 @@ Sampler::Sampler(std::vector<std::unique_ptr<SamplerWorker>> workers,
       rate_limiter_timeout_(options.rate_limiter_timeout),
       workers_(std::move(workers)),
       active_sample_(nullptr),
-      samples_(std::max<int>(options.num_workers, 1)),
+      samples_(options.max_in_flight_samples_per_worker *
+               GetNumWorkers(options)),
       dtypes_and_shapes_(std::move(dtypes_and_shapes)) {
   REVERB_CHECK_GT(max_samples_, 0);
   REVERB_CHECK_GT(options.max_in_flight_samples_per_worker, 0);
