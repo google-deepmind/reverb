@@ -1526,8 +1526,8 @@ TEST_F(TrajectoryWriterSignatureValidationTest,
 
 TEST(TrajectoryWriter, EndEpisodeCanClearBuffers) {
   auto stub = std::make_shared<MockReverbServiceAsyncStub>();
-  EXPECT_CALL(*stub, async())
-      .WillRepeatedly(ReturnNew<AsyncInterface>());
+  AsyncInterface async;
+  EXPECT_CALL(*stub, async()).WillRepeatedly(Return(&async));
 
   TrajectoryWriter writer(
       stub, MakeOptions(/*max_chunk_length=*/2, /*num_keep_alive_refs=*/2));
@@ -1547,8 +1547,8 @@ TEST(TrajectoryWriter, EndEpisodeCanClearBuffers) {
 
 TEST(TrajectoryWriter, EndEpisodeFinalizesChunksEvenIfNoItemReferenceIt) {
   auto stub = std::make_shared<MockReverbServiceAsyncStub>();
-  EXPECT_CALL(*stub, async())
-      .WillRepeatedly(ReturnNew<AsyncInterface>());
+  AsyncInterface async;
+  EXPECT_CALL(*stub, async()).WillRepeatedly(Return(&async));
 
   TrajectoryWriter writer(
       stub, MakeOptions(/*max_chunk_length=*/2, /*num_keep_alive_refs=*/2));
@@ -1570,8 +1570,8 @@ TEST(TrajectoryWriter, EndEpisodeFinalizesChunksEvenIfNoItemReferenceIt) {
 
 TEST(TrajectoryWriter, EndEpisodeResetsEpisodeKeyAndStep) {
   auto stub = std::make_shared<MockReverbServiceAsyncStub>();
-  EXPECT_CALL(*stub, async())
-      .WillRepeatedly(ReturnNew<AsyncInterface>());
+  AsyncInterface async;
+  EXPECT_CALL(*stub, async()).WillRepeatedly(Return(&async));
 
   TrajectoryWriter writer(
       stub, MakeOptions(/*max_chunk_length=*/1, /*num_keep_alive_refs=*/2));
