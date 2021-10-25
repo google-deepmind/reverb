@@ -54,6 +54,10 @@ namespace {
 // of memory for the response when table is close to empty and only a few items
 // can be fetched.
 constexpr int64_t kInitialSampleBatchSize = 8;
+// Exponential backoff configuration used when connection to the server fails.
+constexpr absl::Duration kResetBackoffThreshold = absl::Seconds(2);
+constexpr absl::Duration kMinRetryBackoff = absl::Milliseconds(1);
+constexpr absl::Duration kMaxRetryBackoff = absl::Seconds(1);
 
 template <typename T>
 tensorflow::Tensor InitializeTensor(T value, int64_t length) {
@@ -677,23 +681,26 @@ absl::Status Sampler::PopNextSample(std::unique_ptr<Sample>* sample) {
 }
 
 void Sampler::RunWorker(SamplerWorker* worker) {
-  auto trigger = [this]() ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_) {
+  auto progress_trigger = [this]() ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_) {
     return should_stop_workers() || requested_ < max_samples_;
   };
 
+  absl::Duration retry_backoff = absl::Milliseconds(1);
+  int64_t samples_to_stream;
   while (true) {
-    mu_.LockWhen(absl::Condition(&trigger));
+    absl::Time start_time = absl::Now();
+    {
+      absl::WriterMutexLock lock(&mu_);
+      mu_.Await(absl::Condition(&progress_trigger));
 
-    if (should_stop_workers()) {
-      mu_.Unlock();
-      return;
+      if (should_stop_workers()) {
+        return;
+      }
+
+      samples_to_stream =
+          std::min<int64_t>(max_samples_per_stream_, max_samples_ - requested_);
+      requested_ += samples_to_stream;
     }
-
-    int64_t samples_to_stream =
-        std::min<int64_t>(max_samples_per_stream_, max_samples_ - requested_);
-    requested_ += samples_to_stream;
-    mu_.Unlock();
-
     auto result = worker->FetchSamples(&samples_, samples_to_stream,
                                        rate_limiter_timeout_);
     {
@@ -705,11 +712,20 @@ void Sampler::RunWorker(SamplerWorker* worker) {
       requested_ -= samples_to_stream - result.first;
 
       // Overwrite the final status only if it wasn't already an error.
-      if (worker_status_.ok() && !result.second.ok() &&
+      if (!result.second.ok() && worker_status_.ok() &&
           !absl::IsUnavailable(result.second)) {
         worker_status_ = result.second;
-        samples_.Close();  // Unblock any pending calls.
+        samples_.Close();
         return;
+      } else if (absl::IsUnavailable(result.second)) {
+        // Use exponential backoff to avoid burning CPU cycles when the server
+        // is not available.
+        retry_backoff = absl::Now() - start_time < kResetBackoffThreshold
+                            ? kMinRetryBackoff
+                            : std::min(kMaxRetryBackoff, 2 * retry_backoff);
+        mu_.AwaitWithTimeout(
+            absl::Condition(this, &Sampler::should_stop_workers),
+            retry_backoff);
       }
     }
   }
