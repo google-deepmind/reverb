@@ -8,6 +8,12 @@ package(default_visibility = ["//reverb:__subpackages__"])
 licenses(["notice"])
 
 reverb_pytype_strict_library(
+    name = "load_op_library",
+    srcs = ["load_op_library.py"],
+    srcs_version = "PY3",
+)
+
+reverb_pytype_strict_library(
     name = "checkpointers",
     srcs = ["checkpointers.py"],
     srcs_version = "PY3",

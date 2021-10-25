@@ -319,20 +319,26 @@ def reverb_gen_op_wrapper_py(name, out, kernel_lib, linkopts = [], **kwargs):
     native.genrule(
         name = "{}_genrule".format(out),
         outs = [out],
-        cmd = """
-        echo 'import tensorflow as tf
-_reverb_gen_op = tf.load_op_library(
-    tf.compat.v1.resource_loader.get_path_to_datafile(
-       "lib{}_gen_op.so"))
+        cmd = """echo 'import tensorflow as _tf
+from reverb.platform.default import load_op_library as _load_op_library
+
+try:
+  _reverb_gen_op = _tf.load_op_library(
+    _tf.compat.v1.resource_loader.get_path_to_datafile("lib{}_gen_op.so"))
+except tf.errors.NotFoundError as e:
+  _load_op_library.reraise_wrapped_error(e)
 _locals = locals()
 for k in dir(_reverb_gen_op):
   _locals[k] = getattr(_reverb_gen_op, k)
 del _locals' > $@""".format(name),
     )
+    deps = kwargs.pop("deps", [])
+    deps.append("//reverb/platform/default:load_op_library")
     native.py_library(
         name = name,
         srcs = [out],
         data = [":lib{}_gen_op.so".format(name)],
+        deps = deps,
         **kwargs
     )
 
@@ -478,10 +484,13 @@ def reverb_pybind_extension(
     native.genrule(
         name = name + "_py_file",
         outs = [py_file],
-        cmd = (
-            "echo 'import tensorflow as _tf; from .%s import *; del _tf' >$@" %
-            module_name
-        ),
+        cmd = """echo 'import tensorflow as _tf
+from reverb.platform.default import load_op_library as _load_op_library
+try:
+  from .%s import *
+except ImportError as e:
+  _load_op_library.reraise_wrapped_error(e)
+del _tf' >$@""" % module_name,
         output_licenses = ["unencumbered"],
         visibility = visibility,
         testonly = testonly,
@@ -489,6 +498,7 @@ def reverb_pybind_extension(
     native.py_library(
         name = name,
         data = [so_file],
+        deps = ["//reverb/platform/default:load_op_library"],
         srcs = [py_file],
         srcs_version = srcs_version,
         licenses = licenses,
