@@ -36,7 +36,7 @@ TEST(QueueTest, PushAndPopAreConsistent) {
   int output;
   for (int i = 0; i < 100; i++) {
     q.Reserve(1);
-    q.Push(i);
+    q.PushBatch({i});
     q.Pop(&output);
     EXPECT_EQ(output, i);
   }
@@ -45,12 +45,11 @@ TEST(QueueTest, PushAndPopAreConsistent) {
 TEST(QueueTest, PushBlocksWhenFull) {
   Queue<int> q(2);
   ASSERT_TRUE(q.Reserve(2));
-  q.Push(1);
-  q.Push(2);
+  q.PushBatch({1, 2});
   absl::Notification n;
   auto t = StartThread("", [&q, &n] {
     REVERB_CHECK(q.Reserve(1));
-    q.Push(3);
+    q.PushBatch({3});
     n.Notify();
   });
   ASSERT_FALSE(n.HasBeenNotified());
@@ -70,7 +69,7 @@ TEST(QueueTest, PopBlocksWhenEmpty) {
   });
   ASSERT_FALSE(n.HasBeenNotified());
   ASSERT_TRUE(q.Reserve(1));
-  q.Push(1);
+  q.PushBatch({1});
   n.WaitForNotification();
   EXPECT_EQ(output, 1);
 }
@@ -85,13 +84,12 @@ TEST(QueueTest, AfterClosePushAndPopReturnFalse) {
 TEST(QueueTest, CloseUnblocksPush) {
   Queue<int> q(2);
   ASSERT_TRUE(q.Reserve(2));
-  q.Push(1);
-  q.Push(2);
+  q.PushBatch({1, 2});
   absl::Notification n;
   bool ok;
   auto t = StartThread("", [&q, &n, &ok] {
     ok = q.Reserve(1);
-    q.Push(3);
+    q.PushBatch({3});
     n.Notify();
   });
   ASSERT_FALSE(n.HasBeenNotified());
@@ -120,8 +118,7 @@ TEST(QueueTest, SizeReturnsNumberOfElements) {
   EXPECT_EQ(q.size(), 0);
 
   q.Reserve(2);
-  q.Push(20);
-  q.Push(30);
+  q.PushBatch({20, 30});
   EXPECT_EQ(q.size(), 2);
 
   int v;
@@ -133,15 +130,14 @@ TEST(QueueTest, PushFailsAfterSetLastItemPushed) {
   Queue<int> q(3);
   q.SetLastItemPushed();
   EXPECT_FALSE(q.Reserve(1));
-  q.Push(1);
+  q.PushBatch({1});
 }
 
 TEST(QueueTest, ExistingItemsCanBePoppedAfterSetLastItemPushed) {
   Queue<int> q(3);
 
   q.Reserve(2);
-  q.Push(1);
-  q.Push(2);
+  q.PushBatch({1, 2});
 
   q.SetLastItemPushed();
 
@@ -178,7 +174,7 @@ TEST(QueueTest, PopBatchBlocksUntilBatchFull) {
     EXPECT_EQ(q.PopBatch(5, absl::ZeroDuration(), &v).code(),
               absl::StatusCode::kDeadlineExceeded);
     EXPECT_TRUE(q.Reserve(1));
-    q.Push(i);
+    q.PushBatch({i});
   }
 
   REVERB_EXPECT_OK(q.PopBatch(5, &v));
@@ -187,10 +183,8 @@ TEST(QueueTest, PopBatchBlocksUntilBatchFull) {
 TEST(QueueTest, PopBatchEmitsItemsInOrder) {
   Queue<int> q(10);
 
-  for (int i = 0; i < 5; i++) {
-    EXPECT_TRUE(q.Reserve(1));
-    q.Push(i);
-  }
+  EXPECT_TRUE(q.Reserve(5));
+  q.PushBatch({0, 1, 2, 3, 4});
 
   std::vector<int> v;
   REVERB_EXPECT_OK(q.PopBatch(5, &v));
@@ -210,7 +204,7 @@ TEST(QueueTest, PopBatchReturnsIfSetLastItemPushed) {
 
   // Inserting one item should not unblock it.
   q.Reserve(1);
-  q.Push(1);
+  q.PushBatch({1});
   EXPECT_FALSE(n.WaitForNotificationWithTimeout(absl::Milliseconds(100)));
 
   // Calling `SetLastItemPushed` should unblock the call as the batch can never
@@ -239,7 +233,7 @@ TEST(QueueTest, PopBatchReturnsCancelledIfClosedCalled) {
 
   // Inserting one item should not unblock it.
   q.Reserve(1);
-  q.Push(1);
+  q.PushBatch({1});
   EXPECT_FALSE(n.WaitForNotificationWithTimeout(absl::Milliseconds(100)));
 
   // Calling `Close` should unblock the call.

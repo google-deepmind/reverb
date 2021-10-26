@@ -152,7 +152,7 @@ class FakeInsertStream
     if (automatic_response_ids_) {
       for (auto& item : msg.items()) {
         response_ids_->Reserve(1);
-        response_ids_->Push(item.key());
+        response_ids_->PushBatch({item.key()});
       }
     }
     return num_success_writes_-- > 0;
@@ -895,14 +895,14 @@ TEST(WriterTest, CloseBlocksUntilAllItemsConfirmed) {
 
   // Sending the response for the first item should not be enough.
   ASSERT_TRUE(response_ids->Reserve(1));
-  response_ids->Push(1);
+  response_ids->PushBatch({1});
   EXPECT_FALSE(
       notification.WaitForNotificationWithTimeout(kNotificationTimeout));
 
   // Sending response for the second (and last) item should unblock the Close
   // call.
   ASSERT_TRUE(response_ids->Reserve(1));
-  response_ids->Push(2);
+  response_ids->PushBatch({2});
   notification.WaitForNotification();
 }
 
@@ -933,14 +933,14 @@ TEST(WriterTest, FlushBlocksUntilAllItemsConfirmed) {
 
   // Sending the response for the first item should not be enough.
   ASSERT_TRUE(response_ids->Reserve(1));
-  response_ids->Push(1);
+  response_ids->PushBatch({1});
   EXPECT_FALSE(
       notification.WaitForNotificationWithTimeout(kNotificationTimeout));
 
   // Sending response for the second (and last) item should unblock the Close
   // call.
   ASSERT_TRUE(response_ids->Reserve(1));
-  response_ids->Push(2);
+  response_ids->PushBatch({2});
   notification.WaitForNotification();
 }
 
@@ -971,14 +971,13 @@ TEST(WriterTest, BlocksWhenMaxInFlighItemsReached) {
 
   // Confirming one item should unblock the pending item.
   ASSERT_TRUE(response_ids->Reserve(1));
-  response_ids->Push(1);
+  response_ids->PushBatch({1});
   notification.WaitForNotification();
 
   // Send the remaining responses to unblock any pending reads without
   // cancelling the stream.
   ASSERT_TRUE(response_ids->Reserve(2));
-  response_ids->Push(2);
-  response_ids->Push(3);
+  response_ids->PushBatch({2, 3});
 }
 
 TEST(WriterTest, HandlesBatchedResponses) {
@@ -988,8 +987,7 @@ TEST(WriterTest, HandlesBatchedResponses) {
   Writer writer(pair.first, 1, 4, false, nullptr, 2);
 
   ASSERT_TRUE(response_ids->Reserve(2));
-  response_ids->Push(2);
-  response_ids->Push(3);
+  response_ids->PushBatch({2, 3});
 
   REVERB_ASSERT_OK(writer.Append(MakeTimestep()));
   REVERB_ASSERT_OK(writer.CreateItem("dist", 1, 1.0));
@@ -1002,8 +1000,7 @@ TEST(WriterTest, HandlesBatchedResponses) {
   REVERB_ASSERT_OK(writer.CreateItem("dist", 4, 1.0));
 
   ASSERT_TRUE(response_ids->Reserve(2));
-  response_ids->Push(3);
-  response_ids->Push(4);
+  response_ids->PushBatch({3, 4});
 }
 
 TEST(WriterTest, AppendSequenceBehavesLikeMutlipleAppendCalls) {

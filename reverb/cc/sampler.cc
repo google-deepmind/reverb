@@ -218,6 +218,8 @@ class GrpcSamplerWorker : public SamplerWorker {
 
     int64_t num_samples_returned = 0;
     SampleStreamResponse response;
+    // Vector of samples allocated in the first iteration and then reused.
+    std::vector<std::unique_ptr<Sample>> samples;
     while (num_samples_returned < num_samples) {
       // TODO(b/190237214): Ignore timeouts when data is not being requested.
       SampleStreamRequest request;
@@ -268,20 +270,24 @@ class GrpcSamplerWorker : public SamplerWorker {
           if (!status.ok()) {
             return {num_samples_returned, status};
           }
-          if (--reserved_slots_ < 0) {
-            return {num_samples_returned,
-                    absl::InternalError(
-                        "This should never happen. Please file a bug to the "
-                        "Reverb team if you encounter this error.")};
-          }
-          queue->Push(std::move(sample));
-          // The sample was successfully received from the stream and pushed to
-          // the queue. There might still be more samples, or partial samples,
+          samples.push_back(std::move(sample));
+          // The sample was successfully received from the stream.
+          // There might still be more samples, or partial samples,
           // in the same SampleStreamResponse so we'll continue reading the
           // remaining entries into the next sample.
           ++num_samples_returned;
           ++sampled;
         }
+        reserved_slots_ -= samples.size();
+        if (reserved_slots_ < 0) {
+            return {num_samples_returned,
+                    absl::InternalError(
+                        "This should never happen. Please file a bug to the "
+                        "Reverb team if you encounter this error.")};
+        }
+        // PushBatch call calls `.clear()` on the input vector, so that vector
+        // can be reused without memory reallocation.
+        queue->PushBatch(&samples);
       }
       if (!parts_of_next_sample.empty()) {
         return {num_samples_returned,
@@ -345,6 +351,8 @@ class LocalSamplerWorker : public SamplerWorker {
 
     int64_t num_samples_returned = 0;
     int64_t prev_batch_size = kInitialSampleBatchSize;
+    // Vector of samples allocated in the first iteration and then reused.
+    std::vector<std::unique_ptr<Sample>> samples;
     while (num_samples_returned < num_samples) {
       {
         absl::MutexLock lock(&mu_);
@@ -406,15 +414,19 @@ class LocalSamplerWorker : public SamplerWorker {
         if (status = AsSample(item, &sample); !status.ok()) {
           return {num_samples_returned, status};
         }
-        if (--reserved_slots_ < 0) {
-          return {num_samples_returned,
+        samples.push_back(std::move(sample));
+      }
+      reserved_slots_ -= samples.size();
+      num_samples_returned += samples.size();
+      if (reserved_slots_ < 0) {
+        return {num_samples_returned,
                   absl::InternalError(
                       "This should never happen. Please file a bug to the "
                       "Reverb team if you encounter this error.")};
-        }
-        queue->Push(std::move(sample));
-        ++num_samples_returned;
       }
+      // PushBatch call calls `.clear()` on the input vector, so that vector
+      // can be reused without memory reallocation.
+      queue->PushBatch(&samples);
     }
 
     if (num_samples_returned != num_samples) {

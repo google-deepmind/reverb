@@ -162,7 +162,7 @@ class FakeStream : public MockStream {
     requests_->push_back(msg);
     for (auto& item : msg.items()) {
       REVERB_CHECK(pending_confirmation_.Reserve(1));
-      pending_confirmation_.Push(item.key());
+      pending_confirmation_.PushBatch({item.key()});
     }
 
     return true;

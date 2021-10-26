@@ -79,13 +79,27 @@ class Queue {
     return !(closed_ || last_item_pushed_);
   }
 
-  // Pushes an item to the queue. It is required to reserve space in the queue
-  // beforehand.
-  void Push(T x) ABSL_LOCKS_EXCLUDED(mu_) {
+  // Pushes a batch of items using std::move and then calls `clear` on the input
+  // vector.
+  // NOTE! Space for all elements of the provided vector must be reserved before
+  // calling this method. Failing to do so will trigger death.
+  void PushBatch(std::vector<T>* x) {
     absl::MutexLock lock(&mu_);
-    REVERB_CHECK_GE(--reserved_, 0);
-    buffer_[pushes_ % buffer_.size()] = std::move(x);
-    ++pushes_;
+    REVERB_CHECK_GE(reserved_, x->size())
+        << "Space has not been reserved in the queue. Please file a bug to the "
+           "Reverb team.";
+    reserved_ -= x->size();
+    for (auto& i : *x) {
+      buffer_[pushes_ % buffer_.size()] = std::move(i);
+      ++pushes_;
+    }
+    x->clear();
+  }
+
+  // Exactly the same as the method above, but accepts vector of elements
+  // instead of a pointer.
+  void PushBatch(std::vector<T> x) {
+    PushBatch(&x);
   }
 
   // Blocks until queue contains at least `batch_size` items then pops and
