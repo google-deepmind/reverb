@@ -222,9 +222,6 @@ class Sampler {
   // incorrect behavior for FIFO samplers.
   static const int kDefaultNumWorkers = 1;
 
-  // By default samples are fetched one by one.
-  static const int kDefaultFlexibleBatchSize = 1;
-
   struct Options {
     // `max_samples` is the maximum number of samples the object will return.
     // Must be a positive number or `kUnlimitedMaxSamples`.
