@@ -295,7 +295,8 @@ TrajectoryWriter::TrajectoryWriter(
                 return;
               }
 
-              if (!status.ok() && !absl::IsUnavailable(status)) {
+              if (!status.ok() && !absl::IsUnavailable(status) &&
+                  !absl::IsCancelled(status)) {
                 unrecoverable_status_ = status;
                 return;
               }

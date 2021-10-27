@@ -13,6 +13,7 @@
 // limitations under the License.
 
 #include "reverb/cc/trajectory_writer.h"
+#include <grpcpp/support/status.h>
 
 #include <limits>
 #include <memory>
@@ -43,6 +44,7 @@
 #include "reverb/cc/reverb_service.grpc.pb.h"
 #include "reverb/cc/reverb_service.pb.h"
 #include "reverb/cc/reverb_service_mock.grpc.pb.h"
+#include "reverb/cc/support/grpc_util.h"
 #include "reverb/cc/support/queue.h"
 #include "reverb/cc/support/signature.h"
 #include "reverb/cc/testing/proto_test_util.h"
@@ -146,8 +148,8 @@ class FakeStream : public ::grpc::ClientCallbackReaderWriter<
                        ::deepmind::reverb::InsertStreamRequest,
                        ::deepmind::reverb::InsertStreamResponse> {
  public:
-  FakeStream(bool generate_responses)
-      : generate_responses_(generate_responses) {
+  FakeStream(bool generate_responses, absl::Status status)
+      : generate_responses_(generate_responses), status_(ToGrpcStatus(status)) {
     requests_ = std::make_shared<std::vector<InsertStreamRequest>>();
   }
 
@@ -247,14 +249,15 @@ class FakeStream : public ::grpc::ClientCallbackReaderWriter<
   ::deepmind::reverb::InsertStreamResponse* response_ ABSL_GUARDED_BY(mu_) =
       nullptr;
   const bool generate_responses_;
-  grpc::Status status_ = ::grpc::Status::OK;
+  grpc::Status status_;
 };
 
 class AsyncInterface : public ::deepmind::reverb::/* grpc_gen:: */ReverbService::
                            StubInterface::async_interface {
  public:
-  AsyncInterface(bool generate_responses = true)
-      : stream_(generate_responses) {}
+  AsyncInterface(bool generate_responses = true,
+                 absl::Status status = absl::OkStatus())
+      : stream_(generate_responses, status) {}
 
   void InsertStream(
       ::grpc::ClientContext* context,
@@ -886,8 +889,11 @@ TEST(TrajectoryWriter, DestructorFlushesPendingItems) {
   EXPECT_THAT(*requests, ElementsAre(IsChunkAndItem()));
 }
 
-TEST(TrajectoryWriter, RetriesOnTransientError) {
-  AsyncInterface fail_stream(false);
+class ParameterizedTrajectoryWriterTest : public ::testing::Test,
+                public ::testing::WithParamInterface<absl::Status> {};
+
+TEST_P(ParameterizedTrajectoryWriterTest, RetriesOnTransientError) {
+  AsyncInterface fail_stream(false, GetParam());
   AsyncInterface success_stream;
 
   auto stub = std::make_shared<MockReverbServiceAsyncStub>();
@@ -916,8 +922,9 @@ TEST(TrajectoryWriter, RetriesOnTransientError) {
   EXPECT_THAT(success_stream.stream_.requests(), ElementsAre(IsChunkAndItem()));
 }
 
-TEST(TrajectoryWriter, RetriesNonConfirmedItemsOnTransientError) {
-  AsyncInterface fail_stream(false);
+TEST_P(ParameterizedTrajectoryWriterTest,
+       RetriesNonConfirmedItemsOnTransientError) {
+  AsyncInterface fail_stream(false, GetParam());
   AsyncInterface success_stream;
 
   auto stub = std::make_shared<MockReverbServiceAsyncStub>();
@@ -949,9 +956,9 @@ TEST(TrajectoryWriter, RetriesNonConfirmedItemsOnTransientError) {
               ElementsAre(HasNumChunksAndItems(2, 2)));
 }
 
-TEST(TrajectoryWriter,
+TEST_P(ParameterizedTrajectoryWriterTest,
      RetriesNonConfirmedItemsIfReaderStoppedAndErrorIsTransient) {
-  AsyncInterface fail_stream(false);
+  AsyncInterface fail_stream(false, GetParam());
   AsyncInterface success_stream;
 
   auto stub = std::make_shared<MockReverbServiceAsyncStub>();
@@ -983,8 +990,8 @@ TEST(TrajectoryWriter,
   EXPECT_THAT(success_stream.stream_.requests(), ElementsAre(IsChunkAndItem()));
 }
 
-TEST(TrajectoryWriter, StopsOnNonTransientError) {
-  AsyncInterface fail_stream(false);
+TEST_P(ParameterizedTrajectoryWriterTest, StopsOnNonTransientError) {
+  AsyncInterface fail_stream(false, GetParam());
 
   auto stub = std::make_shared<MockReverbServiceAsyncStub>();
   EXPECT_CALL(*stub, async())
@@ -1021,8 +1028,8 @@ TEST(TrajectoryWriter, StopsOnNonTransientError) {
               ::testing::HasSubstr("A reason"));
 }
 
-TEST(TrajectoryWriter, FlushReturnsIfTimeoutExpired) {
-  AsyncInterface fail_stream(false);
+TEST_P(ParameterizedTrajectoryWriterTest, FlushReturnsIfTimeoutExpired) {
+  AsyncInterface fail_stream(false, GetParam());
 
   auto stub = std::make_shared<MockReverbServiceAsyncStub>();
   EXPECT_CALL(*stub, async())
@@ -1048,6 +1055,11 @@ TEST(TrajectoryWriter, FlushReturnsIfTimeoutExpired) {
   // Close the writer to avoid having to mock the item confirmation response.
   writer.Close();
 }
+
+INSTANTIATE_TEST_CASE_P(ErrorTests, ParameterizedTrajectoryWriterTest,
+                        ::testing::Values(absl::OkStatus(),
+                                          absl::CancelledError(""),
+                                          absl::UnavailableError("")));
 
 TEST(TrajectoryWriter, FlushCanIgnorePendingItems) {
   AsyncInterface success_stream;

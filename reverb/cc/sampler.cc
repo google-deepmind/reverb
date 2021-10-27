@@ -725,11 +725,13 @@ void Sampler::RunWorker(SamplerWorker* worker) {
 
       // Overwrite the final status only if it wasn't already an error.
       if (!result.second.ok() && worker_status_.ok() &&
-          !absl::IsUnavailable(result.second)) {
+          !absl::IsUnavailable(result.second) &&
+          !absl::IsCancelled(result.second)) {
         worker_status_ = result.second;
         samples_.Close();
         return;
-      } else if (absl::IsUnavailable(result.second)) {
+      } else if (absl::IsUnavailable(result.second) ||
+                 absl::IsCancelled(result.second)) {
         // Use exponential backoff to avoid burning CPU cycles when the server
         // is not available.
         retry_backoff = absl::Now() - start_time < kResetBackoffThreshold

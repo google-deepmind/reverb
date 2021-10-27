@@ -793,10 +793,13 @@ TEST(LocalSamplerTest, GetNextTimestepForwardsFatalServerError) {
   sampler.Close();
 }
 
-TEST(GrpcSamplerTest, GetNextTimestepRetriesTransientErrors) {
+class ParameterizedGrpcSamplerTest : public ::testing::Test,
+                public ::testing::WithParamInterface<grpc::StatusCode> {};
+
+TEST_P(ParameterizedGrpcSamplerTest, GetNextTimestepRetriesTransientErrors) {
   const int kNumWorkers = 2;
   const int kItemLength = 10;
-  const auto kError = grpc::Status(grpc::StatusCode::UNAVAILABLE, "");
+  const auto kError = grpc::Status(GetParam(), "");
 
   auto stub = MakeFlakyStub(
       {MakeResponse(kItemLength), MakeResponse(kItemLength)}, {kError});
@@ -813,10 +816,10 @@ TEST(GrpcSamplerTest, GetNextTimestepRetriesTransientErrors) {
   }
 }
 
-TEST(GrpcSamplerTest, GetNextSampleRetriesTransientErrors) {
+TEST_P(ParameterizedGrpcSamplerTest, GetNextSampleRetriesTransientErrors) {
   const int kNumWorkers = 2;
   const int kItemLength = 10;
-  const auto kError = grpc::Status(grpc::StatusCode::UNAVAILABLE, "");
+  const auto kError = grpc::Status(GetParam(), "");
 
   auto stub = MakeFlakyStub(
       {MakeResponse(kItemLength), MakeResponse(kItemLength)}, {kError});
@@ -831,6 +834,10 @@ TEST(GrpcSamplerTest, GetNextSampleRetriesTransientErrors) {
     REVERB_EXPECT_OK(sampler.GetNextSample(&sample));
   }
 }
+
+INSTANTIATE_TEST_CASE_P(ErrorTests, ParameterizedGrpcSamplerTest,
+                        ::testing::Values(grpc::StatusCode::UNAVAILABLE,
+                                          grpc::StatusCode::CANCELLED));
 
 TEST(GrpcSamplerTest, GetNextTimestepReturnsErrorIfMaximumSamplesExceeded) {
   auto stub = MakeGoodStub({MakeResponse(1), MakeResponse(1), MakeResponse(1)});

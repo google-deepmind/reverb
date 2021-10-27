@@ -283,6 +283,7 @@ reverb_cc_test(
         ":reverb_service_cc_proto",
         ":trajectory_writer",
         ":chunker",
+        "//reverb/cc/support:grpc_util",
         "//reverb/cc/support:signature",
         "//reverb/cc/support:queue",
         "//reverb/cc/platform:thread",
