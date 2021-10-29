@@ -146,7 +146,7 @@ class Table:
         if not isinstance(s, tensor_spec.TensorSpec):
           raise ValueError(f'Unsupported signature spec: {s}')
       signature_proto_str = (
-          nested_structure_coder.StructureCoder().encode_structure(
+          nested_structure_coder.encode_structure(
               signature).SerializeToString())
     else:
       signature_proto_str = None

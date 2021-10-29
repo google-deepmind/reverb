@@ -80,8 +80,7 @@ class TableInfo:
     """Constructs a TableInfo from a serialized `schema_pb2.TableInfo`."""
     proto = schema_pb2.TableInfo.FromString(proto_string)
     if proto.HasField('signature'):
-      signature = nested_structure_coder.StructureCoder().decode_proto(
-          proto.signature)
+      signature = nested_structure_coder.decode_proto(proto.signature)
     else:
       signature = None
     return cls(
