@@ -274,10 +274,6 @@ tensorflow::Status GetTensorDtypeFromPyArray(
 
 #undef NP_TO_TF_DTYPE_CASE
 
-    case NPY_VOID:
-      // TODO(b/154925774): Support struct and quantized types.
-      return tensorflow::errors::Unimplemented(
-          "Custom structs and quantized types are not supported");
     default:
       // TODO(b/154926401): Add support for bfloat16.
       // The bfloat16 type is defined in the internals of tf.
