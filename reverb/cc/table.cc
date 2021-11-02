@@ -802,34 +802,28 @@ absl::Status Table::DeleteItem(Table::Key key,
 
 void Table::ExtensionOperation(ExtensionRequest::CallType type,
                                const std::shared_ptr<Item>& item) {
+  ExtensionItem e_item(item);
+
   // First execute all synchronous extensions.
-  if (!sync_extensions_.empty()) {
-    ExtensionItem e_item(item);
+  for (auto& extension : sync_extensions_) {
     switch (type) {
       case ExtensionRequest::CallType::kInsert:
-        for (auto& extension : sync_extensions_) {
-          extension->OnInsert(&mu_, e_item);
-        }
+        extension->OnInsert(&mu_, e_item);
         break;
       case ExtensionRequest::CallType::kSample:
-        for (auto& extension : sync_extensions_) {
           extension->OnSample(&mu_, e_item);
-        }
         break;
       case ExtensionRequest::CallType::kUpdate:
-        for (auto& extension : sync_extensions_) {
           extension->OnUpdate(&mu_, e_item);
-        }
         break;
       case ExtensionRequest::CallType::kDelete:
-        for (auto& extension : sync_extensions_) {
           extension->OnDelete(&mu_, e_item);
-        }
         break;
       case ExtensionRequest::CallType::kMemoryRelease:
         break;
     }
   }
+
   if (!extension_worker_) {
     // All extensions are synchronous without extension worker.
     return;
@@ -840,12 +834,17 @@ void Table::ExtensionOperation(ExtensionRequest::CallType type,
     // otherwise no need to enqueue the operation.
     return;
   }
-  while (extension_requests_.size() >= max_enqueued_extension_ops_) {
+
+  // We push the request to the queue BEFORE we check if the size has been
+  // exceeded. This is done to ensure that the order of the requests in the
+  // queue is the same as the calls that created the requests.
+  ExtensionRequest request = {type, std::move(e_item)};
+  extension_requests_.push_back(std::move(request));
+
+  while (extension_requests_.size() > max_enqueued_extension_ops_) {
     extension_buffer_available_cv_.Wait(&mu_);
   }
-  ExtensionItem e_item(item);
-  ExtensionRequest request{type, e_item};
-  extension_requests_.push_back(request);
+
   if (extension_requests_.size() == 1) {
     extension_work_available_cv_.Signal();
   }
