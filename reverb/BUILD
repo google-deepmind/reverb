@@ -56,6 +56,7 @@ reverb_pytype_library(
         ":pybind",
         ":replay_sample",
         ":reverb_types",
+        ":structured_writer",
         ":trajectory_writer",
     ],
 )
@@ -101,7 +102,9 @@ reverb_pybind_extension(
         "//reverb/cc:chunker",
         "//reverb/cc/support:tf_util",
         "//reverb/cc:client",
+        "//reverb/cc:patterns_cc_proto",
         "//reverb/cc:sampler",
+        "//reverb/cc:structured_writer",
         "//reverb/cc:table",
         "//reverb/cc:trajectory_writer",
         "//reverb/cc:writer",
@@ -177,6 +180,17 @@ reverb_pytype_library(
     deps = [
         ":pybind",
         "//reverb/cc:schema_py_pb2",
+    ],
+)
+
+reverb_pytype_strict_library(
+    name = "structured_writer",
+    srcs = ["structured_writer.py"],
+    srcs_version = "PY3",
+    deps = [
+        ":errors",
+        ":pybind",
+        "//reverb/cc:patterns_py_pb2",
     ],
 )
 
@@ -314,5 +328,16 @@ reverb_py_test(
         ":pybind",
         ":server",
         ":trajectory_writer",
+    ],
+)
+
+reverb_py_test(
+    name = "structured_writer_test",
+    srcs = ["structured_writer_test.py"],
+    python_version = "PY3",
+    deps = [
+        ":client",
+        ":server",
+        ":structured_writer",
     ],
 )

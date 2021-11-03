@@ -27,6 +27,7 @@
 #include "reverb/cc/checkpointing/interface.h"
 #include "reverb/cc/chunker.h"
 #include "reverb/cc/client.h"
+#include "reverb/cc/patterns.pb.h"
 #include "reverb/cc/platform/checkpointing.h"
 #include "reverb/cc/platform/server.h"
 #include "reverb/cc/rate_limiter.h"
@@ -37,6 +38,7 @@
 #include "reverb/cc/selectors/lifo.h"
 #include "reverb/cc/selectors/prioritized.h"
 #include "reverb/cc/selectors/uniform.h"
+#include "reverb/cc/structured_writer.h"
 #include "reverb/cc/support/tf_util.h"
 #include "reverb/cc/table.h"
 #include "reverb/cc/table_extensions/interface.h"
@@ -658,27 +660,26 @@ PYBIND11_MODULE(libpybind, m) {
           },
           py::arg("chunk_length"), py::arg("max_timesteps"),
           py::arg("delta_encoded") = false, py::arg("max_in_flight_items"))
-      .def(
-          "NewSampler",
-          [](Client *client, const std::string &table, int64_t max_samples,
-             size_t buffer_size) {
-            std::unique_ptr<Sampler> sampler;
-            Sampler::Options options;
-            options.max_samples = max_samples;
-            options.max_in_flight_samples_per_worker = buffer_size;
-            // Release the GIL only when waiting for the call to complete. If
-            // the GIL is not held when `MaybeRaiseFromStatus` is called it can
-            // result in segfaults as the Python exception is populated with
-            // details from the status.
-            absl::Status status;
-            {
-              py::gil_scoped_release g;
-              status = client->NewSamplerWithoutSignatureCheck(
-                table, options, &sampler);
-            }
-            MaybeRaiseFromStatus(status);
-            return sampler;
-          })
+      .def("NewSampler",
+           [](Client *client, const std::string &table, int64_t max_samples,
+              size_t buffer_size) {
+             std::unique_ptr<Sampler> sampler;
+             Sampler::Options options;
+             options.max_samples = max_samples;
+             options.max_in_flight_samples_per_worker = buffer_size;
+             // Release the GIL only when waiting for the call to complete. If
+             // the GIL is not held when `MaybeRaiseFromStatus` is called it can
+             // result in segfaults as the Python exception is populated with
+             // details from the status.
+             absl::Status status;
+             {
+               py::gil_scoped_release g;
+               status = client->NewSamplerWithoutSignatureCheck(table, options,
+                                                                &sampler);
+             }
+             MaybeRaiseFromStatus(status);
+             return sampler;
+           })
       .def("NewTrajectoryWriter",
            [](Client *client, std::shared_ptr<ChunkerOptions> chunker_options,
               absl::optional<int> get_signature_timeout_ms) {
@@ -703,6 +704,43 @@ PYBIND11_MODULE(libpybind, m) {
                status = client->NewTrajectoryWriter(options, &writer);
              }
              MaybeRaiseFromStatus(status);
+
+             return writer.release();
+           })
+      .def("NewStructuredWriter",
+           [](Client *client, std::vector<std::string> serialized_configs)
+               -> StructuredWriter * {
+             std::vector<StructuredWriterConfig> configs;
+             for (const auto &serialised_config : serialized_configs) {
+               configs.emplace_back();
+
+               if (!configs.back().ParseFromString(
+                       std::string(serialised_config))) {
+                 MaybeRaiseFromStatus(absl::InvalidArgumentError(absl::StrCat(
+                     "Unable to deserialize StructuredWriterConfig from "
+                     "serialized proto bytes: '",
+                     std::string(serialised_config), "'")));
+                 return nullptr;
+               }
+             }
+
+             std::unique_ptr<StructuredWriter> writer;
+
+             // Release the GIL only when waiting for the call to complete. If
+             // the GIL is not held when `MaybeRaiseFromStatus` is called it can
+             // result in segfaults as the Python exception is populated with
+             // details from the status.
+             absl::Status status;
+             {
+               py::gil_scoped_release g;
+               status =
+                   client->NewStructuredWriter(std::move(configs), &writer);
+             }
+
+             if (!status.ok()) {
+               MaybeRaiseFromStatus(status);
+               return nullptr;
+             }
 
              return writer.release();
            })
@@ -995,6 +1033,39 @@ PYBIND11_MODULE(libpybind, m) {
            py::call_guard<py::gil_scoped_release>())
       .def("ConfigureChunker", &TrajectoryWriter::ConfigureChunker,
            py::call_guard<py::gil_scoped_release>());
+
+  py::class_<StructuredWriter, std::shared_ptr<StructuredWriter>>(
+      m, "StructuredWriter")
+      .def("Append", &StructuredWriter::Append,
+           py::call_guard<py::gil_scoped_release>())
+      .def("AppendPartial", &StructuredWriter::Append,
+           py::call_guard<py::gil_scoped_release>())
+      .def("Flush",
+           [](StructuredWriter *writer, int ignore_last_num_items,
+              absl::optional<int> timeout_ms) {
+             absl::Status status;
+             {
+               py::gil_scoped_release g;
+               status =
+                   writer->Flush(ignore_last_num_items,
+                                 timeout_ms.has_value()
+                                     ? absl::Milliseconds(timeout_ms.value())
+                                     : absl::InfiniteDuration());
+             }
+             MaybeRaiseFromStatus(status);
+           })
+      .def("EndEpisode", [](StructuredWriter *writer, bool clear_buffers,
+                            absl::optional<int> timeout_ms) {
+        absl::Status status;
+        {
+          py::gil_scoped_release g;
+          status = writer->EndEpisode(
+              clear_buffers, timeout_ms.has_value()
+                                 ? absl::Milliseconds(timeout_ms.value())
+                                 : absl::InfiniteDuration());
+        }
+        MaybeRaiseFromStatus(status);
+      });
 }
 
 }  // namespace

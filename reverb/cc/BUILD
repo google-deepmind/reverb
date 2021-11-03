@@ -349,10 +349,13 @@ reverb_cc_library(
     hdrs = ["client.h"],
     visibility = ["//reverb:__subpackages__"],
     deps = [
+        ":chunker",
+        ":patterns_cc_proto",
         ":sampler",
         ":reverb_service_cc_grpc_proto",
         ":reverb_service_cc_proto",
         ":schema_cc_proto",
+        ":structured_writer",
         ":trajectory_writer",
         ":streaming_trajectory_writer",
         ":writer",
@@ -374,6 +377,17 @@ reverb_py_proto_library(
     name = "schema_py_pb2",
     srcs = ["schema.proto"],
     deps = [":schema_cc_proto"],
+)
+
+reverb_cc_proto_library(
+    name = "patterns_cc_proto",
+    srcs = ["patterns.proto"],
+)
+
+reverb_py_proto_library(
+    name = "patterns_py_pb2",
+    srcs = ["patterns.proto"],
+    deps = [":patterns_cc_proto"],
 )
 
 reverb_cc_proto_library(
@@ -479,5 +493,27 @@ reverb_cc_test(
     srcs = ["thread_stats_test.cc"],
     deps = [
         ":thread_stats",
+    ] + reverb_absl_deps(),
+)
+
+reverb_cc_test(
+    name = "structured_writer_test",
+    srcs = ["structured_writer_test.cc"],
+    deps = [
+        ":structured_writer",
+    ],
+)
+
+reverb_cc_library(
+    name = "structured_writer",
+    srcs = ["structured_writer.cc"],
+    hdrs = ["structured_writer.h"],
+    deps = [
+        ":chunker",
+        ":patterns_cc_proto",
+        ":trajectory_writer",
+        "//reverb/cc/platform:hash_map",
+        "//reverb/cc/platform:logging",
+        "//reverb/cc/platform:status_macros",
     ] + reverb_absl_deps(),
 )

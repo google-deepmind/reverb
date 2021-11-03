@@ -20,7 +20,7 @@ exposes direct methods for both inserting (i.e `insert`) and sampling (i.e
 `TrajectoryDataset` directly whenever possible.
 """
 
-from typing import Any, Dict, Generator, List, Optional, Union
+from typing import Any, Dict, Generator, List, Optional, Sequence, Union
 
 from absl import logging
 import numpy as np
@@ -28,6 +28,7 @@ from reverb import errors
 from reverb import pybind
 from reverb import replay_sample
 from reverb import reverb_types
+from reverb import structured_writer as structured_writer_lib
 from reverb import trajectory_writer as trajectory_writer_lib
 import tree
 
@@ -566,6 +567,28 @@ class Client:
     cpp_writer = self._client.NewTrajectoryWriter(chunker_options,
                                                   get_signature_timeout_ms)
     return trajectory_writer_lib.TrajectoryWriter(cpp_writer)
+
+  def structured_writer(self, configs: Sequence[structured_writer_lib.Config]):
+    """Constructs a new `StructuredWriter`.
+
+    See `StructuredWriter` for more detailed documentation.
+
+    Args:
+      configs: Configurations describing how the writer should transform the
+        sequence of steps into table insertions.
+
+    Returns:
+      A `StructuredWriter` that inserts items according to `configs`.
+
+    Raises:
+      ValueError: If `configs` is empty or contains an invalid config.
+    """
+    if not configs:
+      raise ValueError('At least one config must be provided.')
+
+    serialized_configs = [config.SerializeToString() for config in configs]
+    cpp_writer = self._client.NewStructuredWriter(serialized_configs)
+    return structured_writer_lib.StructuredWriter(cpp_writer)
 
   def _get_signature_for_table(self, table: str):
     if not self._signature_cache:

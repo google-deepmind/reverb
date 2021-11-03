@@ -93,7 +93,7 @@
   if (ABSL_PREDICT_FALSE(!statusor.ok())) {                \
     return statusor.status();                              \
   }                                                        \
-  lhs = std::move(statusor.ValueOrDie())
+  lhs = std::move(statusor.value())
 
 #define REVERB_CHECK_OK(val) CHECK_EQ(::absl::OkStatus(), (val))
 

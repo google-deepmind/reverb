@@ -18,17 +18,22 @@
 #include <memory>
 
 #include "grpcpp/support/channel_arguments.h"
+#include "absl/memory/memory.h"
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/str_format.h"
 #include "absl/strings/string_view.h"
 #include "absl/time/time.h"
 #include "absl/types/optional.h"
+#include "reverb/cc/chunker.h"
+#include "reverb/cc/patterns.pb.h"
 #include "reverb/cc/platform/grpc_utils.h"
 #include "reverb/cc/platform/logging.h"
 #include "reverb/cc/platform/status_macros.h"
 #include "reverb/cc/reverb_service.pb.h"
 #include "reverb/cc/schema.pb.h"
 #include "reverb/cc/streaming_trajectory_writer.h"
+#include "reverb/cc/structured_writer.h"
 #include "reverb/cc/support/grpc_util.h"
 #include "reverb/cc/support/uint128.h"
 #include "reverb/cc/trajectory_writer.h"
@@ -439,6 +444,68 @@ absl::Status Client::NewStreamingTrajectoryWriter(
     std::unique_ptr<StreamingTrajectoryWriter>* writer) {
   REVERB_RETURN_IF_ERROR(options.Validate());
   *writer = absl::make_unique<StreamingTrajectoryWriter>(stub_, options);
+  return absl::OkStatus();
+}
+
+absl::Status Client::NewStructuredWriter(
+    std::vector<StructuredWriterConfig> configs,
+    std::unique_ptr<StructuredWriter>* writer) {
+  if (configs.empty()) {
+    return absl::InvalidArgumentError("At least one config must be provided.");
+  }
+
+  // Keep track of the maximum history length required by any of the configs and
+  // use this to build the `TrajectoryWriter` that the `StructuredWriter` will
+  // wrap.
+  int max_num_keep_alive_refs = 0;
+  for (int i = 0; i < configs.size(); i++) {
+    // Find the maximum history length required by this config.
+    int num_keep_alive_refs = 0;
+    for (const auto& node : configs[i].flat()) {
+      num_keep_alive_refs = std::max(
+          num_keep_alive_refs, std::abs(std::min(node.start(), node.stop())));
+    }
+
+    // Update the global maximum history length required.
+    max_num_keep_alive_refs =
+        std::max(max_num_keep_alive_refs, num_keep_alive_refs);
+
+    // If we wish to avoid segfault then it is important that the buffers
+    // contains enough steps for the pattern to be applied before anything is
+    // attempted. We therefore check if the config already contains a condition
+    // that ensures that the config is not applied prematurely. If none of the
+    // existing conditions fulfill this responsibility then we create and add
+    // one to the config.
+    // Add a condition for the buffer length if it doesn't already have one.
+    if (std::none_of(configs[i].conditions().begin(),
+                     configs[i].conditions().end(), [&](const auto& c) {
+                       return c.buffer_length() &&
+                              c.ge() >= num_keep_alive_refs;
+                     })) {
+      auto* cond = configs[i].add_conditions();
+      cond->set_buffer_length(true);
+      cond->set_ge(num_keep_alive_refs);
+    }
+
+    if (auto status = ValidateStructuredWriterConfig(configs[i]);
+        !status.ok()) {
+      return absl::Status(
+          status.code(),
+          absl::StrFormat("Invalid configuration at position %d: %s", i,
+                          status.message()));
+    }
+  }
+
+  TrajectoryWriter::Options options = {
+      .chunker_options =
+          std::make_shared<AutoTunedChunkerOptions>(max_num_keep_alive_refs),
+  };
+  std::unique_ptr<TrajectoryWriter> trajectory_writer;
+  REVERB_RETURN_IF_ERROR(NewTrajectoryWriter(options, &trajectory_writer));
+
+  *writer = absl::make_unique<StructuredWriter>(std::move(trajectory_writer),
+                                                std::move(configs));
+
   return absl::OkStatus();
 }
 

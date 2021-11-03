@@ -28,11 +28,13 @@
 #include "absl/strings/string_view.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/time/time.h"
+#include "reverb/cc/patterns.pb.h"
 #include "reverb/cc/reverb_service.grpc.pb.h"
 #include "reverb/cc/reverb_service.pb.h"
 #include "reverb/cc/sampler.h"
 #include "reverb/cc/schema.pb.h"
 #include "reverb/cc/streaming_trajectory_writer.h"
+#include "reverb/cc/structured_writer.h"
 #include "reverb/cc/support/signature.h"
 #include "reverb/cc/trajectory_writer.h"
 #include "reverb/cc/writer.h"
@@ -128,8 +130,6 @@ class Client {
   absl::Status ServerInfo(struct ServerInfo* info);
 
   // Validates `options` and if valid, creates a new `TrajectoryWriter`.
-  //
-  // TODO(b/177308010): Remove banner when `TrajectoryWriter` is ready for use.
   absl::Status NewTrajectoryWriter(const TrajectoryWriter::Options& options,
                                    std::unique_ptr<TrajectoryWriter>* writer);
 
@@ -140,6 +140,12 @@ class Client {
   absl::Status NewTrajectoryWriter(const TrajectoryWriter::Options& options,
                                    absl::Duration get_signature_timeout,
                                    std::unique_ptr<TrajectoryWriter>* writer);
+
+  // Validates `configs` and creates a new `StructuredWriter`.
+  //
+  // TODO(b/204560248): Expand the documentation.
+  absl::Status NewStructuredWriter(std::vector<StructuredWriterConfig> configs,
+                                   std::unique_ptr<StructuredWriter>* writer);
 
   // Validates `options` and if valid, creates a new
   // `StreamingTrajectoryWriter`.
