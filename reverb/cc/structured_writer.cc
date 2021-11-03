@@ -115,7 +115,7 @@ absl::StatusOr<std::vector<TrajectoryColumn>> BuildTrajectory(
   out.reserve(columns.size());
 
   for (const auto& node : config.flat()) {
-    REVERB_CHECK_GT(columns.size(), node.flat_source_index());
+    REVERB_QCHECK_GT(columns.size(), node.flat_source_index());
     const auto& col = columns[node.flat_source_index()];
 
     const int offset =
@@ -145,27 +145,26 @@ absl::StatusOr<std::vector<TrajectoryColumn>> BuildTrajectory(
 absl::Status ValidateCondition(const Condition& condition) {
   if (condition.left_case() == Condition::LEFT_NOT_SET) {
     return absl::InvalidArgumentError(
-        "Condition must specify value for `left`.");
+        "Conditions must specify a value for `left`.");
   }
 
   if (condition.cmp_case() == Condition::kModEq) {
     const auto& mod_eq = condition.mod_eq();
     if (mod_eq.mod() <= 0) {
       return absl::InvalidArgumentError(absl::StrFormat(
-          "`mod_eq.mod` must be a positive integer, got %d.", mod_eq.mod()));
+          "`mod_eq.mod` must be > 0 but got %d.", mod_eq.mod()));
     }
-    if (condition.cmp_case() == Condition::kModEq && mod_eq.eq() < 0) {
+    if (mod_eq.eq() < 0) {
       return absl::InvalidArgumentError(
-          absl::StrFormat("`mod_eq.eq` must be >= 0, got %d.", mod_eq.mod()));
+          absl::StrFormat("`mod_eq.eq` must be >= 0 but got %d.", mod_eq.eq()));
     }
   }
 
   if (condition.cmp_case() == Condition::CMP_NOT_SET) {
     return absl::InvalidArgumentError(
-        "Condition must specify a value for `cmp`.");
+        "Conditions must specify a value for `cmp`.");
   }
 
-  // TODO(cassirer): Do we need to be able to filter on non-episode end?
   if (condition.is_end_episode() && condition.eq() != 1) {
     return absl::InvalidArgumentError(
         "Condition must use `eq=1` when using `is_end_episode`.");
@@ -191,6 +190,11 @@ absl::Status ValidatePatternNode(const PatternNode& node) {
   if (HasStop(node) && node.stop() > 0) {
     return absl::InvalidArgumentError(
         absl::StrFormat("`stop` must be <= 0 but got %d.", node.stop()));
+  }
+  if (HasStart(node) && HasStop(node) && node.start() >= node.stop()) {
+    return absl::InvalidArgumentError(absl::StrFormat(
+        "`stop` (%d) must be > `start` (%d) when both are specified.",
+        node.stop(), node.start()));
   }
   if (HasStop(node) && node.stop() == 0 && !HasStart(node)) {
     return absl::InvalidArgumentError(absl::StrFormat(
@@ -220,6 +224,17 @@ std::vector<int> MaxHistoryLengthPerColumn(
 
 absl::Status ValidateStructuredWriterConfig(
     const StructuredWriterConfig& config) {
+  if (config.flat_size() == 0) {
+    return absl::InvalidArgumentError("`flat` must not be empty.");
+  }
+  if (config.table().empty()) {
+    return absl::InvalidArgumentError("`table` must not be empty.");
+  }
+  if (config.priority() < 0) {
+    return absl::InvalidArgumentError(absl::StrFormat(
+        "`priority` must be >= 0 but got %f.", config.priority()));
+  }
+
   for (const auto& node : config.flat()) {
     REVERB_RETURN_IF_ERROR(ValidatePatternNode(node));
   }
@@ -239,13 +254,13 @@ absl::Status ValidateStructuredWriterConfig(
 
   if (std::none_of(config.conditions().begin(), config.conditions().end(),
                    [&](const auto& cond) {
-                     return cond.buffer_length() && cond.ge() == max_age;
+                     return cond.buffer_length() && cond.ge() >= max_age;
                    })) {
     Condition want;
     want.set_buffer_length(true);
     want.set_ge(max_age);
     return absl::InvalidArgumentError(absl::StrFormat(
-        "Config does not contain required buffer length requirement;\n"
+        "Config does not contain required buffer length condition;\n"
         "Config: \n%s\ndoes not contain:\n%s",
         config.DebugString(), want.DebugString()));
   }

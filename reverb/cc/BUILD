@@ -500,8 +500,11 @@ reverb_cc_test(
     name = "structured_writer_test",
     srcs = ["structured_writer_test.cc"],
     deps = [
+        ":patterns_cc_proto",
         ":structured_writer",
-    ],
+        "//reverb/cc/platform:status_matchers",
+        "//reverb/cc/testing:proto_test_util",
+    ] + reverb_absl_deps(),
 )
 
 reverb_cc_library(
