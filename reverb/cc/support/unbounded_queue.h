@@ -38,12 +38,6 @@ namespace internal {
 template <typename T>
 class UnboundedQueue {
  public:
-  explicit UnboundedQueue()
-      : buffer_(),
-        closed_(false),
-        size_(0),
-        last_item_pushed_(false) {}
-
   // Closes the queue. All pending and future calls to `Push()` and `Pop()` are
   // unblocked and return false without performing the operation. Additional
   // calls of Close after the first one have no effect.
@@ -105,15 +99,15 @@ class UnboundedQueue {
   // Equivalent to buffer_.size(). We keep it explicitly, otherwise
   // absl::DebugOnlyDeadlockCheck() is not able to detect that there are no
   // deadlocks between Push and Pop.
-  int size_ ABSL_GUARDED_BY(mu_);
+  int size_ ABSL_GUARDED_BY(mu_) = 0;
 
   // Whether `Close()` was called.
-  bool closed_ ABSL_GUARDED_BY(mu_);
+  bool closed_ ABSL_GUARDED_BY(mu_) = false;
 
   // Whether `SetLastItemPushed()` has been called. When set then push calls are
   // treated the same as if `Closed()` had been called. If set and the queue is
   // empty after a pop call then `closed_` is set.
-  bool last_item_pushed_ ABSL_GUARDED_BY(mu_);
+  bool last_item_pushed_ ABSL_GUARDED_BY(mu_) = false;
 };
 
 }  // namespace internal
