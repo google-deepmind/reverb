@@ -52,6 +52,10 @@ inline bool HasStop(const PatternNode& node) {
   return node.stop_or_none_case() == PatternNode::kStop;
 }
 
+inline bool HasStep(const PatternNode& node) {
+  return node.step_or_none_case() == PatternNode::kStep;
+}
+
 inline int MaxAge(const PatternNode& node) {
   return std::abs(HasStart(node) ? node.start() : node.stop());
 }
@@ -121,19 +125,21 @@ absl::StatusOr<std::vector<TrajectoryColumn>> BuildTrajectory(
     const int offset =
         col.size() + (HasStart(node) ? node.start() : node.stop());
     const int length = HasStart(node) ? node.stop() - node.start() : 1;
+    const int step = HasStep(node) ? node.step() : 1;
 
     auto it = col.begin();
     std::advance(it, offset);
 
-    std::vector<std::weak_ptr<CellRef>> refs(length);
-    for (int i = 0; i < length; i++) {
+    std::vector<std::weak_ptr<CellRef>> refs;
+    refs.reserve(length / step);
+    for (int i = 0; i < length; i += step) {
       if (*it == nullptr) {
         return absl::FailedPreconditionError(absl::StrFormat(
             "The %dth column contain null values in the references slice",
             node.flat_source_index()));
       }
-      refs[i] = *it;
-      it++;
+      refs.push_back(*it);
+      std::advance(it, step);
     }
 
     out.emplace_back(std::move(refs), !HasStart(node) && HasStop(node));
@@ -199,6 +205,14 @@ absl::Status ValidatePatternNode(const PatternNode& node) {
   if (HasStop(node) && node.stop() == 0 && !HasStart(node)) {
     return absl::InvalidArgumentError(absl::StrFormat(
         "`stop` must be < 0 when `start` isn't set but got %d.", node.stop()));
+  }
+  if (HasStep(node) && !HasStart(node)) {
+    return absl::InvalidArgumentError(
+        "`step` must only be set when `start` is set.");
+  }
+  if (HasStep(node) && node.step() <= 0) {
+    return absl::InvalidArgumentError(
+        absl::StrFormat("`step` must be > 0 but got %d.", node.step()));
   }
 
   return absl::OkStatus();

@@ -13,18 +13,22 @@ message PatternNode {
   //  * x[-1:] => (start=-1, stop=null)
   //  * x[-2] => (start=null, stop=-2)
   //  * x[-3:-1] => (start=-3, stop=-1)
+  //  * x[-3:-1:2] => (start=-3, stop=-1, step=2)
   //
   // Furthermore, the following requirements applies:
   //
-  //  * Slices with undefined start (e.g. x[:-2]) are not supported.
-  //  * ALL keys must be negative.
+  //  * Slices with undefined `start` (e.g. x[:-2]) are not supported.
+  //  * For slices, `start` must be < 0 and `stop` must be <= 0.
+  //  * `step` must be > 0 when defined.
   //
-  // TODO(b/204538074):  Add support for `step`.
   oneof start_or_none {
     int32 start = 2;
   }
   oneof stop_or_none {
     int32 stop = 3;
+  }
+  oneof step_or_none {
+    int32 step = 4;
   }
 }
 

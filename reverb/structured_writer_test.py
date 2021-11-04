@@ -40,7 +40,8 @@ class _RefNode:
     return Node(
         flat_source_index=self._flat_source_index,
         start=key.start,
-        stop=key.stop)
+        stop=key.stop,
+        step=key.step)
 
 
 TABLES = tuple(f'queue_{i}' for i in range(5))
@@ -198,7 +199,8 @@ class StructuredWriterTest(parameterized.TestCase):
                       np.array([4, 4, 4], np.int64),
               },
           ],
-      }, {
+      },
+      {
           'pattern': {
               'older': REF_STEP['a'][-3:-1],
               'last_a': REF_STEP['a'][-1],
@@ -219,7 +221,35 @@ class StructuredWriterTest(parameterized.TestCase):
                   'last_a': np.array(4, np.float32),
               },
           ],
-      })
+      },
+      {
+          'pattern': {
+              'every_second_a': REF_STEP['a'][-5::2]
+          },
+          'num_steps':
+              10,
+          'want': [
+              {
+                  'every_second_a': np.array([0, 2, 4], np.float32)
+              },
+              {
+                  'every_second_a': np.array([1, 3, 5], np.float32)
+              },
+              {
+                  'every_second_a': np.array([2, 4, 6], np.float32)
+              },
+              {
+                  'every_second_a': np.array([3, 5, 7], np.float32)
+              },
+              {
+                  'every_second_a': np.array([4, 6, 8], np.float32)
+              },
+              {
+                  'every_second_a': np.array([5, 7, 9], np.float32)
+              },
+          ],
+      },
+  )
   def test_trajectory_patterns(self, pattern, num_steps, want):
     config = Config(
         flat=tree.flatten(pattern),

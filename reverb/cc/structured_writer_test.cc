@@ -509,6 +509,39 @@ TEST(ValidateStructuredWriterConfig, NegativePriority) {
                        "`priority` must be >= 0 but got -1.0"));
 }
 
+TEST(ValidateStructuredWriterConfig, StepSetWhenStartUnset) {
+  EXPECT_THAT(ValidateStructuredWriterConfig(MakeConfig(R"pb(
+                flat { flat_source_index: 0 stop: -3 step: 2 }
+                table: "table"
+                priority: 1.0
+                conditions { buffer_length: true ge: 3 }
+              )pb")),
+              StatusIs(absl::StatusCode::kInvalidArgument,
+                       "`step` must only be set when `start` is set."));
+}
+
+TEST(ValidateStructuredWriterConfig, NegativeStep) {
+  EXPECT_THAT(ValidateStructuredWriterConfig(MakeConfig(R"pb(
+                flat { flat_source_index: 0 start: -3 step: -1 }
+                table: "table"
+                priority: 1.0
+                conditions { buffer_length: true ge: 3 }
+              )pb")),
+              StatusIs(absl::StatusCode::kInvalidArgument,
+                       "`step` must be > 0 but got -1."));
+}
+
+TEST(ValidateStructuredWriterConfig, ZeroStep) {
+  EXPECT_THAT(ValidateStructuredWriterConfig(MakeConfig(R"pb(
+                flat { flat_source_index: 0 start: -3 step: 0 }
+                table: "table"
+                priority: 1.0
+                conditions { buffer_length: true ge: 3 }
+              )pb")),
+              StatusIs(absl::StatusCode::kInvalidArgument,
+                       "`step` must be > 0 but got 0."));
+}
+
 TEST(StructuredWriter, PatternFromPartialData) {
   auto fake_writer = absl::make_unique<FakeWriter>(2);
   FakeWriter* fake_writer_ptr = fake_writer.get();
@@ -630,6 +663,23 @@ INSTANTIATE_TEST_SUITE_P(
                               {MakeTensor({10, 11, 12})},
                               {MakeTensor({11, 12, 13})},
                               {MakeTensor({12, 13, 14})},
+                          }),
+                      ParamT(
+                          R"pb(
+                            flat { flat_source_index: 0 start: -3 step: 2 }
+                          )pb",
+                          {
+                              {MakeTensor({10, 12})},
+                              {MakeTensor({11, 13})},
+                              {MakeTensor({12, 14})},
+                          }),
+                      ParamT(
+                          R"pb(
+                            flat { flat_source_index: 1 start: -4 step: 3 }
+                          )pb",
+                          {
+                              {MakeTensor({20, 23})},
+                              {MakeTensor({21, 24})},
                           })));
 
 INSTANTIATE_TEST_SUITE_P(
