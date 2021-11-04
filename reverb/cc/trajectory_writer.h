@@ -475,6 +475,9 @@ class TrajectoryColumn {
   // True if the column is empty.
   bool empty() const { return refs_.empty(); }
 
+  // True if the column is squeezed.
+  bool squeezed() const { return squeeze_; }
+
  private:
   // References to the rows that make up the column.
   std::vector<std::weak_ptr<CellRef>> refs_;

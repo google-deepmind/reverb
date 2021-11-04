@@ -328,7 +328,9 @@ absl::Status StructuredWriter::AppendInternal(
 }
 
 absl::Status StructuredWriter::ApplyConfigs(bool is_end_of_episode) {
-  if (columns_.empty() || columns_.front().empty()) {
+  if (columns_.empty() ||
+      std::all_of(columns_.begin(), columns_.end(),
+                  [](const auto& c) { return c.empty(); })) {
     return absl::OkStatus();
   }
 
