@@ -569,6 +569,55 @@ TEST(StructuredWriter, PatternFromPartialData) {
                           });
 }
 
+TEST(StructuredWriter, PatternFromAppendPartial) {
+  auto fake_writer = absl::make_unique<FakeWriter>(3);
+  FakeWriter* fake_writer_ptr = fake_writer.get();
+
+  auto config = MakeConfig(R"pb(
+    flat { flat_source_index: 0 stop: -2 }
+    flat { flat_source_index: 1 start: -2 }
+    flat { flat_source_index: 2 stop: -1 }
+    table: "table"
+    priority: 1.0
+    conditions: { buffer_length: true ge: 2 }
+  )pb");
+
+  StructuredWriter writer(std::move(fake_writer), {std::move(config)});
+
+  // Append all columns on the first step.
+  REVERB_EXPECT_OK(writer.Append(MakeStep({10, 20, 30})));
+
+  // Only append the third column. This should not be enough to trigger the
+  // creation of the trajectory.
+  REVERB_EXPECT_OK(
+      writer.AppendPartial(MakeStep({absl::nullopt, absl::nullopt, 31})));
+  EXPECT_THAT(fake_writer_ptr->GetWritten(), ::testing::IsEmpty());
+
+  // Only append the second column. We should now have enought to create a
+  // trajectory.
+  REVERB_EXPECT_OK(writer.AppendPartial(MakeStep({absl::nullopt, 21})));
+  ExpectTrajectoriesEqual(
+      fake_writer_ptr->GetWritten(),
+      {
+          {MakeTensor(10), MakeTensor({20, 21}), MakeTensor(31)},
+      });
+
+  // Append the final column and finalize the step. The trajectory has already
+  // been created for this step so there should not be any new trajectories
+  // created from this operation.
+  REVERB_EXPECT_OK(writer.Append(MakeStep({11})));
+  EXPECT_THAT(fake_writer_ptr->GetWritten(), ::testing::SizeIs(1));
+
+  // Append a complete step should trigger the creation of a second trajectory.
+  REVERB_EXPECT_OK(writer.Append(MakeStep({12, 22, 32})));
+  ExpectTrajectoriesEqual(
+      fake_writer_ptr->GetWritten(),
+      {
+          {MakeTensor(10), MakeTensor({20, 21}), MakeTensor(31)},
+          {MakeTensor(11), MakeTensor({21, 22}), MakeTensor(32)},
+      });
+}
+
 using ParamT = std::pair<std::string, std::vector<std::vector<Tensor>>>;
 
 class StructuredWriterTest : public ::testing::TestWithParam<ParamT> {};

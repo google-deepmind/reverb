@@ -76,6 +76,9 @@ class StructuredWriter {
     CellRef::EpisodeInfo last_checked = {0, -1};
   };
 
+  // True if `AppendPartial` has been called on the active step.
+  bool step_is_open_ = false;
+
   // The actual writer which data will be forwarded to and items will be
   // inserted using.
   std::unique_ptr<ColumnWriter> writer_;

@@ -24,6 +24,7 @@
 #include "absl/status/statusor.h"
 #include "absl/strings/str_format.h"
 #include "absl/time/time.h"
+#include "absl/types/optional.h"
 #include "reverb/cc/chunker.h"
 #include "reverb/cc/patterns.pb.h"
 #include "reverb/cc/platform/hash_map.h"
@@ -314,6 +315,11 @@ absl::Status StructuredWriter::AppendInternal(
     REVERB_RETURN_IF_ERROR(writer_->AppendPartial(std::move(data), &refs));
   }
 
+  // Make sure all columns exist in the refs.
+  while (refs.size() < max_column_history_.size()) {
+    refs.push_back(absl::nullopt);
+  }
+
   for (int i = 0; i < refs.size(); i++) {
     // The remaining columns are not used by any of the patterns.
     if (i >= max_column_history_.size()) {
@@ -325,11 +331,22 @@ absl::Status StructuredWriter::AppendInternal(
       columns_.emplace_back();
     }
 
-    // Append the reference, if any, to the column buffer.
-    if (refs[i].has_value()) {
-      columns_[i].push_back(refs[i]->lock());
-    } else {
-      columns_[i].push_back(nullptr);
+    if (!step_is_open_) {
+      // The previous call was `Append` so we'll go ahead and push a new row
+      // to the column buffer even if no value was provided in this call.
+      columns_[i].push_back(refs[i].has_value() ? refs[i]->lock() : nullptr);
+    } else if (refs[i].has_value()) {
+      // The previous call was `AppendPartial` so this call is filling in one
+      // or more columns that were omitted in the last call.
+      if (columns_[i].back() != nullptr) {
+        return absl::InternalError(
+            absl::StrFormat("A value for column %d was provided by multiple "
+                            "Append/AppendPartial calls in the same step. This "
+                            "should never happen so please contact the Reverb "
+                            "team if you encounter this error.",
+                            i));
+      }
+      columns_[i].back() = refs[i]->lock();
     }
 
     // Free references to cells that never will be used.
@@ -337,6 +354,9 @@ absl::Status StructuredWriter::AppendInternal(
       columns_[i].pop_front();
     }
   }
+
+  // Mark the active step iff `AppendPartial` was called.
+  step_is_open_ = !finalize_step;
 
   return ApplyConfigs(/*is_end_of_episode=*/false);
 }
@@ -397,7 +417,7 @@ absl::Status StructuredWriter::EndEpisode(bool clear_buffers,
   if (clear_buffers) {
     columns_.clear();
   }
-
+  step_is_open_ = false;
   return absl::OkStatus();
 }
 
