@@ -1032,7 +1032,9 @@ PYBIND11_MODULE(libpybind, m) {
       .def("Close", &TrajectoryWriter::Close,
            py::call_guard<py::gil_scoped_release>())
       .def("ConfigureChunker", &TrajectoryWriter::ConfigureChunker,
-           py::call_guard<py::gil_scoped_release>());
+           py::call_guard<py::gil_scoped_release>())
+      .def_property_readonly("max_num_keep_alive_refs",
+                             &TrajectoryWriter::max_num_keep_alive_refs);
 
   py::class_<StructuredWriter, std::shared_ptr<StructuredWriter>>(
       m, "StructuredWriter")

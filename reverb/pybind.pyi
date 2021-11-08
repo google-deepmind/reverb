@@ -189,6 +189,10 @@ class TrajectoryWriter:
       options: ChunkerOptions):
     ...
 
+  @property
+  def max_num_keep_alive_refs(self) -> int:
+    ...
+
 
 class StructuredWriter:
   def Append(self, data: Sequence[Optional[Any]]): ...

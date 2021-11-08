@@ -78,6 +78,7 @@ class TrajectoryWriterTest(parameterized.TestCase):
     self.cpp_writer_mock.Append.side_effect = _mock_append
     self.cpp_writer_mock.AppendPartial.side_effect = _mock_append
     self.cpp_writer_mock.CreateItem.side_effect = _mock_create_item
+    self.cpp_writer_mock.max_num_keep_alive_refs = 10
 
     self.writer = trajectory_writer.TrajectoryWriter(self.cpp_writer_mock)
 

@@ -16,7 +16,7 @@
 
 import datetime
 import itertools
-from typing import Any, Iterator, List, Mapping, MutableMapping, MutableSequence, Optional, Sequence, Tuple, Union
+from typing import Any, Iterator, List, Mapping, MutableMapping, Optional, Sequence, Tuple, Union
 
 import numpy as np
 from reverb import errors
@@ -504,8 +504,10 @@ class TrajectoryWriter:
     while len(self._column_history) < len(new_structure_with_path_flat):
       column_index = len(self._column_history)
       self._column_history.append(
-          _ColumnHistory(new_structure_with_path_flat[column_index][0],
-                         history_length))
+          _ColumnHistory(
+              path=new_structure_with_path_flat[column_index][0],
+              buffer_size=self._writer.max_num_keep_alive_refs,
+              history_padding=history_length))
 
     # With the mapping and history updated the structure can be set.
     self._structure = new_structure
@@ -516,24 +518,32 @@ class _ColumnHistory:
 
   def __init__(self,
                path: Tuple[Union[str, int], ...],
+               buffer_size: int,
                history_padding: int = 0):
     """Constructor for _ColumnHistory.
 
     Args:
       path: A Tuple of strings and ints that represents which leaf-node this
         column represents in TrajectoryWriter._structure.
+      buffer_size: The maximum number of values to keep in the buffer.
       history_padding: The number of Nones used to forward-pad the column's
         history.
     """
     self._path = path
-    self._data_references: MutableSequence[Optional[pybind.WeakCellRef]] = (
-        [None] * history_padding)
+    self._buffer_size = buffer_size
+    self._data_references: List[Optional[pybind.WeakCellRef]] = (
+        [None] * min(buffer_size, history_padding))
+    self._offset = history_padding - len(self._data_references)
 
   def append(self, ref: Optional[pybind.WeakCellRef]):
     self._data_references.append(ref)
+    if len(self._data_references) > self._buffer_size:
+      self._data_references.pop(0)
+      self._offset += 1
 
   def reset(self):
     self._data_references = []
+    self._offset = 0
 
   def set_last(self, ref: pybind.WeakCellRef):
     if not self._data_references:
@@ -546,23 +556,57 @@ class _ColumnHistory:
   def can_set_last(self) -> bool:
     return bool(self._data_references) and self._data_references[-1] is None
 
+  def _slice(self, val: Union[int, slice]):
+    """Extract item(s) as if _data_references wasn't limited in size."""
+    if isinstance(val, int):
+      if val >= 0:
+        val -= len(self)
+
+      if val > 0:
+        raise IndexError('list index out of range')
+
+      if val < -len(self._data_references):
+        return None
+      else:
+        return self._data_references[val]
+
+    # There is no point in shifting the indices when requesting everyting.
+    if val.start is None and val.stop is None:
+      return list(iter(self))[val]
+
+    # Turn positive indices into negative ones.
+    if val.start is not None and val.start >= 0:
+      val = slice(val.start - len(self), val.stop, val.step)
+    if val.stop is not None and val.stop > 0:
+      val = slice(val.start, val.stop - len(self), val.step)
+
+    # If the original `val` was an `int` then either return the item or None
+    # if the item has been deleted from the buffer.
+    if val.start is None:
+      if -len(self) < val.stop < -len(self._data_references):
+        return None
+      return self._data_references[val]
+
+    # Extract the slice from the buffer and backfill the remaining items with
+    # None values.
+    overflow = abs(val.start) - len(self._data_references)
+    return [None] * overflow + self._data_references[val]
+
   def __len__(self) -> int:
-    return len(self._data_references)
+    return len(self._data_references) + self._offset
 
   def __iter__(self) -> Iterator[Optional[pybind.WeakCellRef]]:
-    return iter(self._data_references)
+    yield from itertools.repeat(None, self._offset)
+    yield from iter(self._data_references)
 
   def __getitem__(self, val) -> 'TrajectoryColumn':
     path = self._path + (val,)
     if isinstance(val, int):
-      return TrajectoryColumn([self._data_references[val]],
-                              squeeze=True,
-                              path=path)
+      return TrajectoryColumn([self._slice(val)], squeeze=True, path=path)
     elif isinstance(val, slice):
-      return TrajectoryColumn(self._data_references[val], path=path)
+      return TrajectoryColumn(self._slice(val), path=path)
     elif isinstance(val, list):
-      return TrajectoryColumn([self._data_references[x] for x in val],
-                              path=path)
+      return TrajectoryColumn([self._slice(x) for x in val], path=path)
     else:
       raise TypeError(
           f'_ColumnHistory indices must be integers or slices, not {type(val)}')

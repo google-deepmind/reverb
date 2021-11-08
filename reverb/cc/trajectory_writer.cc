@@ -749,6 +749,14 @@ absl::Status TrajectoryWriter::ConfigureChunker(
   return absl::OkStatus();
 }
 
+int TrajectoryWriter::max_num_keep_alive_refs() const {
+  int max_value = options_.chunker_options->GetNumKeepAliveRefs();
+  for (const auto& [_, options] : options_override_) {
+    max_value = std::max(max_value, options->GetNumKeepAliveRefs());
+  }
+  return max_value;
+}
+
 TrajectoryColumn::TrajectoryColumn(std::vector<std::weak_ptr<CellRef>> refs,
                                    bool squeeze)
     : refs_(std::move(refs)), squeeze_(squeeze) {}
