@@ -382,6 +382,7 @@ reverb_py_proto_library(
 reverb_cc_proto_library(
     name = "patterns_cc_proto",
     srcs = ["patterns.proto"],
+    visibility = ["//reverb:__subpackages__"],
 )
 
 reverb_py_proto_library(
@@ -516,6 +517,7 @@ reverb_cc_library(
     name = "structured_writer",
     srcs = ["structured_writer.cc"],
     hdrs = ["structured_writer.h"],
+    visibility = ["//reverb:__subpackages__"],
     deps = [
         ":chunker",
         ":patterns_cc_proto",
