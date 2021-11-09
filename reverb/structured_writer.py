@@ -21,9 +21,10 @@ TODO(b/204421540): Remove warning once it is ready for use.
 TODO(b/204560248): Expand the documentation.
 """
 
+import copy
 import datetime
 
-from typing import Any, Optional
+from typing import Any, Callable, Optional, Sequence
 
 from reverb import errors
 from reverb import pybind
@@ -33,9 +34,10 @@ from reverb.cc import patterns_pb2
 
 # TODO(b/204423296): Expose Python abstractions rather than the raw protos.
 Config = patterns_pb2.StructuredWriterConfig
-Node = patterns_pb2.PatternNode
-Condition = patterns_pb2.Condition
-ModuloEq = patterns_pb2.Condition.ModuloEq
+
+Pattern = tree.Structure[patterns_pb2.PatternNode]
+ReferenceStep = tree.Structure['_RefNode']
+PatternTransform = Callable[[ReferenceStep], Pattern]
 
 
 class StructuredWriter:
@@ -169,3 +171,165 @@ class StructuredWriter:
             f'End episode call did not complete within provided timeout of '
             f'{datetime.timedelta(milliseconds=timeout_ms)}')
       raise
+
+
+class _RefNode:
+  """Helper class to make it easier to build `PatternNode`s."""
+
+  def __init__(self, idx: int):
+    self._idx = idx
+
+  def __getitem__(self, key):
+    if isinstance(key, int):
+      key = slice(key)
+    elif not isinstance(key, slice):
+      raise ValueError(
+          f'Key must be int or slice by got {key} (type {type(key)}).')
+
+    return patterns_pb2.PatternNode(
+        flat_source_index=self._idx,
+        start=key.start,
+        stop=key.stop,
+        step=key.step)
+
+
+def create_reference_step(step_structure: tree.Structure[Any]) -> ReferenceStep:
+  """Create a reference structure that can be used to build patterns.
+
+  ```python
+
+  step_structure = {
+      'a': None,
+      'b': {
+          'c': None,
+          'd': None,
+    }
+  }
+  ref_step = create_reference_step(step_structure)
+  pattern = {
+      'last_two_a': ref_step['a'][-2:]
+      'second_to_last_c': ref['b']['c'][-2]
+      'most_recent_d': ref['b']['d'][-1]
+  }
+
+  ```
+
+  Args:
+    step_structure: Structure of the data which will be passed to
+      `StructuredWriter.append`.
+
+  Returns:
+    An object with the same structure as `step_structure` except leaf nodes have
+      been replaced with a helper object that builds `patterns_pb2.PatternNode`
+      objects when __getitem__ is called.
+  """
+  return tree.unflatten_as(
+      step_structure,
+      [_RefNode(x) for x in range(len(tree.flatten(step_structure)))])
+
+
+def pattern_from_transform(
+    step_structure: tree.Structure[Any],
+    transform: Callable[[ReferenceStep], Pattern]) -> Pattern:
+  """Creates a pattern by invoking a transform from step to output structures.
+
+  ```python
+
+  def my_transform(step):
+    return {
+        'last_two_a': step['a'][-2:]
+        'most_recent_b': tree.map_structure(lambda x: x[-1], step['b']),
+    }
+
+  step_structure = {
+    'a': None,
+    'b': {
+      'c': None,
+      'd': None,
+    }
+  }
+
+  pattern = pattern_from_transform(step_structure, my_transform)
+
+  ```
+
+  Args:
+    step_structure: Structure of the data which will be passed to
+      `StructuredWriter.append`.
+    transform: Function that creates the trajectory to be inserted from a
+      reference structure.
+
+  Returns:
+    A structure with `patterns_pb2.PatternNode` as leaf nodes.
+  """
+  return transform(create_reference_step(step_structure))
+
+
+def create_config(pattern: Pattern,
+                  table: str,
+                  conditions: Sequence[patterns_pb2.Condition] = ()):
+  return patterns_pb2.StructuredWriterConfig(
+      flat=tree.flatten(pattern),
+      table=table,
+      priority=1.0,
+      conditions=conditions)
+
+
+class _ConditionBuilder:
+  """Helper class to make it easier to build conditions."""
+
+  def __init__(self, incomplete_condition: patterns_pb2.Condition):
+    self._incomplete_condition = incomplete_condition
+
+  def __mod__(self, cmp: int) -> '_ConditionBuilder':
+    incomplete_condition = copy.deepcopy(self._incomplete_condition)
+    incomplete_condition.mod_eq.mod = cmp
+    return _ConditionBuilder(incomplete_condition)
+
+  def __eq__(self, cmp: int) -> patterns_pb2.Condition:
+    condition = copy.deepcopy(self._incomplete_condition)
+    if condition.mod_eq.mod:
+      condition.mod_eq.eq = cmp
+    else:
+      condition.eq = cmp
+    return condition
+
+  def __ne__(self, cmp: int) -> patterns_pb2.Condition:
+    condition = self == cmp
+    condition.inverse = True
+    return condition
+
+  def __gt__(self, cmp: int) -> patterns_pb2.Condition:
+    return self >= cmp + 1
+
+  def __ge__(self, cmp: int) -> patterns_pb2.Condition:
+    condition = copy.deepcopy(self._incomplete_condition)
+    condition.ge = cmp
+    return condition
+
+  def __lt__(self, cmp: int) -> patterns_pb2.Condition:
+    return self <= cmp - 1
+
+  def __le__(self, cmp: int) -> patterns_pb2.Condition:
+    condition = copy.deepcopy(self._incomplete_condition)
+    condition.le = cmp
+    return condition
+
+
+class Condition:
+  """Building blocks to create conditions from."""
+
+  @staticmethod
+  def step_index():
+    """(Zero) index of the most recent appended step within the episode."""
+    return _ConditionBuilder(patterns_pb2.Condition(step_index=True))
+
+  @staticmethod
+  def steps_since_applied():
+    """Number of added steps since an item was created for this config."""
+    return _ConditionBuilder(patterns_pb2.Condition(steps_since_applied=True))
+
+  @staticmethod
+  def is_end_episode():
+    """True only when end_episode is called on the writer."""
+    return patterns_pb2.Condition(is_end_episode=True, eq=1)

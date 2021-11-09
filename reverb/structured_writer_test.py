@@ -22,27 +22,7 @@ from reverb import server as server_lib
 from reverb import structured_writer
 import tree
 
-Config = structured_writer.Config
-Node = structured_writer.Node
 Condition = structured_writer.Condition
-ModuloEq = structured_writer.ModuloEq
-
-
-class _RefNode:
-
-  def __init__(self, flat_source_index: int):
-    self._flat_source_index = flat_source_index
-
-  def __getitem__(self, key):
-    if isinstance(key, int):
-      key = slice(key)
-
-    return Node(
-        flat_source_index=self._flat_source_index,
-        start=key.start,
-        stop=key.stop,
-        step=key.step)
-
 
 TABLES = tuple(f'queue_{i}' for i in range(5))
 
@@ -57,8 +37,7 @@ STEP_SPEC = {
     },
 }
 
-REF_STEP = tree.unflatten_as(
-    STEP_SPEC, [_RefNode(i) for i in range(len(tree.flatten(STEP_SPEC)))])
+REF_STEP = structured_writer.create_reference_step(STEP_SPEC)
 
 
 def create_step(idx, structure):
@@ -102,48 +81,57 @@ class StructuredWriterTest(parameterized.TestCase):
 
   @parameterized.parameters(
       {
-          'condition': Condition(step_index=True, le=2),
+          'condition': Condition.step_index() <= 2,
           'num_steps': 10,
           'want_steps': [0, 1, 2],
       },
       {
-          'condition': Condition(step_index=True, ge=5),
+          'condition': Condition.step_index() >= 5,
           'num_steps': 10,
           'want_steps': [5, 6, 7, 8, 9],
       },
       {
-          'condition': Condition(step_index=True, eq=3),
+          'condition': Condition.step_index() == 3,
           'num_steps': 10,
           'want_steps': [3],
       },
       {
-          'condition': Condition(step_index=True, mod_eq=ModuloEq(mod=3, eq=0)),
+          'condition': Condition.step_index() != 3,
+          'num_steps': 10,
+          'want_steps': [0, 1, 2, 4, 5, 6, 7, 8, 9],
+      },
+      {
+          'condition': Condition.step_index() % 3 == 0,
           'num_steps': 10,
           'want_steps': [0, 3, 6, 9],
       },
       {
-          'condition': Condition(steps_since_applied=True, ge=4),
+          'condition': Condition.step_index() % 3 != 0,
+          'num_steps': 10,
+          'want_steps': [1, 2, 4, 5, 7, 8],
+      },
+      {
+          'condition': Condition.steps_since_applied() >= 4,
           'num_steps': 10,
           'want_steps': [3, 7],
       },
       {
-          'condition': Condition(steps_since_applied=True, ge=3),
+          'condition': Condition.steps_since_applied() >= 3,
           'num_steps': 10,
           'want_steps': [2, 5, 8],
       },
       {
-          'condition': Condition(is_end_episode=True, eq=1),
+          'condition': Condition.is_end_episode(),
           'num_steps': 5,
           'want_steps': [4],
       },
   )
   def test_single_condition(self, condition, num_steps, want_steps):
-    config = Config(
-        flat=[Node(flat_source_index=0, stop=-1)],
-        table=TABLES[0],
-        priority=1.0,
-        conditions=[condition],
-    )
+    pattern = structured_writer.pattern_from_transform(
+        step_structure=None, transform=lambda x: x[-1])
+
+    config = structured_writer.create_config(
+        pattern=pattern, table=TABLES[0], conditions=[condition])
 
     writer = self.client.structured_writer([config])
 
@@ -251,11 +239,8 @@ class StructuredWriterTest(parameterized.TestCase):
       },
   )
   def test_trajectory_patterns(self, pattern, num_steps, want):
-    config = Config(
-        flat=tree.flatten(pattern),
-        table=TABLES[0],
-        priority=1.0,
-    )
+    config = structured_writer.create_config(
+        pattern=pattern, table=TABLES[0], conditions=[])
 
     writer = self.client.structured_writer([config])
 
@@ -268,22 +253,18 @@ class StructuredWriterTest(parameterized.TestCase):
                        self.get_table_content(0, pattern))
 
   def test_round_robin_into_tables(self):
+    pattern = structured_writer.pattern_from_transform(
+        step_structure=None, transform=lambda x: x[-1])
+
     # Create configs which should result in steps being written to available
     # tables in a round robin fashion.
     configs = []
     for i, table in enumerate(TABLES):
       configs.append(
-          Config(
-              flat=[Node(flat_source_index=0, stop=-1)],
+          structured_writer.create_config(
+              pattern=pattern,
               table=table,
-              priority=1.0,
-              conditions=[
-                  Condition(
-                      step_index=True,
-                      mod_eq=ModuloEq(mod=len(TABLES), eq=i),
-                  ),
-              ],
-          ))
+              conditions=[Condition.step_index() % len(TABLES) == i]))
 
     # Take enough steps to generate two trajectories for each table.
     writer = self.client.structured_writer(configs)
