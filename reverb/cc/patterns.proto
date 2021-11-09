@@ -53,6 +53,7 @@ message Condition {
     bool is_end_episode = 4;
   }
 
+  // TODO(b/205278205): Remove le and just use inverse + ge instead.
   oneof cmp {
     // `left == eq`.
     int32 eq = 5;
@@ -66,6 +67,9 @@ message Condition {
     // `left % mod_eq.mod == mod_eq.eq`.
     ModuloEq mod_eq = 8;
   }
+
+  // Whether the condition result should be inversed.
+  bool inverse = 9;
 }
 
 message StructuredWriterConfig {

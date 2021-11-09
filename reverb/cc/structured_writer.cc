@@ -101,13 +101,14 @@ bool CheckCondition(
 
   switch (condition.cmp_case()) {
     case Condition::kEq:
-      return left == condition.eq();
+      return condition.inverse() != (left == condition.eq());
     case Condition::kGe:
-      return left >= condition.ge();
+      return condition.inverse() != (left >= condition.ge());
     case Condition::kLe:
-      return left <= condition.le();
+      return condition.inverse() != (left <= condition.le());
     case Condition::kModEq:
-      return left % condition.mod_eq().mod() == condition.mod_eq().eq();
+      return condition.inverse() !=
+             (left % condition.mod_eq().mod() == condition.mod_eq().eq());
     case Condition::CMP_NOT_SET:
       REVERB_CHECK(false) << "This should never happen";
   }

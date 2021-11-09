@@ -811,6 +811,20 @@ INSTANTIATE_TEST_SUITE_P(
                               {MakeTensor(10)},
                               {MakeTensor(11)},
                               {MakeTensor(12)},
+                          }),
+                      ParamT(
+                          R"pb(
+                            flat { flat_source_index: 0 stop: -1 }
+                            conditions {
+                              step_index: true
+                              mod_eq { mod: 3 eq: 0 }
+                              inverse: true
+                            }
+                          )pb",
+                          {
+                              {MakeTensor(11)},
+                              {MakeTensor(12)},
+                              {MakeTensor(14)},
                           })));
 
 INSTANTIATE_TEST_SUITE_P(
