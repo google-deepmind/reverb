@@ -190,6 +190,7 @@ reverb_pytype_strict_library(
     deps = [
         ":errors",
         ":pybind",
+        ":reverb_types",
         "//reverb/cc:patterns_py_pb2",
     ],
 )

@@ -28,9 +28,16 @@ from typing import Any, Callable, Optional, Sequence
 
 from reverb import errors
 from reverb import pybind
+from reverb import reverb_types
 import tree
 
 from reverb.cc import patterns_pb2
+
+# pylint: disable=g-direct-tensorflow-import
+from tensorflow.python.framework import tensor_shape
+from tensorflow.python.framework import tensor_spec
+from tensorflow.python.saved_model import nested_structure_coder
+# pylint: enable=g-direct-tensorflow-import
 
 # TODO(b/204423296): Expose Python abstractions rather than the raw protos.
 Config = patterns_pb2.StructuredWriterConfig
@@ -268,11 +275,96 @@ def pattern_from_transform(
 def create_config(pattern: Pattern,
                   table: str,
                   conditions: Sequence[patterns_pb2.Condition] = ()):
+  structure = tree.map_structure(lambda _: None, pattern)
   return patterns_pb2.StructuredWriterConfig(
       flat=tree.flatten(pattern),
+      pattern_structure=nested_structure_coder.encode_structure(structure),
       table=table,
       priority=1.0,
       conditions=conditions)
+
+
+def unpack_pattern(config: Config) -> Pattern:
+  if not config.HasField('pattern_structure'):
+    return config.flat
+  structure = nested_structure_coder.decode_proto(config.pattern_structure)
+  return tree.unflatten_as(structure, config.flat)
+
+
+def infer_signature(configs: Sequence[Config],
+                    step_spec: reverb_types.SpecNest) -> reverb_types.SpecNest:
+  """Infers the table signature from the configs that generate its items.
+
+  Args:
+    configs: All the configs used to generate items for the table.
+    step_spec: A structured example of the step that will be appended to the
+      `StructuredWriter`.
+
+  Returns:
+    A nested structure of `TensorSpec` describing the trajectories of the table.
+
+  Raises:
+    ValueError: If no configs are provided.
+    ValueError: If configs doesn't produce trajectories of identical structure.
+    ValueError: If configs targets does not all target the same table.
+    ValueError: If configs produce trajectories with incompatible tensors (i.e.
+      tensors cannot be concatenated).
+  """
+  if not configs:
+    raise ValueError('At least one config must be provided.')
+
+  if any(c.pattern_structure != configs[0].pattern_structure for c in configs):
+    raise ValueError(
+        'All configs must have exactly the same pattern_structure.')
+
+  if any(c.table != configs[0].table for c in configs):
+    raise ValueError(
+        f'All configs must target the same table but provided configs '
+        f'included {", ".join(sorted(set(c.table for c in configs)))}.')
+
+  flat_step_spec = tree.flatten(step_spec)
+
+  def _validate_and_convert_to_spec(path, *nodes):
+    # Check that all nodes share the same dtype.
+    dtypes = [flat_step_spec[node.flat_source_index].dtype for node in nodes]
+    if any(dtype != dtypes[0] for dtype in dtypes):
+      raise ValueError(
+          f'Configs produce trajectories with multiple dtypes at {path}. '
+          f'Got {dtypes}.')
+
+    # Create shapes for all nodes.
+    shapes = []
+    for node in nodes:
+      shape = list(flat_step_spec[node.flat_source_index].shape)
+      if node.HasField('start'):
+        length = (node.stop - node.start) // (node.step or 1)
+        shape = [length, *shape]
+
+      shapes.append(tensor_shape.TensorShape(shape))
+
+    # Check that all shapes are either completely identical or at least
+    # identical in all dimensions but the first.
+    if (any(shape.rank != shapes[0].rank for shape in shapes) or
+        (shapes[0].rank > 1 and
+         any(shape[1:] != shapes[0][1:] for shape in shapes))):
+      raise ValueError(
+          f'Configs produce trajectories with incompatible shapes at {path}. '
+          f'Got {shapes}.')
+
+    # Merge the shapes into a single shape. If the first dimension varies then
+    # we set the leading dimension as undefined.
+    if all(shape == shapes[0] for shape in shapes):
+      merged_shape = shapes[0]
+    else:
+      merged_shape = [None, *shapes[0][1:]]
+
+    return tensor_spec.TensorSpec(
+        shape=merged_shape,
+        dtype=dtypes[0],
+        name='/'.join(str(x) for x in path))
+
+  patterns = [unpack_pattern(config) for config in configs]
+  return tree.map_structure_with_path(_validate_and_convert_to_spec, *patterns)
 
 
 class _ConditionBuilder:

@@ -22,7 +22,12 @@ from reverb import server as server_lib
 from reverb import structured_writer
 import tree
 
+# pylint: disable=g-direct-tensorflow-import
+from tensorflow.python.framework import tensor_spec
+# pylint: enable=g-direct-tensorflow-import
+
 Condition = structured_writer.Condition
+TensorSpec = tensor_spec.TensorSpec
 
 TABLES = tuple(f'queue_{i}' for i in range(5))
 
@@ -278,6 +283,173 @@ class StructuredWriterTest(parameterized.TestCase):
     self.assertEqual(self.get_table_content(2), [[2], [7]])
     self.assertEqual(self.get_table_content(3), [[3], [8]])
     self.assertEqual(self.get_table_content(4), [[4], [9]])
+
+
+class TestInferSignature(parameterized.TestCase):
+
+  @parameterized.parameters(
+      {
+          'patterns': [{
+              'older': REF_STEP['a'][-3:-1],
+              'last_a': REF_STEP['a'][-1],
+          },],
+          'step_spec': {
+              'a': np.zeros([3, 3], np.float32),
+          },
+          'want': {
+              'older': TensorSpec([2, 3, 3], np.float32, 'older'),
+              'last_a': TensorSpec([3, 3], np.float32, 'last_a'),
+          },
+      },
+      {
+          'patterns': [{
+              'a_with_step': REF_STEP['a'][-6::2],
+              'a_slice': REF_STEP['a'][-4:],
+              'x': {
+                  'y': REF_STEP['b']['c'][-2],
+              },
+          },],
+          'step_spec': {
+              'a': np.zeros([3, 3], np.float32),
+              'b': {
+                  'c': np.zeros([], np.int32),
+                  'd': np.zeros([5], np.int8),  # Unused.
+              },
+          },
+          'want': {
+              'a_with_step': TensorSpec([3, 3, 3], np.float32, 'a_with_step'),
+              'a_slice': TensorSpec([4, 3, 3], np.float32, 'a_slice'),
+              'x': {
+                  'y': TensorSpec([], np.int32, 'x/y'),
+              },
+          },
+      },
+      {
+          'patterns': [
+              {
+                  'x': REF_STEP['a'][-3:-1],
+                  'y': REF_STEP['a'][-1],
+                  'z': REF_STEP['b']['c'][-4:],
+              },
+              {
+                  'x': REF_STEP['a'][-2:],
+                  'y': REF_STEP['a'][-2],
+                  'z': REF_STEP['b']['c'][-8::2],
+              },
+          ],
+          'step_spec': {
+              'a': np.zeros([3, 3], np.float32),
+              'b': {
+                  'c': np.zeros([2, 2], np.int8),
+              },
+          },
+          'want': {
+              'x': TensorSpec([2, 3, 3], np.float32, 'x'),
+              'y': TensorSpec([3, 3], np.float32, 'y'),
+              'z': TensorSpec([4, 2, 2], np.int8, 'z'),
+          },
+      },
+      {
+          'patterns': [
+              {
+                  'x': REF_STEP['a'][-3:-1],
+              },
+              {
+                  'x': REF_STEP['a'][-2:],
+              },
+              {
+                  'x': REF_STEP['a'][-3:],
+              },
+          ],
+          'step_spec': {
+              'a': np.zeros([3, 3], np.float32),
+          },
+          'want': {
+              'x': TensorSpec([None, 3, 3], np.float32, 'x'),
+          },
+      },
+  )
+  def test_valid_configs(self, patterns, step_spec, want):
+    configs = [
+        structured_writer.create_config(pattern, 'table')
+        for pattern in patterns
+    ]
+    got = structured_writer.infer_signature(configs, step_spec)
+    self.assertEqual(want, got)
+
+  def test_requires_same_table(self):
+    pattern = {'x': REF_STEP['a'][-3:]}
+    configs = [
+        structured_writer.create_config(pattern, 'a'),
+        structured_writer.create_config(pattern, 'b'),
+        structured_writer.create_config(pattern, 'c'),
+    ]
+    with self.assertRaisesWithLiteralMatch(
+        ValueError,
+        'All configs must target the same table but provided configs included '
+        'a, b, c.'):
+      structured_writer.infer_signature(configs, STEP_SPEC)
+
+  def test_requires_same_pattern_structure(self):
+    configs = [
+        structured_writer.create_config({'x': REF_STEP['a'][-1]}, 'a'),
+        structured_writer.create_config({'y': REF_STEP['a'][-1]}, 'a'),
+    ]
+    with self.assertRaisesWithLiteralMatch(
+        ValueError,
+        'All configs must have exactly the same pattern_structure.'):
+      structured_writer.infer_signature(configs, STEP_SPEC)
+
+  def test_requires_at_least_one_config(self):
+    with self.assertRaisesWithLiteralMatch(
+        ValueError, 'At least one config must be provided.'):
+      structured_writer.infer_signature([], STEP_SPEC)
+
+  def test_requires_same_dtype(self):
+    step_spec = {
+        'a': np.zeros([], np.float32),
+        'b': np.zeros([], np.float64),
+    }
+    ref_step = structured_writer.create_reference_step(step_spec)
+    configs = [
+        structured_writer.create_config({'x': ref_step['a'][-1]}, 'a'),
+        structured_writer.create_config({'x': ref_step['b'][-1]}, 'a'),
+    ]
+    with self.assertRaisesRegex(
+        ValueError,
+        r'Configs produce trajectories with multiple dtypes at \(\'x\',\)\. '
+        r'Got .*'):
+      structured_writer.infer_signature(configs, step_spec)
+
+  def test_requires_same_rank(self):
+    step_spec = {
+        'a': np.zeros([], np.float32),
+        'b': np.zeros([1], np.float32),
+    }
+    ref_step = structured_writer.create_reference_step(step_spec)
+    configs = [
+        structured_writer.create_config({'x': ref_step['a'][-1]}, 'a'),
+        structured_writer.create_config({'x': ref_step['b'][-1]}, 'a'),
+    ]
+    with self.assertRaisesRegex(
+        ValueError, r'Configs produce trajectories with incompatible shapes at '
+        r'\(\'x\',\)\. Got .*'):
+      structured_writer.infer_signature(configs, step_spec)
+
+  def test_requires_same_concatable_shapes(self):
+    step_spec = {
+        'a': np.zeros([1, 2], np.float32),
+        'b': np.zeros([1, 3], np.float32),
+    }
+    ref_step = structured_writer.create_reference_step(step_spec)
+    configs = [
+        structured_writer.create_config({'x': ref_step['a'][-1]}, 'a'),
+        structured_writer.create_config({'x': ref_step['b'][-1]}, 'a'),
+    ]
+    with self.assertRaisesRegex(
+        ValueError, r'Configs produce trajectories with incompatible shapes at '
+        r'\(\'x\',\)\. Got .*'):
+      structured_writer.infer_signature(configs, step_spec)
 
 
 if __name__ == '__main__':
