@@ -1040,7 +1040,7 @@ PYBIND11_MODULE(libpybind, m) {
       m, "StructuredWriter")
       .def("Append", &StructuredWriter::Append,
            py::call_guard<py::gil_scoped_release>())
-      .def("AppendPartial", &StructuredWriter::Append,
+      .def("AppendPartial", &StructuredWriter::AppendPartial,
            py::call_guard<py::gil_scoped_release>())
       .def("Flush",
            [](StructuredWriter *writer, int ignore_last_num_items,
