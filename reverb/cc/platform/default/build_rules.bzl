@@ -325,7 +325,7 @@ from reverb.platform.default import load_op_library as _load_op_library
 try:
   _reverb_gen_op = _tf.load_op_library(
     _tf.compat.v1.resource_loader.get_path_to_datafile("lib{}_gen_op.so"))
-except tf.errors.NotFoundError as e:
+except _tf.errors.NotFoundError as e:
   _load_op_library.reraise_wrapped_error(e)
 _locals = locals()
 for k in dir(_reverb_gen_op):
