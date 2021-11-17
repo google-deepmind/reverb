@@ -689,6 +689,48 @@ TEST(StructuredWriter, CanHandlePointlessSteps) {
   EXPECT_THAT(fake_writer_ptr->trajectories(), ::testing::SizeIs(1));
 }
 
+TEST(StructuredWriter, StepIsOpen) {
+  auto config = MakeConfig(R"pb(
+    flat { flat_source_index: 0 stop: -1 }
+    flat { flat_source_index: 1 start: -1 }
+    flat { flat_source_index: 2 stop: -1 }
+    table: "table"
+    priority: 1.0
+    conditions: { buffer_length: true ge: 1 }
+  )pb");
+
+  StructuredWriter writer(absl::make_unique<FakeWriter>(3),
+                          {std::move(config)});
+
+  // The step should not be opened when the writer is first created.
+  EXPECT_FALSE(writer.step_is_open());
+
+  // The step should still not be opened after a full step is appended.
+  REVERB_EXPECT_OK(writer.Append(MakeStep({1, 1, 1})));
+  EXPECT_FALSE(writer.step_is_open());
+
+  // Appending a partial step should make it True.
+  REVERB_EXPECT_OK(
+      writer.AppendPartial(MakeStep({absl::nullopt, 2, absl::nullopt})));
+  EXPECT_TRUE(writer.step_is_open());
+
+  // Appending more partial data to the same step shouldn't change anything.
+  REVERB_EXPECT_OK(
+      writer.AppendPartial(MakeStep({absl::nullopt, absl::nullopt, 2})));
+  EXPECT_TRUE(writer.step_is_open());
+
+  // Completing the step should make it False.
+  REVERB_EXPECT_OK(writer.Append(MakeStep({2, absl::nullopt, absl::nullopt})));
+  EXPECT_FALSE(writer.step_is_open());
+
+  // End episode should finalize the active step if any is open.
+  REVERB_EXPECT_OK(
+      writer.AppendPartial(MakeStep({absl::nullopt, 3, absl::nullopt})));
+  EXPECT_TRUE(writer.step_is_open());
+  REVERB_EXPECT_OK(writer.EndEpisode(/*clear_buffers=*/true));
+  EXPECT_FALSE(writer.step_is_open());
+}
+
 using ParamT = std::pair<std::string, std::vector<std::vector<Tensor>>>;
 
 class StructuredWriterTest : public ::testing::TestWithParam<ParamT> {};

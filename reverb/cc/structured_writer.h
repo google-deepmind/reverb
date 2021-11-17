@@ -51,6 +51,9 @@ class StructuredWriter {
   absl::Status Flush(int ignore_last_num_items = 0,
                      absl::Duration timeout = absl::InfiniteDuration());
 
+  // Whether `AppendPartial` has been called for the current step.
+  bool step_is_open() const { return step_is_open_; }
+
  private:
   // Forwards `data` to wrapped `ColumnWriter` then calls `ApplyConfig`.
   absl::Status AppendInternal(

@@ -284,6 +284,38 @@ class StructuredWriterTest(parameterized.TestCase):
     self.assertEqual(self.get_table_content(3), [[3], [8]])
     self.assertEqual(self.get_table_content(4), [[4], [9]])
 
+  def test_step_is_open(self):
+    ref_step = structured_writer.create_reference_step([None, None, None])
+    pattern = [r[-1] for r in ref_step]
+
+    config = structured_writer.create_config(pattern, TABLES[0])
+    writer = self.client.structured_writer([config])
+
+    # The step should not be opened when the writer is first created.
+    self.assertFalse(writer.step_is_open)
+
+    # The step should still not be opened after a full step is appended.
+    writer.append([1, 1, 1])
+    self.assertFalse(writer.step_is_open)
+
+    # Appending a partial step should make it True.
+    writer.append([None, 2, None], partial_step=True)
+    self.assertTrue(writer.step_is_open)
+
+    # Appending more partial data to the same step shouldn't change anything.
+    writer.append([None, None, 2], partial_step=True)
+    self.assertTrue(writer.step_is_open)
+
+    # Completing the step should make it False.
+    writer.append([2, None, None])
+    self.assertFalse(writer.step_is_open)
+
+    # End episode should finalize the active step if any is open.
+    writer.append([None, 3, None], partial_step=True)
+    self.assertTrue(writer.step_is_open)
+    writer.end_episode()
+    self.assertFalse(writer.step_is_open)
+
 
 class TestInferSignature(parameterized.TestCase):
 

@@ -1056,18 +1056,20 @@ PYBIND11_MODULE(libpybind, m) {
              }
              MaybeRaiseFromStatus(status);
            })
-      .def("EndEpisode", [](StructuredWriter *writer, bool clear_buffers,
-                            absl::optional<int> timeout_ms) {
-        absl::Status status;
-        {
-          py::gil_scoped_release g;
-          status = writer->EndEpisode(
-              clear_buffers, timeout_ms.has_value()
-                                 ? absl::Milliseconds(timeout_ms.value())
-                                 : absl::InfiniteDuration());
-        }
-        MaybeRaiseFromStatus(status);
-      });
+      .def("EndEpisode",
+           [](StructuredWriter *writer, bool clear_buffers,
+              absl::optional<int> timeout_ms) {
+             absl::Status status;
+             {
+               py::gil_scoped_release g;
+               status = writer->EndEpisode(
+                   clear_buffers, timeout_ms.has_value()
+                                      ? absl::Milliseconds(timeout_ms.value())
+                                      : absl::InfiniteDuration());
+             }
+             MaybeRaiseFromStatus(status);
+           })
+      .def_property_readonly("step_is_open", &StructuredWriter::step_is_open);
 }
 
 }  // namespace

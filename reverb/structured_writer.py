@@ -179,6 +179,11 @@ class StructuredWriter:
             f'{datetime.timedelta(milliseconds=timeout_ms)}')
       raise
 
+  @property
+  def step_is_open(self) -> bool:
+    """True if `partial_step` was set in the most recent `append`."""
+    return self._writer.step_is_open
+
 
 class _RefNode:
   """Helper class to make it easier to build `PatternNode`s."""
