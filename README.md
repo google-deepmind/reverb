@@ -52,6 +52,34 @@ $ pip install dm-reverb-nightly
 
 ```
 
+### Debug builds
+
+Starting with version 0.6.0, debug builds of Reverb are uploaded to Google Cloud
+Storage. The builds can be downloaded or installed directly via `pip` following
+the patterns below. `gsutils` can be used to navigate the directory structure
+to ensure the files are there, e.g.
+`gsutil ls gs://rl-infra-builds/dm_reverb/builds/dbg`. To build your own debug
+binary, see the
+[build instructions](https://github.com/deepmind/reverb/tree/master/reverb/pip_package#create-a-stable-reverb-release).
+
+For Python 3.7:
+
+```shell
+$ export reverb_version=0.6.0
+# Python 3.7
+$ export python_version=36
+$ pip install https://storage.googleapis.com/rl-infra-builds/dm_reverb/builds/dbg/$reverb_version/dm_reverb-$reverb_version-cp$python_version-cp${python_version}m-manylinux2010_x86_64.whl
+```
+
+For python 3.8 and 3.9 follow this pattern:
+
+```shell
+$ export reverb_version=0.6.0
+# Python 3.9
+$ export python_version=39
+$ pip install https://storage.googleapis.com/rl-infra-builds/dm_reverb/builds/dbg/$reverb_version/dm_reverb-$reverb_version-cp$python_version-cp$python_version-manylinux2010_x86_64.whl
+```
+
 ### Build from source
 
 [This guide](reverb/pip_package/README.md#how-to-develop-and-build-reverb-with-the-docker-containers)
