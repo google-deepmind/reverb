@@ -193,16 +193,16 @@ std::vector<absl::optional<Tensor>> MakeStep(
   return step;
 }
 
-void ExpectTrajectoryEqual(const std::vector<Tensor>& want,
-                           const std::vector<Tensor>& got) {
+void ExpectTrajectoryEqual(const std::vector<Tensor>& got,
+                           const std::vector<Tensor>& want) {
   ASSERT_EQ(want.size(), got.size()) << "Wrong number of columns";
   for (int i = 0; i < want.size(); i++) {
     test::ExpectTensorEqual<tensorflow::int32>(got[i], want[i]);
   }
 }
 
-void ExpectTrajectoriesEqual(const std::vector<std::vector<Tensor>>& want,
-                             const std::vector<std::vector<Tensor>>& got) {
+void ExpectTrajectoriesEqual(const std::vector<std::vector<Tensor>>& got,
+                             const std::vector<std::vector<Tensor>>& want) {
   ASSERT_EQ(want.size(), got.size()) << "Wrong number of trajectories";
   for (int i = 0; i < want.size(); i++) {
     ExpectTrajectoryEqual(want[i], got[i]);
@@ -656,6 +656,37 @@ TEST(StructuredWriter, DoesNotForwwardUnusedColumns) {
   EXPECT_FALSE(step[1].has_value());
   EXPECT_TRUE(step[2].has_value());
   EXPECT_FALSE(step[3].has_value());
+}
+
+TEST(StructuredWriter, CanHandlePointlessSteps) {
+  auto fake_writer = absl::make_unique<FakeWriter>(2);
+  FakeWriter* fake_writer_ptr = fake_writer.get();
+
+  auto config = MakeConfig(R"pb(
+    flat { flat_source_index: 1 stop: -1 }
+    table: "table"
+    priority: 1.0
+    conditions: { buffer_length: true ge: 1 }
+    conditions: { step_index: true eq: 1 }
+  )pb");
+
+  StructuredWriter writer(std::move(fake_writer), {std::move(config)});
+
+  // Only append data for the unused column.
+  REVERB_EXPECT_OK(writer.Append(MakeStep({10, absl::nullopt})));
+
+  // Append all columns.
+  REVERB_EXPECT_OK(writer.Append(MakeStep({11, 21})));
+  REVERB_EXPECT_OK(writer.Flush());
+
+  // There should now be a trajectory created from the last step. Note that we
+  // are also testing that the step index is updated correctly since there is a
+  // condition so that trajectories can only be created in the step.
+  ExpectTrajectoriesEqual(fake_writer_ptr->trajectories(), {{MakeTensor(21)}});
+
+  // Adding a third step should thus not result in any new trajectories.
+  REVERB_EXPECT_OK(writer.Append(MakeStep({12, 22})));
+  EXPECT_THAT(fake_writer_ptr->trajectories(), ::testing::SizeIs(1));
 }
 
 using ParamT = std::pair<std::string, std::vector<std::vector<Tensor>>>;
