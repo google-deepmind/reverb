@@ -305,6 +305,17 @@ absl::Status StructuredWriter::AppendPartial(
 
 absl::Status StructuredWriter::AppendInternal(
     std::vector<absl::optional<tensorflow::Tensor>> data, bool finalize_step) {
+  // There is no point in appending data to the writer that will never be used
+  // so we filter out all the unused columns from the data. This will save us
+  // all the work that would otherwise go into chunking and compressing the
+  // column (and maybe even sending the chunks) even though the data will never
+  // be used.
+  for (int i = 0; i < data.size(); i++) {
+    if (i >= max_column_history_.size() || max_column_history_[i] == 0) {
+      data[i] = absl::nullopt;
+    }
+  }
+
   // Forward the data to the writer. Note that the writer is response for
   // checking that the same column is not populated multiple during the same
   // step.

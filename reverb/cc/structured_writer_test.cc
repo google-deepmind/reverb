@@ -67,6 +67,7 @@ class FakeWriter : public ColumnWriter {
           internal::TensorSpec{"", tensorflow::DT_INT32, {}},
           std::make_shared<ConstantChunkerOptions>(1, 100)));
     }
+    steps_.emplace_back(num_columns, absl::nullopt);
   }
 
   absl::Status Append(
@@ -74,6 +75,7 @@ class FakeWriter : public ColumnWriter {
       std::vector<absl::optional<std::weak_ptr<CellRef>>>* refs) override {
     AppendInternal(std::move(data), refs);
     current_step_.step++;
+    steps_.emplace_back(chunkers_.size(), absl::nullopt);
     return absl::OkStatus();
   }
 
@@ -129,8 +131,17 @@ class FakeWriter : public ColumnWriter {
     return absl::OkStatus();
   }
 
-  const std::vector<std::vector<Tensor>>& GetWritten() const {
+  const std::vector<std::vector<Tensor>>& trajectories() const {
     return trajectories_;
+  }
+
+  std::vector<std::vector<absl::optional<Tensor>>> steps() const {
+    if (std::all_of(steps_.back().begin(), steps_.back().end(),
+                    [](const auto& c) { return c == absl::nullopt; })) {
+      return std::vector<std::vector<absl::optional<Tensor>>>(
+          steps_.begin(), steps_.begin() + steps_.size() - 1);
+    }
+    return steps_;
   }
 
  private:
@@ -141,6 +152,7 @@ class FakeWriter : public ColumnWriter {
 
     for (int i = 0; i < data.size(); i++) {
       if (data[i].has_value()) {
+        steps_.back()[i] = data[i];
         std::weak_ptr<CellRef> ref;
         REVERB_CHECK_OK(chunkers_[i]->Append(*data[i], current_step_, &ref));
         refs->push_back(std::move(ref));
@@ -153,6 +165,7 @@ class FakeWriter : public ColumnWriter {
   std::vector<std::shared_ptr<Chunker>> chunkers_;
   CellRef::EpisodeInfo current_step_ = {0, 0};
   std::vector<std::vector<Tensor>> trajectories_;
+  std::vector<std::vector<absl::optional<Tensor>>> steps_;
 };
 
 Tensor MakeTensor(std::vector<int> values) {
@@ -562,7 +575,7 @@ TEST(StructuredWriter, PatternFromPartialData) {
   REVERB_EXPECT_OK(writer.Append(MakeStep({absl::nullopt, 23})));
   REVERB_EXPECT_OK(writer.Append(MakeStep({14, 24})));
 
-  ExpectTrajectoriesEqual(fake_writer_ptr->GetWritten(),
+  ExpectTrajectoriesEqual(fake_writer_ptr->trajectories(),
                           {
                               {MakeTensor(12), MakeTensor({21, 22})},
                               {MakeTensor(14), MakeTensor({23, 24})},
@@ -591,13 +604,13 @@ TEST(StructuredWriter, PatternFromAppendPartial) {
   // creation of the trajectory.
   REVERB_EXPECT_OK(
       writer.AppendPartial(MakeStep({absl::nullopt, absl::nullopt, 31})));
-  EXPECT_THAT(fake_writer_ptr->GetWritten(), ::testing::IsEmpty());
+  EXPECT_THAT(fake_writer_ptr->trajectories(), ::testing::IsEmpty());
 
   // Only append the second column. We should now have enought to create a
   // trajectory.
   REVERB_EXPECT_OK(writer.AppendPartial(MakeStep({absl::nullopt, 21})));
   ExpectTrajectoriesEqual(
-      fake_writer_ptr->GetWritten(),
+      fake_writer_ptr->trajectories(),
       {
           {MakeTensor(10), MakeTensor({20, 21}), MakeTensor(31)},
       });
@@ -606,16 +619,43 @@ TEST(StructuredWriter, PatternFromAppendPartial) {
   // been created for this step so there should not be any new trajectories
   // created from this operation.
   REVERB_EXPECT_OK(writer.Append(MakeStep({11})));
-  EXPECT_THAT(fake_writer_ptr->GetWritten(), ::testing::SizeIs(1));
+  EXPECT_THAT(fake_writer_ptr->trajectories(), ::testing::SizeIs(1));
 
   // Append a complete step should trigger the creation of a second trajectory.
   REVERB_EXPECT_OK(writer.Append(MakeStep({12, 22, 32})));
   ExpectTrajectoriesEqual(
-      fake_writer_ptr->GetWritten(),
+      fake_writer_ptr->trajectories(),
       {
           {MakeTensor(10), MakeTensor({20, 21}), MakeTensor(31)},
           {MakeTensor(11), MakeTensor({21, 22}), MakeTensor(32)},
       });
+}
+
+TEST(StructuredWriter, DoesNotForwwardUnusedColumns) {
+  auto fake_writer = absl::make_unique<FakeWriter>(4);
+  FakeWriter* fake_writer_ptr = fake_writer.get();
+
+  auto config = MakeConfig(R"pb(
+    flat { flat_source_index: 0 stop: -1 }
+    flat { flat_source_index: 2 stop: -1 }
+    table: "table"
+    priority: 1.0
+    conditions: { buffer_length: true ge: 1 }
+  )pb");
+
+  StructuredWriter writer(std::move(fake_writer), {std::move(config)});
+
+  // Append all columns.
+  REVERB_EXPECT_OK(writer.Append(MakeStep({10, 20, 30, 40})));
+  ASSERT_THAT(fake_writer_ptr->steps(), ::testing::SizeIs(1));
+  auto step = fake_writer_ptr->steps()[0];
+
+  // The step should only include data for used columns.
+  ASSERT_THAT(step, ::testing::SizeIs(4));
+  EXPECT_TRUE(step[0].has_value());
+  EXPECT_FALSE(step[1].has_value());
+  EXPECT_TRUE(step[2].has_value());
+  EXPECT_FALSE(step[3].has_value());
 }
 
 using ParamT = std::pair<std::string, std::vector<std::vector<Tensor>>>;
@@ -647,7 +687,7 @@ TEST_P(StructuredWriterTest, AppliesPattern) {
   }
   REVERB_EXPECT_OK(writer.EndEpisode(/*clear_buffers=*/true));
 
-  ExpectTrajectoriesEqual(fake_writer_ptr->GetWritten(), params.second);
+  ExpectTrajectoriesEqual(fake_writer_ptr->trajectories(), params.second);
 }
 
 INSTANTIATE_TEST_SUITE_P(
