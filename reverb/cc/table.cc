@@ -469,10 +469,8 @@ void Table::SetCallbackExecutor(std::shared_ptr<TaskExecutor> executor) {
 }
 
 void Table::EnableTableWorker(std::shared_ptr<TaskExecutor> executor) {
-  {
-    absl::MutexLock lock(&mu_);
-    callback_executor_ = executor;
-  }
+  SetCallbackExecutor(std::move(executor));
+
   extension_worker_ = internal::StartThread("ExtensionWorker_" + name_, [&]() {
     auto status = ExtensionsWorkerLoop();
     REVERB_LOG_IF(REVERB_ERROR, !status.ok())
