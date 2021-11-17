@@ -24,7 +24,7 @@ TODO(b/204560248): Expand the documentation.
 import copy
 import datetime
 
-from typing import Any, Callable, Optional, Sequence
+from typing import Any, Callable, NewType, Optional, Sequence
 
 from reverb import errors
 from reverb import pybind
@@ -43,7 +43,7 @@ from tensorflow.python.saved_model import nested_structure_coder
 Config = patterns_pb2.StructuredWriterConfig
 
 Pattern = tree.Structure[patterns_pb2.PatternNode]
-ReferenceStep = tree.Structure['_RefNode']
+ReferenceStep = NewType('ReferenceStep', Any)
 PatternTransform = Callable[[ReferenceStep], Pattern]
 
 
