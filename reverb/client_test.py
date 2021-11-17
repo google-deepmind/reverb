@@ -22,6 +22,7 @@ import time
 
 from absl.testing import absltest
 import numpy as np
+import portpicker
 from reverb import client
 from reverb import errors
 from reverb import item_selectors
@@ -427,12 +428,16 @@ class ClientTest(absltest.TestCase):
     self.assertIsInstance(sample.info.priority, float)
 
   def test_server_info_timeout(self):
-    # Setup a client that doesn't actually connect to anything.
-    dummy_client = client.Client(f'localhost:{self.server.port + 1}')
-    with self.assertRaises(
-        errors.DeadlineExceededError,
-        msg='ServerInfo call did not complete within provided timeout of 1s'):
-      dummy_client.server_info(timeout=1)
+    try:
+      # Setup a client that doesn't actually connect to anything.
+      dummy_port = portpicker.pick_unused_port()
+      dummy_client = client.Client(f'localhost:{dummy_port}')
+      with self.assertRaises(
+          errors.DeadlineExceededError,
+          msg='ServerInfo call did not complete within provided timeout of 1s'):
+        dummy_client.server_info(timeout=1)
+    finally:
+      portpicker.return_port(dummy_port)
 
   def test_pickle(self):
     loaded_client = pickle.loads(pickle.dumps(self.client))
