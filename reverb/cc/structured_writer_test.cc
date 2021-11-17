@@ -471,10 +471,10 @@ TEST(ValidateStructuredWriterConfig, EndOfEpisode_NotUsingEqOne) {
       StatusIs(absl::StatusCode::kInvalidArgument,
                "Condition must use `eq=1` when using `is_end_episode`"));
 
-  StructuredWriterConfig le = valid;
-  le.mutable_conditions(1)->set_le(1);
+  StructuredWriterConfig ne = valid;
+  ne.mutable_conditions(1)->set_inverse(true);
   EXPECT_THAT(
-      ValidateStructuredWriterConfig(le),
+      ValidateStructuredWriterConfig(ne),
       StatusIs(absl::StatusCode::kInvalidArgument,
                "Condition must use `eq=1` when using `is_end_episode`"));
 }
@@ -805,7 +805,7 @@ INSTANTIATE_TEST_SUITE_P(
                       ParamT(
                           R"pb(
                             flat { flat_source_index: 0 stop: -1 }
-                            conditions { step_index: true le: 2 }
+                            conditions { step_index: true ge: 3 inverse: true }
                           )pb",
                           {
                               {MakeTensor(10)},

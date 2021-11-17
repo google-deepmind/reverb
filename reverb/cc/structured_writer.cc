@@ -104,8 +104,6 @@ bool CheckCondition(
       return condition.inverse() != (left == condition.eq());
     case Condition::kGe:
       return condition.inverse() != (left >= condition.ge());
-    case Condition::kLe:
-      return condition.inverse() != (left <= condition.le());
     case Condition::kModEq:
       return condition.inverse() !=
              (left % condition.mod_eq().mod() == condition.mod_eq().eq());
@@ -173,7 +171,8 @@ absl::Status ValidateCondition(const Condition& condition) {
         "Conditions must specify a value for `cmp`.");
   }
 
-  if (condition.is_end_episode() && condition.eq() != 1) {
+  if (condition.is_end_episode() &&
+      (condition.eq() != 1 || condition.inverse())) {
     return absl::InvalidArgumentError(
         "Condition must use `eq=1` when using `is_end_episode`.");
   }

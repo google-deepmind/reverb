@@ -403,8 +403,8 @@ class _ConditionBuilder:
     return self <= cmp - 1
 
   def __le__(self, cmp: int) -> patterns_pb2.Condition:
-    condition = copy.deepcopy(self._incomplete_condition)
-    condition.le = cmp
+    condition = self > cmp
+    condition.inverse = True
     return condition
 
 

@@ -63,15 +63,12 @@ message Condition {
     // `left >= ge`.
     int32 ge = 6;
 
-    // `left <= le`
-    int32 le = 7;
-
     // `left % mod_eq.mod == mod_eq.eq`.
-    ModuloEq mod_eq = 8;
+    ModuloEq mod_eq = 7;
   }
 
   // Whether the condition result should be inversed.
-  bool inverse = 9;
+  bool inverse = 8;
 }
 
 message StructuredWriterConfig {
