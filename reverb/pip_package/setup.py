@@ -29,7 +29,7 @@ from setuptools.dist import Distribution
 import reverb_version
 
 # Defaults if doing a release build.
-TENSORFLOW_VERSION = 'tensorflow~=2.5.0'
+TENSORFLOW_VERSION = 'tensorflow~=2.7.0'
 
 
 class BinaryDistribution(Distribution):
