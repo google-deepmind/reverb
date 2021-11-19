@@ -45,6 +45,11 @@
 namespace deepmind {
 namespace reverb {
 
+// If the total number of pending items (waiting to be sent + waiting for
+// confirmation from server) grows beyond this value then we'll start logging
+// warning messages to catch the attention of the user.
+const int kPendingItemsWarningThreshold = 50;
+
 class ArenaOwnedRequest {
  public:
   ~ArenaOwnedRequest() { Clear(); }
@@ -640,6 +645,19 @@ absl::Status TrajectoryWriter::RunStreamWorker() {
       in_flight_items_[item_and_refs->item.key()] =
           std::move(write_queue_.front());
       write_queue_.pop_front();
+
+      // Check if the number if the total number of pending items is very large
+      // and if so log a warning message.
+      if (in_flight_items_.size() + write_queue_.size() >=
+          kPendingItemsWarningThreshold) {
+        REVERB_LOG_EVERY_N(REVERB_WARNING, 10) << absl::StrFormat(
+            "The number of pending items is alarmingly high, did you forget "
+            "to call Flush? %d items are waiting to be sent and %d items "
+            "have been sent to the server but haven't been confirmed yet. It "
+            "is important to call Flush regularly as large numbers of pending "
+            "items can result in OOM crashes on both client and server.",
+            write_queue_.size(), in_flight_items_.size());
+      }
 
       // Remove keys of expired chunks from streamed_chunk_keys to avoid OOM
       // issues caused by the otherwise indefinitely growing hash set.
