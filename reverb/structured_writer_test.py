@@ -407,6 +407,65 @@ class StructuredWriterTest(parameterized.TestCase):
     writer.end_episode()
     self.assertFalse(writer.step_is_open)
 
+  def test_append_wrong_dtype(self):
+    config = structured_writer.create_config(
+        pattern=REF_STEP['b']['c'][-1],
+        table=TABLES[0])
+    writer = self.client.structured_writer([config])
+
+    writer.append({'a': 1, 'b': {'c': 1.0}})
+
+    with self.assertRaisesWithLiteralMatch(
+        ValueError,
+        'Tensor of wrong dtype provided for column 1 (path=(\'b\', \'c\')). '
+        'Got int64 but expected double.'):
+      writer.append({'a': 2, 'b': {'c': 2}})
+
+  def test_append_incompatible_shape(self):
+    config = structured_writer.create_config(
+        pattern=REF_STEP['b']['d'][1][-1],
+        table=TABLES[0])
+    writer = self.client.structured_writer([config])
+
+    writer.append({
+        'a': 1,
+        'b': {
+            'c': 1.0,
+            'd': [
+                1,
+                1,
+            ],
+        },
+    })
+
+    with self.assertRaisesWithLiteralMatch(
+        ValueError,
+        'Tensor of incompatible shape provided for column 3 '
+        '(path=(\'b\', \'d\', 1)). Got [2,2] which is incompatible with [].'):
+      writer.append({
+          'a': 2,
+          'b': {
+              'c': 2.0,
+              'd': [
+                  2,
+                  np.array([[2, 2], [2, 2]]),
+              ],
+          },
+      })
+
+  def test_append_with_different_structures(self):
+    config = structured_writer.create_config(
+        pattern=REF_STEP['b']['c'][-1],
+        table=TABLES[0])
+    writer = self.client.structured_writer([config])
+
+    writer.append({'a': 1, 'b': {'c': 1}})
+
+    with self.assertRaisesWithLiteralMatch(
+        ValueError,
+        'Flattened data has an unexpected length, got 4 but wanted 2.'):
+      writer.append({'a': 2, 'b': {'c': 2, 'd': [2, 2]}})
+
 
 class TestInferSignature(parameterized.TestCase):
 

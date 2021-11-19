@@ -59,6 +59,7 @@ class StructuredWriter:
 
   def __init__(self, cpp_writer: pybind.StructuredWriter):
     self._writer = cpp_writer
+    self._data_structure = None
     self._flat_data_length = None
 
   def append(self, data: Any, *, partial_step: bool = False):
@@ -89,16 +90,32 @@ class StructuredWriter:
 
     if self._flat_data_length is None:
       self._flat_data_length = len(flat_data)
+      self._data_structure = tree.map_structure(lambda _: None, data)
 
     if len(flat_data) != self._flat_data_length:
       raise ValueError(
           f'Flattened data has an unexpected length, got {len(flat_data)} '
-          f' but wanted {self._flat_data_length}')
+          f'but wanted {self._flat_data_length}.')
 
-    if partial_step:
-      self._writer.AppendPartial(flat_data)
-    else:
-      self._writer.Append(flat_data)
+    try:
+      if partial_step:
+        self._writer.AppendPartial(flat_data)
+      else:
+        self._writer.Append(flat_data)
+    except ValueError as e:
+      parts = str(e).split(' for column ')
+
+      # If the error message doesn't have the expected format then we don't want
+      # to change anything.
+      if len(parts) != 2:
+        raise
+
+      # Use the structure to find the path that corresponds to the flat index.
+      col_idx, rest = parts[1].split('. ', 1)
+      path = tree.flatten_with_path(self._data_structure)[int(col_idx)][0]
+
+      raise ValueError(
+          f'{parts[0]} for column {col_idx} (path={path}). {rest}')
 
   def flush(self,
             block_until_num_items: int = 0,
