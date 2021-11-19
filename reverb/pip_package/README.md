@@ -47,7 +47,7 @@ $ docker build --tag tensorflow:reverb_release \
 #################################################
 
 # Builds Reverb against most recent stable release of TensorFlow and
-# requires `tensorflow~=2.6.0` if using `pip install reverb[tensorflow]`.
+# requires `tensorflow~=2.7.0` if using `pip install reverb[tensorflow]`.
 # Packages for Python 3.7, 3.8, and 3.9 are created.
 $ docker run --rm --mount "type=bind,src=$REVERB_DIR,dst=/tmp/reverb" \
   tensorflow:reverb_release bash oss_build.sh --clean true \
