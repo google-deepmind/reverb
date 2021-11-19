@@ -525,5 +525,5 @@ reverb_cc_library(
         "//reverb/cc/platform:hash_map",
         "//reverb/cc/platform:logging",
         "//reverb/cc/platform:status_macros",
-    ] + reverb_absl_deps(),
+    ] + reverb_absl_deps() + reverb_tf_deps(),
 )

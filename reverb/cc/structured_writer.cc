@@ -31,6 +31,7 @@
 #include "reverb/cc/platform/logging.h"
 #include "reverb/cc/platform/status_macros.h"
 #include "reverb/cc/trajectory_writer.h"
+#include "tensorflow/core/framework/register_types.h"
 
 namespace deepmind::reverb {
 namespace {
@@ -79,7 +80,7 @@ bool CheckCondition(
     bool is_end_of_episode, const Condition& condition) {
   REVERB_CHECK(!columns.empty()) << "This should never happen";
 
-  int left = [&]() -> int {
+  absl::StatusOr<int> left = [&]() -> absl::StatusOr<int> {
     switch (condition.left_case()) {
       case Condition::kStepIndex:
         return current_step.step;
@@ -94,19 +95,64 @@ bool CheckCondition(
       case Condition::kIsEndEpisode:
         return is_end_of_episode ? 1 : 0;
 
+      case Condition::kFlatSourceIndex: {
+        const int32_t idx = condition.flat_source_index();
+        REVERB_CHECK_LT(idx, columns.size());
+
+        auto ref = columns[idx].back();
+        if (ref == nullptr) {
+          return absl::NotFoundError(
+              absl::StrFormat("Column %d not yet populated.", idx));
+        }
+
+        tensorflow::Tensor tensor;
+        REVERB_RETURN_IF_ERROR(ref->GetData(&tensor));
+
+        if (tensor.NumElements() != 1) {
+          return absl::FailedPreconditionError(absl::StrFormat(
+              "Config specified data condition on column %d which does not "
+              "contain scalar tensors (got %s).",
+              idx, tensor.DebugString()));
+        }
+
+        switch (tensor.dtype()) {
+#define SELECT_INT(T)                        \
+  case tensorflow::DataTypeToEnum<T>::value: \
+    return static_cast<int>(tensor.flat<T>().data()[0]);
+          TF_CALL_INTEGRAL_TYPES(SELECT_INT);
+#undef SELECT_INT
+
+          case tensorflow::DT_BOOL:
+            return tensor.flat<bool>().data()[0] ? 1 : 0;
+
+          default:
+            return absl::FailedPreconditionError(absl::StrFormat(
+                "Config specified data condition on column %d has invalid data "
+                "type %s.",
+                idx, tensorflow::DataType_Name(tensor.dtype())));
+        }
+      }
+
       case Condition::LEFT_NOT_SET:
         REVERB_CHECK(false) << "This should never happen";
     }
   }();
 
+  if (absl::IsNotFound(left.status())) {
+    return false;
+  } else if (!left.ok()) {
+    REVERB_LOG(REVERB_ERROR) << left.status();
+    return false;
+  }
+
   switch (condition.cmp_case()) {
     case Condition::kEq:
-      return condition.inverse() != (left == condition.eq());
+      return condition.inverse() != (*left == condition.eq());
     case Condition::kGe:
-      return condition.inverse() != (left >= condition.ge());
+      return condition.inverse() != (*left >= condition.ge());
     case Condition::kModEq:
       return condition.inverse() !=
-             (left % condition.mod_eq().mod() == condition.mod_eq().eq());
+             (*left % condition.mod_eq().mod() == condition.mod_eq().eq());
     case Condition::CMP_NOT_SET:
       REVERB_CHECK(false) << "This should never happen";
   }
@@ -152,6 +198,12 @@ absl::Status ValidateCondition(const Condition& condition) {
   if (condition.left_case() == Condition::LEFT_NOT_SET) {
     return absl::InvalidArgumentError(
         "Conditions must specify a value for `left`.");
+  }
+
+  if (condition.flat_source_index() < 0) {
+    return absl::InvalidArgumentError(
+        absl::StrFormat("flat_source_index must be >= 0 but got %d.",
+                        condition.flat_source_index()));
   }
 
   if (condition.cmp_case() == Condition::kModEq) {
@@ -230,6 +282,17 @@ std::vector<int> MaxHistoryLengthPerColumn(
       }
 
       max_age[idx] = std::max(max_age[idx], MaxAge(node));
+    }
+
+    for (const auto& cond : config.conditions()) {
+      if (cond.left_case() == Condition::kFlatSourceIndex) {
+        const int32_t idx = cond.flat_source_index();
+        while (max_age.size() <= idx) {
+          max_age.push_back(0);
+        }
+
+        max_age[idx] = std::max(max_age[idx], 1);
+      }
     }
   }
   return max_age;

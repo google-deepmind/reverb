@@ -53,6 +53,15 @@ message Condition {
 
     // Set to 1 when `EndEpisode` is called, else 0.
     bool is_end_episode = 4;
+
+    // Extract scalar integer value from a column in the most recent step. If
+    // the column is not present in the data or it isn't a scalar of a supported
+    // type then the condition will return false.
+    //
+    // All integer types are casted to int32 and bool is converted to 1 if true
+    // and 0 if false.
+    //
+    int32 flat_source_index = 9;
   }
 
   // TODO(b/205278205): Remove le and just use inverse + ge instead.

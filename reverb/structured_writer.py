@@ -430,3 +430,12 @@ class Condition:
   def is_end_episode():
     """True only when end_episode is called on the writer."""
     return patterns_pb2.Condition(is_end_episode=True, eq=1)
+
+  @staticmethod
+  def data(step_structure: tree.Structure[Any]):
+    """Value of a scalar integer or bool in the source data."""
+    flat = [
+        _ConditionBuilder(patterns_pb2.Condition(flat_source_index=i))
+        for i in range(len(tree.flatten(step_structure)))
+    ]
+    return tree.unflatten_as(step_structure, flat)

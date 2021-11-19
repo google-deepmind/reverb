@@ -443,6 +443,17 @@ TEST(ValidateStructuredWriterConfig, NoCmpInCondition) {
                        "Conditions must specify a value for `cmp`."));
 }
 
+TEST(ValidateStructuredWriterConfig, NegativeFlatSourceIndexInCondition) {
+  EXPECT_THAT(ValidateStructuredWriterConfig(MakeConfig(R"pb(
+                flat { flat_source_index: 0 stop: -2 }
+                table: "table"
+                priority: 1.0
+                conditions { flat_source_index: -1 }
+              )pb")),
+              StatusIs(absl::StatusCode::kInvalidArgument,
+                       "flat_source_index must be >= 0 but got -1."));
+}
+
 TEST(ValidateStructuredWriterConfig, Valid_EndOfEpisodeCondition) {
   REVERB_EXPECT_OK(ValidateStructuredWriterConfig(MakeConfig(R"pb(
     flat { flat_source_index: 0 stop: -2 }
@@ -450,6 +461,16 @@ TEST(ValidateStructuredWriterConfig, Valid_EndOfEpisodeCondition) {
     priority: 1.0
     conditions { buffer_length: true ge: 2 }
     conditions { is_end_episode: true eq: 1 }
+  )pb")));
+}
+
+TEST(ValidateStructuredWriterConfig, Valid_FlatSourceIndexCondition) {
+  REVERB_EXPECT_OK(ValidateStructuredWriterConfig(MakeConfig(R"pb(
+    flat { flat_source_index: 0 stop: -2 }
+    table: "table"
+    priority: 1.0
+    conditions { buffer_length: true ge: 2 }
+    conditions { flat_source_index: 0 eq: 1 }
   )pb")));
 }
 
@@ -969,5 +990,39 @@ INSTANTIATE_TEST_SUITE_P(EndOfEpisodeCondition, StructuredWriterTest,
                              {
                                  {MakeTensor(14)},
                              })));
+
+INSTANTIATE_TEST_SUITE_P(
+    DataCondition, StructuredWriterTest,
+    ::testing::Values(ParamT(
+                          R"pb(
+                            flat { flat_source_index: 0 stop: -1 }
+                            conditions { flat_source_index: 0 ge: 13 }
+                          )pb",
+                          {
+                              {MakeTensor(13)},
+                              {MakeTensor(14)},
+                          }),
+                      ParamT(
+                          R"pb(
+                            flat { flat_source_index: 0 stop: -1 }
+                            conditions { flat_source_index: 1 eq: 22 }
+                          )pb",
+                          {
+                              {MakeTensor(12)},
+                          }),
+                      ParamT(
+                          R"pb(
+                            flat { flat_source_index: 1 stop: -1 }
+                            conditions {
+                              flat_source_index: 0
+                              mod_eq { mod: 2 eq: 0 }
+                            }
+                          )pb",
+                          {
+                              {MakeTensor(20)},
+                              {MakeTensor(22)},
+                              {MakeTensor(24)},
+                          })));
+
 }  // namespace
 }  // namespace deepmind::reverb

@@ -74,6 +74,8 @@ class StructuredWriterTest(parameterized.TestCase):
   def get_table_content(self, idx: int, structure=None):
     info = self.client.server_info(1)
     num_items = info[TABLES[idx]].current_size
+    if num_items == 0:
+      return []
     sampler = self.client.sample(
         TABLES[idx], num_samples=num_items, emit_timesteps=False)
 
@@ -283,6 +285,95 @@ class StructuredWriterTest(parameterized.TestCase):
     self.assertEqual(self.get_table_content(2), [[2], [7]])
     self.assertEqual(self.get_table_content(3), [[3], [8]])
     self.assertEqual(self.get_table_content(4), [[4], [9]])
+
+  @parameterized.named_parameters(
+      {
+          'testcase_name': 'condition_on_unused_column',
+          'step_spec': {'a': None, 'b': None},
+          'pattern_fn': lambda x: {'old_a': x['a'][-2]},
+          'condition_fn': lambda x: x['b'] > 10,
+          'steps': [
+              {'a': 1, 'b': 11},
+              {'a': 2, 'b': 10},
+              {'a': 3, 'b': 11},
+              {'a': 4, 'b': 9},
+              {'a': 5, 'b': 12},
+          ],
+          'want': [
+              {'old_a': 2},
+              {'old_a': 4},
+          ],
+      },
+      {
+          'testcase_name': 'int32_eq',
+          'step_spec': STEP_SPEC,
+          'pattern_fn': lambda x: {'last_two_a': x['a'][-2:]},
+          'condition_fn': lambda x: x['a'] == 3,
+          'steps': [
+              {'a': np.array(0, np.int32)},
+              {'a': np.array(2, np.int32)},
+              {'a': np.array(3, np.int32)},
+              {'a': np.array(4, np.int32)},
+              {'a': np.array(5, np.int32)},
+          ],
+          'want': [
+              {'last_two_a': np.array([2, 3], np.int32)},
+          ],
+      },
+      {
+          'testcase_name': 'int64_ne',
+          'step_spec': STEP_SPEC,
+          'pattern_fn': lambda x: {'last_two_a': x['a'][-2:]},
+          'condition_fn': lambda x: x['a'] != 4,
+          'steps': [
+              {'a': np.array(1, np.int64)},
+              {'a': np.array(2, np.int64)},
+              {'a': np.array(3, np.int64)},
+              {'a': np.array(4, np.int64)},
+              {'a': np.array(5, np.int64)},
+          ],
+          'want': [
+              {'last_two_a': np.array([1, 2])},
+              {'last_two_a': np.array([2, 3])},
+              {'last_two_a': np.array([4, 5])},
+          ],
+      },
+      {
+          'testcase_name': 'bool_eq',
+          'step_spec': {'a': None, 'b': None},
+          'pattern_fn': lambda x: {'last_a': x['a'][-1]},
+          'condition_fn': lambda x: x['b'] == 1,
+          'steps': [
+              {'a': 1, 'b': True},
+              {'a': 2, 'b': False},
+              {'a': 3, 'b': False},
+              {'a': 4, 'b': True},
+              {'a': 5, 'b': False},
+          ],
+          'want': [
+              {'last_a': 1},
+              {'last_a': 4},
+          ],
+      },
+  )
+  def test_data_condition(
+      self, step_spec, pattern_fn, condition_fn, steps, want):
+    config = structured_writer.create_config(
+        pattern=structured_writer.pattern_from_transform(step_spec, pattern_fn),
+        table=TABLES[0],
+        conditions=[
+            condition_fn(structured_writer.Condition.data(step_spec)),
+        ]
+    )
+    writer = self.client.structured_writer([config])
+
+    for step in steps:
+      writer.append(step)
+    writer.flush()
+
+    got = self.get_table_content(0, structured_writer.unpack_pattern(config))
+
+    tree.map_structure(np.testing.assert_array_equal, want, got)
 
   def test_step_is_open(self):
     ref_step = structured_writer.create_reference_step([None, None, None])
