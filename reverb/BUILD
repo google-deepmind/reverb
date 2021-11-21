@@ -28,6 +28,7 @@ reverb_pytype_strict_library(
         ":rate_limiters",
         ":replay_sample",
         ":server",
+        ":structured_writer",
         ":tf_client",
         ":timestep_dataset",
         ":trajectory_dataset",

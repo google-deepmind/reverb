@@ -14,10 +14,6 @@
 
 """StructuredWriter uses static patterns to build and insert trajectories.
 
-NOTE! This class is EXPERIMENTAL and not yet ready for use.
-
-TODO(b/204421540): Remove warning once it is ready for use.
-
 TODO(b/204560248): Expand the documentation.
 """
 
@@ -49,10 +45,6 @@ PatternTransform = Callable[[ReferenceStep], Pattern]
 
 class StructuredWriter:
   """StructuredWriter uses static patterns to build and insert trajectories.
-
-  NOTE! This class is EXPERIMENTAL and not yet ready for use.
-
-  TODO(b/204421540): Remove warning once it is ready for use.
 
   TODO(b/204560248): Expand the documentation.
   """

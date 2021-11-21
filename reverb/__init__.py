@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Reverb."""
+"""Top level import for Reverb."""
 
 # pylint: disable=g-import-not-at-top
 # pylint: disable=g-bad-import-order
@@ -26,6 +26,8 @@ del ensure_tf_install
 
 from reverb import item_selectors as selectors
 from reverb import rate_limiters
+
+from reverb import structured_writer as structured
 
 from reverb.client import Client
 from reverb.client import Writer
