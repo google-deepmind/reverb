@@ -95,12 +95,21 @@ class TrajectoryWriterTest(parameterized.TestCase):
     self.assertListEqual(history, [0, 1, 2])
 
   def test_history_contains_structured_references(self):
-    self.writer.append({'x': 1, 'y': 100})
-    self.writer.append({'x': 2, 'y': 101})
-    self.writer.append({'x': 3, 'y': 102})
+    self.writer.append({'observation': 1, 'first_step': True})
+    self.writer.append({'action': 2, 'reward': 101})
+    self.writer.append({'action': 3, 'reward': 103})
 
-    history = tree.map_structure(extract_data, self.writer.history)
-    self.assertDictEqual(history, {'x': [1, 2, 3], 'y': [100, 101, 102]})
+    history = self.writer.history
+    mapped_history = tree.map_structure(extract_data, history)
+    self.assertDictEqual(
+        {
+            'action': [None, 2, 3],
+            'first_step': [True, None, None],
+            'observation': [1, None, None],
+            'reward': [None, 101, 103]
+        }, mapped_history)
+    for path in history:
+      self.assertEqual(path, history[path]._path[0])
 
   def test_history_structure_evolves_with_data(self):
     self.writer.append({'x': 1, 'z': 2})

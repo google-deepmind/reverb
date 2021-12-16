@@ -16,7 +16,7 @@
 
 import datetime
 import itertools
-from typing import Any, Iterator, List, Mapping, MutableMapping, Optional, Sequence, Tuple, Union
+from typing import Any, Iterator, List, MutableMapping, Optional, Sequence, Tuple, Union
 
 import numpy as np
 from reverb import errors
@@ -120,11 +120,6 @@ class TrajectoryWriter:
     # in `_flatten`.
     self._path_to_column_index: MutableMapping[str, int] = {}
 
-    # The inverse of `_path_to_column_index`. That is the mapping describes the
-    # swaps required to go from the order of `column_history` (and the C++
-    # writer) to the order of a sequence which can be unflattened into
-    # `_structure`. This is used in `_unflatten`.
-    self._column_index_to_flat_structure_index: Mapping[int, int] = {}
     self._path_to_column_config = {}
 
     # Set when `append` called with `partial_step=True`. Remains set until
@@ -273,7 +268,7 @@ class TrajectoryWriter:
     data_with_path_flat = tree.flatten_with_path(data)
     try:
       # Use our custom mapping to flatten the expanded structure into columns.
-      flat_column_data = self._reorder_like_flat_structure(data_with_path_flat)
+      flat_column_data = self._apply_column_order(data_with_path_flat)
     except KeyError:
       # `data` contains fields which haven't been observed before so we need
       # expand the spec using the union of the history and `data`.
@@ -281,7 +276,7 @@ class TrajectoryWriter:
           _tree_union(self._structure, tree.map_structure(lambda x: None,
                                                           data)))
 
-      flat_column_data = self._reorder_like_flat_structure(data_with_path_flat)
+      flat_column_data = self._apply_column_order(data_with_path_flat)
 
     # If the last step is still open then verify that already populated columns
     # are None in the new `data`.
@@ -438,22 +433,43 @@ class TrajectoryWriter:
   def close(self):
     self._writer.Close()
 
-  def _reorder_like_flat_structure(self, data_with_path_flat):
+  def _apply_column_order(self, data_with_path_flat):
+    """Reorders provided data according to the order of columns."""
     flat_data = [None] * len(self._path_to_column_index)
     for path, value in data_with_path_flat:
       flat_data[self._path_to_column_index[path]] = value
     return flat_data
 
-  def _unflatten(self, flat_data):
-    reordered_flat_data = [
-        flat_data[self._column_index_to_flat_structure_index[i]]
-        for i in range(len(flat_data))
+  def _unflatten(self, column_data):
+    structure_columns = tree.flatten(self._structure)
+    structure_ordered_data = [
+        column_data[column_id] for column_id in structure_columns
     ]
-    return tree.unflatten_as(self._structure, reordered_flat_data)
+    return tree.unflatten_as(self._structure, structure_ordered_data)
 
   def _get_path_for_column_index(self, column_index):
-    i = self._column_index_to_flat_structure_index[column_index]
-    return tree.flatten_with_path(self._structure)[i][0]
+    return self._column_history[column_index].path()
+
+  def _maybe_create_column(self, path, column_index):
+    """For a given field creates a new column if not yet existing."""
+    if column_index is not None:
+      return column_index
+    # New columns are always added to the back so all we need to do to expand
+    # the history structure is to append one column for every field added by
+    # this `_update_structure` call.  In order to align indexing across all
+    # columns we init the new fields with None for all steps up until this.
+    column_index = len(self._column_history)
+    self._path_to_column_index[path] = column_index
+    history_length = len(self._column_history[0]) if self._column_history else 0
+    self._column_history.append(
+        _ColumnHistory(
+            path=path,
+            buffer_size=self._writer.max_num_keep_alive_refs,
+            history_padding=history_length))
+    if path in self._path_to_column_config:
+      self._writer.ConfigureChunker(column_index,
+                                    self._path_to_column_config[path])
+    return column_index
 
   def _update_structure(self, new_structure: Any):
     """Replace the existing structure with a superset of the current one.
@@ -465,8 +481,9 @@ class TrajectoryWriter:
     result in invalid behaviour as the second column (index 1) would receive `c`
     in the first step and `b` in the second.
 
-    To mitigate this we maintain an explicit mapping from path -> column. The
-    mapping is allowed to grow over time and would in the above example be
+    To mitigate this, `_structure` represents an explicit mapping of fields to
+    column number containing data of a given field. The mapping is allowed to
+    grow over time and would in the above example be
     `{'a': 0, 'c': 1}` and `{'a': 0, 'b': 2, 'c': 1}` after the first and second
     step resp. Data would thus be flatten as `[1, 101]` and `[2, 102, 12]` which
     means that the columns in the C++ layer only receive data from a single
@@ -476,41 +493,12 @@ class TrajectoryWriter:
       new_structure: The new structure to use. Must be a superset of the
         previous structure.
     """
-    new_structure_with_path_flat = tree.flatten_with_path(new_structure)
-    # Evolve the mapping from structure path to column index.
-    for path, _ in new_structure_with_path_flat:
-      if path not in self._path_to_column_index:
-        self._path_to_column_index[path] = len(self._path_to_column_index)
-
-        # If an explicit config have been provided for the column then forward
-        # it to the C++ writer so it will be applied when the column chunker is
-        # created.
-        if path in self._path_to_column_config:
-          self._writer.ConfigureChunker(self._path_to_column_index[path],
-                                        self._path_to_column_config[path])
-
-    # Recalculate the reverse mapping, i.e column index to index within the
-    # flatten structure.
-    self._column_index_to_flat_structure_index = {
-        i: self._path_to_column_index[path]
-        for i, (path, _) in enumerate(new_structure_with_path_flat)
-    }
-
-    # New columns are always added to the back so all we need to do expand the
-    # history structure is to append one column for every field added by this
-    # `_update_structure` call.  In order to align indexing across all columns
-    # we init the new fields with None for all steps up until this.
-    history_length = len(self._column_history[0]) if self._column_history else 0
-    while len(self._column_history) < len(new_structure_with_path_flat):
-      column_index = len(self._column_history)
-      self._column_history.append(
-          _ColumnHistory(
-              path=new_structure_with_path_flat[column_index][0],
-              buffer_size=self._writer.max_num_keep_alive_refs,
-              history_padding=history_length))
-
-    # With the mapping and history updated the structure can be set.
-    self._structure = new_structure
+    # Create columns for new paths and record column index numbers in the
+    # `_structure` itself.
+    self._structure = tree.unflatten_as(new_structure, [
+        self._maybe_create_column(path, column_idx)
+        for path, column_idx in tree.flatten_with_path(new_structure)
+    ])
 
 
 class _ColumnHistory:
@@ -534,6 +522,9 @@ class _ColumnHistory:
     self._data_references: List[Optional[pybind.WeakCellRef]] = (
         [None] * min(buffer_size, history_padding))
     self._offset = history_padding - len(self._data_references)
+
+  def path(self):
+    return self._path
 
   def append(self, ref: Optional[pybind.WeakCellRef]):
     self._data_references.append(ref)
@@ -709,8 +700,8 @@ def _is_named_tuple(x):
 
 
 def _tree_union(a, b):
-  """Compute the disjunction of two trees with None leaves."""
-  if a is None:
+  """Compute the disjunction of two trees with None or int leaves."""
+  if a is None or isinstance(a, int):
     return a
 
   if _is_named_tuple(a):
