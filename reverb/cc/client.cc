@@ -66,9 +66,6 @@ Client::Client(absl::string_view server_address)
 absl::Status Client::MaybeUpdateServerInfoCache(
     absl::Duration timeout,
     std::shared_ptr<internal::FlatSignatureMap>* cached_flat_signatures) {
-  // TODO(b/154927570): Once tables can be mutated on the server, we'll need to
-  // decide a new rule for updating the server info, instead of doing it just
-  // once at the beginning.
   {
     // Exit early if we have table info cached.
     absl::ReaderMutexLock lock(&cached_table_mu_);
