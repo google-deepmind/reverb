@@ -181,10 +181,7 @@ class TrajectoryWriter:
     This does not count partial calls to append, i.e. ones with
     `partial_step=True`.
     """
-    if not self._column_history:
-      return 0
-    else:
-      return len(self._column_history[0]) - int(self._last_step_is_open)
+    return self._writer.episode_steps
 
   def configure(self, path: Tuple[Union[int, str], ...], *,
                 num_keep_alive_refs: int, max_chunk_length: Optional[int]):

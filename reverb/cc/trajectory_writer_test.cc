@@ -1604,6 +1604,93 @@ TEST(TrajectoryWriter, EndEpisodeResetsEpisodeKeyAndStep) {
   EXPECT_EQ(second[0]->lock()->episode_step(), 0);
 }
 
+TEST(TrajectoryWriter, EpisodeStepIsIncrementedByAppend) {
+  auto stub = std::make_shared<MockReverbServiceAsyncStub>();
+  AsyncInterface async;
+  EXPECT_CALL(*stub, async()).WillRepeatedly(Return(&async));
+
+  TrajectoryWriter writer(
+      stub, MakeOptions(/*max_chunk_length=*/1, /*num_keep_alive_refs=*/2));
+
+  // The counter should start at 0.
+  EXPECT_EQ(writer.episode_steps(), 0);
+
+  // Each append call should increment the counter.
+  for (int i = 1; i < 11; i++) {
+    StepRef step;
+    REVERB_ASSERT_OK(writer.Append(Step({MakeTensor(kIntSpec)}), &step));
+    EXPECT_EQ(writer.episode_steps(), i);
+  }
+
+  // AppendPartial should not have any impact on the counter.
+  {
+    StepRef step;
+    REVERB_ASSERT_OK(writer.AppendPartial(Step({MakeTensor(kIntSpec)}), &step));
+  }
+  EXPECT_EQ(writer.episode_steps(), 10);
+
+  // Closing the partial step should increment it though.
+  {
+    StepRef step;
+    REVERB_ASSERT_OK(writer.Append(Step({}), &step));
+  }
+  EXPECT_EQ(writer.episode_steps(), 11);
+}
+
+TEST(TrajectoryWriter, EpisodeStepIsNotIncrementedByAppendPartial) {
+  auto stub = std::make_shared<MockReverbServiceAsyncStub>();
+  AsyncInterface async;
+  EXPECT_CALL(*stub, async()).WillRepeatedly(Return(&async));
+
+  TrajectoryWriter writer(
+      stub, MakeOptions(/*max_chunk_length=*/1, /*num_keep_alive_refs=*/2));
+
+  // The counter should start at 0.
+  EXPECT_EQ(writer.episode_steps(), 0);
+  // AppendPartial should not have any impact on the counter.
+  {
+    StepRef step;
+    REVERB_ASSERT_OK(writer.AppendPartial(Step({MakeTensor(kIntSpec)}), &step));
+  }
+  EXPECT_EQ(writer.episode_steps(), 0);
+
+  // Closing the partial step should increment it though.
+  {
+    StepRef step;
+    REVERB_ASSERT_OK(writer.Append(Step({}), &step));
+  }
+  EXPECT_EQ(writer.episode_steps(), 1);
+}
+
+TEST(TrajectoryWriter, EpisodeStepIsResetByEndEpisode) {
+  auto stub = std::make_shared<MockReverbServiceAsyncStub>();
+  AsyncInterface async;
+  EXPECT_CALL(*stub, async()).WillRepeatedly(Return(&async));
+
+  TrajectoryWriter writer(
+      stub, MakeOptions(/*max_chunk_length=*/1, /*num_keep_alive_refs=*/2));
+
+  // Take a step and check that the counter has been incremented.
+  {
+    StepRef step;
+    REVERB_ASSERT_OK(writer.Append(Step({MakeTensor(kIntSpec)}), &step));
+  }
+  EXPECT_EQ(writer.episode_steps(), 1);
+
+  // Ending the episode while clearing the buffers should reset the counter.
+  REVERB_ASSERT_OK(writer.EndEpisode(true, absl::Milliseconds(100)));
+  EXPECT_EQ(writer.episode_steps(), 0);
+
+  // Repeat the process but don't clear the buffers when ending the episode.
+  {
+    StepRef step;
+    REVERB_ASSERT_OK(writer.Append(Step({MakeTensor(kIntSpec)}), &step));
+  }
+  EXPECT_EQ(writer.episode_steps(), 1);
+  REVERB_ASSERT_OK(writer.EndEpisode(false, absl::Milliseconds(100)));
+  EXPECT_EQ(writer.episode_steps(), 0);
+}
+
 TEST(TrajectoryWriter, EndEpisodeReturnsIfTimeoutExpired) {
   AsyncInterface fail_stream(false);
   auto stub = std::make_shared<MockReverbServiceAsyncStub>();

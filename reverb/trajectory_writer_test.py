@@ -336,37 +336,62 @@ class TrajectoryWriterTest(parameterized.TestCase):
                               max_chunk_length=max_chunk_length)
 
   def test_episode_steps(self):
+    server = server_lib.Server([server_lib.Table.queue('queue', 1)])
+    client = client_lib.Client(f'localhost:{server.port}')
+    writer = client.trajectory_writer(num_keep_alive_refs=1)
+
     for _ in range(10):
       # Every episode, including the first, should start at zero.
-      self.assertEqual(self.writer.episode_steps, 0)
+      self.assertEqual(writer.episode_steps, 0)
 
       for i in range(1, 21):
-        self.writer.append({'x': 3, 'y': 2})
+        writer.append({'x': 3, 'y': 2})
 
         # Step count should increment with each append call.
-        self.assertEqual(self.writer.episode_steps, i)
+        self.assertEqual(writer.episode_steps, i)
 
       # Ending the episode should reset the step count to zero.
-      self.writer.end_episode()
+      writer.end_episode()
 
   def test_episode_steps_partial_step(self):
+    server = server_lib.Server([server_lib.Table.queue('queue', 1)])
+    client = client_lib.Client(f'localhost:{server.port}')
+    writer = client.trajectory_writer(num_keep_alive_refs=1)
+
     for _ in range(3):
       # Every episode, including the first, should start at zero.
-      self.assertEqual(self.writer.episode_steps, 0)
+      self.assertEqual(writer.episode_steps, 0)
 
       for i in range(1, 4):
-        self.writer.append({'x': 3}, partial_step=True)
+        writer.append({'x': 3}, partial_step=True)
 
         # Step count should not increment on partial append calls.
-        self.assertEqual(self.writer.episode_steps, i - 1)
+        self.assertEqual(writer.episode_steps, i - 1)
 
-        self.writer.append({'y': 2})
+        writer.append({'y': 2})
 
         # Step count should increment after the unqualified append call.
-        self.assertEqual(self.writer.episode_steps, i)
+        self.assertEqual(writer.episode_steps, i)
 
       # Ending the episode should reset the step count to zero.
-      self.writer.end_episode()
+      writer.end_episode()
+
+  @parameterized.parameters(True, False)
+  def test_episode_steps_reset_on_end_episode(self, clear_buffers: bool):
+    server = server_lib.Server([server_lib.Table.queue('queue', 1)])
+    client = client_lib.Client(f'localhost:{server.port}')
+
+    # Create a writer and check that the counter starts at 0.
+    writer = client.trajectory_writer(num_keep_alive_refs=1)
+    self.assertEqual(writer.episode_steps, 0)
+
+    # Append a step and check that the counter is incremented.
+    writer.append([1])
+    self.assertEqual(writer.episode_steps, 1)
+
+    # End the episode and check the counter is reset.
+    writer.end_episode(clear_buffers=clear_buffers)
+    self.assertEqual(writer.episode_steps, 0)
 
   def test_exit_does_not_flush_on_reverb_error(self):
     # If there are no errors then flush should be called.

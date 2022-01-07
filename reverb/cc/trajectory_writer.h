@@ -311,6 +311,10 @@ class TrajectoryWriter : public ColumnWriter,
   // Get the maximum value for `keep_alive_refs` for any of the columns.
   int max_num_keep_alive_refs() const;
 
+  // Number of `Append` calls since last `EndEpisode` call. Note that
+  // `AppendPartial` calls does not increment this counter.
+  int episode_steps() const;
+
   // Async GRPC callback handlers.
   void OnReadDone(bool ok) override;
   void OnWriteDone(bool ok) override;

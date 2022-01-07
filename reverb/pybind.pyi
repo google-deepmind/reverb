@@ -193,6 +193,10 @@ class TrajectoryWriter:
   def max_num_keep_alive_refs(self) -> int:
     ...
 
+  @property
+  def episode_steps(self) -> int:
+   ...
+
 
 class StructuredWriter:
 

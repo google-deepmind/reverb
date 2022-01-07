@@ -755,6 +755,11 @@ absl::Status TrajectoryWriter::EndEpisode(bool clear_buffers,
   return absl::OkStatus();
 }
 
+int TrajectoryWriter::episode_steps() const {
+  absl::MutexLock lock(&mu_);
+  return episode_step_;
+}
+
 absl::Status TrajectoryWriter::ConfigureChunker(
     int column, const std::shared_ptr<ChunkerOptions>& options) {
   REVERB_RETURN_IF_ERROR(ValidateChunkerOptions(options.get()));
