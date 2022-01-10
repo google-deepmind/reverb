@@ -328,20 +328,20 @@ class AutoTunedChunkerOptions : public ChunkerOptions {
   // the performance and (potentially) updating the recommendations for
   // `GetMaxChunkLength`. If a buffers exceeds this value after a new element
   // have been pushed then the oldest element is removed.
-  static const int kNumItemsToScore = 10;
-  static const int kNumChunksToScore = 5;
+  static constexpr int kNumItemsToScore = 10;
+  static constexpr int kNumChunksToScore = 5;
 
   // Diff added to the current max chunk length when increasing or decreasing it
   // as a response to observed data. New values are clipped to ensure that the
   // updated value is within the range (1, `num_keep_alive_refs`).
-  static const int kPosMaxChunkLengthDiff = 2;
-  static const int kNegMaxChunkLengthDiff = -1;
+  static constexpr int kPosMaxChunkLengthDiff = 2;
+  static constexpr int kNegMaxChunkLengthDiff = -1;
 
   // Maximum difference between the average observed chunk length and the
   // current recommendation of `GetMaxChunkLength` required for a score to be
   // considered as valid. If the difference is larger than this value then the
   // score is ignored and the content of the buffers dropped.
-  static constexpr auto kMaxChunkLengthError = 0.25;
+  static constexpr double kMaxChunkLengthError = 0.25;
 
   // TODO(b/180278134): Remove delta_encode argument once it is auto selected.
   explicit AutoTunedChunkerOptions(int num_keep_alive_ref,
