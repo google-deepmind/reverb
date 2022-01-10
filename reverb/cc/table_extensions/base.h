@@ -44,6 +44,10 @@ class TableExtensionBase : public TableExtension {
  protected:
   friend class Table;
 
+  // These are optional.
+  virtual void AfterRegisterTable(const Table& table) {}
+  virtual void BeforeUnregisterTable(const Table& table) {}
+
   // Validates table and saves it to table_.
   absl::Status RegisterTable(absl::Mutex* mu, Table* table)
       ABSL_LOCKS_EXCLUDED(mu) override;

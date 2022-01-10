@@ -32,6 +32,7 @@ absl::Status TableExtensionBase::RegisterTable(absl::Mutex* mu, Table* table) {
         ")"));
   }
   table_ = table;
+  AfterRegisterTable(*table_);
   return absl::OkStatus();
 }
 
@@ -39,6 +40,7 @@ void TableExtensionBase::UnregisterTable(absl::Mutex* mu, Table* table) {
   absl::MutexLock lock(&table_mu_);
   REVERB_CHECK_EQ(table, table_)
       << "The wrong Table attempted to unregister this extension.";
+  BeforeUnregisterTable(*table_);
   table_ = nullptr;
 }
 
