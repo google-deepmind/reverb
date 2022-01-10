@@ -21,7 +21,7 @@ service.
 
 import abc
 import collections
-from typing import Optional, Sequence, Union
+from typing import Optional, Sequence
 
 from absl import logging
 import portpicker
@@ -252,7 +252,7 @@ class Server:
 
   def __init__(self,
                tables: Optional[Sequence[Table]] = None,
-               port: Optional[Union[int, None]] = None,
+               port: Optional[int] = None,
                checkpointer: Optional[checkpointers.CheckpointerBase] = None):
     """Constructor of Server serving the ReverbService.
 
