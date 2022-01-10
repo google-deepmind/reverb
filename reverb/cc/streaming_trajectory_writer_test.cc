@@ -183,6 +183,12 @@ class FakeStream : public MockStream {
     return true;
   }
 
+  bool WritesDone() override {
+    absl::MutexLock lock(&mu_);
+    pending_confirmation_.Close();
+    return true;
+  }
+
   grpc::Status Finish() override {
     absl::MutexLock lock(&mu_);
     pending_confirmation_.Close();

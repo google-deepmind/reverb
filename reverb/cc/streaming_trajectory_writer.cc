@@ -90,10 +90,13 @@ StreamingTrajectoryWriter::~StreamingTrajectoryWriter() {
   // Make sure to flush the stream on destruction.
   if (stream_) {
     stream_->WritesDone();
+
+    // Join worker thread.
+    item_confirmation_worker_.reset();
+
     absl::Status status = FromGrpcStatus(stream_->Finish());
     REVERB_LOG_IF(REVERB_ERROR, !status.ok())
         << "Failed to close stream: " << status;
-    item_confirmation_worker_ = nullptr;  // Join thread.
   }
 }
 
