@@ -63,7 +63,8 @@ class TimestepDataset(tf.data.Dataset):
                max_in_flight_samples_per_worker: int,
                num_workers_per_iterator: int = -1,
                max_samples_per_stream: int = -1,
-               rate_limiter_timeout_ms: int = -1):
+               rate_limiter_timeout_ms: int = -1,
+               max_samples: int = -1):
     """Constructs a new TimestepDataset.
 
     Args:
@@ -77,23 +78,27 @@ class TimestepDataset(tf.data.Dataset):
         samples are fetched from single snapshot of the replay (followed by a
         period of lower activity as the samples are consumed). A good rule of
         thumb is to set this value to 2-3x times the batch size used.
-      num_workers_per_iterator: (Defaults to -1, i.e auto selected) The number
+      num_workers_per_iterator: (Defaults to -1, i.e. auto selected) The number
         of worker threads to create per dataset iterator. When the selected
-        table uses a FIFO sampler (i.e a queue) then exactly 1 worker must be
+        table uses a FIFO sampler (i.e. a queue) then exactly 1 worker must be
         used to avoid races causing invalid ordering of items. For all other
         samplers, this value should be roughly equal to the number of threads
         available on the CPU.
-      max_samples_per_stream: (Defaults to -1, i.e auto selected) The maximum
+      max_samples_per_stream: (Defaults to -1, i.e. auto selected) The maximum
         number of samples to fetch from a stream before a new call is made.
         Keeping this number low ensures that the data is fetched uniformly from
         all server.
-      rate_limiter_timeout_ms: (Defaults to -1: infinite).  Timeout (in
+      rate_limiter_timeout_ms: (Defaults to -1: infinite). Timeout (in
         milliseconds) to wait on the rate limiter when sampling from the table.
         If `rate_limiter_timeout_ms >= 0`, this is the timeout passed to
         `Table::Sample` describing how long to wait for the rate limiter to
           allow sampling. The first time that a request times out (across any of
           the workers), the Dataset iterator is closed and the sequence is
           considered finished.
+      max_samples: (Defaults to -1: infinite). The maximum number of samples to
+        request from the server. Once target number of samples has been fetched
+        and returned, the iterator is closed. This can be used to avoid the
+        prefetched added by the dataset.
 
     Raises:
       ValueError: If `dtypes` and `shapes` don't share the same structure.
@@ -102,6 +107,7 @@ class TimestepDataset(tf.data.Dataset):
       ValueError: If `num_workers_per_iterator` is not a positive integer or -1.
       ValueError: If `max_samples_per_stream` is not a positive integer or -1.
       ValueError: If `rate_limiter_timeout_ms < -1`.
+      ValueError: If `max_samples` is not a positive integer or -1.
     """
     tree.assert_same_structure(dtypes, shapes, False)
     if max_in_flight_samples_per_worker < 1:
@@ -119,6 +125,9 @@ class TimestepDataset(tf.data.Dataset):
     if rate_limiter_timeout_ms < -1:
       raise ValueError('rate_limiter_timeout_ms (%d) must be an integer >= -1' %
                        rate_limiter_timeout_ms)
+    if max_samples < 1 and max_samples != -1:
+      raise ValueError('max_samples (%d) must be a positive integer or -1' %
+                       max_samples)
 
     # Add the info fields (all scalars).
     dtypes = replay_sample.ReplaySample(
@@ -144,6 +153,7 @@ class TimestepDataset(tf.data.Dataset):
     self._num_workers_per_iterator = num_workers_per_iterator
     self._max_samples_per_stream = max_samples_per_stream
     self._rate_limiter_timeout_ms = rate_limiter_timeout_ms
+    self._max_samples = max_samples
 
     if _is_tf1_runtime():
       # Disabling to avoid errors given the different tf.data.Dataset init args
@@ -163,7 +173,8 @@ class TimestepDataset(tf.data.Dataset):
                            num_workers_per_iterator: int = -1,
                            max_samples_per_stream: int = -1,
                            rate_limiter_timeout_ms: int = -1,
-                           get_signature_timeout_secs: Optional[int] = None):
+                           get_signature_timeout_secs: Optional[int] = None,
+                           max_samples: int = -1):
     """Constructs a TimestepDataset using the table's signature to infer specs.
 
     Note: The target `Table` must specify a signature that represents a single
@@ -180,6 +191,7 @@ class TimestepDataset(tf.data.Dataset):
       get_signature_timeout_secs: Timeout in seconds to wait for server to
         respond when fetching the table signature. By default no timeout is set
         and the call will block indefinitely if the server does not respond.
+      max_samples: See __init__ for details.
 
     Returns:
       TimestepDataset using the specs defined by the table signature to build
@@ -214,7 +226,8 @@ class TimestepDataset(tf.data.Dataset):
         max_in_flight_samples_per_worker=max_in_flight_samples_per_worker,
         num_workers_per_iterator=num_workers_per_iterator,
         max_samples_per_stream=max_samples_per_stream,
-        rate_limiter_timeout_ms=rate_limiter_timeout_ms)
+        rate_limiter_timeout_ms=rate_limiter_timeout_ms,
+        max_samples=max_samples)
 
   def _as_variant_tensor(self):
     return gen_reverb_ops.reverb_timestep_dataset(
@@ -225,7 +238,8 @@ class TimestepDataset(tf.data.Dataset):
         max_in_flight_samples_per_worker=self._max_in_flight_samples_per_worker,
         num_workers_per_iterator=self._num_workers_per_iterator,
         max_samples_per_stream=self._max_samples_per_stream,
-        rate_limiter_timeout_ms=self._rate_limiter_timeout_ms)
+        rate_limiter_timeout_ms=self._rate_limiter_timeout_ms,
+        max_samples=self._max_samples)
 
   def _inputs(self) -> List[Any]:
     return []

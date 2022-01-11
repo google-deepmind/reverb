@@ -651,6 +651,43 @@ class TimestepDatasetTest(tf.test.TestCase, parameterized.TestCase):
       with self.assertRaises(tf.errors.CancelledError):
         sess.run(item)
 
+  @parameterized.product(
+      num_workers_per_iterator=[1, 3],
+      max_in_flight_samples_per_worker=[1, 5],
+      max_samples=[4],
+  )
+  def test_max_samples(self, num_workers_per_iterator,
+                       max_in_flight_samples_per_worker, max_samples):
+    s = reverb_server.Server([reverb_server.Table.queue('q', 10)])
+    c = s.localhost_client()
+
+    for i in range(10):
+      c.insert(i, {'q': 1})
+
+    ds = timestep_dataset.TimestepDataset(
+        server_address=c.server_address,
+        table='q',
+        dtypes=tf.int64,
+        shapes=tf.TensorShape([]),
+        max_in_flight_samples_per_worker=max_in_flight_samples_per_worker,
+        num_workers_per_iterator=num_workers_per_iterator,
+        max_samples=max_samples)
+
+    iterator = ds.make_one_shot_iterator()
+    item = iterator.get_next()
+    # Check that it fetches exactly 5 samples.
+    with self.session() as sess:
+      for _ in range(max_samples):
+        sess.run(item)
+      with self.assertRaises(tf.errors.OutOfRangeError):
+        sess.run(item)
+
+    # Check that no prefetching happened; Check that there are 5 items left in
+    # the queue.
+    self.assertEqual(c.server_info()['q'].current_size, 10 - max_samples)
+    np.testing.assert_array_equal(
+        next(c.sample('q', 1))[0].data[0], np.asarray(max_samples))
+
 
 class FromTableSignatureTest(tf.test.TestCase):
 

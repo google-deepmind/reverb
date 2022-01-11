@@ -288,6 +288,15 @@ reverb_py_test(
 )
 
 reverb_py_test(
+    name = "timestep_dataset_eager_test",
+    srcs = ["timestep_dataset_eager_test.py"],
+    deps = [
+        ":server",
+        ":timestep_dataset",
+    ],
+)
+
+reverb_py_test(
     name = "trajectory_dataset_test",
     srcs = ["trajectory_dataset_test.py"],
     python_version = "PY3",
@@ -297,6 +306,15 @@ reverb_py_test(
         ":item_selectors",
         ":rate_limiters",
         ":replay_sample",
+        ":server",
+        ":trajectory_dataset",
+    ],
+)
+
+reverb_py_test(
+    name = "trajectory_dataset_eager_test",
+    srcs = ["trajectory_dataset_eager_test.py"],
+    deps = [
         ":server",
         ":trajectory_dataset",
     ],

@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include "absl/status/status.h"
 #include "absl/strings/match.h"
 #include "reverb/cc/client.h"
 #include "reverb/cc/errors.h"
@@ -40,6 +41,7 @@ REGISTER_OP("ReverbTimestepDataset")
     .Attr("num_workers_per_iterator: int = -1")
     .Attr("max_samples_per_stream: int = -1")
     .Attr("rate_limiter_timeout_ms: int = -1")
+    .Attr("max_samples: int = -1")
     .Attr("dtypes: list(type) >= 1")
     .Attr("shapes: list(shape) >= 1")
     .Output("dataset: variant")
@@ -63,13 +65,13 @@ tensors returned by `GetNextTimestep`.
  sampled item allowed to exist in flight (per iterator). See
 `Sampler::Options::max_in_flight_samples_per_worker` for more details.
 
-`num_workers_per_iterator` (defaults to -1, i.e auto selected) is the number of
+`num_workers_per_iterator` (defaults to -1, i.e. auto selected) is the number of
 worker threads to start per iterator. When the selected table uses a FIFO
-sampler (i.e a queue) then exactly 1 worker must be used to avoid races causing
+sampler (i.e. a queue) then exactly 1 worker must be used to avoid races causing
 invalid ordering of items. For all other samplers, this value should be roughly
 equal to the number of threads available on the CPU.
 
-`max_samples_per_stream` (defaults to -1, i.e auto selected) is the maximum
+`max_samples_per_stream` (defaults to -1, i.e. auto selected) is the maximum
 number of samples to fetch from a stream before a new call is made. Keeping this
 number low ensures that the data is fetched uniformly from all servers.
 
@@ -83,6 +85,12 @@ Note that the timeout behavior depends on the Table's rate limiter. For example,
 the table may contain data, but the rate limiter may pause sampling - and this
 can cause a timeout to occur. Note also that when `num_workers_per_iterator >
 1`, a timeout on any given worker will cause a timeout for the dataset.
+
+`max_samples` (defaults to -1, i.e. infinite) is the maximum number of samples
+to fetch from the server. Once `max_samples` samples have been returned the
+iterator will close. This can be used when it is necessary to fetch an exact
+number of items (thus avoiding the prefetching that otherwise is implemented by
+tensorflow).
 )doc");
 
 class ReverbTimestepDatasetOp : public tensorflow::data::DatasetOpKernel {
@@ -99,6 +107,8 @@ class ReverbTimestepDatasetOp : public tensorflow::data::DatasetOpKernel {
     tensorflow::int64 rate_limiter_timeout_ms;
     OP_REQUIRES_OK(
         ctx, ctx->GetAttr("rate_limiter_timeout_ms", &rate_limiter_timeout_ms));
+    OP_REQUIRES_OK(ctx,
+                   ctx->GetAttr("max_samples", &sampler_options_.max_samples));
     OP_REQUIRES_OK(ctx, ctx->GetAttr("shapes", &shapes_));
     OP_REQUIRES_OK(ctx, ctx->GetAttr("dtypes", &dtypes_));
 
@@ -177,6 +187,7 @@ class ReverbTimestepDatasetOp : public tensorflow::data::DatasetOpKernel {
       tensorflow::AttrValue num_workers_attr;
       tensorflow::AttrValue max_samples_per_stream_attr;
       tensorflow::AttrValue rate_limiter_timeout_ms_attr;
+      tensorflow::AttrValue max_samples_attr;
       tensorflow::AttrValue dtypes_attr;
       tensorflow::AttrValue shapes_attr;
 
@@ -195,6 +206,7 @@ class ReverbTimestepDatasetOp : public tensorflow::data::DatasetOpKernel {
           static_cast<tensorflow::int64>(NonnegativeDurationToInt64Millis(
               sampler_options_.rate_limiter_timeout)),
           &rate_limiter_timeout_ms_attr);
+      b->BuildAttrValue(sampler_options_.max_samples, &max_samples_attr);
       b->BuildAttrValue(dtypes_, &dtypes_attr);
       b->BuildAttrValue(shapes_, &shapes_attr);
 
@@ -208,6 +220,7 @@ class ReverbTimestepDatasetOp : public tensorflow::data::DatasetOpKernel {
               {"num_workers_per_iterator", num_workers_attr},
               {"max_samples_per_stream", max_samples_per_stream_attr},
               {"rate_limiter_timeout_ms", rate_limiter_timeout_ms_attr},
+              {"max_samples", max_samples_attr},
               {"dtypes", dtypes_attr},
               {"shapes", shapes_attr},
           },
@@ -285,6 +298,11 @@ class ReverbTimestepDatasetOp : public tensorflow::data::DatasetOpKernel {
         } else if (sampler_options_.rate_limiter_timeout <
                        absl::InfiniteDuration() &&
                    errors::IsRateLimiterTimeout(FromTensorflowStatus(status))) {
+          *end_of_sequence = true;
+          return tensorflow::Status::OK();
+        } else if (absl::IsOutOfRange(FromTensorflowStatus(status)) &&
+                   sampler_options_.max_samples > 0) {
+          // `max_samples` samples have already been returned by the iterator.
           *end_of_sequence = true;
           return tensorflow::Status::OK();
         } else {
