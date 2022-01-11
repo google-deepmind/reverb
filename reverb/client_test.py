@@ -61,7 +61,7 @@ class ClientTest(absltest.TestCase):
         ),
         server.Table.queue(SIMPLE_QUEUE_NAME, 10),
     ]
-    cls.server = server.Server(tables=cls.tables, port=None)
+    cls.server = server.Server(tables=cls.tables)
     cls.client = cls.server.localhost_client()
 
   def tearDown(self):

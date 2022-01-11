@@ -42,10 +42,7 @@ def make_tables_and_server():
           max_size=1000000,
           rate_limiter=rate_limiters.MinSize(1)),
   ]
-  return tables, server.Server(
-      tables=tables,
-      port=None,
-  )
+  return tables, server.Server(tables=tables)
 
 
 class SampleOpTest(tf.test.TestCase):

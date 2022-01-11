@@ -34,39 +34,36 @@ from tensorflow.python.framework import tensor_spec  # pylint:disable=g-direct-t
 
 
 def make_server():
-  return reverb_server.Server(
-      tables=[
-          reverb_server.Table(
-              'dist',
-              sampler=item_selectors.Prioritized(priority_exponent=1),
-              remover=item_selectors.Fifo(),
-              max_size=1000000,
-              rate_limiter=rate_limiters.MinSize(1)),
-          reverb_server.Table(
-              'signatured',
-              sampler=item_selectors.Prioritized(priority_exponent=1),
-              remover=item_selectors.Fifo(),
-              max_size=1000000,
-              rate_limiter=rate_limiters.MinSize(1),
-              signature=tf.TensorSpec(dtype=tf.float32, shape=(None, None))),
-          reverb_server.Table(
-              'bounded_spec_signatured',
-              sampler=item_selectors.Prioritized(priority_exponent=1),
-              remover=item_selectors.Fifo(),
-              max_size=1000000,
-              rate_limiter=rate_limiters.MinSize(1),
-              # Currently only the `shape` and `dtype` of the bounded spec
-              # is considered during signature check.
-              # TODO(b/158033101): Check the boundaries as well.
-              signature=tensor_spec.BoundedTensorSpec(
-                  dtype=tf.float32,
-                  shape=(None, None),
-                  minimum=(0.0, 0.0),
-                  maximum=(10.0, 10.)),
-          ),
-      ],
-      port=None,
-  )
+  return reverb_server.Server(tables=[
+      reverb_server.Table(
+          'dist',
+          sampler=item_selectors.Prioritized(priority_exponent=1),
+          remover=item_selectors.Fifo(),
+          max_size=1000000,
+          rate_limiter=rate_limiters.MinSize(1)),
+      reverb_server.Table(
+          'signatured',
+          sampler=item_selectors.Prioritized(priority_exponent=1),
+          remover=item_selectors.Fifo(),
+          max_size=1000000,
+          rate_limiter=rate_limiters.MinSize(1),
+          signature=tf.TensorSpec(dtype=tf.float32, shape=(None, None))),
+      reverb_server.Table(
+          'bounded_spec_signatured',
+          sampler=item_selectors.Prioritized(priority_exponent=1),
+          remover=item_selectors.Fifo(),
+          max_size=1000000,
+          rate_limiter=rate_limiters.MinSize(1),
+          # Currently only the `shape` and `dtype` of the bounded spec
+          # is considered during signature check.
+          # TODO(b/158033101): Check the boundaries as well.
+          signature=tensor_spec.BoundedTensorSpec(
+              dtype=tf.float32,
+              shape=(None, None),
+              minimum=(0.0, 0.0),
+              maximum=(10.0, 10.)),
+      ),
+  ])
 
 
 class TimestepDatasetTest(tf.test.TestCase, parameterized.TestCase):

@@ -40,17 +40,14 @@ SHAPES = {
 
 
 def make_server():
-  return reverb_server.Server(
-      tables=[
-          reverb_server.Table(
-              name=TABLE,
-              sampler=item_selectors.Prioritized(priority_exponent=1),
-              remover=item_selectors.Fifo(),
-              max_size=1000,
-              rate_limiter=rate_limiters.MinSize(1)),
-      ],
-      port=None,
-  )
+  return reverb_server.Server(tables=[
+      reverb_server.Table(
+          name=TABLE,
+          sampler=item_selectors.Prioritized(priority_exponent=1),
+          remover=item_selectors.Fifo(),
+          max_size=1000,
+          rate_limiter=rate_limiters.MinSize(1)),
+  ])
 
 
 class TrajectoryDatasetTest(tf.test.TestCase, parameterized.TestCase):

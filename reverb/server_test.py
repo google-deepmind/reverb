@@ -43,8 +43,7 @@ class ServerTest(absltest.TestCase):
                 remover=item_selectors.Fifo(),
                 max_size=100,
                 rate_limiter=rate_limiters.MinSize(2)),
-        ],
-        port=None)
+        ])
     my_client = my_server.localhost_client()
     my_client.reset(TABLE_NAME)
     del my_client
@@ -66,12 +65,11 @@ class ServerTest(absltest.TestCase):
                   remover=item_selectors.Fifo(),
                   max_size=200,
                   rate_limiter=rate_limiters.MinSize(1))
-          ],
-          port=None)
+          ])
 
   def test_no_priority_table_provided(self):
     with self.assertRaises(ValueError):
-      server.Server(tables=[], port=None)
+      server.Server(tables=[])
 
   def test_can_sample(self):
     table = server.Table(
@@ -81,7 +79,7 @@ class ServerTest(absltest.TestCase):
         max_size=100,
         max_times_sampled=1,
         rate_limiter=rate_limiters.MinSize(2))
-    my_server = server.Server(tables=[table], port=None)
+    my_server = server.Server(tables=[table])
     my_client = my_server.localhost_client()
     self.assertFalse(table.can_sample(1))
     self.assertTrue(table.can_insert(1))

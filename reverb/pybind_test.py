@@ -27,10 +27,7 @@ class TestNdArrayToTensorAndBack(parameterized.TestCase):
   @classmethod
   def setUpClass(cls):
     super(TestNdArrayToTensorAndBack, cls).setUpClass()
-    cls._server = reverb.Server(
-        tables=[reverb.Table.queue(TABLE_NAME, 1000)],
-        port=None,
-    )
+    cls._server = reverb.Server(tables=[reverb.Table.queue(TABLE_NAME, 1000)])
     cls._client = cls._server.localhost_client()
 
   def tearDown(self):
