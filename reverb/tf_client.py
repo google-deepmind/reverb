@@ -49,6 +49,10 @@ class TFClient:
     self._handle = gen_reverb_ops.reverb_client(
         server_address=server_address, shared_name=shared_name, name=name)
 
+  @property
+  def server_address(self) -> str:
+    return self._server_address
+
   def sample(self,
              table: str,
              data_dtypes,
