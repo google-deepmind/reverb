@@ -27,7 +27,12 @@ namespace deepmind::reverb {
 // simply drop the item and log to ERROR.
 class InsertOnSampleExtension : public TableExtensionBase {
  public:
-  explicit InsertOnSampleExtension(std::shared_ptr<Table> target_table);
+  // `ApplyOnSample` will wait at most `timeout` while inserting to the
+  // `target_table`, throwing away the item to insert. absl::InfiniteDuration()
+  // will block on the successful insertion.
+  // If `target_table` can block on inserts, prefer using a short timeout.
+  explicit InsertOnSampleExtension(std::shared_ptr<Table> target_table,
+                                   absl::Duration timeout);
 
   // Inserts a copy of the item into the target table.
   void ApplyOnSample(const ExtensionItem& item) override;
@@ -46,6 +51,7 @@ class InsertOnSampleExtension : public TableExtensionBase {
   // We save this so that `DebugString` don't have to take the lock to access
   // `table_`.
   std::string table_name_;
+  absl::Duration timeout_;
 };
 
 }  // namespace deepmind::reverb

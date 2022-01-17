@@ -24,12 +24,13 @@
 
 namespace deepmind::reverb {
 
-constexpr absl::Duration kTimeout = absl::Milliseconds(1);
 const absl::string_view kUndefinedName = "__UNDEFINED__";
 
 InsertOnSampleExtension::InsertOnSampleExtension(
-    std::shared_ptr<Table> target_table)
-    : target_table_(std::move(target_table)), table_name_(kUndefinedName) {}
+    std::shared_ptr<Table> target_table, absl::Duration timeout)
+    : target_table_(std::move(target_table)),
+      table_name_(kUndefinedName),
+      timeout_(timeout) {}
 
 void InsertOnSampleExtension::ApplyOnSample(const ExtensionItem& item) {
   // Only insert the item into the target table the first time the item is
@@ -45,7 +46,7 @@ void InsertOnSampleExtension::ApplyOnSample(const ExtensionItem& item) {
   copy.item.clear_inserted_at();
 
   // Insert the item into the target table.
-  auto status = target_table_->InsertOrAssign(std::move(copy), kTimeout);
+  auto status = target_table_->InsertOrAssign(std::move(copy), timeout_);
   REVERB_LOG_IF(REVERB_WARNING, !status.ok())
       << "Unexpected error when copying item "
       << " from table " << item.ref->item.table() << " to table "
