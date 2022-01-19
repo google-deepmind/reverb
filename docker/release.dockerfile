@@ -9,7 +9,7 @@
 # Test that everything worked:
 #
 # bazel test -c opt --copt=-mavx --config=manylinux2010 --test_output=errors //reverb/...
-ARG cpu_base_image="tensorflow/tensorflow:custom-op-ubuntu16"
+ARG cpu_base_image="tensorflow/build:2.8-python3.7"
 ARG base_image=$cpu_base_image
 FROM $base_image
 
@@ -17,11 +17,15 @@ LABEL maintainer="Reverb Team <no-reply@google.com>"
 
 # Re-declare args because the args declared before FROM can't be used in any
 # instruction after a FROM.
-ARG cpu_base_image="tensorflow/tensorflow:custom-op-ubuntu16"
+ARG cpu_base_image="tensorflow/build:2.8-python3.7"
 ARG base_image=$cpu_base_image
 ARG tensorflow_pip="tf-nightly"
 ARG python_version="python3.7"
 ARG APT_COMMAND="apt-get -o Acquire::Retries=3 -y"
+
+# Stops tzdata from asking about timezones and blocking install on user input.
+ARG DEBIAN_FRONTEND=noninteractive
+ENV TZ=America/Los_Angeles
 
 # Pick up some TF dependencies
 RUN ${APT_COMMAND} update && ${APT_COMMAND} install -y --no-install-recommends \
@@ -40,9 +44,11 @@ RUN ${APT_COMMAND} update && ${APT_COMMAND} install -y --no-install-recommends \
         python3.7-dev \
         python3.8-dev \
         python3.9-dev \
+        python3.10-dev \
         # python >= 3.8 needs distutils for packaging.
         python3.8-distutils \
         python3.9-distutils \
+        python3.10-distutils \
         rename \
         rsync \
         sox \
@@ -54,11 +60,11 @@ RUN ${APT_COMMAND} update && ${APT_COMMAND} install -y --no-install-recommends \
 
 RUN curl -O https://bootstrap.pypa.io/get-pip.py
 
-# Install a new version of bazel (we need this for GRPC).
+# Installs known working version of bazel.
 ARG bazel_version=3.7.2
 ENV BAZEL_VERSION ${bazel_version}
-
-RUN cd /bazel && \
+RUN mkdir /bazel && \
+    cd /bazel && \
     curl -fSsL -O https://github.com/bazelbuild/bazel/releases/download/$BAZEL_VERSION/bazel-$BAZEL_VERSION-installer-linux-x86_64.sh && \
     chmod +x bazel-*.sh && \
     ./bazel-$BAZEL_VERSION-installer-linux-x86_64.sh && \
@@ -85,16 +91,15 @@ RUN for python in ${python_version}; do \
   done
 RUN rm get-pip.py
 
-# Removes broken links so they can be created below.
-# b/197213158
+# Removes existing links so they can be created to point where we expect.
+RUN rm /dt7/usr/include/x86_64-linux-gnu/python3.8
 RUN rm /dt7/usr/include/x86_64-linux-gnu/python3.9
-RUN rm /dt8/usr/include/x86_64-linux-gnu/python3.9
+RUN rm /dt7/usr/include/x86_64-linux-gnu/python3.10
 
 # Needed until this is included in the base TF image.
 RUN ln -s "/usr/include/x86_64-linux-gnu/python3.8" "/dt7/usr/include/x86_64-linux-gnu/python3.8"
-RUN ln -s "/usr/include/x86_64-linux-gnu/python3.8" "/dt8/usr/include/x86_64-linux-gnu/python3.8"
 RUN ln -s "/usr/include/x86_64-linux-gnu/python3.9" "/dt7/usr/include/x86_64-linux-gnu/python3.9"
-RUN ln -s "/usr/include/x86_64-linux-gnu/python3.9" "/dt8/usr/include/x86_64-linux-gnu/python3.9"
+RUN ln -s "/usr/include/x86_64-linux-gnu/python3.10" "/dt7/usr/include/x86_64-linux-gnu/python3.10"
 
 WORKDIR "/tmp/reverb"
 

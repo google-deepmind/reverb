@@ -38,7 +38,7 @@ PIP_PKG_EXTRA_ARGS="" # Extra args passed to `build_pip_package`.
 if [[ $# -lt 1 ]] ; then
   echo "Usage:"
   echo "--release [Indicates this is a release build. Otherwise nightly.]"
-  echo "--python [3.7(default)|3.8|3.9]"
+  echo "--python [3.7(default)|3.8|3.9|3.10]"
   echo "--clean  [true to run bazel clean]"
   echo "--tf_dep_override  [Required tensorflow version to pass to setup.py."
   echo "                    Examples: tensorflow==2.3.0rc0  or tensorflow>=2.3.0]"
@@ -95,7 +95,7 @@ for python_version in $PYTHON_VERSIONS; do
   fi
 
   if [ "$python_version" = "3.7" ]; then
-    export PYTHON_BIN_PATH=/usr/local/bin/python3.7 && export PYTHON_LIB_PATH=/usr/local/lib/python3.7/dist-packages
+    export PYTHON_BIN_PATH=/usr/bin/python3.7 && export PYTHON_LIB_PATH=/usr/local/lib/python3.7/dist-packages
     ABI=cp37
   elif [ "$python_version" = "3.8" ]; then
     export PYTHON_BIN_PATH=/usr/bin/python3.8 && export PYTHON_LIB_PATH=/usr/local/lib/python3.8/dist-packages
@@ -103,8 +103,11 @@ for python_version in $PYTHON_VERSIONS; do
   elif [ "$python_version" = "3.9" ]; then
     export PYTHON_BIN_PATH=/usr/bin/python3.9 && export PYTHON_LIB_PATH=/usr/local/lib/python3.9/dist-packages
     ABI=cp39
+  elif [ "$python_version" = "3.10" ]; then
+    export PYTHON_BIN_PATH=/usr/bin/python3.10 && export PYTHON_LIB_PATH=/usr/local/lib/python3.10/dist-packages
+    ABI=cp310
   else
-    echo "Error unknown --python. Only [3.7|3.8|3.9]"
+    echo "Error unknown --python. Only [3.7|3.8|3.9|3.10]"
     exit 1
   fi
 
