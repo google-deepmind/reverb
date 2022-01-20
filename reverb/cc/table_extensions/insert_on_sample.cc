@@ -49,8 +49,8 @@ void InsertOnSampleExtension::ApplyOnSample(const ExtensionItem& item) {
   auto status = target_table_->InsertOrAssign(std::move(copy), timeout_);
   REVERB_LOG_IF(REVERB_WARNING, !status.ok())
       << "Unexpected error when copying item "
-      << " from table " << item.ref->item.table() << " to table "
-      << target_table_->name() << ": " << status;
+      << "from table '" << item.ref->item.table() << "' to table '"
+      << target_table_->name() << "': " << status;
 }
 
 void InsertOnSampleExtension::AfterRegisterTable(const Table& table) {
