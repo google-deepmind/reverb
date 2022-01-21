@@ -128,7 +128,6 @@ reverb_pytype_library(
     srcs_version = "PY3",
     strict_deps = True,
     deps = [
-        ":dataset",
         ":replay_sample",
         "//reverb/cc/ops:gen_reverb_ops",
     ],
