@@ -37,6 +37,7 @@
 #include "reverb/cc/support/trajectory_util.h"
 #include "reverb/cc/tensor_compression.h"
 #include "tensorflow/core/framework/tensor.h"
+#include "tensorflow/core/framework/tensor_shape.h"
 #include "tensorflow/core/framework/tensor_util.h"
 
 namespace deepmind {
@@ -204,9 +205,24 @@ absl::Status Writer::CreateItem(const std::string& table, int num_timesteps,
       for (int c = 0; c < dtypes_and_shapes_t->size(); ++c) {
         const auto& signature_dtype_and_shape = (**dtypes_and_shapes)[c];
         const auto& seen_dtype_and_shape = (*dtypes_and_shapes_t)[c];
-        if (seen_dtype_and_shape.dtype != signature_dtype_and_shape.dtype ||
-            !signature_dtype_and_shape.shape.IsCompatibleWith(
-                seen_dtype_and_shape.shape)) {
+
+        const bool dtypes_equal =
+            seen_dtype_and_shape.dtype == signature_dtype_and_shape.dtype;
+
+        // In order to make the writer compatible with tables with signatures
+        // defined for the entire trajectory (rather than for a single step)
+        // we consider the shape valid if either a single step matches the
+        // signature or if the entire trajectory matche the stignature.
+        const bool timestep_shape_compatible =
+            signature_dtype_and_shape.shape.IsCompatibleWith(
+                seen_dtype_and_shape.shape);
+        const bool trajectory_shape_compatible =
+            signature_dtype_and_shape.shape.IsCompatibleWith(
+                tensorflow::PartialTensorShape({num_timesteps})
+                    .Concatenate(seen_dtype_and_shape.shape));
+
+        if (!dtypes_equal ||
+            !(timestep_shape_compatible || trajectory_shape_compatible)) {
           return absl::InvalidArgumentError(absl::StrCat(
               "Unable to CreateItem in table '", table,
               "' because Append was called with a tensor signature "

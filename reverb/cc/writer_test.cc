@@ -822,27 +822,27 @@ TEST(WriterTest, WriteTimeStepsInconsistentDtypeErrorAgainstBoundedSpec) {
 TEST(WriterTest, WriteTimeStepsInconsistentShapeError) {
   std::vector<InsertStreamRequest> requests;
   tensorflow::StructuredValue signature =
-      MakeSignature(tensorflow::DT_FLOAT, tensorflow::PartialTensorShape({-1}));
+      MakeSignature(tensorflow::DT_FLOAT, tensorflow::PartialTensorShape({5}));
   auto stub = MakeGoodStub(&requests, &signature);
   Client client(stub);
   std::unique_ptr<Writer> writer;
   REVERB_EXPECT_OK(client.NewWriter(2, 6, /*delta_encoded=*/false, &writer));
 
-  REVERB_ASSERT_OK(writer->Append(MakeTimestep()));
-  REVERB_ASSERT_OK(writer->Append(MakeTimestep()));
+  REVERB_ASSERT_OK(writer->Append(MakeTimestep(1, {4})));
+  REVERB_ASSERT_OK(writer->Append(MakeTimestep(1, {4})));
   auto status = writer->CreateItem("dist", 2, 1.0);
   EXPECT_EQ(status.code(), absl::StatusCode::kInvalidArgument);
   EXPECT_THAT(std::string(status.message()),
               ::testing::HasSubstr(
                   "timestep offset 0, flattened index 0, saw a tensor of "
-                  "dtype float, shape [], but expected tensor 'tensor0' of "
-                  "dtype float and shape compatible with [?]"));
+                  "dtype float, shape [4], but expected tensor 'tensor0' of "
+                  "dtype float and shape compatible with [5]"));
 }
 
 TEST(WriterTest, WriteTimeStepsInconsistentShapeErrorAgainstBoundedSpec) {
   std::vector<InsertStreamRequest> requests;
   tensorflow::StructuredValue signature = MakeBoundedTensorSpecSignature(
-      tensorflow::DT_FLOAT, tensorflow::PartialTensorShape({-1}));
+      tensorflow::DT_FLOAT, tensorflow::PartialTensorShape({3}));
   auto stub = MakeGoodStub(&requests, &signature);
   Client client(stub);
   std::unique_ptr<Writer> writer;
@@ -856,7 +856,34 @@ TEST(WriterTest, WriteTimeStepsInconsistentShapeErrorAgainstBoundedSpec) {
               ::testing::HasSubstr(
                   "timestep offset 0, flattened index 0, saw a tensor of "
                   "dtype float, shape [], but expected tensor 'tensor0' of "
-                  "dtype float and shape compatible with [?]"));
+                  "dtype float and shape compatible with [3]"));
+}
+
+TEST(WriterTest, WriteTrajectoryCompatibleWithSignature) {
+  std::vector<InsertStreamRequest> requests;
+  tensorflow::StructuredValue signature =
+      MakeSignature(tensorflow::DT_FLOAT, tensorflow::PartialTensorShape({2}));
+  auto stub = MakeGoodStub(&requests, &signature);
+  Client client(stub);
+  std::unique_ptr<Writer> writer;
+  REVERB_EXPECT_OK(client.NewWriter(3, 6, /*delta_encoded=*/false, &writer));
+
+  REVERB_ASSERT_OK(writer->Append(MakeTimestep()));
+  REVERB_ASSERT_OK(writer->Append(MakeTimestep()));
+
+  // Writing an item of steps should be fine as it matches the trajectory.
+  REVERB_EXPECT_OK(writer->CreateItem("dist", 2, 1.0));
+
+  // Writing an item of 3 steps does not match the trajectory signature and thus
+  // should fail.
+  REVERB_ASSERT_OK(writer->Append(MakeTimestep()));
+  auto status = writer->CreateItem("dist", 3, 1.0);
+  EXPECT_EQ(status.code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_THAT(std::string(status.message()),
+              ::testing::HasSubstr(
+                  "timestep offset 0, flattened index 0, saw a tensor of "
+                  "dtype float, shape [], but expected tensor 'tensor0' of "
+                  "dtype float and shape compatible with [2]"));
 }
 
 std::pair<std::shared_ptr<FakeStub>, std::shared_ptr<internal::Queue<uint64_t>>>
