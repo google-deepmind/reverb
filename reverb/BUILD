@@ -22,7 +22,6 @@ reverb_pytype_strict_library(
     srcs_version = "PY3",
     deps = [
         ":client",
-        ":dataset",
         ":errors",
         ":item_selectors",
         ":rate_limiters",
@@ -134,19 +133,6 @@ reverb_pytype_library(
 )
 
 reverb_pytype_library(
-    name = "dataset",
-    srcs = ["dataset.py"],
-    srcs_version = "PY3",
-    strict_deps = True,
-    visibility = ["//visibility:private"],
-    deps = [
-        ":client",
-        ":replay_sample",
-        "//reverb/cc/ops:gen_reverb_ops",
-    ],
-)
-
-reverb_pytype_library(
     name = "trajectory_dataset",
     srcs = ["trajectory_dataset.py"],
     srcs_version = "PY3",
@@ -252,22 +238,6 @@ reverb_py_test(
         ":replay_sample",
         ":server",
         ":tf_client",
-    ],
-)
-
-reverb_py_test(
-    name = "dataset_test",
-    size = "medium",
-    srcs = ["dataset_test.py"],
-    python_version = "PY3",
-    deps = [
-        ":client",
-        ":dataset",
-        ":errors",
-        ":item_selectors",
-        ":rate_limiters",
-        ":replay_sample",
-        ":server",
     ],
 )
 

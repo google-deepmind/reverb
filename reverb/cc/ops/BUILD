@@ -14,7 +14,6 @@ reverb_kernel_library(
     name = "ops",
     srcs = [
         "client.cc",
-        "dataset.cc",
         "timestep_dataset.cc",
         "trajectory_dataset.cc",
     ],

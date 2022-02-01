@@ -32,8 +32,6 @@ from reverb import structured_writer as structured
 from reverb.client import Client
 from reverb.client import Writer
 
-from reverb.dataset import ReplayDataset
-
 from reverb.errors import DeadlineExceededError
 from reverb.errors import ReverbError
 
