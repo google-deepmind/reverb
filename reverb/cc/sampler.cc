@@ -59,14 +59,6 @@ constexpr absl::Duration kResetBackoffThreshold = absl::Seconds(2);
 constexpr absl::Duration kMinRetryBackoff = absl::Milliseconds(1);
 constexpr absl::Duration kMaxRetryBackoff = absl::Seconds(1);
 
-template <typename T>
-tensorflow::Tensor InitializeTensor(T value, int64_t length) {
-  tensorflow::Tensor tensor(tensorflow::DataTypeToEnum<T>::v(),
-                            tensorflow::TensorShape({length}));
-  auto tensor_t = tensor.flat<T>();
-  std::fill(tensor_t.data(), tensor_t.data() + length, value);
-  return tensor;
-}
 
 template <typename T>
 tensorflow::Tensor ScalarTensor(T value) {
@@ -548,8 +540,7 @@ absl::Status Sampler::GetNextTimestep(std::vector<tensorflow::Tensor>* data,
   }
 
   *data = active_sample_->GetNextTimestep();
-  REVERB_RETURN_IF_ERROR(
-      ValidateAgainstOutputSpec(*data, ValidationMode::kTimestep));
+  REVERB_RETURN_IF_ERROR(ValidateAgainstOutputSpec(*data));
 
   if (end_of_sequence != nullptr) {
     *end_of_sequence = active_sample_->is_end_of_sample();
@@ -563,30 +554,12 @@ absl::Status Sampler::GetNextTimestep(std::vector<tensorflow::Tensor>* data,
   return absl::OkStatus();
 }
 
-absl::Status Sampler::GetNextSample(std::vector<tensorflow::Tensor>* data,
-                                    bool* rate_limited) {
-  std::unique_ptr<Sample> sample;
-  REVERB_RETURN_IF_ERROR(PopNextSample(&sample));
-  REVERB_RETURN_IF_ERROR(sample->AsBatchedTimesteps(data));
-  REVERB_RETURN_IF_ERROR(
-      ValidateAgainstOutputSpec(*data, ValidationMode::kBatchedTimestep));
-
-  if (rate_limited != nullptr) {
-    *rate_limited = sample->rate_limited();
-  }
-
-  absl::WriterMutexLock lock(&mu_);
-  if (++returned_ == max_samples_) samples_.Close();
-  return absl::OkStatus();
-}
-
 absl::Status Sampler::GetNextTrajectory(std::vector<tensorflow::Tensor>* data,
                                         bool* rate_limited) {
   std::unique_ptr<Sample> sample;
   REVERB_RETURN_IF_ERROR(PopNextSample(&sample));
   REVERB_RETURN_IF_ERROR(sample->AsTrajectory(data));
-  REVERB_RETURN_IF_ERROR(
-      ValidateAgainstOutputSpec(*data, ValidationMode::kTrajectory));
+  REVERB_RETURN_IF_ERROR(ValidateAgainstOutputSpec(*data));
 
   if (rate_limited != nullptr) {
     *rate_limited = sample->rate_limited();
@@ -598,7 +571,7 @@ absl::Status Sampler::GetNextTrajectory(std::vector<tensorflow::Tensor>* data,
 }
 
 absl::Status Sampler::ValidateAgainstOutputSpec(
-    const std::vector<tensorflow::Tensor>& data, Sampler::ValidationMode mode) {
+    const std::vector<tensorflow::Tensor>& data) {
   if (!dtypes_and_shapes_) {
     return absl::OkStatus();
   }
@@ -615,29 +588,8 @@ absl::Status Sampler::ValidateAgainstOutputSpec(
   }
 
   for (int i = 4; i < data.size(); ++i) {
-    tensorflow::TensorShape elem_shape;
-    if (mode == ValidationMode::kBatchedTimestep) {
-      // Remove the outer dimension from data[i].shape() so we can properly
-      // compare against the spec (which doesn't have the sequence dimension).
-      elem_shape = data[i].shape();
-      if (elem_shape.dims() == 0) {
-        return absl::InvalidArgumentError(
-            absl::StrCat("Invalid tensor shape received from table '", table_,
-                         "'.  "
-                         "time_step is false but data[",
-                         i,
-                         "] has scalar shape "
-                         "(no time dimension)."));
-      }
-      elem_shape.RemoveDim(0);
-    }
-
-    auto* shape_ptr =
-        mode == ValidationMode::kTimestep || mode == ValidationMode::kTrajectory
-            ? &(data[i].shape())
-            : &elem_shape;
     if (data[i].dtype() != dtypes_and_shapes_->at(i).dtype ||
-        !dtypes_and_shapes_->at(i).shape.IsCompatibleWith(*shape_ptr)) {
+        !dtypes_and_shapes_->at(i).shape.IsCompatibleWith(data[i].shape())) {
       return absl::InvalidArgumentError(absl::StrCat(
           "Received incompatible tensor at flattened index ", i,
           " from table '", table_, "'.  Specification has (dtype, shape): (",
@@ -645,7 +597,7 @@ absl::Status Sampler::ValidateAgainstOutputSpec(
           dtypes_and_shapes_->at(i).shape.DebugString(),
           ").  Tensor has (dtype, shape): (",
           tensorflow::DataTypeString(data[i].dtype()), ", ",
-          shape_ptr->DebugString(), ").\nTable signature: ",
+          data[i].shape().DebugString(), ").\nTable signature: ",
           internal::DtypesShapesString(*dtypes_and_shapes_)));
     }
   }
@@ -835,33 +787,6 @@ bool Sample::is_composed_of_timesteps() const {
 }
 
 bool Sample::rate_limited() const { return rate_limited_; }
-
-absl::Status Sample::AsBatchedTimesteps(std::vector<tensorflow::Tensor>* data) {
-  if (next_timestep_called_) {
-    return absl::DataLossError(
-        "Sample::AsBatchedTimesteps: Some time steps have been lost.");
-  }
-  if (!is_composed_of_timesteps()) {
-    return absl::FailedPreconditionError(
-        "Sample::AsBatchedTimesteps when trajectory cannot be decomposed into "
-        "timesteps.");
-  }
-
-  std::vector<tensorflow::Tensor> sequences(columns_.size() + 4);
-
-  // Initialize the first three items with the key, probability and table size.
-  sequences[0] = InitializeTensor(key_, num_timesteps_);
-  sequences[1] = InitializeTensor(probability_, num_timesteps_);
-  sequences[2] = InitializeTensor(table_size_, num_timesteps_);
-  sequences[3] = InitializeTensor(priority_, num_timesteps_);
-
-  // Unpack the data columns.
-  REVERB_RETURN_IF_ERROR(UnpackColumns(&sequences));
-
-  std::swap(sequences, *data);
-
-  return absl::OkStatus();
-}
 
 absl::Status Sample::AsTrajectory(std::vector<tensorflow::Tensor>* data) {
   if (next_timestep_called_) {

@@ -66,21 +66,6 @@ class Sample {
   //
   // Fails with `DataLossError` if `GetNextTimestep()` has already been called
   // on this sample.
-  // Fails with `FailedPreconditionError` if sample cannot be decomposed into
-  // timestpes.
-  //
-  // Return:
-  //   K+4 tensors each having a leading dimension of size N (= sample
-  //   length). The first four tensors are 1D (length N) tensors representing
-  //   the key, sample probability, table size and priority respectively. The
-  //   last K tensors holds the actual timestep data batched into a tensor of
-  //   shape [N, ...original_shape].
-  absl::Status AsBatchedTimesteps(std::vector<tensorflow::Tensor>* data);
-
-  // Returns the entire sample as a flat sequence of batched tensors.
-  //
-  // Fails with `DataLossError` if `GetNextTimestep()` has already been called
-  // on this sample.
   //
   // Return:
   //   K+4 tensors. The first four tensors are scalar tensors representing
@@ -167,10 +152,10 @@ class SamplerWorker {
 // ReverbService. A set of workers, each managing a  bi-directional gRPC stream
 // are created. The workers unpack the responses into samples (sequences of
 // timesteps) which are returned through calls to `GetNextTimestep` and
-// `GetNextSample`.
+// `GetNextTrajectory`.
 //
 // Concurrent calls to `GetNextTimestep` is NOT supported! This includes calling
-// `GetNextSample` and `GetNextTimestep` concurrently.
+// `GetNextTrajectory` and `GetNextTimestep` concurrently.
 //
 // Terminology:
 //   Timestep:
@@ -199,8 +184,8 @@ class SamplerWorker {
 // complete samples. If `GetNextTimestep` is called then a sample is popped from
 // the queue and split into timesteps and the first one returned. Timesteps are
 // then popped one by one until the sample has been completely emitted and the
-// process starts over. Calls to `GetNextSample` skips the timestep splitting
-// and returns samples as a "batch of timesteps".
+// process starts over. Calls to `GetNextTrajectory` skips the timestep
+// splitting and returns samples as a "batch of timesteps".
 //
 class Sampler {
  public:
@@ -251,7 +236,7 @@ class Sampler {
     //
     // Note that if `num_workers > 1`, then any worker hitting the timeout will
     // lead to the Sampler returning a `DeadlineExceeded` in calls to
-    // `GetNextSample()` and/or `GetNextTimestep()`.
+    // `GetNextTrajectory()` and/or `GetNextTimestep()`.
     //
     // The default is to wait forever - or until the connection closes, or
     // `Close` is called, whichever comes first.
@@ -289,18 +274,6 @@ class Sampler {
                                bool* end_of_sequence,
                                bool* rate_limited = nullptr);
 
-  // Blocks until a complete (timestep sequence) sample has been retrieved or
-  // until a non transient error is encountered or `Close` has been called.
-  //
-  // Once the sample has been retrieved then the data is unpacked as "batched
-  // timesteps". That is, for a timestep trajectory of length N, the result is
-  // the same as calling `GetNextTimestep` N times and then concatenating the
-  // results column wise.
-  //
-  // TODO(b/179118872): Remove this method and just use GetNextTrajectory.
-  absl::Status GetNextSample(std::vector<tensorflow::Tensor>* data,
-                             bool* rate_limited = nullptr);
-
   // Blocks until a complete sample has been retrieved or until a non transient
   // error is encountered or `Close` has been called.
   //
@@ -315,8 +288,8 @@ class Sampler {
                                  bool* rate_limited = nullptr);
 
   // Cancels all workers and joins their threads. Any blocking or future call
-  // to `GetNextTimestep` or `GetNextSample` will return CancelledError without
-  // blocking.
+  // to `GetNextTimestep` or `GetNextTrajectory` will return CancelledError
+  // without blocking.
   void Close();
 
   // Sampler is neither copyable nor movable.
@@ -327,22 +300,8 @@ class Sampler {
   Sampler(std::vector<std::unique_ptr<SamplerWorker>>, const std::string& table,
           const Options& options, internal::DtypesAndShapes dtypes_and_shapes);
 
-  // Validates the `data` vector against `dtypes_and_shapes`.
-  enum class ValidationMode {
-    // `GetNextTimestep` is the caller. The signature represents a single
-    // timestep and so do does the provided data.
-    kTimestep,
-
-    // `GetNextSample` is the caller. The signature represents a single timestep
-    // and the data is a sequence of batched timesteps.
-    kBatchedTimestep,
-
-    // `GetNextTrajectory` is the caller. The signature represents a complete
-    // trajectory and so does the data.
-    kTrajectory,
-  };
   absl::Status ValidateAgainstOutputSpec(
-      const std::vector<tensorflow::Tensor>& data, ValidationMode mode);
+      const std::vector<tensorflow::Tensor>& data);
 
   void RunWorker(SamplerWorker* worker) ABSL_LOCKS_EXCLUDED(mu_);
 
@@ -353,7 +312,8 @@ class Sampler {
   // Blocks until a complete sample has been retrieved or until a non transient
   // error is encountered or `Close` has been called. Note that this method does
   // NOT increment `returned_`. This is left to `GetNextTimestep` and
-  // `GetNextSample`. The returned pointer is only valid if the status is OK.
+  // `GetNextTrajectory`. The returned pointer is only valid if the status is
+  // OK.
   absl::Status PopNextSample(std::unique_ptr<Sample>* sample);
 
   // True if the workers should be shut down. This is the case when either:
@@ -372,7 +332,7 @@ class Sampler {
   std::string table_;
 
   // The maximum number of samples to fetch. Calls to `GetNextTimestep` or
-  // `GetNextSample` after `max_samples_` has been returned will result in
+  // `GetNextTrajectory` after `max_samples_` has been returned will result in
   // OutOfRangeError.
   const int64_t max_samples_;
 
@@ -407,7 +367,7 @@ class Sampler {
   internal::Queue<std::unique_ptr<Sample>> samples_;
 
   // The dtypes and shapes users expect from either `GetNextTimestep` or
-  // `GetNextSample` (whichever they plan to call).  May be absl::nullopt,
+  // `GetNextTrajectory` (whichever they plan to call).  May be absl::nullopt,
   // meaning unknown.
   const internal::DtypesAndShapes dtypes_and_shapes_;
   const internal::DtypesAndShapes dtypes_and_shapes_for_sequence_;
