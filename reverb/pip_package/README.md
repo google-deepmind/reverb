@@ -35,11 +35,11 @@ Execute from the root of the git repository. The end result will end up in
 ##################################
 # Creates the Docker container.
 ##################################
-# Builds the container with Python 3.7, 3.8, and 3.9. Set the
+# Builds the container with Python 3.7, 3.8, 3.9, and 3.10. Set the
 # `build-arg tensorflow_pip` to the version of TensorFlow to build against.
 $ docker build --tag tensorflow:reverb_release \
-  --build-arg tensorflow_pip=tensorflow~=2.7.0 \
-  --build-arg python_version="python3.7 python3.8 python3.9" \
+  --build-arg tensorflow_pip=tensorflow~=2.8.0 \
+  --build-arg python_version="python3.7 python3.8 python3.9 python3.10" \
   - < "$REVERB_DIR/docker/release.dockerfile"
 
 #################################################
@@ -47,18 +47,18 @@ $ docker build --tag tensorflow:reverb_release \
 #################################################
 
 # Builds Reverb against most recent stable release of TensorFlow and
-# requires `tensorflow~=2.7.0` if using `pip install reverb[tensorflow]`.
+# requires `tensorflow~=2.8.0` if using `pip install reverb[tensorflow]`.
 # Packages for Python 3.7, 3.8, and 3.9 are created.
 $ docker run --rm --mount "type=bind,src=$REVERB_DIR,dst=/tmp/reverb" \
   tensorflow:reverb_release bash oss_build.sh --clean true \
-  --tf_dep_override "tensorflow~=2.7.0" --release --python "3.7 3.8 3.9"
+  --tf_dep_override "tensorflow~=2.8.0" --release --python "3.7 3.8 3.9 3.10"
 
 # Builds Reverb against an RC of TensorFlow. `>=` and `~=` are not effective
 # because pip does not recognize 2.4.0rc0 as greater than 2.3.0. RC builds need
 # to have a strict dependency on the RC of TensorFlow used.
 $ docker run --rm --mount "type=bind,src=$REVERB_DIR,dst=/tmp/reverb" \
   tensorflow:reverb_release bash oss_build.sh --clean true \
-  --tf_dep_override "tensorflow==2.7.0rc0" --release --python "3.7 3.8 3.9"
+  --tf_dep_override "tensorflow==2.8.0rc0" --release --python "3.7 3.8 3.9 3.10"
 
 # Builds a debug version of Reverb. The debug version is not labeled as debug
 # as that can result in a user installing both the debug and regular packages
@@ -67,8 +67,8 @@ $ docker run --rm --mount "type=bind,src=$REVERB_DIR,dst=/tmp/reverb" \
 # Debug builds are ~90M compared to normal builds that are closer to 7M.
 $ docker run --rm --mount "type=bind,src=$REVERB_DIR,dst=/tmp/reverb" \
   tensorflow:reverb_release bash oss_build.sh --clean true --debug_build true \
-  --output_dir /tmp/reverb/dist/debug/ --tf_dep_override "tensorflow~=2.7.0" \
-  --release --python "3.7 3.8 3.9"
+  --output_dir /tmp/reverb/dist/debug/ --tf_dep_override "tensorflow~=2.8.0" \
+  --release --python "3.7 3.8 3.9 3.10"
 
 ```
 
