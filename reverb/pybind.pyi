@@ -53,8 +53,15 @@ class Writer:
 
 
 class Sampler:
-  def GetNextTimestep(self) -> Tuple[List[Any], bool]: ...
-  def GetNextTrajectory(self) -> List[np.ndarray]: ...
+
+  NUM_INFO_TENSORS: int
+
+  def GetNextTimestep(self) -> Tuple[List[Any], bool]:
+    ...
+
+  def GetNextTrajectory(self) -> List[np.ndarray]:
+    ...
+
 
 
 class Client:
@@ -195,7 +202,7 @@ class TrajectoryWriter:
 
   @property
   def episode_steps(self) -> int:
-   ...
+    ...
 
 
 class StructuredWriter:

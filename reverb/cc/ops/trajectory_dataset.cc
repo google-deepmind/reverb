@@ -18,6 +18,7 @@
 #include "reverb/cc/errors.h"
 #include "reverb/cc/platform/logging.h"
 #include "reverb/cc/sampler.h"
+#include "reverb/cc/schema.pb.h"
 #include "reverb/cc/support/tf_util.h"
 #include "tensorflow/core/framework/common_shape_fns.h"
 #include "tensorflow/core/framework/dataset.h"
@@ -246,10 +247,17 @@ class ReverbTrajectoryDatasetOp : public tensorflow::data::DatasetOpKernel {
       tensorflow::Status Initialize(
           tensorflow::data::IteratorContext* ctx) override {
         constexpr auto kValidationTimeout = absl::Seconds(30);
-        auto status =
-            client_->NewSampler(table_, sampler_options_,
-                                /*validation_dtypes=*/dtypes_, shapes_,
-                                kValidationTimeout, &sampler_);
+
+        // The shapes and dtypes contains metadata fields but the signature does
+        // not.
+        tensorflow::DataTypeVector validation_dtypes(
+            dtypes_.begin() + Sampler::kNumInfoTensors, dtypes_.end());
+        std::vector<tensorflow::PartialTensorShape> validation_shapes(
+            shapes_.begin() + Sampler::kNumInfoTensors, shapes_.end());
+
+        auto status = client_->NewSampler(table_, sampler_options_,
+                                          validation_dtypes, validation_shapes,
+                                          kValidationTimeout, &sampler_);
         if (absl::IsDeadlineExceeded(status)) {
           REVERB_LOG(REVERB_WARNING)
               << "Unable to validate shapes and dtypes of new sampler for '"
@@ -280,14 +288,19 @@ class ReverbTrajectoryDatasetOp : public tensorflow::data::DatasetOpKernel {
           sampler_->Close();
         }
 
-        auto status = ToTensorflowStatus(
-            sampler_->GetNextTrajectory(out_tensors, &rate_limited_));
+        std::shared_ptr<const SampleInfo> info;
+        std::vector<tensorflow::Tensor> data;
+        auto status =
+            ToTensorflowStatus(sampler_->GetNextTrajectory(&data, &info));
+
         if (registered &&
             !ctx->cancellation_manager()->DeregisterCallback(token)) {
           return Cancelled("Iterator context was cancelled");
         }
 
         if (status.ok()) {
+          rate_limited_ = info->rate_limited();
+          *out_tensors = Sampler::WithInfoTensors(*info, std::move(data));
           *end_of_sequence = false;
           return status;
         } else if (sampler_options_.rate_limiter_timeout <

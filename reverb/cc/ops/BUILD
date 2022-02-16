@@ -23,6 +23,7 @@ reverb_kernel_library(
         "//reverb/cc:sampler",
         "//reverb/cc/platform:logging",
         "//reverb/cc/support:tf_util",
+        "//reverb/cc:schema_cc_proto",
     ] + reverb_absl_deps(),
 )
 

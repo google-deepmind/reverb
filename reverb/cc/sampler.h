@@ -28,6 +28,7 @@
 #include "absl/time/time.h"
 #include "reverb/cc/platform/thread.h"
 #include "reverb/cc/reverb_service.grpc.pb.h"
+#include "reverb/cc/schema.pb.h"
 #include "reverb/cc/support/queue.h"
 #include "reverb/cc/support/signature.h"
 #include "reverb/cc/table.h"
@@ -53,8 +54,7 @@ inline absl::Duration Int64MillisToNonnegativeDuration(int64_t milliseconds) {
 // A sample from the replay buffer.
 class Sample {
  public:
-  Sample(tensorflow::uint64 key, double probability,
-         tensorflow::int64 table_size, double priority, bool rate_limited,
+  Sample(std::shared_ptr<const SampleInfo> info,
          std::vector<std::vector<tensorflow::Tensor>> column_chunks,
          std::vector<bool> squeeze_columns);
 
@@ -62,15 +62,11 @@ class Sample {
   // CHECK-fails if the entire sample has already been returned.
   std::vector<tensorflow::Tensor> GetNextTimestep();
 
-  // Returns the entire sample as a flat sequence of batched tensors.
+  // Returns the trajectory as a flat sequence of tensors representing the
+  // columns of the flattened trajectory.
   //
   // Fails with `DataLossError` if `GetNextTimestep()` has already been called
   // on this sample.
-  //
-  // Return:
-  //   K+4 tensors. The first four tensors are scalar tensors representing
-  //   the key, sample probability, table size and priority respectively. The
-  //   last K tensors holds the actual trajectory data.
   absl::Status AsTrajectory(std::vector<tensorflow::Tensor>* data);
 
   // Returns true if the end of the sample has been reached.
@@ -79,29 +75,11 @@ class Sample {
   // Returns true if the sample can be decomposed into timesteps.
   ABSL_MUST_USE_RESULT bool is_composed_of_timesteps() const;
 
-  // Whether the sample was delayed due to rate limiting or not.
-  bool rate_limited() const;
+  // Metadata info for the sampled item.
+  std::shared_ptr<const SampleInfo> info() const { return info_; }
 
  private:
-  // Concatenates content of column `i` into `data[i+4]`, i.e ofset by info
-  // columns.
-  absl::Status UnpackColumns(std::vector<tensorflow::Tensor>* data);
-
-  // The key of the replay item this time step was sampled from.
-  tensorflow::uint64 key_;
-
-  // The probability of the replay item this time step was sampled from.
-  double probability_;
-
-  // The size of the replay table this time step was sampled from at the time
-  // of sampling.
-  tensorflow::int64 table_size_;
-
-  // Priority of the replay item this time step was sampled from.
-  double priority_;
-
-  // Whether the sample was delayed due to rate limiting or not.
-  bool rate_limited_;
+  std::shared_ptr<const SampleInfo> info_;
 
   // Total number of time steps in this sample. Only set when
   // `is_timestep_sample()` is true.
@@ -207,6 +185,23 @@ class Sampler {
   // incorrect behavior for FIFO samplers.
   static const int kDefaultNumWorkers = 1;
 
+  // ID, probability, table size, priority;
+  static const int kNumInfoTensors = 4;
+
+  // Extracts the `kNumInfoTensors` from `info` as scalar tensors and prepends
+  // these fo `data`.
+  //
+  // The metadata fields extracted are:
+  //
+  //   * [uint64] Key of the sampled item.
+  //   * [double] The probability of selecting this item at the time it was
+  //     sampled.
+  //   * [int64] The size of the table when the item was sampled.
+  //   * [double] The priority of the item when it was sampled.
+  //
+  static std::vector<tensorflow::Tensor> WithInfoTensors(
+      const SampleInfo& info, std::vector<tensorflow::Tensor> data);
+
   struct Options {
     // `max_samples` is the maximum number of samples the object will return.
     // Must be a positive number or `kUnlimitedMaxSamples`.
@@ -270,22 +265,22 @@ class Sampler {
 
   // Blocks until a timestep has been retrieved or until a non transient error
   // is encountered or `Close` has been called.
-  absl::Status GetNextTimestep(std::vector<tensorflow::Tensor>* data,
-                               bool* end_of_sequence,
-                               bool* rate_limited = nullptr);
+  //
+  // `data` is populated with the next timestep of the sampled item. When the
+  // the last timestep of the item is returned `end_of_sequence` is set to
+  // `true`.
+  absl::Status GetNextTimestep(
+      std::vector<tensorflow::Tensor>* data, bool* end_of_sequence,
+      std::shared_ptr<const SampleInfo>* info = nullptr);
 
   // Blocks until a complete sample has been retrieved or until a non transient
   // error is encountered or `Close` has been called.
   //
-  // Once the sample has been retrieved then the sample is unpacked into 4+K
-  // tensors. The first 4 tensors are scalars representig the key, probability,
-  // table size and priority of the sample. The remaining K tensors are the
-  // columns of the flattened trajectory.
-  //
-  // TODO(b/179118872): Rename this to GetNextSample once the existing method
-  //   has been deleted.
-  absl::Status GetNextTrajectory(std::vector<tensorflow::Tensor>* data,
-                                 bool* rate_limited = nullptr);
+  // `data` is populated with the full (flattened) trajectory represented by
+  // the sampled item.
+  absl::Status GetNextTrajectory(
+      std::vector<tensorflow::Tensor>* data,
+      std::shared_ptr<const SampleInfo>* info = nullptr);
 
   // Cancels all workers and joins their threads. Any blocking or future call
   // to `GetNextTimestep` or `GetNextTrajectory` will return CancelledError

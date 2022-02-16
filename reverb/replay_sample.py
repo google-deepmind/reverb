@@ -44,6 +44,10 @@ class SampleInfo(NamedTuple):
     """Info dtypes corresponding to (key, probability, table_size, priority)."""
     return cls(tf.uint64, tf.double, tf.int64, tf.double)
 
+  @classmethod
+  def tf_shapes(cls):
+    return cls(*[tf.TensorShape([]) for _ in cls.tf_dtypes()])
+
 
 class ReplaySample(NamedTuple):
   """Item returned by sample operations.

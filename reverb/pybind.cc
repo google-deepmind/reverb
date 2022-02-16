@@ -23,6 +23,7 @@
 #include "absl/types/optional.h"
 #include "pybind11/numpy.h"
 #include "pybind11/pybind11.h"
+#include "pybind11/pytypes.h"
 #include "pybind11/stl.h"
 #include "reverb/cc/checkpointing/interface.h"
 #include "reverb/cc/chunker.h"
@@ -602,7 +603,8 @@ PYBIND11_MODULE(libpybind, m) {
   py::class_<Sampler>(m, "Sampler")
       .def("GetNextTimestep",
            [](Sampler *sampler) {
-             std::vector<tensorflow::Tensor> sample;
+             std::shared_ptr<const SampleInfo> info;
+             std::vector<tensorflow::Tensor> data;
              bool end_of_sequence;
              absl::Status status;
 
@@ -612,16 +614,20 @@ PYBIND11_MODULE(libpybind, m) {
              // details from the status.
              {
                py::gil_scoped_release g;
-               status = sampler->GetNextTimestep(&sample, &end_of_sequence);
+               status =
+                   sampler->GetNextTimestep(&data, &end_of_sequence, &info);
              }
 
              MaybeRaiseFromStatus(status);
-             return std::make_pair(std::move(sample), end_of_sequence);
+             return std::make_pair(
+                 Sampler::WithInfoTensors(*info, std::move(data)),
+                 end_of_sequence);
            })
       .def("GetNextTrajectory",
            [](Sampler *sampler) {
              absl::Status status;
-             std::vector<tensorflow::Tensor> sample;
+             std::shared_ptr<const SampleInfo> info;
+             std::vector<tensorflow::Tensor> data;
 
              // Release the GIL only when waiting for the call to complete. If
              // the GIL is not held when `MaybeRaiseFromStatus` is called it can
@@ -629,13 +635,15 @@ PYBIND11_MODULE(libpybind, m) {
              // details from the status.
              {
                py::gil_scoped_release g;
-               status = sampler->GetNextTrajectory(&sample);
+               status = sampler->GetNextTrajectory(&data, &info);
              }
 
              MaybeRaiseFromStatus(status);
-             return sample;
+             return Sampler::WithInfoTensors(*info, std::move(data));
            })
-      .def("Close", &Sampler::Close, py::call_guard<py::gil_scoped_release>());
+      .def_property_readonly_static("NUM_INFO_TENSORS", [](py::object) {
+        return Sampler::kNumInfoTensors;
+      });
 
   py::class_<Client>(m, "Client")
       .def(py::init<std::string>(), py::arg("server_name"))

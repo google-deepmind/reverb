@@ -287,38 +287,16 @@ void InsertItem(Table* table, uint64_t key, double priority,
 
 TEST(SampleTest, IsComposedOfTimesteps) {
   Sample timestep_sample(
-      /*key=*/100,
-      /*probability=*/0.5,
-      /*table_size=*/2,
-      /*priority=*/1,
-      /*rate_limited=*/false,
+      /*info=*/std::make_shared<SampleInfo>(),
       /*column_chunks=*/{{MakeTensor(5)}, {MakeTensor(5)}},
       /*squeeze_columns=*/{false});
   EXPECT_TRUE(timestep_sample.is_composed_of_timesteps());
 
   Sample non_timestep_sample(
-      /*key=*/100,
-      /*probability=*/0.5,
-      /*table_size=*/2,
-      /*priority=*/1,
-      /*rate_limited=*/false,
+      /*info=*/std::make_shared<SampleInfo>(),
       /*column_chunks=*/{{MakeTensor(5)}, {MakeTensor(10)}},
       /*squeeze_columns=*/{false});
   EXPECT_FALSE(non_timestep_sample.is_composed_of_timesteps());
-}
-
-TEST(SampleTest, RateLimited) {
-  for (bool rate_limited : {true, false}) {
-    Sample sample(
-        /*key=*/100,
-        /*probability=*/0.5,
-        /*table_size=*/2,
-        /*priority=*/1,
-        /*rate_limited=*/rate_limited,
-        /*column_chunks=*/{{MakeTensor(5)}, {MakeTensor(5)}},
-        /*squeeze_columns=*/{false});
-    EXPECT_EQ(sample.rate_limited(), rate_limited);
-  }
 }
 
 TEST(GrpcSamplerTest, SendsFirstRequest) {
@@ -397,17 +375,15 @@ TEST(GrpcSamplerTest, GetNextTrajectorySqueezesColumnsIfSet) {
 
   std::vector<tensorflow::Tensor> squeezed;
   REVERB_EXPECT_OK(sampler.GetNextTrajectory(&squeezed));
-  ASSERT_THAT(squeezed,
-              SizeIs(5));  // ID, probability, table size, priority, data.
+  ASSERT_THAT(squeezed, SizeIs(1));
   ExpectTensorEqual<tensorflow::uint64>(
-      squeezed[4], tensorflow::tensor::DeepCopy(MakeTensor(4).SubSlice(1)));
+      squeezed[0], tensorflow::tensor::DeepCopy(MakeTensor(4).SubSlice(1)));
 
   std::vector<tensorflow::Tensor> not_squeezed;
   REVERB_EXPECT_OK(sampler.GetNextTrajectory(&not_squeezed));
-  ASSERT_THAT(not_squeezed,
-              SizeIs(5));  // ID, probability, table size, priority, data.
+  ASSERT_THAT(not_squeezed, SizeIs(1));
   ExpectTensorEqual<tensorflow::uint64>(
-      not_squeezed[4], tensorflow::tensor::DeepCopy(MakeTensor(4).Slice(1, 2)));
+      not_squeezed[0], tensorflow::tensor::DeepCopy(MakeTensor(4).Slice(1, 2)));
 }
 
 TEST(LocalSamplerTest, GetNextTrajectorySqueezesColumnsIfSet) {
@@ -434,17 +410,15 @@ TEST(LocalSamplerTest, GetNextTrajectorySqueezesColumnsIfSet) {
 
   std::vector<tensorflow::Tensor> squeezed;
   REVERB_EXPECT_OK(sampler.GetNextTrajectory(&squeezed));
-  ASSERT_THAT(squeezed,
-              SizeIs(5));  // ID, probability, table size, priority, data.
+  ASSERT_THAT(squeezed, SizeIs(1));
   ExpectTensorEqual<tensorflow::uint64>(
-      squeezed[4], tensorflow::tensor::DeepCopy(MakeTensor(4).SubSlice(2)));
+      squeezed[0], tensorflow::tensor::DeepCopy(MakeTensor(4).SubSlice(2)));
 
   std::vector<tensorflow::Tensor> not_squeezed;
   REVERB_EXPECT_OK(sampler.GetNextTrajectory(&not_squeezed));
-  ASSERT_THAT(not_squeezed,
-              SizeIs(5));  // ID, probability, table size, priority, data.
+  ASSERT_THAT(not_squeezed, SizeIs(1));
   ExpectTensorEqual<tensorflow::uint64>(
-      not_squeezed[4], tensorflow::tensor::DeepCopy(MakeTensor(4).Slice(2, 3)));
+      not_squeezed[0], tensorflow::tensor::DeepCopy(MakeTensor(4).Slice(2, 3)));
 }
 
 TEST(LocalSamplerTest, RespectsMaxInFlightItems) {

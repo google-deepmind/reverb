@@ -122,8 +122,7 @@ absl::Status AsSample(std::vector<SampleStreamResponse::SampleEntry> responses,
   }
 
   *sample = absl::make_unique<Sample>(
-      info.item().key(), info.probability(), info.table_size(),
-      info.item().priority(), info.rate_limited(), std::move(column_chunks),
+      std::make_shared<SampleInfo>(std::move(info)), std::move(column_chunks),
       std::move(squeeze_columns));
 
   return absl::OkStatus();
@@ -158,10 +157,16 @@ absl::Status AsSample(const Table::SampledItem& sampled_item,
   for (const auto& col : sampled_item.ref->item.flat_trajectory().columns()) {
     squeeze_columns.push_back(col.squeeze());
   }
+  auto info = std::make_shared<SampleInfo>();
+  *info->mutable_item() = sampled_item.ref->item;
+  info->mutable_item()->set_priority(sampled_item.priority);
+  info->mutable_item()->set_times_sampled(sampled_item.times_sampled);
+  info->set_probability(sampled_item.probability);
+  info->set_table_size(sampled_item.table_size);
+  info->set_rate_limited(sampled_item.rate_limited);
+
   *sample = absl::make_unique<deepmind::reverb::Sample>(
-      sampled_item.ref->item.key(), sampled_item.probability,
-      sampled_item.table_size, sampled_item.priority, sampled_item.rate_limited,
-      std::move(column_chunks), std::move(squeeze_columns));
+      std::move(info), std::move(column_chunks), std::move(squeeze_columns));
 
   return absl::OkStatus();
 }
@@ -528,15 +533,11 @@ Sampler::~Sampler() { Close(); }
 
 absl::Status Sampler::GetNextTimestep(std::vector<tensorflow::Tensor>* data,
                                       bool* end_of_sequence,
-                                      bool* rate_limited) {
+                                      std::shared_ptr<const SampleInfo>* info) {
   REVERB_RETURN_IF_ERROR(MaybeSampleNext());
   if (!active_sample_->is_composed_of_timesteps()) {
     return absl::InvalidArgumentError(
         "Sampled trajectory cannot be decomposed into timesteps.");
-  }
-
-  if (rate_limited != nullptr) {
-    *rate_limited = active_sample_->rate_limited();
   }
 
   *data = active_sample_->GetNextTimestep();
@@ -544,6 +545,10 @@ absl::Status Sampler::GetNextTimestep(std::vector<tensorflow::Tensor>* data,
 
   if (end_of_sequence != nullptr) {
     *end_of_sequence = active_sample_->is_end_of_sample();
+  }
+
+  if (info != nullptr) {
+    *info = active_sample_->info();
   }
 
   if (active_sample_->is_end_of_sample()) {
@@ -554,15 +559,16 @@ absl::Status Sampler::GetNextTimestep(std::vector<tensorflow::Tensor>* data,
   return absl::OkStatus();
 }
 
-absl::Status Sampler::GetNextTrajectory(std::vector<tensorflow::Tensor>* data,
-                                        bool* rate_limited) {
+absl::Status Sampler::GetNextTrajectory(
+    std::vector<tensorflow::Tensor>* data,
+    std::shared_ptr<const SampleInfo>* info) {
   std::unique_ptr<Sample> sample;
   REVERB_RETURN_IF_ERROR(PopNextSample(&sample));
   REVERB_RETURN_IF_ERROR(sample->AsTrajectory(data));
   REVERB_RETURN_IF_ERROR(ValidateAgainstOutputSpec(*data));
 
-  if (rate_limited != nullptr) {
-    *rate_limited = sample->rate_limited();
+  if (info != nullptr) {
+    *info = sample->info();
   }
 
   absl::WriterMutexLock lock(&mu_);
@@ -587,7 +593,7 @@ absl::Status Sampler::ValidateAgainstOutputSpec(
         internal::DtypesShapesString(internal::SpecsFromTensors(data))));
   }
 
-  for (int i = 4; i < data.size(); ++i) {
+  for (int i = 0; i < data.size(); ++i) {
     if (data[i].dtype() != dtypes_and_shapes_->at(i).dtype ||
         !dtypes_and_shapes_->at(i).shape.IsCompatibleWith(data[i].shape())) {
       return absl::InvalidArgumentError(absl::StrCat(
@@ -697,15 +703,10 @@ void Sampler::RunWorker(SamplerWorker* worker) {
   }
 }
 
-Sample::Sample(tensorflow::uint64 key, double probability,
-               tensorflow::int64 table_size, double priority, bool rate_limited,
+Sample::Sample(std::shared_ptr<const SampleInfo> info,
                std::vector<std::vector<tensorflow::Tensor>> column_chunks,
                std::vector<bool> squeeze_columns)
-    : key_(key),
-      probability_(probability),
-      table_size_(table_size),
-      priority_(priority),
-      rate_limited_(rate_limited),
+    : info_(std::move(info)),
       num_timesteps_(-1),
       squeeze_columns_(std::move(squeeze_columns)),
       next_timestep_called_(false) {
@@ -741,11 +742,7 @@ std::vector<tensorflow::Tensor> Sample::GetNextTimestep() {
 
   // Construct the output tensors.
   std::vector<tensorflow::Tensor> result;
-  result.reserve(columns_.size() + 4);
-  result.push_back(ScalarTensor(key_));
-  result.push_back(ScalarTensor(probability_));
-  result.push_back(ScalarTensor(table_size_));
-  result.push_back(ScalarTensor(priority_));
+  result.reserve(columns_.size());
 
   for (auto& col : columns_) {
     auto slice = col.front().tensor.SubSlice(col.front().offset++);
@@ -786,54 +783,21 @@ bool Sample::is_composed_of_timesteps() const {
   return true;
 }
 
-bool Sample::rate_limited() const { return rate_limited_; }
-
 absl::Status Sample::AsTrajectory(std::vector<tensorflow::Tensor>* data) {
   if (next_timestep_called_) {
     return absl::DataLossError(
         "Sample::AsBatchedTimesteps: Some time steps have been lost.");
   }
-  std::vector<tensorflow::Tensor> sequences(columns_.size() + 4);
-
-  // Initialize the first four items with the key, probability, table size and
-  // priority.
-  sequences[0] = ScalarTensor(key_);
-  sequences[1] = ScalarTensor(probability_);
-  sequences[2] = ScalarTensor(table_size_);
-  sequences[3] = ScalarTensor(priority_);
+  std::vector<tensorflow::Tensor> sequences(columns_.size());
 
   // Unpack the data columns.
-  REVERB_RETURN_IF_ERROR(UnpackColumns(&sequences));
-
-  // Remove batch dimension from squeezed columns.
-  for (int i = 0; i < squeeze_columns_.size(); i++) {
-    if (!squeeze_columns_[i]) continue;
-    if (int batch_dim = sequences[i + 4].shape().dim_size(0); batch_dim != 1) {
-      return absl::InternalError(absl::StrCat(
-          "Tried to squeeze column with batch size ", batch_dim, "."));
-    }
-
-    sequences[i + 4] = sequences[i + 4].SubSlice(0);
-    if (!sequences[i + 4].IsAligned()) {
-      sequences[i + 4] = tensorflow::tensor::DeepCopy(sequences[i + 4]);
-    }
-  }
-
-  std::swap(sequences, *data);
-
-  return absl::OkStatus();
-}
-
-absl::Status Sample::UnpackColumns(std::vector<tensorflow::Tensor>* data) {
-  REVERB_CHECK_EQ(data->size(), columns_.size() + 4);
-
-  int64_t i = 4;
-  for (const auto& column : columns_) {
+  for (int i = 0; i < columns_.size(); i++) {
+    const auto& column = columns_[i];
     // If the column is made up of a single batched tensor then there will be no
     // need for concatenation so we can save ourselves a copy by simply moving
     // the one (unpacked) chunk into sequences.
     if (column.size() == 1) {
-      data->at(i++) = std::move(column.front().tensor);
+      sequences[i] = std::move(column.front().tensor);
     } else {
       std::vector<tensorflow::Tensor> column_tensors;
       column_tensors.reserve(column.size());
@@ -842,9 +806,26 @@ absl::Status Sample::UnpackColumns(std::vector<tensorflow::Tensor>* data) {
       }
 
       REVERB_RETURN_IF_ERROR(FromTensorflowStatus(
-          tensorflow::tensor::Concat(column_tensors, &data->at(i++))));
+          tensorflow::tensor::Concat(column_tensors, &sequences[i])));
     }
   }
+
+  // Remove batch dimension from squeezed columns.
+  for (int i = 0; i < squeeze_columns_.size(); i++) {
+    if (!squeeze_columns_[i]) continue;
+    if (int batch_dim = sequences[i].shape().dim_size(0); batch_dim != 1) {
+      return absl::InternalError(absl::StrCat(
+          "Tried to squeeze column with batch size ", batch_dim, "."));
+    }
+
+    sequences[i] = sequences[i].SubSlice(0);
+    if (!sequences[i].IsAligned()) {
+      sequences[i] = tensorflow::tensor::DeepCopy(sequences[i]);
+    }
+  }
+
+  std::swap(sequences, *data);
+
   return absl::OkStatus();
 }
 
@@ -876,6 +857,19 @@ absl::Status Sampler::Options::Validate() const {
         ") must not be negative."));
   }
   return absl::OkStatus();
+}
+
+std::vector<tensorflow::Tensor> Sampler::WithInfoTensors(
+    const SampleInfo& info, std::vector<tensorflow::Tensor> data) {
+  std::vector<tensorflow::Tensor> flat(kNumInfoTensors + data.size());
+  flat[0] = ScalarTensor(info.item().key());
+  flat[1] = ScalarTensor(info.probability());
+  flat[2] = ScalarTensor(info.table_size());
+  flat[3] = ScalarTensor(info.item().priority());
+  for (int i = 0; i < data.size(); i++) {
+    flat[i + kNumInfoTensors] = std::move(data[i]);
+  }
+  return flat;
 }
 
 }  // namespace reverb

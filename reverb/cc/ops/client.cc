@@ -20,6 +20,7 @@
 
 #include <cstdint>
 #include "absl/strings/str_cat.h"
+#include "reverb/cc/sampler.h"
 #include "reverb/cc/support/tf_util.h"
 #include "tensorflow/core/framework/op.h"
 #include "tensorflow/core/framework/op_kernel.h"
@@ -142,7 +143,6 @@ class SampleOp : public tensorflow::OpKernel {
     OP_REQUIRES_OK(context, context->input("table", &table_tensor));
     std::string table = table_tensor->scalar<tstring>()();
 
-    std::vector<tensorflow::Tensor> sample;
     std::unique_ptr<Sampler> sampler;
 
     Sampler::Options options;
@@ -154,18 +154,26 @@ class SampleOp : public tensorflow::OpKernel {
         context, ToTensorflowStatus(resource->client()->NewSampler(
                      table, options, /*validation_timeout=*/kValidationTimeout,
                      &sampler)));
-    OP_REQUIRES_OK(context, ToTensorflowStatus(
-                                sampler->GetNextTimestep(&sample, nullptr)));
-    OP_REQUIRES(context, sample.size() == context->num_outputs(),
-                InvalidArgument(
-                    "Number of tensors in the replay sample did not match the "
-                    "expected count."));
 
-    for (int i = 0; i < sample.size(); i++) {
+    std::vector<tensorflow::Tensor> data;
+    std::shared_ptr<const SampleInfo> info;
+    OP_REQUIRES_OK(context, ToTensorflowStatus(sampler->GetNextTimestep(
+                                &data, nullptr, &info)));
+    OP_REQUIRES(
+        context,
+        data.size() + Sampler::kNumInfoTensors == context->num_outputs(),
+        InvalidArgument(
+            "Number of tensors in the replay sample did not match the "
+            "expected count. Got ",
+            data.size() + Sampler::kNumInfoTensors, " but wanted ",
+            context->num_outputs()));
+
+    auto flat_sample = Sampler::WithInfoTensors(*info, std::move(data));
+    for (int i = 0; i < flat_sample.size(); i++) {
       tensorflow::Tensor* tensor;
-      OP_REQUIRES_OK(context,
-                     context->allocate_output(i, sample[i].shape(), &tensor));
-      *tensor = std::move(sample[i]);
+      OP_REQUIRES_OK(context, context->allocate_output(
+                                  i, flat_sample[i].shape(), &tensor));
+      *tensor = std::move(flat_sample[i]);
     }
   }
 

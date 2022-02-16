@@ -429,23 +429,23 @@ class Client:
           probability=float(sample[1]),
           table_size=int(sample[2]),
           priority=float(sample[3]))
+      data = sample[len(info):]
 
       if emit_timesteps:
-        if len(set([len(col) for col in sample[4:]])) != 1:
+        if len(set([len(col) for col in data])) != 1:
           raise ValueError(
               'Can\'t split non timestep trajectory into timesteps.')
 
         timesteps = []
-        for i in range(sample[4].shape[0]):
+        for i in range(data[0].shape[0]):
           timestep = replay_sample.ReplaySample(
               info=info,
-              data=unflatten([np.asarray(col[i], col.dtype)
-                              for col in sample[4:]]))
+              data=unflatten([np.asarray(col[i], col.dtype) for col in data]))
           timesteps.append(timestep)
 
         yield timesteps
       else:
-        yield replay_sample.ReplaySample(info, unflatten(sample[4:]))
+        yield replay_sample.ReplaySample(info, unflatten(data))
 
   def mutate_priorities(self,
                         table: str,

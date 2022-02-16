@@ -222,23 +222,10 @@ absl::Status Client::GetDtypesAndShapesForSampler(
     // Found the table, but signature is empty.
     dtypes_and_shapes->reset();
   } else {
-    // Found the table, and found a signature.  Add the 4-element prefix for the
-    // SampleInfo.
+    // Found the table, and found a signature.
     const auto& old_dtypes_and_shapes = iter->second;
     std::vector<internal::TensorSpec> dtypes_and_shapes_vec;
-    dtypes_and_shapes_vec.reserve(4 + old_dtypes_and_shapes->size());
-    // First element of sampled signature is the key.
-    dtypes_and_shapes_vec.push_back(
-        {"key", tensorflow::DT_UINT64, tensorflow::PartialTensorShape({})});
-    // Second element of sampled signature is the probability value.
-    dtypes_and_shapes_vec.push_back({"probability", tensorflow::DT_DOUBLE,
-                                     tensorflow::PartialTensorShape({})});
-    // Third element of sampled signature is the size of the table.
-    dtypes_and_shapes_vec.push_back({"table_size", tensorflow::DT_INT64,
-                                     tensorflow::PartialTensorShape({})});
-    // Fourth element of sampled signature is the priority value.
-    dtypes_and_shapes_vec.push_back({"priority", tensorflow::DT_DOUBLE,
-                                     tensorflow::PartialTensorShape({})});
+    dtypes_and_shapes_vec.reserve(old_dtypes_and_shapes->size());
     for (const auto& dtype_and_shape : *old_dtypes_and_shapes) {
       dtypes_and_shapes_vec.push_back(dtype_and_shape);
     }

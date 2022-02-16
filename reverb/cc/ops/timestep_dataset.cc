@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <memory>
+
 #include "absl/status/status.h"
 #include "absl/strings/match.h"
 #include "reverb/cc/client.h"
@@ -25,6 +27,7 @@
 #include "tensorflow/core/framework/op_kernel.h"
 #include "tensorflow/core/framework/tensor_shape.h"
 #include "tensorflow/core/framework/types.h"
+#include "tensorflow/core/platform/status.h"
 
 namespace deepmind {
 namespace reverb {
@@ -248,10 +251,17 @@ class ReverbTimestepDatasetOp : public tensorflow::data::DatasetOpKernel {
       tensorflow::Status Initialize(
           tensorflow::data::IteratorContext* ctx) override {
         constexpr auto kValidationTimeout = absl::Seconds(30);
-        auto status =
-            client_->NewSampler(table_, sampler_options_,
-                                /*validation_dtypes=*/dtypes_, shapes_,
-                                kValidationTimeout, &sampler_);
+
+        // The shapes and dtypes contains metadata fields but the signature does
+        // not.
+        tensorflow::DataTypeVector validation_dtypes(
+            dtypes_.begin() + Sampler::kNumInfoTensors, dtypes_.end());
+        std::vector<tensorflow::PartialTensorShape> validation_shapes(
+            shapes_.begin() + Sampler::kNumInfoTensors, shapes_.end());
+
+        auto status = client_->NewSampler(table_, sampler_options_,
+                                          validation_dtypes, validation_shapes,
+                                          kValidationTimeout, &sampler_);
         if (absl::IsDeadlineExceeded(status)) {
           REVERB_LOG(REVERB_WARNING)
               << "Unable to validate shapes and dtypes of new sampler for '"
@@ -282,10 +292,11 @@ class ReverbTimestepDatasetOp : public tensorflow::data::DatasetOpKernel {
           sampler_->Close();
         }
 
-        tensorflow::Status status;
+        std::vector<tensorflow::Tensor> data;
+        std::shared_ptr<const SampleInfo> info;
         bool last_timestep = false;
-        status = ToTensorflowStatus(sampler_->GetNextTimestep(
-            out_tensors, &last_timestep, &rate_limited_));
+        absl::Status status =
+            sampler_->GetNextTimestep(&data, &last_timestep, &info);
 
         if (registered &&
             !ctx->cancellation_manager()->DeregisterCallback(token)) {
@@ -294,19 +305,21 @@ class ReverbTimestepDatasetOp : public tensorflow::data::DatasetOpKernel {
 
         if (status.ok()) {
           *end_of_sequence = false;
-          return status;
+          *out_tensors = Sampler::WithInfoTensors(*info, std::move(data));
+          rate_limited_ = info->rate_limited();
+          return tensorflow::Status::OK();
         } else if (sampler_options_.rate_limiter_timeout <
                        absl::InfiniteDuration() &&
-                   errors::IsRateLimiterTimeout(FromTensorflowStatus(status))) {
+                   errors::IsRateLimiterTimeout(status)) {
           *end_of_sequence = true;
           return tensorflow::Status::OK();
-        } else if (absl::IsOutOfRange(FromTensorflowStatus(status)) &&
+        } else if (absl::IsOutOfRange(status) &&
                    sampler_options_.max_samples > 0) {
           // `max_samples` samples have already been returned by the iterator.
           *end_of_sequence = true;
           return tensorflow::Status::OK();
         } else {
-          return status;
+          return ToTensorflowStatus(status);
         }
       }
 

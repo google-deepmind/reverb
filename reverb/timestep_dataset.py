@@ -133,12 +133,7 @@ class TimestepDataset(tf.data.Dataset):
     dtypes = replay_sample.ReplaySample(
         info=replay_sample.SampleInfo.tf_dtypes(), data=dtypes)
     shapes = replay_sample.ReplaySample(
-        info=replay_sample.SampleInfo(
-            key=tf.TensorShape([]),
-            probability=tf.TensorShape([]),
-            table_size=tf.TensorShape([]),
-            priority=tf.TensorShape([])),
-        data=shapes)
+        info=replay_sample.SampleInfo.tf_shapes(), data=shapes)
 
     # The tf.data API doesn't fully support lists so we convert all uses of
     # lists into tuples.

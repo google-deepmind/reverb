@@ -330,3 +330,13 @@ reverb_py_test(
         ":structured_writer",
     ],
 )
+
+reverb_py_test(
+    name = "replay_sample_test",
+    srcs = ["replay_sample_test.py"],
+    python_version = "PY3",
+    deps = [
+        ":pybind",
+        ":replay_sample",
+    ],
+)

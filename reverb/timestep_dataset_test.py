@@ -349,7 +349,7 @@ class TimestepDatasetTest(tf.test.TestCase, parameterized.TestCase):
     with self.assertRaisesWithPredicateMatch(
         tf.errors.InvalidArgumentError,
         r'Inconsistent number of tensors requested from table \'{}\'.  '
-        r'Requested 6 tensors, but table signature shows 5 tensors.'.format(
+        r'Requested 2 tensors, but table signature shows 1 tensors.'.format(
             table_name)):
       self._sample_from(dataset, 10)
 
@@ -364,7 +364,7 @@ class TimestepDatasetTest(tf.test.TestCase, parameterized.TestCase):
         max_in_flight_samples_per_worker=100)
     with self.assertRaisesWithPredicateMatch(
         tf.errors.InvalidArgumentError,
-        r'Requested incompatible tensor at flattened index 4 from table '
+        r'Requested incompatible tensor at flattened index 0 from table '
         r'\'{}\'.  Requested \(dtype, shape\): \(int64, \[3,3\]\).  '
         r'Signature \(dtype, shape\): \(float, \[\?,\?\]\)'.format(table_name)):
       self._sample_from(dataset, 10)
@@ -381,7 +381,7 @@ class TimestepDatasetTest(tf.test.TestCase, parameterized.TestCase):
         max_in_flight_samples_per_worker=100)
     with self.assertRaisesWithPredicateMatch(
         tf.errors.InvalidArgumentError,
-        r'Requested incompatible tensor at flattened index 4 from table '
+        r'Requested incompatible tensor at flattened index 0 from table '
         r'\'{}\'.  Requested \(dtype, shape\): \(float, \[3\]\).  '
         r'Signature \(dtype, shape\): \(float, \[\?,\?\]\)'.format(table_name)):
       self._sample_from(dataset, 10)
