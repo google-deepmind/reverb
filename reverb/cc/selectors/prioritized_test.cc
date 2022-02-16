@@ -167,6 +167,56 @@ TEST(PrioritizedDeathTest, ClearThenSample) {
   EXPECT_DEATH(prioritized.Sample(), "");
 }
 
+TEST(PrioritizedSelectorTest, InstancesSeededDifferentlyByDefault) {
+  PrioritizedSelector prioritized_1(kInitialPriorityExponent);
+  PrioritizedSelector prioritized_2(kInitialPriorityExponent);
+  EXPECT_NE(prioritized_1.GetRng(), prioritized_2.GetRng());
+}
+
+TEST(PrioritizedSelectorTest, InstancesSeededIdentically) {
+  PrioritizedSelector prioritized_1(kInitialPriorityExponent, 1u);
+  PrioritizedSelector prioritized_2(kInitialPriorityExponent, 1u);
+  EXPECT_EQ(prioritized_1.GetRng(), prioritized_2.GetRng());
+}
+
+TEST(PrioritizedSelectorTest, ControlledRNGs) {
+  PrioritizedSelector prioritized_1(kInitialPriorityExponent, 1u);
+  PrioritizedSelector prioritized_2(kInitialPriorityExponent, 2u);
+
+  // Check initialization.
+  EXPECT_NE(prioritized_1.GetRng(), prioritized_2.GetRng());
+
+  // Set the same RNG.
+  prioritized_2.SetRng(prioritized_1.GetRng());
+  EXPECT_EQ(prioritized_1.GetRng(), prioritized_2.GetRng());
+
+  // Insert data.
+  for (int i = 0; i < 100; i++) {
+    REVERB_EXPECT_OK(prioritized_1.Insert(i, i));
+    REVERB_EXPECT_OK(prioritized_2.Insert(i, i));
+  }
+
+  // Check that the samples are identical.
+  const auto initial_rng = prioritized_1.GetRng();
+  std::vector<ItemSelector::KeyWithProbability> samples;
+  for (int i = 0; i < 100; i++) {
+    const auto sample_1 = prioritized_1.Sample();
+    const auto sample_2 = prioritized_2.Sample();
+    EXPECT_EQ(sample_1.key, sample_2.key);
+    EXPECT_EQ(sample_1.probability, sample_2.probability);
+    samples.push_back(sample_1);
+  }
+
+  // Restore RNG and check reproducibility.
+  prioritized_1.SetRng(initial_rng);
+  prioritized_2.SetRng(initial_rng);
+  for (const auto& expected_sample : samples) {
+    const auto sample = prioritized_1.Sample();
+    EXPECT_EQ(sample.key, expected_sample.key);
+    EXPECT_EQ(sample.probability, expected_sample.probability);
+  }
+}
+
 }  // namespace
 }  // namespace reverb
 }  // namespace deepmind

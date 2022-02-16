@@ -15,6 +15,7 @@
 #ifndef REVERB_CC_SELECTORS_PRIORITIZED_H_
 #define REVERB_CC_SELECTORS_PRIORITIZED_H_
 
+#include <random>
 #include <vector>
 
 #include "absl/random/random.h"
@@ -43,7 +44,7 @@ namespace reverb {
 class PrioritizedSelector : public ItemSelector {
  public:
   PrioritizedSelector(double priority_exponent,
-                      absl::BitGen bit_gen = absl::BitGen());
+                      uint64_t seed = std::random_device()());
 
   // O(log n) time.
   absl::Status Delete(Key key) override;
@@ -66,6 +67,10 @@ class PrioritizedSelector : public ItemSelector {
 
   // Returns the sum stored at a node for testing purposes only.
   double NodeSumTestingOnly(size_t index) const;
+
+  // Returns a copy of the random numbers generator.
+  std::mt19937_64 GetRng() const { return rng_; }
+  void SetRng(const std::mt19937_64& rng) { rng_ = rng; }
 
  private:
   struct Node {
@@ -119,7 +124,8 @@ class PrioritizedSelector : public ItemSelector {
   internal::flat_hash_map<Key, size_t> key_to_index_;
 
   // Used for sampling, not thread-safe.
-  absl::BitGen bit_gen_;
+  std::mt19937_64 rng_;
+  std::uniform_real_distribution<double> uniform_distr_;
 };
 
 }  // namespace reverb

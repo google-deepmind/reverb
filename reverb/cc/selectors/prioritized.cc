@@ -52,11 +52,11 @@ absl::Status CheckValidPriority(double priority) {
 }  // namespace
 
 PrioritizedSelector::PrioritizedSelector(double priority_exponent,
-                                         absl::BitGen bit_gen)
+                                         uint64_t seed)
     : priority_exponent_(priority_exponent),
       capacity_(std::pow(2, 17)),
       sum_tree_(capacity_),
-      bit_gen_(std::move(bit_gen)) {
+      rng_(seed) {
   REVERB_CHECK_GE(priority_exponent_, 0);
 }
 
@@ -113,7 +113,7 @@ ItemSelector::KeyWithProbability PrioritizedSelector::Sample() {
   REVERB_CHECK_NE(size, 0);
 
   // This should never be called concurrently from multiple threads.
-  const double target = absl::Uniform<double>(bit_gen_, 0, 1);
+  const double target = uniform_distr_(rng_);  // [0.0, 1.0)
   const double total_weight = sum_tree_[0].sum;
 
   // All keys have zero priority so treat as if uniformly sampling.
