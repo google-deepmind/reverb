@@ -158,7 +158,7 @@ absl::Status AsSample(const Table::SampledItem& sampled_item,
     squeeze_columns.push_back(col.squeeze());
   }
   auto info = std::make_shared<SampleInfo>();
-  *info->mutable_item() = sampled_item.ref->item;
+  info->mutable_item()->set_key(sampled_item.ref->item.key());
   info->mutable_item()->set_priority(sampled_item.priority);
   info->mutable_item()->set_times_sampled(sampled_item.times_sampled);
   info->set_probability(sampled_item.probability);

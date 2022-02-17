@@ -76,6 +76,9 @@ class Sample {
   ABSL_MUST_USE_RESULT bool is_composed_of_timesteps() const;
 
   // Metadata info for the sampled item.
+  //
+  // NOTE! `info.item` may not be fully populated. Only `key`, `priority` and
+  // `times_sampled` are guaranteed to be set.
   std::shared_ptr<const SampleInfo> info() const { return info_; }
 
  private:
@@ -269,6 +272,9 @@ class Sampler {
   // `data` is populated with the next timestep of the sampled item. When the
   // the last timestep of the item is returned `end_of_sequence` is set to
   // `true`.
+  //
+  // NOTE! `info.item` may not be fully populated. Only `key`, `priority` and
+  // `times_sampled` are guaranteed to be set.
   absl::Status GetNextTimestep(
       std::vector<tensorflow::Tensor>* data, bool* end_of_sequence,
       std::shared_ptr<const SampleInfo>* info = nullptr);
@@ -278,6 +284,9 @@ class Sampler {
   //
   // `data` is populated with the full (flattened) trajectory represented by
   // the sampled item.
+  //
+  // NOTE! `info.item` may not be fully populated. Only `key`, `priority` and
+  // `times_sampled` are guaranteed to be set.
   absl::Status GetNextTrajectory(
       std::vector<tensorflow::Tensor>* data,
       std::shared_ptr<const SampleInfo>* info = nullptr);
