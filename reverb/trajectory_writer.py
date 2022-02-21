@@ -90,6 +90,15 @@ class TrajectoryWriter:
               priority=calc_priority(trajectory),
               trajectory=trajectory)
 
+          # We call `flush` to ensure that the writer does not run ahead of the
+          # server by more than 5 items. If the writer produces data faster than
+          # the server is able to process it then we would continue to build up
+          # items in the in-flight buffers until `end_episode` is called. This
+          # could result in OOM (on the server OR client) when episodes are very
+          # long or a very large number of clients are concurrently writing to
+          # the same server.
+          writer.flush(block_until_num_items=5)
+
       # Block until all pending items have been sent to the server and
       # inserted into 'my_table'. This also clears the buffers so history will
       # once again be empty and `writer.episode_steps` is 0.
