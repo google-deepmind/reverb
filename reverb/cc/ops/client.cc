@@ -56,6 +56,7 @@ REGISTER_OP("ReverbClientSample")
     .Output("probability: double")
     .Output("table_size: int64")
     .Output("priority: double")
+    .Output("times_sampled: int32")
     .Output("outputs: Toutput_list")
     .Doc(R"doc(
 Blocking call to sample a single item from table `table` using shared resource.

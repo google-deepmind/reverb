@@ -866,6 +866,7 @@ std::vector<tensorflow::Tensor> Sampler::WithInfoTensors(
   flat[1] = ScalarTensor(info.probability());
   flat[2] = ScalarTensor(info.table_size());
   flat[3] = ScalarTensor(info.item().priority());
+  flat[4] = ScalarTensor(info.item().times_sampled());
   for (int i = 0; i < data.size(); i++) {
     flat[i + kNumInfoTensors] = std::move(data[i]);
   }

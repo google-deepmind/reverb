@@ -428,7 +428,8 @@ class Client:
           key=int(sample[0]),
           probability=float(sample[1]),
           table_size=int(sample[2]),
-          priority=float(sample[3]))
+          priority=float(sample[3]),
+          times_sampled=int(sample[4]))
       data = sample[len(info):]
 
       if emit_timesteps:

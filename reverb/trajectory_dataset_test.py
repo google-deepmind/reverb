@@ -176,6 +176,7 @@ class TrajectoryDatasetTest(tf.test.TestCase, parameterized.TestCase):
                 probability=1.0,
                 table_size=10,
                 priority=0.5,
+                times_sampled=1,
             ),
             data=SHAPES))
 
@@ -215,6 +216,7 @@ class TrajectoryDatasetTest(tf.test.TestCase, parameterized.TestCase):
                   probability=1.0,
                   table_size=10,
                   priority=0.5,
+                  times_sampled=1,
               ),
               data={
                   'last': None,

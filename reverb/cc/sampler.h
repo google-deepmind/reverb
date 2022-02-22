@@ -188,8 +188,8 @@ class Sampler {
   // incorrect behavior for FIFO samplers.
   static const int kDefaultNumWorkers = 1;
 
-  // ID, probability, table size, priority;
-  static const int kNumInfoTensors = 4;
+  // ID, probability, table size, priority, times sampled;
+  static const int kNumInfoTensors = 5;
 
   // Extracts the `kNumInfoTensors` from `info` as scalar tensors and prepends
   // these fo `data`.
@@ -201,6 +201,8 @@ class Sampler {
   //     sampled.
   //   * [int64] The size of the table when the item was sampled.
   //   * [double] The priority of the item when it was sampled.
+  //   * [int32] The number of times the item has been sampled (including this
+  //     sample).
   //
   static std::vector<tensorflow::Tensor> WithInfoTensors(
       const SampleInfo& info, std::vector<tensorflow::Tensor> data);

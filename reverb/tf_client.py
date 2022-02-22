@@ -66,14 +66,17 @@ class TFClient:
       for more details.
     """
     with tf.name_scope(name, f'{self._name}_sample', ['sample']) as scope:
-      key, probability, table_size, priority, data = gen_reverb_ops.reverb_client_sample(
-          self._handle, table, tree.flatten(data_dtypes), name=scope)
+      key, probability, table_size, priority, times_sampled, data = (
+          gen_reverb_ops.reverb_client_sample(
+              self._handle, table, tree.flatten(data_dtypes), name=scope))
       return replay_sample.ReplaySample(
-          replay_sample.SampleInfo(
+          info=replay_sample.SampleInfo(
               key=key,
               probability=probability,
               table_size=table_size,
-              priority=priority), tree.unflatten_as(data_dtypes, data))
+              priority=priority,
+              times_sampled=times_sampled),
+          data=tree.unflatten_as(data_dtypes, data))
 
   def insert(self,
              data: Sequence[tf.Tensor],

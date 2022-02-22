@@ -33,20 +33,28 @@ class SampleInfo(NamedTuple):
     table_size: The total number of items present in the table at sample time.
     priority: Priority of the item at the time of sampling. A python `float` or
       `tf.float64` Tensor.
+    times_sampled: Number of times this item has been sampled (including this
+      time).
   """
   key: Union[np.ndarray, tf.Tensor, int]
   probability: Union[np.ndarray, tf.Tensor, float]
   table_size: Union[np.ndarray, tf.Tensor, int]
   priority: Union[np.ndarray, tf.Tensor, float]
+  times_sampled: Union[np.ndarray, tf.Tensor, int]
 
   @classmethod
   def tf_dtypes(cls):
-    """Info dtypes corresponding to (key, probability, table_size, priority)."""
-    return cls(tf.uint64, tf.double, tf.int64, tf.double)
+    """Dtypes for (key, probability, table_size, priority, times_sampled)."""
+    return cls(tf.uint64, tf.double, tf.int64, tf.double, tf.int32)
 
   @classmethod
   def tf_shapes(cls):
     return cls(*[tf.TensorShape([]) for _ in cls.tf_dtypes()])
+
+  @classmethod
+  def zeros(cls):
+    """Create a SampleInfo with Python zero values for all fields.."""
+    return cls(0, 0.0, 0, 0.0, 0)
 
 
 class ReplaySample(NamedTuple):
