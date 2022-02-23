@@ -31,8 +31,8 @@ class InsertOnSampleExtension : public TableExtensionBase {
   // `target_table`, throwing away the item to insert. absl::InfiniteDuration()
   // will block on the successful insertion.
   // If `target_table` can block on inserts, prefer using a short timeout.
-  explicit InsertOnSampleExtension(std::shared_ptr<Table> target_table,
-                                   absl::Duration timeout);
+  InsertOnSampleExtension(std::shared_ptr<Table> target_table,
+                          absl::Duration timeout);
 
   // Inserts a copy of the item into the target table.
   void ApplyOnSample(const ExtensionItem& item) override;
