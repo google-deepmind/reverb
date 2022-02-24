@@ -40,8 +40,9 @@ void InsertOnSampleExtension::ApplyOnSample(const ExtensionItem& item) {
   // Make a copy of the item in the source table.
   TableItem copy = *item.ref;
 
-  // Reset the sample count and assign the item a new ID (maybe?).
-  copy.item.set_times_sampled(0);
+  // Clear the inserted_at but we keep the same `key` and `times_sampled` (1).
+  // Keeping the same key allows the user to send priority updates to the target
+  // table straight away.
   copy.item.set_table(target_table_->name());
   copy.item.clear_inserted_at();
 

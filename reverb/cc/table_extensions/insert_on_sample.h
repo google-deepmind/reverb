@@ -23,6 +23,9 @@ namespace deepmind::reverb {
 // Inserts an identical item into target table when the item is sampled for the
 // first time from the source table (i.e. the table which owns the extension).
 //
+// NOTE! The item will be inserted into the target table with `times_sampled`
+// set to 1 even though it has been sampled from the target table.
+//
 // NOTE: We assume that all inserts will succeed but if they don't then we'll
 // simply drop the item and log to ERROR.
 class InsertOnSampleExtension : public TableExtensionBase {
