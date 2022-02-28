@@ -38,9 +38,6 @@ namespace reverb {
 // roughly the same scale and the priority exponent is not large, e.g. less than
 // 2.
 //
-// This was forked from:
-// ## proportional_picker.h
-//
 class PrioritizedSelector : public ItemSelector {
  public:
   PrioritizedSelector(double priority_exponent,
