@@ -128,7 +128,7 @@ class ArenaOwnedRequest;  // Defined in trajectory_writer.cc.
 //          +----+----+----+----+----+  --+--  --+--
 //
 //
-// Reverb offers two kinds of `ColumnWriter` implementations:
+// Reverb offers the following `ColumnWriter` implementations:
 // - `TrajectoryWriter`: A fail-safe, asynchronous implementation. It ensures
 //   handles all network activity on a background thread, has a non-blocking
 //   API, and can recover from network failures without data loss.
@@ -138,6 +138,10 @@ class ArenaOwnedRequest;  // Defined in trajectory_writer.cc.
 //   using many threads on a single host. Data may be lost if network
 //   connections fail and the API can be blocking as network writes are
 //   performed on the calling thread. This is
+// - `QueuetWriter`: based on the trajectory writer, it puts the trajectories
+//    a queue without sending them to any server. It is used by the
+//   `ReverbPatternDataset` to produce datasets of trajectories.
+
 class ColumnWriter {
  public:
   virtual ~ColumnWriter() = default;
