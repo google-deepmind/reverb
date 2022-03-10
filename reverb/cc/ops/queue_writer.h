@@ -112,8 +112,6 @@ class QueueWriter : public ColumnWriter {
 
   // Trajectories that are ready to be consumed by the caller. The pointer is
   // owned by the caller.
-  // TODO(sabela): Remove the shared pointer and add a method to get the
-  // next element from the queue.
   std::deque<std::vector<tensorflow::Tensor>>* write_queue_;
 
   // ID of the active episode.
