@@ -24,7 +24,6 @@
 #include "reverb/cc/schema.pb.h"
 #include "reverb/cc/trajectory_writer.h"
 
-// TODO(sabela): Output a full ReverbSample instead of only the item.
 // TODO(sabela): change the item creation to avoid serializations and just move
 //  the tensors around.
 // TODO(sabela): Add more documentation.
