@@ -298,8 +298,8 @@ absl::Status TFRecordCheckpointer::Load(
         table_names.push_back(absl::StrCat("'", table->name(), "'"));
       }
       return absl::InvalidArgumentError(absl::StrCat(
-          "Trying to load table ", checkpoint.table_name(),
-          " but table was not found in provided list of tables. Available "
+          "Trying to load table '", checkpoint.table_name(),
+          "' but table was not found in provided list of tables. Available "
           "tables: [",
           absl::StrJoin(table_names, ", "), "]"));
     }
