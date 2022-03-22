@@ -24,6 +24,7 @@
 #include <cstdint>
 #include "absl/memory/memory.h"
 #include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
 #include "absl/strings/string_view.h"
@@ -33,6 +34,7 @@
 #include "reverb/cc/chunk_store.h"
 #include "reverb/cc/platform/hash_map.h"
 #include "reverb/cc/platform/hash_set.h"
+#include "reverb/cc/platform/logging.h"
 #include "reverb/cc/platform/status_macros.h"
 #include "reverb/cc/rate_limiter.h"
 #include "reverb/cc/schema.pb.h"
@@ -130,13 +132,33 @@ std::unique_ptr<ItemSelector> MakeDistribution(
   }
 }
 
-inline size_t find_table_index(
-    const std::vector<std::shared_ptr<Table>>* tables,
+absl::StatusOr<size_t> GetTableIndex(
+    const std::vector<std::shared_ptr<Table>>& tables,
     const std::string& name) {
-  for (int i = 0; i < tables->size(); i++) {
-    if (tables->at(i)->name() == name) return i;
+  for (size_t i = 0; i < tables.size(); i++) {
+    if (tables[i]->name() == name) {
+      return i;
+    }
   }
-  return -1;
+  std::vector<std::string> table_names(tables.size());
+  for (size_t i = 0; i < tables.size(); i++) {
+    table_names[i] = absl::StrCat("'", tables[i]->name(), "'");
+  }
+
+  return absl::InvalidArgumentError(absl::StrCat(
+      "Trying to load table '", name,
+      "' but table was not found in provided list of tables. Available "
+      "tables: [",
+      absl::StrJoin(table_names, ", "), "]"));
+}
+
+absl::Status CheckTrajectoryFormat(const PrioritizedItem& item) {
+  if (item.has_deprecated_sequence_range() && item.has_flat_trajectory()) {
+    return absl::InternalError(absl::StrCat(
+        "Item ", item.key(), " has both deprecated and new trajectory format: ",
+        item.DebugString(), "."));
+  }
+  return absl::OkStatus();
 }
 
 }  // namespace
@@ -231,6 +253,60 @@ absl::Status TFRecordCheckpointer::Load(
     return absl::InvalidArgumentError(absl::StrCat(
         "Load called with invalid checkpoint path: ", std::string(path)));
   }
+
+  // Before spending (a potentially very long) time reading the data referenced
+  // by the table items, let's load the (relatively small) table protos and
+  // check that the checkpoint matches the tables of the server.
+  REVERB_LOG(REVERB_INFO)
+      << "Loading and verifying metadata of the checkpointed tables.";
+  std::vector<PriorityTableCheckpoint> table_checkpoins;
+  {
+    RecordReaderUniquePtr table_reader;
+    REVERB_RETURN_IF_ERROR(
+        OpenReader(tensorflow::io::JoinPath(std::string(path), kTablesFileName),
+                   &table_reader));
+
+    absl::Status table_status;
+    tensorflow::uint64 table_offset = 0;
+    tensorflow::tstring table_record;
+    do {
+      table_status = FromTensorflowStatus(
+          table_reader->ReadRecord(&table_offset, &table_record));
+      if (!table_status.ok()) break;
+
+      PriorityTableCheckpoint checkpoint;
+      if (!checkpoint.ParseFromArray(table_record.data(),
+                                     table_record.size())) {
+        return absl::DataLossError(
+            absl::StrCat("Could not parse TFRecord as Checkpoint: '",
+                         absl::string_view(table_record), "'"));
+      }
+
+      REVERB_RETURN_IF_ERROR(
+          GetTableIndex(*tables, checkpoint.table_name()).status());
+
+      for (const auto& item : checkpoint.items()) {
+        REVERB_RETURN_IF_ERROR(CheckTrajectoryFormat(item));
+      }
+
+      REVERB_LOG(REVERB_INFO)
+          << "Metadata for table '" << checkpoint.table_name() << "' and its "
+          << checkpoint.items_size()
+          << " items were successfully loaded and verified.";
+      table_checkpoins.push_back(std::move(checkpoint));
+    } while (table_status.ok());
+
+    if (!absl::IsOutOfRange(table_status)) {
+      return table_status;
+    }
+  }
+
+  REVERB_LOG(REVERB_INFO)
+      << "Successfully loaded and verified metadata for all ("
+      << table_checkpoins.size()
+      << ") tables. We'll now proceed to read the data referenced by the items "
+         "in the table.";
+
   // Insert data first to ensure that all data referenced by the tables
   // exists. Keep the map of chunks around so that none of the chunks are
   // cleaned up before all the tables have been loaded.
@@ -265,56 +341,39 @@ absl::Status TFRecordCheckpointer::Load(
         chunk_data.mutable_data()->mutable_tensors()->Swap(
             chunk_data.mutable_deprecated_data());
       }
-      chunk_by_key[chunk_data.chunk_key()] = chunk_store->Insert(chunk_data);
+      const auto key = chunk_data.chunk_key();
+      chunk_by_key[key] = chunk_store->Insert(std::move(chunk_data));
+
+      REVERB_LOG_EVERY_N(REVERB_INFO, 100)
+          << "Still reading compressed trajectory data. " << chunk_by_key.size()
+          << " records have been read so far.";
     } while (chunk_status.ok());
+
     if (!absl::IsOutOfRange(chunk_status)) {
       return chunk_status;
     }
   }
 
-  RecordReaderUniquePtr table_reader;
-  REVERB_RETURN_IF_ERROR(
-      OpenReader(tensorflow::io::JoinPath(std::string(path), kTablesFileName),
-                 &table_reader));
+  REVERB_LOG(REVERB_INFO)
+      << "Completed reading compressed trajectory data. We'll now start "
+         "assembling the checkpointed tables.";
 
-  PriorityTableCheckpoint checkpoint;
-  absl::Status table_status;
-  tensorflow::uint64 table_offset = 0;
-  tensorflow::tstring table_record;
-  do {
-    table_status = FromTensorflowStatus(
-        table_reader->ReadRecord(&table_offset, &table_record));
-    if (!table_status.ok()) break;
-    if (!checkpoint.ParseFromArray(table_record.data(), table_record.size())) {
-      return absl::DataLossError(
-          absl::StrCat("Could not parse TFRecord as Checkpoint: '",
-                       absl::string_view(table_record), "'"));
-    }
-
-    int index = find_table_index(tables, checkpoint.table_name());
-    if (index == -1) {
-      std::vector<std::string> table_names;
-      for (const auto& table : *tables) {
-        table_names.push_back(absl::StrCat("'", table->name(), "'"));
-      }
-      return absl::InvalidArgumentError(absl::StrCat(
-          "Trying to load table '", checkpoint.table_name(),
-          "' but table was not found in provided list of tables. Available "
-          "tables: [",
-          absl::StrJoin(table_names, ", "), "]"));
-    }
+  for (auto& checkpoint : table_checkpoins) {
+    REVERB_ASSIGN_OR_RETURN(size_t table_idx,
+                            GetTableIndex(*tables, checkpoint.table_name()));
+    std::shared_ptr<Table>& server_table = tables->at(table_idx);
 
     auto sampler = MakeDistribution(checkpoint.sampler());
     auto remover = MakeDistribution(checkpoint.remover());
     auto rate_limiter =
         std::make_shared<RateLimiter>(checkpoint.rate_limiter());
-    auto extensions = tables->at(index)->UnsafeClearExtensions();
+    auto extensions = server_table->UnsafeClearExtensions();
     auto signature =
         checkpoint.has_signature()
             ? absl::make_optional(std::move(checkpoint.signature()))
             : absl::nullopt;
 
-    auto table = std::make_shared<Table>(
+    auto loaded_table = std::make_shared<Table>(
         /*name=*/checkpoint.table_name(),
         /*sampler=*/std::move(sampler),
         /*remover=*/std::move(remover),
@@ -323,22 +382,14 @@ absl::Status TFRecordCheckpointer::Load(
         /*rate_limiter=*/std::move(rate_limiter),
         /*extensions=*/std::move(extensions),
         /*signature=*/std::move(signature));
-    table->set_num_deleted_episodes_from_checkpoint(
+    loaded_table->set_num_deleted_episodes_from_checkpoint(
         checkpoint.num_deleted_episodes());
-    table->set_num_unique_samples_from_checkpoint(
+    loaded_table->set_num_unique_samples_from_checkpoint(
         checkpoint.num_unique_samples());
 
-    for (const auto& checkpoint_item : checkpoint.items()) {
+    for (auto& checkpoint_item : *checkpoint.mutable_items()) {
       Table::Item insert_item;
-      insert_item.item = checkpoint_item;
-
-      if (insert_item.item.has_deprecated_sequence_range() &&
-          insert_item.item.has_flat_trajectory()) {
-        return absl::InternalError(
-            absl::StrCat("Item ", insert_item.item.key(),
-                         " has both deprecated and new trajectory format: ",
-                         insert_item.item.DebugString(), "."));
-      }
+      insert_item.item = std::move(checkpoint_item);
 
       if (insert_item.item.has_deprecated_sequence_range()) {
         std::vector<std::shared_ptr<ChunkStore::Chunk>> trajectory_chunks;
@@ -355,28 +406,26 @@ absl::Status TFRecordCheckpointer::Load(
         insert_item.item.clear_deprecated_chunk_keys();
       }
 
-      for (const auto& key :
-           internal::GetChunkKeys(insert_item.item.flat_trajectory())) {
-        if (!chunk_by_key.contains(key)) {
-          return absl::DataLossError(absl::StrCat(
-              "TFRecordCheckpointer::Load: chunk_by_key does not contain key: ",
-              key));
-        }
-        insert_item.chunks.push_back(chunk_by_key[key]);
-      }
+      REVERB_RETURN_IF_ERROR(FromTensorflowStatus(chunk_store->Get(
+          internal::GetChunkKeys(insert_item.item.flat_trajectory()),
+          &insert_item.chunks)));
 
       // The original table has already been destroyed so if this fails then
       // there is way to recover.
       REVERB_RETURN_IF_ERROR(
-          table->InsertCheckpointItem(std::move(insert_item)));
+          loaded_table->InsertCheckpointItem(std::move(insert_item)));
     }
 
-    tables->at(index).swap(table);
-  } while (table_status.ok());
+    server_table.swap(loaded_table);
 
-  if (!absl::IsOutOfRange(table_status)) {
-    return table_status;
+    REVERB_LOG(REVERB_INFO)
+        << "Table " << checkpoint.table_name()
+        << " has been successfully loaded from the checkpoint.";
   }
+
+  REVERB_LOG(REVERB_INFO) << "Successfully loaded " << table_checkpoins.size()
+                          << " tables from " << path;
+
   return absl::OkStatus();
 }
 
