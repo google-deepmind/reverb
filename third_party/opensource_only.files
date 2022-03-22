@@ -6,6 +6,6 @@ reverb/pip_package/setup.py:
 third_party/BUILD:
 third_party/protobuf.BUILD:
 third_party/pybind11.BUILD:
-third_party/toolchains/preconfig/ubuntu16.04/gcc7_manylinux2010/BUILD:
-third_party/toolchains/preconfig/ubuntu16.04/gcc7_manylinux2010/cc_toolchain_config.bzl:
-third_party/toolchains/preconfig/ubuntu16.04/gcc7_manylinux2010/dummy_toolchain.bzl:
+third_party/toolchains/preconfig/ubuntu16.04/gcc7_manylinux2014/BUILD:
+third_party/toolchains/preconfig/ubuntu16.04/gcc7_manylinux2014/cc_toolchain_config.bzl:
+third_party/toolchains/preconfig/ubuntu16.04/gcc7_manylinux2014/dummy_toolchain.bzl:

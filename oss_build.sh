@@ -121,14 +121,14 @@ for python_version in $PYTHON_VERSIONS; do
   # someone's system unexpectedly. We are executing the python tests after
   # installing the final package making this approach satisfactory.
   # TODO(b/157223742): Execute Python tests as well.
-  bazel test -c opt --copt=-mavx --config=manylinux2010 --test_output=errors //reverb/cc/...
+  bazel test -c opt --copt=-mavx --config=manylinux2014 --test_output=errors //reverb/cc/...
 
   EXTRA_OPT=""
   if [ "$DEBUG_BUILD" = "true" ]; then
      EXTRA_OPT="--copt=-g2"
   fi
   # Builds Reverb and creates the wheel package.
-  bazel build -c opt --copt=-mavx $EXTRA_OPT --config=manylinux2010 reverb/pip_package:build_pip_package
+  bazel build -c opt --copt=-mavx $EXTRA_OPT --config=manylinux2014 reverb/pip_package:build_pip_package
   ./bazel-bin/reverb/pip_package/build_pip_package --dst $OUTPUT_DIR $PIP_PKG_EXTRA_ARGS
 
   # Installs pip package.

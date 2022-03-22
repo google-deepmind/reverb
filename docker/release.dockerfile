@@ -8,7 +8,7 @@
 #
 # Test that everything worked:
 #
-# bazel test -c opt --copt=-mavx --config=manylinux2010 --test_output=errors //reverb/...
+# bazel test -c opt --copt=-mavx --config=manylinux2014 --test_output=errors //reverb/...
 ARG cpu_base_image="tensorflow/build:2.8-python3.7"
 ARG base_image=$cpu_base_image
 FROM $base_image

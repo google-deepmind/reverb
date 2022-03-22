@@ -32,7 +32,7 @@ function build_wheel() {
   pushd ${TMPDIR} > /dev/null
 
   echo $(date) : "=== Building wheel"
-  "${PYTHON_BIN_PATH}" setup.py bdist_wheel ${PKG_NAME_FLAG} ${RELEASE_FLAG} ${TF_VERSION_FLAG} --plat manylinux2010_x86_64 > /dev/null
+  "${PYTHON_BIN_PATH}" setup.py bdist_wheel ${PKG_NAME_FLAG} ${RELEASE_FLAG} ${TF_VERSION_FLAG} --plat manylinux2014_x86_64 > /dev/null
   DEST=${TMPDIR}/dist/
   if [[ ! "$TMPDIR" -ef "$DESTDIR" ]]; then
     mkdir -p ${DESTDIR}
