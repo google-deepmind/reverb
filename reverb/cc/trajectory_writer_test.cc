@@ -793,6 +793,7 @@ TEST(TrajectoryWriter, ChunkersNotifiedWhenAllChunksDone) {
     int GetMaxChunkLength() const override { return 1; }
     int GetNumKeepAliveRefs() const override { return 1; }
     bool GetDeltaEncode() const override { return false; }
+    bool GetCompressionDisabled() const override { return false; }
 
     absl::Status OnItemFinalized(
         const PrioritizedItem& item,

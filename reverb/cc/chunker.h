@@ -201,6 +201,17 @@ class Chunker : public std::enable_shared_from_this<Chunker> {
                                tensorflow::Tensor* out) const;
 
  private:
+  // Appends a tensor to the queue of uncompressed items.
+  absl::Status AppendUncompressed(const tensorflow::Tensor& tensor,
+                                  const CellRef::EpisodeInfo& episode_info,
+                                  std::weak_ptr<CellRef>* ref)
+      ABSL_LOCKS_EXCLUDED(mu_);
+
+  // Get the data referenced by `ref` from the queue of uncompressed items.
+  absl::Status CopyUncompressedDataForCell(const CellRef* ref,
+                                           tensorflow::Tensor* out) const
+      ABSL_LOCKS_EXCLUDED(mu_);
+
   absl::Status FlushLocked() ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_);
 
   // Spec which all data in `Append` must follow.
@@ -214,6 +225,12 @@ class Chunker : public std::enable_shared_from_this<Chunker> {
 
   // Data waiting for the next chunk to be constructed.
   std::vector<tensorflow::Tensor> buffer_ ABSL_GUARDED_BY(mu_);
+
+  // If compression is disabled, we accumulate the data in a queue. Since chunks
+  // are never constructed, data is always fetched from the queue in `GetData`.
+  // To avoid growing the queue indefinitely, on `AppendInternal` we remove the
+  // items from the queue that are no longer refereced by `active_refs_`.
+  std::deque<tensorflow::Tensor> uncompressed_data_ ABSL_GUARDED_BY(mu_);
 
   // Offset within the chunk of the next appended item.
   int offset_ ABSL_GUARDED_BY(mu_);
@@ -249,6 +266,9 @@ class ChunkerOptions {
 
   // Get current recommendation of whether delta encoding should be used.
   virtual bool GetDeltaEncode() const = 0;
+
+  // Whether to disable chunk compression.
+  virtual bool GetCompressionDisabled() const = 0;
 
   // Called by parent `Chunker` once an item is ready to be sent to the
   // server.
@@ -287,6 +307,8 @@ class ConstantChunkerOptions : public ChunkerOptions {
   int GetNumKeepAliveRefs() const override;
 
   bool GetDeltaEncode() const override;
+
+  bool GetCompressionDisabled() const override;
 
   absl::Status OnItemFinalized(
       const PrioritizedItem& item,
@@ -356,6 +378,8 @@ class AutoTunedChunkerOptions : public ChunkerOptions {
 
   // Returns the (constant) delta encoding setting.
   bool GetDeltaEncode() const override;
+
+  bool GetCompressionDisabled() const override;
 
   // Calculates performance statistics for the item and the chunks it
   // reference and uses thse to (potentially) update the result of
@@ -430,6 +454,27 @@ class AutoTunedChunkerOptions : public ChunkerOptions {
   // Circular buffer of statistics of the `kNumChunksToScore` most recently
   // observed chunks.
   std::deque<Statistic> chunks_ ABSL_GUARDED_BY(mu_);
+};
+
+
+class NeverCompressChunkerOptions : public ChunkerOptions {
+ public:
+  explicit NeverCompressChunkerOptions(int num_keep_alive_refs);
+  // This is unused when compression is disabled
+  int GetMaxChunkLength() const override;
+
+  int GetNumKeepAliveRefs() const override;
+  bool GetDeltaEncode() const override;
+  bool GetCompressionDisabled() const override;
+
+  absl::Status OnItemFinalized(
+      const PrioritizedItem& item,
+      absl::Span<const std::shared_ptr<CellRef>> refs) override;
+
+  std::shared_ptr<ChunkerOptions> Clone() const override;
+
+ private:
+  int num_keep_alive_refs_;
 };
 
 }  // namespace reverb

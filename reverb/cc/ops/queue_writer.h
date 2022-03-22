@@ -24,8 +24,6 @@
 #include "reverb/cc/schema.pb.h"
 #include "reverb/cc/trajectory_writer.h"
 
-// TODO(sabela): change the item creation to avoid serializations and just move
-//  the tensors around.
 // TODO(sabela): Add more documentation.
 
 namespace deepmind {
@@ -34,21 +32,11 @@ namespace reverb {
 // This class is not thread-safe.
 class QueueWriter : public ColumnWriter {
  public:
-  struct Options {
-    // Checks that field values are valid and returns `InvalidArgument` if
-    // any field value, or combination of field values, are invalid.
-    absl::Status Validate() const;
-
-    std::shared_ptr<ChunkerOptions> chunker_options;
-  };
-
-  using ItemAndRefs = TrajectoryWriter::ItemAndRefs;
-
-  // The constructor takes the chunker options, and a borrowed pointer to the
-  // queue where the trajectories will be written.
-  explicit QueueWriter(
-      const Options& options,
-      std::deque<std::vector<tensorflow::Tensor>>* write_queue);
+  // The constructor takes the size of the reference buffers maintained by the
+  // chunker, and a borrowed pointer to the queue where the trajectories
+  // will be written.
+  QueueWriter(int num_keep_alive_refs,
+              std::deque<std::vector<tensorflow::Tensor>>* write_queue);
 
   // See `ColumnWriter::Append`.
   absl::Status Append(
@@ -90,18 +78,8 @@ class QueueWriter : public ColumnWriter {
       bool increment_episode_step,
       std::vector<absl::optional<std::weak_ptr<CellRef>>>* refs);
 
-  // Add a trajectory to the queue. All chunks referenced by the item have to be
-  // complete to construct the trajectory, so this call will flush those chunks
-  // that are part of the item but are not yet ready.
-  // TODO(sabela): stop the chunking and update this comment.
-  absl::Status CreateTrajectoryFromItem(ItemAndRefs item_and_refs);
-
-  // Configuration options.
-  Options options_;
-
-  // Override of default options for yet to be constructed chunkers.
-  internal::flat_hash_map<int, std::shared_ptr<ChunkerOptions>>
-      options_override_;
+  // The size of the reference buffers maintained by column chunkers.
+  int num_keep_alive_refs_;
 
   // Mapping from column index to Chunker. Shared pointers are used as the
   // `CellRef`s created by the chunker will own a weak_ptr created using

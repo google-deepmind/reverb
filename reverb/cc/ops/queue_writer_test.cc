@@ -93,18 +93,9 @@ std::vector<TrajectoryColumn> MakeTrajectory(
   return columns;
 }
 
-inline QueueWriter::Options MakeOptions(int max_chunk_length,
-                                             int num_keep_alive_refs) {
-  return QueueWriter::Options{
-      .chunker_options = std::make_shared<ConstantChunkerOptions>(
-          max_chunk_length, num_keep_alive_refs),
-  };
-}
-
 TEST(QueueWriter, AppendValidatesDtype) {
   std::deque<std::vector<tensorflow::Tensor>> queue;
-  QueueWriter writer(
-      MakeOptions(/*max_chunk_length=*/10, /*num_keep_alive_refs=*/10), &queue);
+  QueueWriter writer(/*num_keep_alive_refs=*/10, &queue);
   StepRef refs;
 
   // Initiate the spec with the first step.
@@ -124,8 +115,7 @@ TEST(QueueWriter, AppendValidatesDtype) {
 
 TEST(QueueWriter, AppendValidatesShapes) {
   std::deque<std::vector<tensorflow::Tensor>> queue;
-  QueueWriter writer(
-      MakeOptions(/*max_chunk_length=*/10, /*num_keep_alive_refs=*/10), &queue);
+  QueueWriter writer(/*num_keep_alive_refs=*/10, &queue);
   StepRef refs;
 
   // Initiate the spec with the first step.
@@ -144,8 +134,7 @@ TEST(QueueWriter, AppendValidatesShapes) {
 
 TEST(QueueWriter, AppendAcceptsPartialSteps) {
   std::deque<std::vector<tensorflow::Tensor>> queue;
-  QueueWriter writer(
-      MakeOptions(/*max_chunk_length=*/10, /*num_keep_alive_refs=*/10), &queue);
+  QueueWriter writer(/*num_keep_alive_refs=*/10, &queue);
 
   // Initiate the spec with the first step.
   StepRef both;
@@ -161,8 +150,7 @@ TEST(QueueWriter, AppendAcceptsPartialSteps) {
 
 TEST(QueueWriter, AppendPartialRejectsMultipleUsesOfSameColumn) {
   std::deque<std::vector<tensorflow::Tensor>> queue;
-  QueueWriter writer(
-      MakeOptions(/*max_chunk_length=*/10, /*num_keep_alive_refs=*/10), &queue);
+  QueueWriter writer(/*num_keep_alive_refs=*/10, &queue);
 
   // Append first column only.
   StepRef first_column_only;
@@ -188,8 +176,7 @@ TEST(QueueWriter, AppendPartialRejectsMultipleUsesOfSameColumn) {
 TEST(QueueWriter,
      AppendRejectsColumnsProvidedInPreviousPartialCall) {
   std::deque<std::vector<tensorflow::Tensor>> queue;
-  QueueWriter writer(
-      MakeOptions(/*max_chunk_length=*/10, /*num_keep_alive_refs=*/10), &queue);
+  QueueWriter writer(/*num_keep_alive_refs=*/10, &queue);
 
   // Append first column only.
   StepRef first_column_only;
@@ -210,8 +197,7 @@ TEST(QueueWriter,
 
 TEST(QueueWriter, AppendPartialDoesNotIncrementEpisodeStep) {
   std::deque<std::vector<tensorflow::Tensor>> queue;
-  QueueWriter writer(
-      MakeOptions(/*max_chunk_length=*/10, /*num_keep_alive_refs=*/10), &queue);
+  QueueWriter writer(/*num_keep_alive_refs=*/10, &queue);
   // Append first column only and keep the step open.
   StepRef first_column_only;
   REVERB_ASSERT_OK(
@@ -239,8 +225,7 @@ TEST(QueueWriter, AppendPartialDoesNotIncrementEpisodeStep) {
 
 TEST(QueueWriter, QueueIsEmptyIfNoItemsCreated) {
   std::deque<std::vector<tensorflow::Tensor>> queue;
-  QueueWriter writer(
-      MakeOptions(/*max_chunk_length=*/1, /*num_keep_alive_refs=*/1), &queue);
+  QueueWriter writer(/*num_keep_alive_refs=*/1, &queue);
   StepRef refs;
 
   for (int i = 0; i < 10; ++i) {
@@ -252,8 +237,7 @@ TEST(QueueWriter, QueueIsEmptyIfNoItemsCreated) {
 
 TEST(QueueWriter, ItemsAreAddedToQueue) {
   std::deque<std::vector<tensorflow::Tensor>> queue;
-  QueueWriter writer(
-      MakeOptions(/*max_chunk_length=*/1, /*num_keep_alive_refs=*/1), &queue);
+  QueueWriter writer(/*num_keep_alive_refs=*/1, &queue);
   StepRef refs;
   REVERB_ASSERT_OK(writer.Append(Step({MakeTensor(kIntSpec)}), &refs));
 
@@ -279,16 +263,14 @@ TEST(QueueWriter, ItemsAreAddedToQueue) {
 
   for (auto trajectory : queue){
     EXPECT_EQ(trajectory.size(), 1);
-    // Trajectories have an extra batch dimension
-    EXPECT_EQ(trajectory[0].shape(), tensorflow::TensorShape({1, 1}));
+    EXPECT_EQ(trajectory[0].shape(), tensorflow::TensorShape({1}));
     EXPECT_EQ(trajectory[0].dtype(), tensorflow::DT_INT32);
   }
 }
 
 TEST(QueueWriter, ItemsWithComplexTensorsWork) {
   std::deque<std::vector<tensorflow::Tensor>> queue;
-  QueueWriter writer(
-      MakeOptions(/*max_chunk_length=*/1, /*num_keep_alive_refs=*/1), &queue);
+  QueueWriter writer(/*num_keep_alive_refs=*/1, &queue);
   StepRef refs;
   REVERB_ASSERT_OK(writer.Append(Step({MakeTensor(internal::TensorSpec{
                                      kIntSpec.name, kIntSpec.dtype, {3}})}),
@@ -301,16 +283,14 @@ TEST(QueueWriter, ItemsWithComplexTensorsWork) {
 
   for (auto trajectory : queue){
     EXPECT_EQ(trajectory.size(), 1);
-    // Trajectories have an extra batch dimension
-    EXPECT_EQ(trajectory[0].shape(), tensorflow::TensorShape({1, 3}));
+    EXPECT_EQ(trajectory[0].shape(), tensorflow::TensorShape({3}));
     EXPECT_EQ(trajectory[0].dtype(), tensorflow::DT_INT32);
   }
 }
 
 TEST(QueueWriter, ItemsWithTwoStepsWork) {
   std::deque<std::vector<tensorflow::Tensor>> queue;
-  QueueWriter writer(
-      MakeOptions(/*max_chunk_length=*/2, /*num_keep_alive_refs=*/2), &queue);
+  QueueWriter writer(/*num_keep_alive_refs=*/2, &queue);
   StepRef first;
   REVERB_ASSERT_OK(writer.Append(Step({MakeTensor(internal::TensorSpec{
                                      kIntSpec.name, kIntSpec.dtype, {3}})}),
@@ -327,16 +307,14 @@ TEST(QueueWriter, ItemsWithTwoStepsWork) {
 
   for (auto trajectory : queue){
     EXPECT_EQ(trajectory.size(), 1);
-    // Trajectories have an extra batch dimension
-    EXPECT_EQ(trajectory[0].shape(), tensorflow::TensorShape({2, 3}));
+    EXPECT_EQ(trajectory[0].shape(), tensorflow::TensorShape({6}));
     EXPECT_EQ(trajectory[0].dtype(), tensorflow::DT_INT32);
   }
 }
 
 TEST(QueueWriter, ItemCreatedEvenIfChunksAreNotComplete) {
   std::deque<std::vector<tensorflow::Tensor>> queue;
-  QueueWriter writer(
-      MakeOptions(/*max_chunk_length=*/2, /*num_keep_alive_refs=*/2), &queue);
+  QueueWriter writer(/*num_keep_alive_refs=*/2, &queue);
 
   // Write to both columns in the first step.
   StepRef first;
@@ -351,8 +329,7 @@ TEST(QueueWriter, ItemCreatedEvenIfChunksAreNotComplete) {
   for (auto trajectory : queue){
     EXPECT_EQ(trajectory.size(), 2);
     for (auto column : trajectory){
-      // Trajectories have an extra batch dimension
-      EXPECT_EQ(column.shape(), tensorflow::TensorShape({1, 1}));
+      EXPECT_EQ(column.shape(), tensorflow::TensorShape({1}));
       EXPECT_EQ(column.dtype(), tensorflow::DT_INT32);
     }
   }
@@ -361,8 +338,7 @@ TEST(QueueWriter, ItemCreatedEvenIfChunksAreNotComplete) {
 
 TEST(QueueWriter, CreateItemForcesOnlyReferencedChunks) {
   std::deque<std::vector<tensorflow::Tensor>> queue;
-  QueueWriter writer(
-      MakeOptions(/*max_chunk_length=*/2, /*num_keep_alive_refs=*/2), &queue);
+  QueueWriter writer(/*num_keep_alive_refs=*/2, &queue);
 
 
   // Write to both columns in the first step.
@@ -375,17 +351,17 @@ TEST(QueueWriter, CreateItemForcesOnlyReferencedChunks) {
       writer.CreateItem("table", 1.0, MakeTrajectory({{first[1]}})));
 
   // The trajectory is created even if the chunks are not completed.
+  // In the chunker we use, chunkas are never really created.
   EXPECT_EQ(queue.size(), 1);
 
   EXPECT_FALSE(first[0].value().lock()->IsReady());
-  EXPECT_TRUE(first[1].value().lock()->IsReady());
+  EXPECT_FALSE(first[1].value().lock()->IsReady());
 }
 
 
 TEST(QueueWriter, CreateItemRejectsExpiredCellRefs) {
   std::deque<std::vector<tensorflow::Tensor>> queue;
-  QueueWriter writer(
-      MakeOptions(/*max_chunk_length=*/1, /*num_keep_alive_refs=*/2), &queue);
+  QueueWriter writer(/*num_keep_alive_refs=*/2, &queue);
 
   // Take three steps.
   StepRef first;
@@ -409,8 +385,7 @@ TEST(QueueWriter, CreateItemRejectsExpiredCellRefs) {
 
 TEST(QueueWriter, CreateItemValidatesTrajectoryDtype) {
   std::deque<std::vector<tensorflow::Tensor>> queue;
-  QueueWriter writer(
-      MakeOptions(/*max_chunk_length=*/1, /*num_keep_alive_refs=*/2), &queue);
+  QueueWriter writer(/*num_keep_alive_refs=*/2, &queue);
 
   // Take a step with two columns with different dtypes.
   StepRef step;
@@ -430,8 +405,7 @@ TEST(QueueWriter, CreateItemValidatesTrajectoryDtype) {
 
 TEST(QueueWriter, CreateItemValidatesTrajectoryShapes) {
   std::deque<std::vector<tensorflow::Tensor>> queue;
-  QueueWriter writer(
-      MakeOptions(/*max_chunk_length=*/1, /*num_keep_alive_refs=*/2), &queue);
+  QueueWriter writer(/*num_keep_alive_refs=*/2, &queue);
 
   // Take a step with two columns with different shapes.
   StepRef step;
@@ -456,8 +430,7 @@ TEST(QueueWriter, CreateItemValidatesTrajectoryShapes) {
 
 TEST(QueueWriter, CreateItemValidatesTrajectoryNotEmpty) {
   std::deque<std::vector<tensorflow::Tensor>> queue;
-  QueueWriter writer(
-      MakeOptions(/*max_chunk_length=*/1, /*num_keep_alive_refs=*/1), &queue);
+  QueueWriter writer(/*num_keep_alive_refs=*/1, &queue);
 
 
   StepRef step;
@@ -479,8 +452,7 @@ TEST(QueueWriter, CreateItemValidatesTrajectoryNotEmpty) {
 
 TEST(QueueWriter, CreateItemValidatesSqueezedColumns) {
   std::deque<std::vector<tensorflow::Tensor>> queue;
-  QueueWriter writer(
-      MakeOptions(/*max_chunk_length=*/1, /*num_keep_alive_refs=*/1), &queue);
+  QueueWriter writer(/*num_keep_alive_refs=*/1, &queue);
 
 
   StepRef step;
@@ -500,8 +472,7 @@ TEST(QueueWriter, CreateItemValidatesSqueezedColumns) {
 
 TEST(QueueWriter, CreateItemWithSqueezedColumn) {
   std::deque<std::vector<tensorflow::Tensor>> queue;
-  QueueWriter writer(
-      MakeOptions(/*max_chunk_length=*/1, /*num_keep_alive_refs=*/1), &queue);
+  QueueWriter writer(/*num_keep_alive_refs=*/1, &queue);
 
 
   StepRef step;
@@ -517,7 +488,6 @@ TEST(QueueWriter, CreateItemWithSqueezedColumn) {
   for (auto trajectory : queue){
     EXPECT_EQ(trajectory.size(), 1);
     for (auto column : trajectory){
-      // Squeezed columns don't have the batch dimension.
       EXPECT_EQ(column.shape(), tensorflow::TensorShape({1}));
       EXPECT_EQ(column.dtype(), tensorflow::DT_INT32);
     }
@@ -526,8 +496,7 @@ TEST(QueueWriter, CreateItemWithSqueezedColumn) {
 
 TEST(QueueWriter, EndEpisodeCanClearBuffers) {
   std::deque<std::vector<tensorflow::Tensor>> queue;
-  QueueWriter writer(
-      MakeOptions(/*max_chunk_length=*/2, /*num_keep_alive_refs=*/2), &queue);
+  QueueWriter writer(/*num_keep_alive_refs=*/2, &queue);
 
 
   // Take a step.
@@ -544,10 +513,9 @@ TEST(QueueWriter, EndEpisodeCanClearBuffers) {
 }
 
 TEST(QueueWriter,
-     EndEpisodeFinalizesChunksEvenIfNoItemReferenceIt) {
+     EndEpisodeNeverFinalizesChunks) {
   std::deque<std::vector<tensorflow::Tensor>> queue;
-  QueueWriter writer(
-      MakeOptions(/*max_chunk_length=*/2, /*num_keep_alive_refs=*/2), &queue);
+  QueueWriter writer(/*num_keep_alive_refs=*/2, &queue);
 
   // Take a step.
   StepRef step;
@@ -561,13 +529,12 @@ TEST(QueueWriter,
   // only finalizes chunks which owns `CellRef`s that are referenced by pending
   // items.
   REVERB_ASSERT_OK(writer.EndEpisode(/*clear_buffers=*/false));
-  EXPECT_TRUE(step[0]->lock()->IsReady());
+  EXPECT_FALSE(step[0]->lock()->IsReady());
 }
 
 TEST(QueueWriter, EndEpisodeResetsEpisodeKeyAndStep) {
   std::deque<std::vector<tensorflow::Tensor>> queue;
-  QueueWriter writer(
-      MakeOptions(/*max_chunk_length=*/1, /*num_keep_alive_refs=*/2), &queue);
+  QueueWriter writer(/*num_keep_alive_refs=*/2, &queue);
 
 
   // Take two steps in two different episodes.
@@ -588,8 +555,7 @@ TEST(QueueWriter, EndEpisodeResetsEpisodeKeyAndStep) {
 
 TEST(QueueWriter, EpisodeStepIsIncrementedByAppend) {
   std::deque<std::vector<tensorflow::Tensor>> queue;
-  QueueWriter writer(
-      MakeOptions(/*max_chunk_length=*/1, /*num_keep_alive_refs=*/2), &queue);
+  QueueWriter writer(/*num_keep_alive_refs=*/2, &queue);
 
 
   // The counter should start at 0.
@@ -619,8 +585,7 @@ TEST(QueueWriter, EpisodeStepIsIncrementedByAppend) {
 
 TEST(QueueWriter, EpisodeStepIsNotIncrementedByAppendPartial) {
   std::deque<std::vector<tensorflow::Tensor>> queue;
-  QueueWriter writer(
-      MakeOptions(/*max_chunk_length=*/1, /*num_keep_alive_refs=*/2), &queue);
+  QueueWriter writer(/*num_keep_alive_refs=*/2, &queue);
 
 
   // The counter should start at 0.
@@ -642,8 +607,7 @@ TEST(QueueWriter, EpisodeStepIsNotIncrementedByAppendPartial) {
 
 TEST(QueueWriter, EpisodeStepIsResetByEndEpisode) {
   std::deque<std::vector<tensorflow::Tensor>> queue;
-  QueueWriter writer(
-      MakeOptions(/*max_chunk_length=*/1, /*num_keep_alive_refs=*/2), &queue);
+  QueueWriter writer(/*num_keep_alive_refs=*/2, &queue);
 
   // Take a step and check that the counter has been incremented.
   {
@@ -666,55 +630,6 @@ TEST(QueueWriter, EpisodeStepIsResetByEndEpisode) {
   EXPECT_EQ(writer.episode_steps(), 0);
 }
 
-
-class QueueWriterOptionsTest : public ::testing::Test {
- protected:
-  void ExpectInvalidArgumentWithMessage(const std::string& message) {
-    auto status = options_.Validate();
-    EXPECT_EQ(status.code(), absl::StatusCode::kInvalidArgument);
-    EXPECT_THAT(std::string(status.message()), ::testing::HasSubstr(message));
-  }
-
-  QueueWriter::Options options_;
-};
-
-TEST_F(QueueWriterOptionsTest, Valid) {
-  options_ = MakeOptions(/*max_chunk_length=*/2, /*num_keep_alive_refs=*/2);
-  REVERB_EXPECT_OK(options_.Validate());
-}
-
-TEST_F(QueueWriterOptionsTest, NoChunkerOptions) {
-  options_.chunker_options = nullptr;
-  ExpectInvalidArgumentWithMessage("chunker_options must be set.");
-}
-
-TEST_F(QueueWriterOptionsTest, ZeroMaxChunkLength) {
-  options_ = MakeOptions(/*max_chunk_length=*/0, /*num_keep_alive_refs=*/2);
-  ExpectInvalidArgumentWithMessage("max_chunk_length must be > 0 but got 0.");
-}
-
-TEST_F(QueueWriterOptionsTest, NegativeMaxChunkLength) {
-  options_ = MakeOptions(/*max_chunk_length=*/-1, /*num_keep_alive_refs=*/2);
-  ExpectInvalidArgumentWithMessage("max_chunk_length must be > 0 but got -1.");
-}
-
-TEST_F(QueueWriterOptionsTest, ZeroNumKeepAliveRefs) {
-  options_ = MakeOptions(/*max_chunk_length=*/2, /*num_keep_alive_refs=*/0);
-  ExpectInvalidArgumentWithMessage(
-      "num_keep_alive_refs must be > 0 but got 0.");
-}
-
-TEST_F(QueueWriterOptionsTest, NegativeNumKeepAliveRefs) {
-  options_ = MakeOptions(/*max_chunk_length=*/2, /*num_keep_alive_refs=*/-1);
-  ExpectInvalidArgumentWithMessage(
-      "num_keep_alive_refs must be > 0 but got -1.");
-}
-
-TEST_F(QueueWriterOptionsTest, NumKeepAliveLtMaxChunkLength) {
-  options_ = MakeOptions(/*max_chunk_length=*/6, /*num_keep_alive_refs=*/5);
-  ExpectInvalidArgumentWithMessage(
-      "num_keep_alive_refs (5) must be >= max_chunk_length (6).");
-}
 
 }  // namespace
 }  // namespace reverb

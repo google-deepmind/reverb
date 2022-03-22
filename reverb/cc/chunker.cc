@@ -103,8 +103,10 @@ Chunker::Chunker(internal::TensorSpec spec,
     : spec_(std::move(spec)),
       options_(std::move(options)),
       key_generator_(absl::make_unique<internal::UniformKeyGenerator>()) {
-  REVERB_CHECK_GE(options_->GetNumKeepAliveRefs(),
-                  options_->GetMaxChunkLength());
+  if (!options_->GetCompressionDisabled()){
+    REVERB_CHECK_GE(options_->GetNumKeepAliveRefs(),
+                    options_->GetMaxChunkLength());
+  }
   Reset();
 }
 
@@ -122,6 +124,9 @@ absl::Status Chunker::Append(const tensorflow::Tensor& tensor,
         "Tensor of incompatible shape provided for column ", spec_.name,
         ". Got ", tensor.shape().DebugString(), " which is incompatible with ",
         spec_.shape.DebugString(), "."));
+  }
+  if (options_->GetCompressionDisabled()){
+    return AppendUncompressed(tensor, episode_info, ref);
   }
 
   absl::MutexLock lock(&mu_);
@@ -169,6 +174,44 @@ absl::Status Chunker::Append(const tensorflow::Tensor& tensor,
   return absl::OkStatus();
 }
 
+absl::Status Chunker::AppendUncompressed(
+    const tensorflow::Tensor& tensor, const CellRef::EpisodeInfo& episode_info,
+    std::weak_ptr<CellRef>* ref) {
+  absl::MutexLock lock(&mu_);
+  // We validate that steps have to increase if they belong to the same episode.
+  // We dont' check that data belongs to different episodes because this is
+  // possible in the buffer of uncompressed data.
+  if (!uncompressed_data_.empty() &&
+      active_refs_.back()->episode_step() >= episode_info.step &&
+      active_refs_.back()->episode_id() == episode_info.episode_id) {
+    return absl::FailedPreconditionError(
+        "Chunker::Append called with an episode step which was not greater "
+        "than already observed.");
+  }
+
+  active_refs_.push_back(
+      std::make_shared<CellRef>(std::weak_ptr<Chunker>(shared_from_this()),
+                                next_chunk_key_, offset_++, episode_info));
+
+
+  uncompressed_data_.push_back(tensor);
+
+  // Delete references which have exceeded their max age.
+  while (active_refs_.size() > options_->GetNumKeepAliveRefs()) {
+    active_refs_.pop_front();
+  }
+
+  // Remove items that have exceeded their max age. Since the chunks are never
+  // constructed, we need to cleanup the queue so it doesn't grow indefinitely.
+  while (uncompressed_data_.size() > options_->GetNumKeepAliveRefs()) {
+    uncompressed_data_.pop_front();
+  }
+
+  *ref = active_refs_.back();
+
+  return absl::OkStatus();
+}
+
 std::vector<uint64_t> Chunker::GetKeepKeys() const {
   absl::MutexLock lock(&mu_);
   std::vector<uint64_t> keys;
@@ -186,7 +229,13 @@ absl::Status Chunker::Flush() {
 }
 
 absl::Status Chunker::FlushLocked() {
-  if (buffer_.empty()) return absl::OkStatus();
+  if (options_->GetCompressionDisabled()) {
+    return absl::FailedPreconditionError(
+        "FlushLocked is not used when compression is disabled.");
+  }
+  if (buffer_.empty()){
+    return absl::OkStatus();
+  }
 
   auto chunk = absl::make_unique<ChunkData>();
   chunk->set_chunk_key(next_chunk_key_);
@@ -265,7 +314,10 @@ absl::Status Chunker::FlushLocked() {
 void Chunker::Reset() {
   absl::MutexLock lock(&mu_);
   buffer_.clear();
-  buffer_.reserve(options_->GetMaxChunkLength());
+  if (!options_->GetCompressionDisabled()){
+    buffer_.reserve(options_->GetMaxChunkLength());
+  }
+  uncompressed_data_.clear();
   offset_ = 0;
   next_chunk_key_ = key_generator_->Generate();
   active_refs_.clear();
@@ -276,7 +328,7 @@ const internal::TensorSpec& Chunker::spec() const { return spec_; }
 absl::Status Chunker::ApplyConfig(std::shared_ptr<ChunkerOptions> options) {
   absl::MutexLock lock(&mu_);
 
-  if (!buffer_.empty()) {
+  if (!buffer_.empty() || !uncompressed_data_.empty()) {
     return absl::FailedPreconditionError(
         "Flush must be called before ApplyConfig.");
   }
@@ -293,6 +345,9 @@ absl::Status Chunker::ApplyConfig(std::shared_ptr<ChunkerOptions> options) {
 
 absl::Status Chunker::CopyDataForCell(const CellRef* ref,
                                       tensorflow::Tensor* out) const {
+  if (options_->GetCompressionDisabled()){
+    return CopyUncompressedDataForCell(ref, out);
+  }
   absl::MutexLock lock(&mu_);
 
   // If the chunk has been finalized then we unpack it and slice out the data.
@@ -333,6 +388,35 @@ absl::Status Chunker::CopyDataForCell(const CellRef* ref,
   return absl::OkStatus();
 }
 
+
+absl::Status Chunker::CopyUncompressedDataForCell(const CellRef* ref,
+                                           tensorflow::Tensor* out) const{
+  // When compression is disabled, the chunks are never constructed and we
+  // always fetch the data from the queue of uncompressed data.
+  absl::MutexLock lock(&mu_);
+
+  // We iterate backwards over the active references until we find `ref`
+  // to determine which position in the queue holds the data.
+  int negative_offset = 0;
+  for (auto it = active_refs_.crbegin(); it != active_refs_.crend(); it++) {
+    if (it->get() == ref) break;
+    negative_offset++;
+  }
+
+  int buffer_index = uncompressed_data_.size() - negative_offset - 1;
+  if (buffer_index < 0) {
+    return absl::InternalError(
+        "Data could not be found in buffer nor in finalized chunk.");
+  }
+
+  tensorflow::TensorShape shape = uncompressed_data_[buffer_index].shape();
+  if (!out->CopyFrom(uncompressed_data_[buffer_index], shape)) {
+    return absl::InternalError("Unable to copy tensor from buffer.");
+  }
+
+  return absl::OkStatus();
+}
+
 absl::Status Chunker::OnItemFinalized(
     const PrioritizedItem& item,
     absl::Span<const std::shared_ptr<CellRef>> refs) {
@@ -356,15 +440,19 @@ absl::Status Chunker::OnItemFinalized(
 }
 
 absl::Status ValidateChunkerOptions(const ChunkerOptions* options) {
-  if (options->GetMaxChunkLength() <= 0) {
-    return absl::InvalidArgumentError(
-        absl::StrCat("max_chunk_length must be > 0 but got ",
-                     options->GetMaxChunkLength(), "."));
-  }
   if (options->GetNumKeepAliveRefs() <= 0) {
     return absl::InvalidArgumentError(
         absl::StrCat("num_keep_alive_refs must be > 0 but got ",
                      options->GetNumKeepAliveRefs(), "."));
+  }
+  if (options->GetCompressionDisabled()){
+    // max_chunk_length is irrelevant when compression is disabled.
+    return absl::OkStatus();
+  }
+  if (options->GetMaxChunkLength() <= 0) {
+    return absl::InvalidArgumentError(
+        absl::StrCat("max_chunk_length must be > 0 but got ",
+                     options->GetMaxChunkLength(), "."));
   }
   if (options->GetMaxChunkLength() > options->GetNumKeepAliveRefs()) {
     return absl::InvalidArgumentError(absl::StrCat(
@@ -390,6 +478,8 @@ int ConstantChunkerOptions::GetNumKeepAliveRefs() const {
 }
 
 bool ConstantChunkerOptions::GetDeltaEncode() const { return delta_encode_; }
+
+bool ConstantChunkerOptions::GetCompressionDisabled() const { return false; }
 
 absl::Status ConstantChunkerOptions::OnItemFinalized(
     const PrioritizedItem& item,
@@ -421,6 +511,7 @@ int AutoTunedChunkerOptions::GetNumKeepAliveRefs() const {
 }
 
 bool AutoTunedChunkerOptions::GetDeltaEncode() const { return delta_encode_; }
+bool AutoTunedChunkerOptions::GetCompressionDisabled() const { return false; }
 
 void AutoTunedChunkerOptions::PushItem(
     absl::Span<const std::shared_ptr<CellRef>> refs) {
@@ -569,6 +660,35 @@ void AutoTunedChunkerOptions::PushChunks(
 std::shared_ptr<ChunkerOptions> AutoTunedChunkerOptions::Clone() const {
   return std::make_shared<AutoTunedChunkerOptions>(num_keep_alive_refs_,
                                                    throughput_weight_);
+}
+
+NeverCompressChunkerOptions::NeverCompressChunkerOptions(
+    int num_keep_alive_refs)
+    : num_keep_alive_refs_(num_keep_alive_refs) {}
+
+// This is unused when compression is disabled
+int NeverCompressChunkerOptions::GetMaxChunkLength() const {
+  REVERB_CHECK(false) << "GetMaxChunkLength shouldn't be used in a chunker "
+                      << "with compression disabled.";
+  return -1;
+}
+
+int NeverCompressChunkerOptions::GetNumKeepAliveRefs() const {
+  return num_keep_alive_refs_;
+}
+bool NeverCompressChunkerOptions::GetDeltaEncode() const { return false; }
+bool NeverCompressChunkerOptions::GetCompressionDisabled() const {
+  return true;
+}
+
+absl::Status NeverCompressChunkerOptions::OnItemFinalized(
+    const PrioritizedItem& item,
+    absl::Span<const std::shared_ptr<CellRef>> refs) {
+  return absl::OkStatus();
+}
+
+std::shared_ptr<ChunkerOptions> NeverCompressChunkerOptions::Clone() const {
+  return std::make_shared<NeverCompressChunkerOptions>(num_keep_alive_refs_);
 }
 
 }  // namespace reverb
