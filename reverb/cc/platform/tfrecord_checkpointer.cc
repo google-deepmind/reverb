@@ -202,8 +202,17 @@ absl::Status TFRecordCheckpointer::Save(std::vector<Table*> tables,
   for (Table* table : tables) {
     auto checkpoint = table->Checkpoint();
     chunks.merge(checkpoint.chunks);
-    REVERB_RETURN_IF_ERROR(FromTensorflowStatus(
-        table_writer->WriteRecord(checkpoint.checkpoint.SerializeAsString())));
+    std::string serialized;
+    if (!checkpoint.checkpoint.AppendToString(&serialized)) {
+      return absl::DataLossError(absl::StrCat(
+          "Unable to serialize checkpoint object.  Table "
+          "name: '",
+          checkpoint.checkpoint.table_name(),
+          "' and proto size: ", checkpoint.checkpoint.ByteSizeLong(),
+          " bytes. Perhaps the proto is >2GB?  Please check your logs."));
+    }
+    REVERB_RETURN_IF_ERROR(
+        FromTensorflowStatus(table_writer->WriteRecord(serialized)));
   }
 
   REVERB_RETURN_IF_ERROR(FromTensorflowStatus(table_writer->Close()));
@@ -214,8 +223,15 @@ absl::Status TFRecordCheckpointer::Save(std::vector<Table*> tables,
       tensorflow::io::JoinPath(dir_path, kChunksFileName), &chunk_writer));
 
   for (const auto& chunk : chunks) {
-    REVERB_RETURN_IF_ERROR(FromTensorflowStatus(
-        chunk_writer->WriteRecord(chunk->data().SerializeAsString())));
+    std::string serialized;
+    if (!chunk->data().AppendToString(&serialized)) {
+      return absl::DataLossError(absl::StrCat(
+          "Unable to serialize chunk.  Chunk key: '", chunk->key(),
+          "' and proto size: ", chunk->data().ByteSizeLong(),
+          " bytes.  Perhaps the proto is >2GB?  Please also check your logs."));
+    }
+    REVERB_RETURN_IF_ERROR(
+        FromTensorflowStatus(chunk_writer->WriteRecord(serialized)));
   }
   REVERB_RETURN_IF_ERROR(FromTensorflowStatus(chunk_writer->Close()));
   chunk_writer = nullptr;
