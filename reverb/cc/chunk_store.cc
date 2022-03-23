@@ -19,6 +19,7 @@
 #include <vector>
 
 #include <cstdint>
+#include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/time/time.h"
@@ -28,8 +29,6 @@
 #include "reverb/cc/schema.pb.h"
 #include "reverb/cc/tensor_compression.h"
 #include "tensorflow/core/framework/tensor.h"
-#include "tensorflow/core/lib/core/errors.h"
-#include "tensorflow/core/lib/core/status.h"
 
 namespace deepmind {
 namespace reverb {
@@ -72,20 +71,19 @@ std::shared_ptr<ChunkStore::Chunk> ChunkStore::Insert(ChunkData item) {
   return sp;
 }
 
-tensorflow::Status ChunkStore::Get(
-    absl::Span<const ChunkStore::Key> keys,
-    std::vector<std::shared_ptr<Chunk>>* chunks) {
+absl::Status ChunkStore::Get(absl::Span<const ChunkStore::Key> keys,
+                             std::vector<std::shared_ptr<Chunk>>* chunks) {
   absl::ReaderMutexLock lock(&mu_);
   chunks->clear();
   chunks->reserve(keys.size());
   for (int i = 0; i < keys.size(); i++) {
     chunks->push_back(GetItem(keys[i]));
     if (!chunks->at(i)) {
-      return tensorflow::errors::NotFound(
+      return absl::NotFoundError(
           absl::StrCat("Chunk ", keys[i], " cannot be found."));
     }
   }
-  return tensorflow::Status::OK();
+  return absl::OkStatus();
 }
 
 std::shared_ptr<ChunkStore::Chunk> ChunkStore::GetItem(Key key) {

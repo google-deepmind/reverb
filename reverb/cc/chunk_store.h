@@ -22,13 +22,13 @@
 #include "absl/base/call_once.h"
 #include <cstdint>
 #include "absl/base/thread_annotations.h"
+#include "absl/status/status.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/types/span.h"
 #include "reverb/cc/platform/hash_map.h"
 #include "reverb/cc/schema.pb.h"
 #include "tensorflow/core/framework/tensor.h"
 #include "tensorflow/core/framework/tensor_shape.h"
-#include "tensorflow/core/lib/core/status.h"
 
 namespace deepmind {
 namespace reverb {
@@ -110,8 +110,8 @@ class ChunkStore {
   // Gets the Chunk for each given key. Returns an error if one of the items
   // does not exist or if `Close` has been called. On success, the returned
   // items are in the same order as given in `keys`.
-  tensorflow::Status Get(absl::Span<const Key> keys,
-                         std::vector<std::shared_ptr<Chunk>>* chunks)
+  absl::Status Get(absl::Span<const Key> keys,
+                   std::vector<std::shared_ptr<Chunk>>* chunks)
       ABSL_LOCKS_EXCLUDED(mu_);
 
  private:

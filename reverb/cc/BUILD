@@ -24,9 +24,10 @@ reverb_cc_test(
     deps = [
         ":chunk_store",
         ":schema_cc_proto",
+        "//reverb/cc/platform:status_matchers",
         "//reverb/cc/platform:thread",
         "//reverb/cc/testing:proto_test_util",
-    ] + reverb_tf_deps(),
+    ] + reverb_absl_deps(),
 )
 
 reverb_cc_test(

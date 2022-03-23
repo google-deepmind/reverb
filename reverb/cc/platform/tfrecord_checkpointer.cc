@@ -393,8 +393,8 @@ absl::Status TFRecordCheckpointer::Load(
 
       if (insert_item.item.has_deprecated_sequence_range()) {
         std::vector<std::shared_ptr<ChunkStore::Chunk>> trajectory_chunks;
-        REVERB_RETURN_IF_ERROR(FromTensorflowStatus(chunk_store->Get(
-            insert_item.item.deprecated_chunk_keys(), &trajectory_chunks)));
+        REVERB_RETURN_IF_ERROR(chunk_store->Get(
+            insert_item.item.deprecated_chunk_keys(), &trajectory_chunks));
 
         *insert_item.item.mutable_flat_trajectory() =
             internal::FlatTimestepTrajectory(
@@ -406,9 +406,9 @@ absl::Status TFRecordCheckpointer::Load(
         insert_item.item.clear_deprecated_chunk_keys();
       }
 
-      REVERB_RETURN_IF_ERROR(FromTensorflowStatus(chunk_store->Get(
+      REVERB_RETURN_IF_ERROR(chunk_store->Get(
           internal::GetChunkKeys(insert_item.item.flat_trajectory()),
-          &insert_item.chunks)));
+          &insert_item.chunks));
 
       // The original table has already been destroyed so if this fails then
       // there is way to recover.

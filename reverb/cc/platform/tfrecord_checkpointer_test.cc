@@ -135,8 +135,7 @@ TEST(TFRecordCheckpointerTest, SaveAndLoad) {
 
   // Check that all the chunks have been added.
   std::vector<std::shared_ptr<ChunkStore::Chunk>> chunks;
-  REVERB_EXPECT_OK(
-      FromTensorflowStatus(loaded_chunk_store.Get(chunk_keys, &chunks)));
+  REVERB_EXPECT_OK(loaded_chunk_store.Get(chunk_keys, &chunks));
 
   // Check that the number of items matches for the loaded tables.
   for (int i = 0; i < tables.size(); i++) {

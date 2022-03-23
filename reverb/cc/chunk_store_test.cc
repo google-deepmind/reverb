@@ -20,11 +20,11 @@
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
+#include "absl/status/status.h"
+#include "reverb/cc/platform/status_matchers.h"
 #include "reverb/cc/platform/thread.h"
 #include "reverb/cc/schema.pb.h"
 #include "reverb/cc/testing/proto_test_util.h"
-#include "tensorflow/core/lib/core/status.h"
-#include "tensorflow/core/lib/core/status_test_util.h"
 
 namespace deepmind {
 namespace reverb {
@@ -37,14 +37,14 @@ TEST(ChunkStoreTest, GetAfterInsertSucceeds) {
   std::shared_ptr<ChunkStore::Chunk> inserted =
       store.Insert(testing::MakeChunkData(2));
   ChunkVector chunks;
-  TF_ASSERT_OK(store.Get({2}, &chunks));
+  REVERB_ASSERT_OK(store.Get({2}, &chunks));
   EXPECT_EQ(inserted, chunks[0]);
 }
 
 TEST(ChunkStoreTest, GetFailsWhenKeyDoesNotExist) {
   ChunkStore store;
   ChunkVector chunks;
-  EXPECT_EQ(store.Get({2}, &chunks).code(), tensorflow::error::NOT_FOUND);
+  EXPECT_TRUE(absl::IsNotFound(store.Get({2}, &chunks)));
 }
 
 TEST(ChunkStoreTest, GetFailsAfterChunkIsDestroyed) {
@@ -53,7 +53,7 @@ TEST(ChunkStoreTest, GetFailsAfterChunkIsDestroyed) {
       store.Insert(testing::MakeChunkData(1));
   inserted = nullptr;
   ChunkVector chunks;
-  EXPECT_EQ(store.Get({2}, &chunks).code(), tensorflow::error::NOT_FOUND);
+  EXPECT_TRUE(absl::IsNotFound(store.Get({2}, &chunks)));
 }
 
 TEST(ChunkStoreTest, InsertingTwiceReturnsExistingChunk) {
@@ -89,9 +89,9 @@ TEST(ChunkStoreTest, ConcurrentCalls) {
       std::shared_ptr<ChunkStore::Chunk> first =
           store.Insert(testing::MakeChunkData(i));
       ChunkVector chunks;
-      TF_ASSERT_OK(store.Get({i}, &chunks));
+      REVERB_ASSERT_OK(store.Get({i}, &chunks));
       first = nullptr;
-      while (store.Get({i}, &chunks).code() != tensorflow::error::NOT_FOUND) {
+      while (!absl::IsNotFound(store.Get({i}, &chunks))) {
       }
       count++;
     }));
