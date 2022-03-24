@@ -106,6 +106,7 @@ reverb_pybind_extension(
         "//reverb/cc:sampler",
         "//reverb/cc:structured_writer",
         "//reverb/cc:table",
+        "//reverb/cc:conversions",
         "//reverb/cc:trajectory_writer",
         "//reverb/cc:writer",
         "//reverb/cc/checkpointing:interface",

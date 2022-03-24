@@ -535,6 +535,8 @@ def reverb_py_test(
 def reverb_pybind_deps():
     return [
         "@pybind11",
+        "@tensorflow_includes//:includes",
+        "@tensorflow_solib//:framework_lib",
     ]
 
 def reverb_tf_ops_visibility():

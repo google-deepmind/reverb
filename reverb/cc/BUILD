@@ -9,6 +9,7 @@ load(
     "reverb_cc_test",
     "reverb_grpc_deps",
     "reverb_py_proto_library",
+    "reverb_pybind_deps",
     "reverb_tf_deps",
 )
 
@@ -131,6 +132,17 @@ reverb_cc_library(
         "//reverb:__subpackages__",
     ],
     deps = reverb_absl_deps(),
+)
+
+reverb_cc_library(
+    name = "conversions",
+    srcs = ["conversions.cc"],
+    hdrs = ["conversions.h"],
+    visibility = [
+        "//reverb:__subpackages__",
+        "//third_party/py/courier:__subpackages__",
+    ],
+    deps = reverb_pybind_deps(),
 )
 
 reverb_cc_library(
