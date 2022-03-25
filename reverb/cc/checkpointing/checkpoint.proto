@@ -23,7 +23,11 @@ message PriorityTableCheckpoint {
   // Items in the table ordered by `inserted_at` (asc).
   // When loading a checkpoint the items should be added in the same order so
   // position based item selectors (e.g fifo) are reconstructed correctly.
-  repeated PrioritizedItem items = 2;
+  //
+  // *NOTE*: This field is deprecated; instead, a separate record file is
+  // written with PrioritizedItem records for checkpointing (in the same
+  // order as described here).
+  repeated PrioritizedItem deprecated_items = 2 [deprecated = true];
 
   // Checkpoint of the associated rate limiter.
   RateLimiterCheckpoint rate_limiter = 3;

@@ -38,6 +38,10 @@ KeyWithPriority MakeKeyWithPriority(uint64_t key, double priority);
 PrioritizedItem MakePrioritizedItem(uint64_t key, double priority,
                                     const std::vector<ChunkData>& chunks);
 
+PrioritizedItem MakePrioritizedItem(const std::string& table, uint64_t key,
+                                    double priority,
+                                    const std::vector<ChunkData>& chunks);
+
 // Simple implementation of a proto matcher comparing string representations.
 //
 // IMPORTANT: Only use this for protos whose textual representation is

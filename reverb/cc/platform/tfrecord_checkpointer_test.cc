@@ -106,7 +106,9 @@ TEST(TFRecordCheckpointerTest, SaveAndLoad) {
       auto chunk =
           chunk_store.Insert(testing::MakeChunkData(chunk_keys.back()));
       REVERB_EXPECT_OK(tables[j]->InsertOrAssign(
-          {testing::MakePrioritizedItem(i, i, {chunk->data()}), {chunk}}));
+          {testing::MakePrioritizedItem(tables[j]->name(), i, i,
+                                        {chunk->data()}),
+           {chunk}}));
     }
   }
 
@@ -179,7 +181,9 @@ TEST(TFRecordCheckpointerTest, SaveDeletesOldData) {
       auto chunk =
           chunk_store.Insert(testing::MakeChunkData(chunk_keys.back()));
       REVERB_EXPECT_OK(tables[j]->InsertOrAssign(
-          {testing::MakePrioritizedItem(i, i, {chunk->data()}), {chunk}}));
+          {testing::MakePrioritizedItem(tables[j]->name(), i, i,
+                                        {chunk->data()}),
+           {chunk}}));
     }
   }
 
@@ -227,7 +231,9 @@ TEST(TFRecordCheckpointerTest, KeepLatestZeroReturnsError) {
       auto chunk =
           chunk_store.Insert(testing::MakeChunkData(chunk_keys.back()));
       REVERB_EXPECT_OK(tables[j]->InsertOrAssign(
-          {testing::MakePrioritizedItem(i, i, {chunk->data()}), {chunk}}));
+          {testing::MakePrioritizedItem(tables[j]->name(), i, i,
+                                        {chunk->data()}),
+           {chunk}}));
     }
   }
 
@@ -277,7 +283,9 @@ TEST(TFRecordCheckpointerTest, LoadFallbackCheckpoint) {
       auto chunk =
           chunk_store.Insert(testing::MakeChunkData(chunk_keys.back()));
       REVERB_EXPECT_OK(tables[j]->InsertOrAssign(
-          {testing::MakePrioritizedItem(i, i, {chunk->data()}), {chunk}}));
+          {testing::MakePrioritizedItem(tables[j]->name(), i, i,
+                                        {chunk->data()}),
+           {chunk}}));
     }
   }
 

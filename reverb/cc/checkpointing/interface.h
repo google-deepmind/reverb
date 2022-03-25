@@ -22,7 +22,7 @@ namespace deepmind {
 namespace reverb {
 
 // A checkpointer is able to encode the configuration, data and state as a
-// proto . This proto is stored in a permanent storage system where it can
+// proto. This proto is stored in a permanent storage system where it can
 // retrieved at a later point and restore a copy of the checkpointed tables.
 class Checkpointer {
  public:

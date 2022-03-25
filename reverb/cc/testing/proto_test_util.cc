@@ -86,6 +86,14 @@ PrioritizedItem MakePrioritizedItem(uint64_t key, double priority,
   return item;
 }
 
+PrioritizedItem MakePrioritizedItem(const std::string& table, uint64_t key,
+                                    double priority,
+                                    const std::vector<ChunkData>& chunks) {
+  auto item = MakePrioritizedItem(key, priority, chunks);
+  item.set_table(table);
+  return item;
+}
+
 }  // namespace testing
 }  // namespace reverb
 }  // namespace deepmind

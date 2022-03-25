@@ -152,6 +152,7 @@ class Table {
   // completed.
   struct CheckpointAndChunks {
     PriorityTableCheckpoint checkpoint;
+    std::vector<PrioritizedItem> items;
     absl::flat_hash_set<std::shared_ptr<ChunkStore::Chunk>> chunks;
   };
 
@@ -213,7 +214,7 @@ class Table {
   // operation.
   //
   // This should ONLY be used when restoring a `Table` from a checkpoint.
-  absl::Status InsertCheckpointItem(Item item);
+  absl::Status InsertCheckpointItem(Item&& item);
 
   // Updates the priority or deletes items in this table distribution. All
   // operations in the arguments are applied in the order that they are listed.

@@ -527,7 +527,7 @@ TEST(TableTest, CheckpointOrderItems) {
   REVERB_EXPECT_OK(table->InsertOrAssign(MakeItem(2, 124)));
 
   auto checkpoint = table->Checkpoint();
-  EXPECT_THAT(checkpoint.checkpoint.items(),
+  EXPECT_THAT(checkpoint.items,
               ElementsAre(Partially(testing::EqualsProto("key: 1")),
                           Partially(testing::EqualsProto("key: 3")),
                           Partially(testing::EqualsProto("key: 2"))));
@@ -555,7 +555,6 @@ TEST(TableTest, CheckpointSanityCheck) {
   want.set_table_name("dist");
   want.set_max_size(10);
   want.set_max_times_sampled(1);
-  want.add_items()->set_key(1);
   want.mutable_rate_limiter()->set_samples_per_insert(1.0);
   want.mutable_rate_limiter()->set_min_size_to_sample(3);
   want.mutable_rate_limiter()->set_min_diff(-10);
@@ -565,7 +564,6 @@ TEST(TableTest, CheckpointSanityCheck) {
                 max_size: 10
                 max_times_sampled: 1
                 num_deleted_episodes: 0
-                items: { key: 1 }
                 rate_limiter: {
                   samples_per_insert: 1.0
                   min_size_to_sample: 3
@@ -590,6 +588,9 @@ TEST(TableTest, CheckpointSanityCheck) {
                   }
                 }
               )pb")));
+
+  EXPECT_THAT(checkpoint.items,
+              ElementsAre(Partially(testing::EqualsProto("key: 1"))));
 }
 
 TEST(TableTest, BlocksSamplesWhenSizeToSmallDueToAutoDelete) {

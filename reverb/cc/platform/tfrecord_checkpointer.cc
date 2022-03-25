@@ -48,6 +48,7 @@
 #include "reverb/cc/support/trajectory_util.h"
 #include "reverb/cc/table.h"
 #include "reverb/cc/table_extensions/interface.h"
+#include "tensorflow/core/lib/io/compression.h"
 #include "tensorflow/core/lib/io/path.h"
 #include "tensorflow/core/lib/io/record_reader.h"
 #include "tensorflow/core/lib/io/record_writer.h"
@@ -59,6 +60,7 @@ namespace reverb {
 namespace {
 
 constexpr char kTablesFileName[] = "tables.tfrecord";
+constexpr char kItemsFileName[] = "items.tfrecord";
 constexpr char kChunksFileName[] = "chunks.tfrecord";
 constexpr char kDoneFileName[] = "DONE";
 
@@ -75,25 +77,33 @@ absl::Status OpenWriter(const std::string& path,
   REVERB_RETURN_IF_ERROR(FromTensorflowStatus(
       tensorflow::Env::Default()->NewWritableFile(path, &file)));
   auto* file_ptr = file.release();
-  *writer = RecordWriterUniquePtr(new tensorflow::io::RecordWriter(file_ptr),
-                                  [file_ptr](tensorflow::io::RecordWriter* w) {
-                                    delete w;
-                                    delete file_ptr;
-                                  });
+  *writer = RecordWriterUniquePtr(
+      new tensorflow::io::RecordWriter(
+          file_ptr,
+          tensorflow::io::RecordWriterOptions::CreateRecordWriterOptions(
+              tensorflow::io::compression::kZlib)),
+      [file_ptr](tensorflow::io::RecordWriter* w) {
+        delete w;
+        delete file_ptr;
+      });
   return absl::OkStatus();
 }
 
-absl::Status OpenReader(const std::string& path,
-                        RecordReaderUniquePtr* reader) {
+absl::Status OpenReader(const std::string& path, RecordReaderUniquePtr* reader,
+                        const std::string& compression_type) {
   std::unique_ptr<tensorflow::RandomAccessFile> file;
   REVERB_RETURN_IF_ERROR(FromTensorflowStatus(
       tensorflow::Env::Default()->NewRandomAccessFile(path, &file)));
   auto* file_ptr = file.release();
-  *reader = RecordReaderUniquePtr(new tensorflow::io::RecordReader(file_ptr),
-                                  [file_ptr](tensorflow::io::RecordReader* r) {
-                                    delete r;
-                                    delete file_ptr;
-                                  });
+  *reader = RecordReaderUniquePtr(
+      new tensorflow::io::RecordReader(
+          file_ptr,
+          tensorflow::io::RecordReaderOptions::CreateRecordReaderOptions(
+              compression_type)),
+      [file_ptr](tensorflow::io::RecordReader* r) {
+        delete r;
+        delete file_ptr;
+      });
   return absl::OkStatus();
 }
 
@@ -108,6 +118,12 @@ inline absl::Status WriteDone(const std::string& path) {
 inline bool HasDone(const std::string& path) {
   return tensorflow::Env::Default()
       ->FileExists(tensorflow::io::JoinPath(path, kDoneFileName))
+      .ok();
+}
+
+inline bool HasItems(const std::string& path) {
+  return tensorflow::Env::Default()
+      ->FileExists(tensorflow::io::JoinPath(path, kItemsFileName))
       .ok();
 }
 
@@ -199,9 +215,12 @@ absl::Status TFRecordCheckpointer::Save(std::vector<Table*> tables,
       tensorflow::io::JoinPath(dir_path, kTablesFileName), &table_writer));
 
   absl::flat_hash_set<std::shared_ptr<ChunkStore::Chunk>> chunks;
+  std::vector<PrioritizedItem> items;
   for (Table* table : tables) {
     auto checkpoint = table->Checkpoint();
     chunks.merge(checkpoint.chunks);
+    items.insert(items.end(), std::make_move_iterator(checkpoint.items.begin()),
+                 std::make_move_iterator(checkpoint.items.end()));
     std::string serialized;
     if (!checkpoint.checkpoint.AppendToString(&serialized)) {
       return absl::DataLossError(absl::StrCat(
@@ -217,6 +236,24 @@ absl::Status TFRecordCheckpointer::Save(std::vector<Table*> tables,
 
   REVERB_RETURN_IF_ERROR(FromTensorflowStatus(table_writer->Close()));
   table_writer = nullptr;
+
+  RecordWriterUniquePtr item_writer;
+  REVERB_RETURN_IF_ERROR(OpenWriter(
+      tensorflow::io::JoinPath(dir_path, kItemsFileName), &item_writer));
+
+  for (const auto& item : items) {
+    std::string serialized;
+    if (!item.AppendToString(&serialized)) {
+      return absl::DataLossError(absl::StrCat(
+          "Unable to serialize item.  Item key: '", item.key(),
+          "' and proto size: ", item.ByteSizeLong(),
+          " bytes.  Please check your logs."));
+    }
+    REVERB_RETURN_IF_ERROR(
+        FromTensorflowStatus(item_writer->WriteRecord(serialized)));
+  }
+  REVERB_RETURN_IF_ERROR(FromTensorflowStatus(item_writer->Close()));
+  item_writer = nullptr;
 
   RecordWriterUniquePtr chunk_writer;
   REVERB_RETURN_IF_ERROR(OpenWriter(
@@ -261,9 +298,12 @@ absl::Status TFRecordCheckpointer::Save(std::vector<Table*> tables,
   return absl::OkStatus();
 }
 
-absl::Status TFRecordCheckpointer::Load(
-    absl::string_view path, ChunkStore* chunk_store,
-    std::vector<std::shared_ptr<Table>>* tables) {
+namespace {
+
+absl::Status LoadWithCompression(absl::string_view path,
+                                 ChunkStore* chunk_store,
+                                 std::vector<std::shared_ptr<Table>>* tables,
+                                 const std::string& compression_type) {
   REVERB_LOG(REVERB_INFO) << "Loading checkpoint from " << std::string(path);
   if (!HasDone(std::string(path))) {
     return absl::InvalidArgumentError(absl::StrCat(
@@ -275,12 +315,19 @@ absl::Status TFRecordCheckpointer::Load(
   // check that the checkpoint matches the tables of the server.
   REVERB_LOG(REVERB_INFO)
       << "Loading and verifying metadata of the checkpointed tables.";
-  std::vector<PriorityTableCheckpoint> table_checkpoins;
+
+  // Maps table_name to checkpoint.
+  internal::flat_hash_map<std::string, PriorityTableCheckpoint>
+      table_checkpoints;
+  internal::flat_hash_map<std::string, std::vector<PrioritizedItem>>
+      table_to_items;
+
+  std::string deprecated_items;
   {
     RecordReaderUniquePtr table_reader;
     REVERB_RETURN_IF_ERROR(
         OpenReader(tensorflow::io::JoinPath(std::string(path), kTablesFileName),
-                   &table_reader));
+                   &table_reader, compression_type));
 
     absl::Status table_status;
     tensorflow::uint64 table_offset = 0;
@@ -301,15 +348,23 @@ absl::Status TFRecordCheckpointer::Load(
       REVERB_RETURN_IF_ERROR(
           GetTableIndex(*tables, checkpoint.table_name()).status());
 
-      for (const auto& item : checkpoint.items()) {
-        REVERB_RETURN_IF_ERROR(CheckTrajectoryFormat(item));
+      if (!checkpoint.deprecated_items().empty()) {
+        auto& items = table_to_items[checkpoint.table_name()];
+        items.reserve(checkpoint.deprecated_items().size());
+        deprecated_items = absl::StrCat("'", checkpoint.table_name(), "'");
+        for (auto& item : *checkpoint.mutable_deprecated_items()) {
+          REVERB_RETURN_IF_ERROR(CheckTrajectoryFormat(item));
+          items.push_back(std::move(item));
+        }
+        checkpoint.mutable_deprecated_items()->Clear();
       }
 
       REVERB_LOG(REVERB_INFO)
-          << "Metadata for table '" << checkpoint.table_name() << "' and its "
-          << checkpoint.items_size()
-          << " items were successfully loaded and verified.";
-      table_checkpoins.push_back(std::move(checkpoint));
+          << "Metadata for table '" << checkpoint.table_name()
+          << "' was successfully loaded and verified.";
+      std::string table_name = checkpoint.table_name();
+      table_checkpoints[table_name] = std::move(checkpoint);
+      checkpoint.Clear();
     } while (table_status.ok());
 
     if (!absl::IsOutOfRange(table_status)) {
@@ -317,9 +372,58 @@ absl::Status TFRecordCheckpointer::Load(
     }
   }
 
+  bool non_deprecated_items = HasItems(std::string(path));
+
+  if (non_deprecated_items) {
+    if (!deprecated_items.empty()) {
+      return absl::InvalidArgumentError(absl::StrCat(
+          "Checkpoint loader found mix of deprecated_items field for table ",
+          deprecated_items, " and items file '",
+          tensorflow::io::JoinPath(std::string(path), kItemsFileName), "'"));
+    }
+
+    RecordReaderUniquePtr item_reader;
+    REVERB_RETURN_IF_ERROR(
+        OpenReader(tensorflow::io::JoinPath(std::string(path), kItemsFileName),
+                   &item_reader, compression_type));
+
+    PrioritizedItem item;
+    absl::Status item_status;
+    tensorflow::uint64 item_offset = 0;
+    tensorflow::tstring item_record;
+    absl::optional<std::string> last_table_name;
+    std::vector<PrioritizedItem>* items = nullptr;
+    do {
+      item_status = FromTensorflowStatus(
+          item_reader->ReadRecord(&item_offset, &item_record));
+      if (!item_status.ok()) break;
+      if (!item.ParseFromArray(item_record.data(), item_record.size())) {
+        return absl::DataLossError(
+            absl::StrCat("Could not parse TFRecord as PrioritizedItem: '",
+                         absl::string_view(item_record), "'"));
+      }
+
+      if (!last_table_name || *last_table_name != item.table()) {
+        if (table_checkpoints.find(item.table()) == table_checkpoints.end()) {
+          return absl::DataLossError(absl::StrCat(
+              "Unable to find table '", item.table(), "' for item '",
+              item.key(), "' in the set of tables loaded from metadata."));
+        }
+        items = &table_to_items[item.table()];
+        *last_table_name = item.table();
+      }
+      REVERB_RETURN_IF_ERROR(CheckTrajectoryFormat(item));
+      items->push_back(std::move(item));
+    } while (item_status.ok());
+
+    if (!absl::IsOutOfRange(item_status)) {
+      return item_status;
+    }
+  }
+
   REVERB_LOG(REVERB_INFO)
       << "Successfully loaded and verified metadata for all ("
-      << table_checkpoins.size()
+      << table_checkpoints.size()
       << ") tables. We'll now proceed to read the data referenced by the items "
          "in the table.";
 
@@ -332,7 +436,7 @@ absl::Status TFRecordCheckpointer::Load(
     RecordReaderUniquePtr chunk_reader;
     REVERB_RETURN_IF_ERROR(
         OpenReader(tensorflow::io::JoinPath(std::string(path), kChunksFileName),
-                   &chunk_reader));
+                   &chunk_reader, compression_type));
 
     ChunkData chunk_data;
     absl::Status chunk_status;
@@ -352,7 +456,7 @@ absl::Status TFRecordCheckpointer::Load(
         if (!chunk_data.data().tensors().empty()) {
           return absl::InternalError(
               absl::StrCat("Checkpoint ChunkData at offset: ", chunk_offset,
-              " has both data and deprecated_data."));
+                           " has both data and deprecated_data."));
         }
         chunk_data.mutable_data()->mutable_tensors()->Swap(
             chunk_data.mutable_deprecated_data());
@@ -374,7 +478,8 @@ absl::Status TFRecordCheckpointer::Load(
       << "Completed reading compressed trajectory data. We'll now start "
          "assembling the checkpointed tables.";
 
-  for (auto& checkpoint : table_checkpoins) {
+  for (auto& checkpoint_ref : table_checkpoints) {
+    auto& checkpoint = checkpoint_ref.second;
     REVERB_ASSIGN_OR_RETURN(size_t table_idx,
                             GetTableIndex(*tables, checkpoint.table_name()));
     std::shared_ptr<Table>& server_table = tables->at(table_idx);
@@ -403,9 +508,9 @@ absl::Status TFRecordCheckpointer::Load(
     loaded_table->set_num_unique_samples_from_checkpoint(
         checkpoint.num_unique_samples());
 
-    for (auto& checkpoint_item : *checkpoint.mutable_items()) {
+    for (auto& checkpoint_item : table_to_items[checkpoint.table_name()]) {
       Table::Item insert_item;
-      insert_item.item = std::move(checkpoint_item);
+      std::swap(insert_item.item, checkpoint_item);
 
       if (insert_item.item.has_deprecated_sequence_range()) {
         std::vector<std::shared_ptr<ChunkStore::Chunk>> trajectory_chunks;
@@ -439,10 +544,26 @@ absl::Status TFRecordCheckpointer::Load(
         << " has been successfully loaded from the checkpoint.";
   }
 
-  REVERB_LOG(REVERB_INFO) << "Successfully loaded " << table_checkpoins.size()
+  REVERB_LOG(REVERB_INFO) << "Successfully loaded " << table_checkpoints.size()
                           << " tables from " << path;
 
   return absl::OkStatus();
+}
+}  // end namespace
+
+absl::Status TFRecordCheckpointer::Load(
+    absl::string_view path, ChunkStore* chunk_store,
+    std::vector<std::shared_ptr<Table>>* tables) {
+  auto status = LoadWithCompression(
+        path, chunk_store, tables,
+        /*compression_type=*/tensorflow::io::compression::kZlib);
+  if (absl::IsDataLoss(status)) {
+    // This may be an old checkpoint, written without compression.  Try again.
+    status = LoadWithCompression(
+        path, chunk_store, tables,
+        /*compression_type=*/tensorflow::io::compression::kNone);
+  }
+  return status;
 }
 
 absl::Status TFRecordCheckpointer::LoadLatest(

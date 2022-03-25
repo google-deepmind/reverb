@@ -925,21 +925,21 @@ Table::CheckpointAndChunks Table::Checkpoint() {
   *checkpoint.mutable_rate_limiter() = rate_limiter_->CheckpointReader(&mu_);
 
   absl::flat_hash_set<std::shared_ptr<ChunkStore::Chunk>> chunks;
+  std::vector<PrioritizedItem> items;
   for (const auto& entry : data_) {
-    *checkpoint.add_items() = entry.second->item;
+    items.push_back(entry.second->item);
     chunks.insert(entry.second->chunks.begin(), entry.second->chunks.end());
   }
 
   // Sort the items in ascending order based on their insertion time. This makes
   // it possible to reconstruct ordered structures (Fifo) when the checkpoint is
   // loaded.
-  std::sort(checkpoint.mutable_items()->begin(),
-            checkpoint.mutable_items()->end(), IsInsertedBefore);
+  std::sort(items.begin(), items.end(), IsInsertedBefore);
 
-  return {std::move(checkpoint), std::move(chunks)};
+  return {std::move(checkpoint), std::move(items), std::move(chunks)};
 }
 
-absl::Status Table::InsertCheckpointItem(Table::Item item) {
+absl::Status Table::InsertCheckpointItem(Table::Item&& item) {
   absl::MutexLock lock(&mu_);
   if (data_.size() + 1 > max_size_) {
     return absl::FailedPreconditionError(absl::StrCat(

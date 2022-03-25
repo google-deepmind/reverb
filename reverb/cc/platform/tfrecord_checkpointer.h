@@ -33,12 +33,14 @@ namespace reverb {
 // to a directory inside the top level `root_dir`.
 //
 // A set of `Table` constitutes the bases for a checkpoint. When `Save` is
-// called state of each `Table` is encoded into a PriorityTableCheckpoint.
-// The proto contains the state and initialization options of the table itself
-// and all its dependencies (RateLimiter, KeyDistribution etc) but does not
-// include the actual data. Instead a container with shared_ptr to every
-// referenced ChunkStore::Chunk is attached which ensures that all data remains
-// for the complete duration of the checkpointing operation.
+// called state of each `Table` is encoded into a PriorityTableCheckpoint. The
+// proto contains the state and initialization options of the table itself and
+// all its dependencies (RateLimiter, KeyDistribution etc) but does not include
+// the PrioritizedItem or Chunk data. Instead two containers are created. The
+// first is an ordered vector of PrioritizedItem copies (in ascending order of
+// `inserted_at`). The second contains a shared_ptr to every referenced
+// ChunkStore::Chunk is attached (which ensures that all data remains for the
+// complete duration of the checkpointing operation).
 //
 // To avoid duplicating data, the union of the referenced chunks are
 // deduplicated before being stored to disk. The stored checkpoint has the
@@ -47,6 +49,7 @@ namespace reverb {
 //   <root_dir>/
 //     <timestamp of the checkpoint>/
 //       tables.tfrecord
+//       items.tfrecord
 //       chunks.tfrecord
 //       DONE
 //
