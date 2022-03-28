@@ -391,7 +391,6 @@ absl::Status LoadWithCompression(absl::string_view path,
     absl::Status item_status;
     tensorflow::uint64 item_offset = 0;
     tensorflow::tstring item_record;
-    absl::optional<std::string> last_table_name;
     std::vector<PrioritizedItem>* items = nullptr;
     do {
       item_status = FromTensorflowStatus(
@@ -403,16 +402,18 @@ absl::Status LoadWithCompression(absl::string_view path,
                          absl::string_view(item_record), "'"));
       }
 
-      if (!last_table_name || *last_table_name != item.table()) {
-        if (table_checkpoints.find(item.table()) == table_checkpoints.end()) {
+      REVERB_RETURN_IF_ERROR(CheckTrajectoryFormat(item));
+
+      if (items == nullptr || items->empty() ||
+          items->at(0).table() != item.table()) {
+        if (!table_checkpoints.contains(item.table())) {
           return absl::DataLossError(absl::StrCat(
               "Unable to find table '", item.table(), "' for item '",
               item.key(), "' in the set of tables loaded from metadata."));
         }
-        items = &table_to_items[item.table()];
-        *last_table_name = item.table();
+        items = &(table_to_items[item.table()]);
       }
-      REVERB_RETURN_IF_ERROR(CheckTrajectoryFormat(item));
+
       items->push_back(std::move(item));
     } while (item_status.ok());
 
