@@ -85,6 +85,14 @@ tensorflow::Tensor MakeRandomTensor(
   return tensor;
 }
 
+tensorflow::Tensor AddBatchDimension(const tensorflow::Tensor& tensor){
+  tensorflow::TensorShape shape = tensor.shape();
+  shape.InsertDim(0, 1);
+  tensorflow::Tensor batched_tensor(tensor.dtype(), shape);
+  REVERB_CHECK(batched_tensor.CopyFrom(tensor, shape));
+  return batched_tensor;
+}
+
 std::shared_ptr<Chunker> MakeChunker(internal::TensorSpec spec,
                                      int max_chunk_length,
                                      int num_keep_alive_refs,
@@ -165,7 +173,8 @@ TEST(CellRef, GetDataFromUncompressdChunkerBuffer) {
 
   tensorflow::Tensor got;
   REVERB_ASSERT_OK(ref.lock()->GetData(&got));
-  test::ExpectTensorEqual<tensorflow::int32>(got, want);
+
+  test::ExpectTensorEqual<tensorflow::int32>(got, AddBatchDimension(want));
 }
 
 TEST(CellRef, GetDataFromChunk) {
@@ -225,11 +234,11 @@ TEST(CellRef, GetDataFromUncompressedBufferNeverCreatesChunks) {
     // We can get the data from the buffer
     tensorflow::Tensor first_got;
     REVERB_ASSERT_OK(first.lock()->GetData(&first_got));
-    test::ExpectTensorEqual<float>(first_got, first_want);
+    test::ExpectTensorEqual<float>(first_got, AddBatchDimension(first_want));
 
     tensorflow::Tensor second_got;
     REVERB_ASSERT_OK(second.lock()->GetData(&second_got));
-    test::ExpectTensorEqual<float>(second_got, second_want);
+    test::ExpectTensorEqual<float>(second_got, AddBatchDimension(second_want));
 }
 
 TEST(Chunker, AppendValidatesSpecDtype) {

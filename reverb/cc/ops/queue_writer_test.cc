@@ -263,7 +263,8 @@ TEST(QueueWriter, ItemsAreAddedToQueue) {
 
   for (auto trajectory : queue){
     EXPECT_EQ(trajectory.size(), 1);
-    EXPECT_EQ(trajectory[0].shape(), tensorflow::TensorShape({1}));
+    // Trajectories have an extra batch dimension
+    EXPECT_EQ(trajectory[0].shape(), tensorflow::TensorShape({1, 1}));
     EXPECT_EQ(trajectory[0].dtype(), tensorflow::DT_INT32);
   }
 }
@@ -283,7 +284,8 @@ TEST(QueueWriter, ItemsWithComplexTensorsWork) {
 
   for (auto trajectory : queue){
     EXPECT_EQ(trajectory.size(), 1);
-    EXPECT_EQ(trajectory[0].shape(), tensorflow::TensorShape({3}));
+    // Trajectories have an extra batch dimension
+    EXPECT_EQ(trajectory[0].shape(), tensorflow::TensorShape({1, 3}));
     EXPECT_EQ(trajectory[0].dtype(), tensorflow::DT_INT32);
   }
 }
@@ -307,7 +309,8 @@ TEST(QueueWriter, ItemsWithTwoStepsWork) {
 
   for (auto trajectory : queue){
     EXPECT_EQ(trajectory.size(), 1);
-    EXPECT_EQ(trajectory[0].shape(), tensorflow::TensorShape({6}));
+    // The two tensors are batched
+    EXPECT_EQ(trajectory[0].shape(), tensorflow::TensorShape({2, 3}));
     EXPECT_EQ(trajectory[0].dtype(), tensorflow::DT_INT32);
   }
 }
@@ -329,7 +332,8 @@ TEST(QueueWriter, ItemCreatedEvenIfChunksAreNotComplete) {
   for (auto trajectory : queue){
     EXPECT_EQ(trajectory.size(), 2);
     for (auto column : trajectory){
-      EXPECT_EQ(column.shape(), tensorflow::TensorShape({1}));
+      // Trajectories have an extra batch dimension
+      EXPECT_EQ(column.shape(), tensorflow::TensorShape({1, 1}));
       EXPECT_EQ(column.dtype(), tensorflow::DT_INT32);
     }
   }
@@ -478,7 +482,7 @@ TEST(QueueWriter, CreateItemWithSqueezedColumn) {
   StepRef step;
   REVERB_ASSERT_OK(writer.Append(Step({MakeTensor(kIntSpec)}), &step));
 
-  // Create a trajectory with a column that ha rows and is squeezed.
+  // Create a trajectory with a column that has rows and is squeezed.
   auto status = writer.CreateItem(
       "table", 1.0,
       {TrajectoryColumn({step[0].value()}, true)});
@@ -488,6 +492,7 @@ TEST(QueueWriter, CreateItemWithSqueezedColumn) {
   for (auto trajectory : queue){
     EXPECT_EQ(trajectory.size(), 1);
     for (auto column : trajectory){
+      // Squeezed Columns don't have an extra batch dimension
       EXPECT_EQ(column.shape(), tensorflow::TensorShape({1}));
       EXPECT_EQ(column.dtype(), tensorflow::DT_INT32);
     }

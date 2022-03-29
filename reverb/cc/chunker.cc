@@ -193,8 +193,19 @@ absl::Status Chunker::AppendUncompressed(
       std::make_shared<CellRef>(std::weak_ptr<Chunker>(shared_from_this()),
                                 next_chunk_key_, offset_++, episode_info));
 
+  // Add a batch dim to the tensor before adding it to the buffer. Otherwise
+  // when adding multiple tensors they will be just concated instead of
+  // batched.
+  tensorflow::TensorShape shape = tensor.shape();
+  shape.InsertDim(0, 1);
 
-  uncompressed_data_.push_back(tensor);
+  // This should never fail due to dtype or shape differences, because the dtype
+  // of tensors[j] is UNKNOWN and `shape` has the same number of elements as
+  // `item`.
+  tensorflow::Tensor batched_tensor(tensor.dtype(), shape);
+  REVERB_CHECK(batched_tensor.CopyFrom(tensor, shape));
+
+  uncompressed_data_.push_back(std::move(batched_tensor));
 
   // Delete references which have exceeded their max age.
   while (active_refs_.size() > options_->GetNumKeepAliveRefs()) {

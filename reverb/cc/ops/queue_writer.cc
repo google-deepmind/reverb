@@ -131,6 +131,7 @@ absl::Status QueueWriter::CreateItem(
     if (column.squeezed()) {
       REVERB_CHECK_EQ(refs.size(), 1);
       REVERB_RETURN_IF_ERROR(refs[0]->GetData(&out[col_idx]));
+      out[col_idx] = out[col_idx].SubSlice(0);
     } else {
       std::vector<tensorflow::Tensor> column_tensors(refs.size());
       for (int ref_idx = 0; ref_idx < refs.size(); ref_idx++) {
