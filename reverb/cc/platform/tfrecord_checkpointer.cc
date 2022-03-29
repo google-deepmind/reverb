@@ -210,68 +210,73 @@ absl::Status TFRecordCheckpointer::Save(std::vector<Table*> tables,
   REVERB_RETURN_IF_ERROR(FromTensorflowStatus(
       tensorflow::Env::Default()->RecursivelyCreateDir(dir_path)));
 
-  RecordWriterUniquePtr table_writer;
-  REVERB_RETURN_IF_ERROR(OpenWriter(
-      tensorflow::io::JoinPath(dir_path, kTablesFileName), &table_writer));
-
   absl::flat_hash_set<std::shared_ptr<ChunkStore::Chunk>> chunks;
   std::vector<PrioritizedItem> items;
-  for (Table* table : tables) {
-    auto checkpoint = table->Checkpoint();
-    chunks.merge(checkpoint.chunks);
-    items.insert(items.end(), std::make_move_iterator(checkpoint.items.begin()),
-                 std::make_move_iterator(checkpoint.items.end()));
-    std::string serialized;
-    if (!checkpoint.checkpoint.AppendToString(&serialized)) {
-      return absl::DataLossError(absl::StrCat(
-          "Unable to serialize checkpoint object.  Table "
-          "name: '",
-          checkpoint.checkpoint.table_name(),
-          "' and proto size: ", checkpoint.checkpoint.ByteSizeLong(),
-          " bytes. Perhaps the proto is >2GB?  Please check your logs."));
+  {
+    RecordWriterUniquePtr table_writer;
+    REVERB_RETURN_IF_ERROR(OpenWriter(
+        tensorflow::io::JoinPath(dir_path, kTablesFileName), &table_writer));
+
+    for (Table* table : tables) {
+      auto checkpoint = table->Checkpoint();
+      chunks.merge(checkpoint.chunks);
+      items.insert(items.end(),
+                   std::make_move_iterator(checkpoint.items.begin()),
+                   std::make_move_iterator(checkpoint.items.end()));
+      std::string serialized;
+      if (!checkpoint.checkpoint.AppendToString(&serialized)) {
+        return absl::DataLossError(absl::StrCat(
+            "Unable to serialize checkpoint object.  Table "
+            "name: '",
+            checkpoint.checkpoint.table_name(),
+            "' and proto size: ", checkpoint.checkpoint.ByteSizeLong(),
+            " bytes. Perhaps the proto is >2GB?  Please check your logs."));
+      }
+      REVERB_RETURN_IF_ERROR(
+          FromTensorflowStatus(table_writer->WriteRecord(serialized)));
     }
-    REVERB_RETURN_IF_ERROR(
-        FromTensorflowStatus(table_writer->WriteRecord(serialized)));
+
+    REVERB_RETURN_IF_ERROR(FromTensorflowStatus(table_writer->Close()));
   }
 
-  REVERB_RETURN_IF_ERROR(FromTensorflowStatus(table_writer->Close()));
-  table_writer = nullptr;
+  {
+    RecordWriterUniquePtr item_writer;
+    REVERB_RETURN_IF_ERROR(OpenWriter(
+        tensorflow::io::JoinPath(dir_path, kItemsFileName), &item_writer));
 
-  RecordWriterUniquePtr item_writer;
-  REVERB_RETURN_IF_ERROR(OpenWriter(
-      tensorflow::io::JoinPath(dir_path, kItemsFileName), &item_writer));
-
-  for (const auto& item : items) {
-    std::string serialized;
-    if (!item.AppendToString(&serialized)) {
-      return absl::DataLossError(absl::StrCat(
-          "Unable to serialize item.  Item key: '", item.key(),
-          "' and proto size: ", item.ByteSizeLong(),
-          " bytes.  Please check your logs."));
+    for (const auto& item : items) {
+      std::string serialized;
+      if (!item.AppendToString(&serialized)) {
+        return absl::DataLossError(
+            absl::StrCat("Unable to serialize item.  Item key: '", item.key(),
+                         "' and proto size: ", item.ByteSizeLong(),
+                         " bytes.  Please check your logs."));
+      }
+      REVERB_RETURN_IF_ERROR(
+          FromTensorflowStatus(item_writer->WriteRecord(serialized)));
     }
-    REVERB_RETURN_IF_ERROR(
-        FromTensorflowStatus(item_writer->WriteRecord(serialized)));
+    REVERB_RETURN_IF_ERROR(FromTensorflowStatus(item_writer->Close()));
   }
-  REVERB_RETURN_IF_ERROR(FromTensorflowStatus(item_writer->Close()));
-  item_writer = nullptr;
 
-  RecordWriterUniquePtr chunk_writer;
-  REVERB_RETURN_IF_ERROR(OpenWriter(
-      tensorflow::io::JoinPath(dir_path, kChunksFileName), &chunk_writer));
+  {
+    RecordWriterUniquePtr chunk_writer;
+    REVERB_RETURN_IF_ERROR(OpenWriter(
+        tensorflow::io::JoinPath(dir_path, kChunksFileName), &chunk_writer));
 
-  for (const auto& chunk : chunks) {
-    std::string serialized;
-    if (!chunk->data().AppendToString(&serialized)) {
-      return absl::DataLossError(absl::StrCat(
-          "Unable to serialize chunk.  Chunk key: '", chunk->key(),
-          "' and proto size: ", chunk->data().ByteSizeLong(),
-          " bytes.  Perhaps the proto is >2GB?  Please also check your logs."));
+    for (const auto& chunk : chunks) {
+      std::string serialized;
+      if (!chunk->data().AppendToString(&serialized)) {
+        return absl::DataLossError(absl::StrCat(
+            "Unable to serialize chunk.  Chunk key: '", chunk->key(),
+            "' and proto size: ", chunk->data().ByteSizeLong(),
+            " bytes.  Perhaps the proto is >2GB?  Please also check your "
+            "logs."));
+      }
+      REVERB_RETURN_IF_ERROR(
+          FromTensorflowStatus(chunk_writer->WriteRecord(serialized)));
     }
-    REVERB_RETURN_IF_ERROR(
-        FromTensorflowStatus(chunk_writer->WriteRecord(serialized)));
+    REVERB_RETURN_IF_ERROR(FromTensorflowStatus(chunk_writer->Close()));
   }
-  REVERB_RETURN_IF_ERROR(FromTensorflowStatus(chunk_writer->Close()));
-  chunk_writer = nullptr;
 
   // Both chunks and table checkpoint has now been written so we can proceed to
   // add the DONE-file.
