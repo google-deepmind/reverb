@@ -407,7 +407,6 @@ reverb_py_proto_library(
 reverb_cc_proto_library(
     name = "reverb_service_cc_proto",
     srcs = ["reverb_service.proto"],
-    visibility = ["//reverb:__subpackages__"],
     deps = [":schema_cc_proto"],
 )
 
