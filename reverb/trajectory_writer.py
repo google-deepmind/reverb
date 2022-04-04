@@ -627,8 +627,8 @@ class TrajectoryColumn:
           f'got {len(data_references)}')
     if any(ref is None for ref in data_references):
       raise ValueError('TrajectoryColumns cannot contain any None data '
-                       f'references, got {data_references} for '
-                       f'TrajectoryColumn at path {path}')
+                       f'references: TrajectoryColumn at path {path} '
+                       f'got {data_references}.')
 
     self._data_references = tuple(data_references)
     self.is_squeezed = squeeze
