@@ -1,9 +1,9 @@
-"""Reverb custom external dependencies."""
+"""Custom external dependencies."""
 
 load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
 
 # Sanitize a dependency so that it works correctly from code that includes
-# reverb as a submodule.
+# codebase as a submodule.
 def clean_dep(dep):
     return str(Label(dep))
 
@@ -299,7 +299,7 @@ def cc_tf_configure():
     )
     make_python_inc_repo(name = "python_includes")
 
-def reverb_python_deps():
+def python_deps():
     http_archive(
         name = "pybind11",
         urls = [
@@ -321,7 +321,7 @@ def reverb_python_deps():
         ],
     )
 
-def _reverb_protoc_archive(ctx):
+def _protoc_archive(ctx):
     version = ctx.attr.version
     sha256 = ctx.attr.sha256
 
@@ -345,13 +345,13 @@ filegroup(
         executable = False,
     )
 
-reverb_protoc_archive = repository_rule(
-    implementation = _reverb_protoc_archive,
+protoc_archive = repository_rule(
+    implementation = _protoc_archive,
     attrs = {
         "version": attr.string(mandatory = True),
         "sha256": attr.string(mandatory = True),
     },
 )
 
-def reverb_protoc_deps(version, sha256):
-    reverb_protoc_archive(name = "protobuf_protoc", version = version, sha256 = sha256)
+def protoc_deps(version, sha256):
+    protoc_archive(name = "protobuf_protoc", version = version, sha256 = sha256)

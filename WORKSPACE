@@ -84,12 +84,12 @@ apple_support_dependencies()
 load(
     "//reverb/cc/platform/default:repo.bzl",
     "cc_tf_configure",
-    "reverb_protoc_deps",
-    "reverb_python_deps",
+    "protoc_deps",
+    "python_deps",
 )
 
 cc_tf_configure()
 
-reverb_python_deps()
+python_deps()
 
-reverb_protoc_deps(version = PROTOC_VERSION, sha256 = PROTOC_SHA256)
+protoc_deps(version = PROTOC_VERSION, sha256 = PROTOC_SHA256)
