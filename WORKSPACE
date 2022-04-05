@@ -8,11 +8,6 @@ workspace(name = "reverb")
 #     curl -L "https://github.com/protocolbuffers/protobuf/releases/download/v${PROTOC_VERSION}/protoc-${PROTOC_VERSION}-linux-x86_64.zip" | sha256sum
 #  3. Update the two variables below.
 #
-# Alternatively, run bazel with the environment var "REVERB_PROTOC_VERSION"
-# set to override PROTOC_VERSION.
-#
-# *WARNING* If using the REVERB_PROTOC_VERSION environment variable, sha256
-# checking is disabled.  Use at your own risk.
 PROTOC_VERSION = "3.9.0"
 PROTOC_SHA256 = "15e395b648a1a6dda8fd66868824a396e9d3e89bc2c8648e3b9ab9801bea5d55"
 

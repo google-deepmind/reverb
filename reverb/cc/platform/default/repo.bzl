@@ -325,11 +325,6 @@ def _reverb_protoc_archive(ctx):
     version = ctx.attr.version
     sha256 = ctx.attr.sha256
 
-    override_version = ctx.os.environ.get("REVERB_PROTOC_VERSION")
-    if override_version:
-        sha256 = ""
-        version = override_version
-
     urls = [
         "https://github.com/protocolbuffers/protobuf/releases/download/v%s/protoc-%s-linux-x86_64.zip" % (version, version),
     ]
