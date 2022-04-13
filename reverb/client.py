@@ -531,7 +531,8 @@ class Client:
   def trajectory_writer(self,
                         num_keep_alive_refs: int,
                         *,
-                        get_signature_timeout_ms: Optional[int] = 3000):
+                        get_signature_timeout_ms: Optional[int] = 3000,
+                        validate_items: Optional[bool] = None):
     """Constructs a new `TrajectoryWriter`.
 
     Note: The chunk length is auto tuned by default. Use
@@ -551,6 +552,10 @@ class Client:
         validate new items before they are sent to the server. Signatures are
         only pulled once and cached. If set to None then the signature will not
         fetched from the server. Default wait time is 3 seconds.
+        Warning - Deprecated, please use validate_items instead.
+      validate_items: Whether to validate items against the table signature
+        before they are sent to the server. This requires table signature to be
+        fetched from the server and cached locally.
 
     Returns:
       A `TrajectoryWriter` with auto tuned chunk lengths in each column.
@@ -565,6 +570,8 @@ class Client:
       )
 
     chunker_options = pybind.AutoTunedChunkerOptions(num_keep_alive_refs, 1.0)
+    if validate_items is not None:
+      get_signature_timeout_ms = 1_000_000 if validate_items else None
     cpp_writer = self._client.NewTrajectoryWriter(chunker_options,
                                                   get_signature_timeout_ms)
     return trajectory_writer_lib.TrajectoryWriter(cpp_writer)
