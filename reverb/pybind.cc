@@ -387,7 +387,7 @@ PYBIND11_MODULE(libpybind, m) {
            })
       .def("NewTrajectoryWriter",
            [](Client *client, std::shared_ptr<ChunkerOptions> chunker_options,
-              absl::optional<int> get_signature_timeout_ms) {
+              bool validate_items) {
              std::unique_ptr<TrajectoryWriter> writer;
 
              TrajectoryWriter::Options options;
@@ -398,12 +398,12 @@ PYBIND11_MODULE(libpybind, m) {
              // result in segfaults as the Python exception is populated with
              // details from the status.
              absl::Status status;
-             if (get_signature_timeout_ms.has_value()) {
+             if (validate_items) {
                py::gil_scoped_release g;
 
                status = client->NewTrajectoryWriter(
                    options,
-                   absl::Milliseconds(get_signature_timeout_ms.value()),
+                   absl::InfiniteDuration(),
                    &writer);
              } else {
                status = client->NewTrajectoryWriter(options, &writer);

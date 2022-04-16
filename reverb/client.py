@@ -531,8 +531,7 @@ class Client:
   def trajectory_writer(self,
                         num_keep_alive_refs: int,
                         *,
-                        get_signature_timeout_ms: Optional[int] = 3000,
-                        validate_items: Optional[bool] = None):
+                        validate_items: bool = True):
     """Constructs a new `TrajectoryWriter`.
 
     Note: The chunk length is auto tuned by default. Use
@@ -547,12 +546,6 @@ class Client:
         popped from the buffer it can no longer be referenced by new items. The
         value `num_keep_alive_refs` can therefore be interpreted as maximum
         number of steps which a trajectory can span.
-      get_signature_timeout_ms: The number of milliesconds to wait to pull table
-        signatures (if any) from the server. These signatures are used to
-        validate new items before they are sent to the server. Signatures are
-        only pulled once and cached. If set to None then the signature will not
-        fetched from the server. Default wait time is 3 seconds.
-        Warning - Deprecated, please use validate_items instead.
       validate_items: Whether to validate items against the table signature
         before they are sent to the server. This requires table signature to be
         fetched from the server and cached locally.
@@ -570,10 +563,8 @@ class Client:
       )
 
     chunker_options = pybind.AutoTunedChunkerOptions(num_keep_alive_refs, 1.0)
-    if validate_items is not None:
-      get_signature_timeout_ms = 1_000_000 if validate_items else None
     cpp_writer = self._client.NewTrajectoryWriter(chunker_options,
-                                                  get_signature_timeout_ms)
+                                                  validate_items)
     return trajectory_writer_lib.TrajectoryWriter(cpp_writer)
 
   def structured_writer(self, configs: Sequence[structured_writer_lib.Config]):

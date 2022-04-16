@@ -88,7 +88,7 @@ class Client:
   def NewTrajectoryWriter(
       self,
       chunker_options,
-      get_signature_timeout_ms: Optional[int]) -> TrajectoryWriter:
+      validate_items: bool) -> TrajectoryWriter:
     ...
 
   def NewStructuredWriter(
