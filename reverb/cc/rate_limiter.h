@@ -34,16 +34,6 @@ class Table;
 
 constexpr absl::Duration kDefaultTimeout = absl::InfiniteDuration();
 
-// Details about the waiting time for a call to the RateLimiter.
-struct RateLimiterEvent {
-  // Unique identifier of the call. The ID is created by incrementing the most
-  // recently used ID.
-  size_t id;
-
-  // Time when the rate limiter recieved the call.
-  absl::Time start;
-};
-
 // RateLimiter manages the data throughput for a `Table` by blocking
 // sample or insert calls if the ratio between the two deviates too much from
 // the ratio specified by `samples_per_insert`.
