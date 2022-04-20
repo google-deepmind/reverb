@@ -75,7 +75,7 @@ absl::Status RateLimiter::RegisterTable(Table* table) {
     return absl::FailedPreconditionError(absl::StrCat(
         "Attempting to registering a table ", absl::Hex(table),
         " (name: ", table->name(), ") with RateLimiter when is ",
-        "already registered with this limiter: ", absl::Hex(table_),
+        "already registered with this table: ", absl::Hex(table_),
         " (name: ", table_->name(), ")"));
   }
   table_ = table;
