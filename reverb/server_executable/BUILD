@@ -32,7 +32,6 @@ reverb_pytype_strict_library(
     srcs_version = "PY3",
     deps = [
         "//reverb",
-        "//reverb:pybind",
         "//reverb:reverb_types",
         "//reverb/cc:schema_py_pb2",
         "//reverb/cc/checkpointing:checkpoint_py_pb2",

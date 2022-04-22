@@ -35,6 +35,24 @@ reverb_cc_library(
     alwayslink = 1,
 )
 
+cc_library(
+    name = "checkpointing_utils",
+    srcs = ["checkpointing_utils.cc"],
+    deps = [
+        "//reverb/cc/checkpointing:checkpoint_cc_proto",
+        "//reverb/cc/checkpointing:interface",
+        "//reverb/cc/platform:checkpointing_utils_hdr",
+        "//reverb/cc/selectors:fifo",
+        "//reverb/cc/selectors:heap",
+        "//reverb/cc/selectors:interface",
+        "//reverb/cc/selectors:lifo",
+        "//reverb/cc/selectors:prioritized",
+        "//reverb/cc/selectors:uniform",
+        "@com_google_absl//absl/strings",
+    ],
+    alwayslink = 1,
+)
+
 reverb_cc_library(
     name = "server",
     srcs = ["server.cc"],

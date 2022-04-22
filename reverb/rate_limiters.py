@@ -23,10 +23,19 @@ from reverb import pybind
 
 
 class RateLimiter(metaclass=abc.ABCMeta):
-  """Abstract base class for RateLimiters."""
+  """Base class for RateLimiters."""
 
-  def __init__(self, internal_limiter: pybind.RateLimiter):
-    self.internal_limiter = internal_limiter
+  def __init__(self, samples_per_insert: float, min_size_to_sample: int,
+               min_diff: float, max_diff: float):
+    self._samples_per_insert = samples_per_insert
+    self._min_size_to_sample = min_size_to_sample
+    self._min_diff = min_diff
+    self._max_diff = max_diff
+    self.internal_limiter = pybind.RateLimiter(
+        samples_per_insert=samples_per_insert,
+        min_size_to_sample=min_size_to_sample,
+        min_diff=min_diff,
+        max_diff=max_diff)
 
   def __repr__(self):
     return repr(self.internal_limiter)
@@ -46,11 +55,10 @@ class MinSize(RateLimiter):
           f'integer')
 
     super().__init__(
-        pybind.RateLimiter(
-            samples_per_insert=1.0,
-            min_size_to_sample=min_size_to_sample,
-            min_diff=-sys.float_info.max,
-            max_diff=sys.float_info.max))
+        samples_per_insert=1.0,
+        min_size_to_sample=min_size_to_sample,
+        min_diff=-sys.float_info.max,
+        max_diff=sys.float_info.max)
 
 
 class SampleToInsertRatio(RateLimiter):
@@ -137,11 +145,10 @@ class SampleToInsertRatio(RateLimiter):
           f'integer')
 
     super().__init__(
-        pybind.RateLimiter(
-            samples_per_insert=samples_per_insert,
-            min_size_to_sample=min_size_to_sample,
-            min_diff=min_diff,
-            max_diff=max_diff))
+        samples_per_insert=samples_per_insert,
+        min_size_to_sample=min_size_to_sample,
+        min_diff=min_diff,
+        max_diff=max_diff)
 
 
 class Queue(RateLimiter):
@@ -158,11 +165,10 @@ class Queue(RateLimiter):
       size: Maximum size of the queue.
     """
     super().__init__(
-        pybind.RateLimiter(
-            samples_per_insert=1.0,
-            min_size_to_sample=1,
-            min_diff=0.0,
-            max_diff=size))
+        samples_per_insert=1.0,
+        min_size_to_sample=1,
+        min_diff=0.0,
+        max_diff=size)
 
 
 class Stack(RateLimiter):
@@ -179,8 +185,7 @@ class Stack(RateLimiter):
       size: Maximum size of the stack.
     """
     super().__init__(
-        pybind.RateLimiter(
-            samples_per_insert=1.0,
-            min_size_to_sample=1,
-            min_diff=0.0,
-            max_diff=size))
+        samples_per_insert=1.0,
+        min_size_to_sample=1,
+        min_diff=0.0,
+        max_diff=size)

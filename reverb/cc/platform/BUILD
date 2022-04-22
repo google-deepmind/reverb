@@ -29,12 +29,7 @@ reverb_cc_library(
         "//reverb/cc:schema_cc_proto",
         "//reverb/cc/checkpointing:checkpoint_cc_proto",
         "//reverb/cc/checkpointing:interface",
-        "//reverb/cc/selectors:fifo",
-        "//reverb/cc/selectors:heap",
-        "//reverb/cc/selectors:interface",
-        "//reverb/cc/selectors:lifo",
-        "//reverb/cc/selectors:prioritized",
-        "//reverb/cc/selectors:uniform",
+        "//reverb/cc/platform:checkpointing_utils",
         "//reverb/cc/support:tf_util",
         "//reverb/cc/table_extensions:interface",
     ] + reverb_tf_deps() + reverb_absl_deps(),
@@ -72,6 +67,25 @@ reverb_cc_library(
     deps = [
         "//reverb/cc/checkpointing:interface",
         "//reverb/cc/platform/default:checkpointer",
+    ] + reverb_absl_deps(),
+)
+
+reverb_cc_library(
+    name = "checkpointing_utils_hdr",
+    hdrs = ["checkpointing_utils.h"],
+    visibility = ["//reverb:__subpackages__"],
+    deps = [
+        "//reverb/cc/selectors:interface",
+    ] + reverb_absl_deps(),
+)
+
+reverb_cc_library(
+    name = "checkpointing_utils",
+    hdrs = ["checkpointing_utils.h"],
+    visibility = ["//reverb:__subpackages__"],
+    deps = [
+        "//reverb/cc/platform/default:checkpointing_utils",
+        "//reverb/cc/selectors:interface",
     ] + reverb_absl_deps(),
 )
 

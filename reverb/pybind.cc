@@ -31,6 +31,7 @@
 #include "reverb/cc/conversions.h"
 #include "reverb/cc/patterns.pb.h"
 #include "reverb/cc/platform/checkpointing.h"
+#include "reverb/cc/platform/checkpointing_utils.h"
 #include "reverb/cc/platform/server.h"
 #include "reverb/cc/rate_limiter.h"
 #include "reverb/cc/sampler.h"
@@ -214,6 +215,21 @@ PYBIND11_MODULE(libpybind, m) {
   py::class_<HeapSelector, ItemSelector, std::shared_ptr<HeapSelector>>(
       m, "HeapSelector")
       .def(py::init<bool>(), py::arg("min_heap"));
+
+  m.def(
+      "selector_from_proto",
+      [](const std::string& options_str) {
+        KeyDistributionOptions options;
+        deepmind::reverb::ItemSelector* result = nullptr;
+        if (!options.ParseFromString(options_str)) {
+          MaybeRaiseFromStatus(absl::InvalidArgumentError(absl::StrCat(
+              "Unable to deserialize KeyDistributionOptions from serialized "
+              "proto bytes: '", options_str, "'")));
+        } else {
+          result = MakeSelector(options).release();
+        }
+        return result;
+      });
 
   py::class_<TableExtension, std::shared_ptr<TableExtension>>(m,
                                                               "TableExtension")
@@ -777,7 +793,7 @@ PYBIND11_MODULE(libpybind, m) {
              MaybeRaiseFromStatus(status);
            })
       .def_property_readonly("step_is_open", &StructuredWriter::step_is_open);
-}
+}  // NOLINT(readability/fn_size)
 
 }  // namespace
 }  // namespace reverb

@@ -180,6 +180,23 @@ class TableTest(parameterized.TestCase):
         signature=signature)
     self.assertEqual(signature, table.info.signature)
 
+  def test_replace(self):
+    table = server.Table(
+        name='table',
+        sampler=item_selectors.Fifo(),
+        remover=item_selectors.Fifo(),
+        max_size=100,
+        rate_limiter=rate_limiters.MinSize(10))
+    rl_info = table.info.rate_limiter_info
+    new_rate_limiter = rate_limiters.RateLimiter(
+        samples_per_insert=rl_info.samples_per_insert,
+        min_size_to_sample=1,
+        min_diff=rl_info.min_diff,
+        max_diff=rl_info.max_diff)
+    new_table = table.replace(rate_limiter=new_rate_limiter)
+    self.assertEqual(new_table.name, table.name)
+    self.assertEqual(new_table.info.rate_limiter_info.min_size_to_sample, 1)
+
 
 if __name__ == '__main__':
   absltest.main()

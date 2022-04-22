@@ -133,6 +133,11 @@ class Table:
       raise ValueError('name must be nonempty')
     if max_size <= 0:
       raise ValueError('max_size (%d) must be a positive integer' % max_size)
+    self._sampler = sampler
+    self._remover = remover
+    self._rate_limiter = rate_limiter
+    self._extensions = extensions
+    self._signature = signature
 
     # Merge the c++ extensions into a single list.
     internal_extensions = []
@@ -230,6 +235,64 @@ class Table:
   def can_insert(self, num_inserts: int) -> bool:
     """Returns True if an insert operation is permitted at the current state."""
     return self.internal_table.can_insert(num_inserts)
+
+  def replace(self,
+              name: Optional[str] = None,
+              sampler: Optional[reverb_types.SelectorType] = None,
+              remover: Optional[reverb_types.SelectorType] = None,
+              max_size: Optional[int] = None,
+              rate_limiter: Optional[rate_limiters.RateLimiter] = None,
+              max_times_sampled: Optional[int] = None,
+              extensions: Optional[Sequence[TableExtensionBase]] = None,
+              signature: Optional[reverb_types.SpecNest] = None):
+    """Constructs a new, empty table from the definition of the current one.
+
+    All settings needed to construct the table that are not explicitly specified
+    are copied from the source table.
+
+    Args:
+      name: Name of the table to use, or None to re-use existing table's name.
+      sampler: The strategy to use when selecting samples, or None to re-use
+        existing table's sampler.
+      remover: The strategy to use when selecting which items to remove, or None
+        to re-use existing table's remover.
+      max_size: The maximum number of items which the replay is allowed to hold,
+        or None to re-use existing table's max_size.
+      rate_limiter: Manages the data flow by limiting the sample and insert
+        calls. Configuration of the original table is used when not specified.
+      max_times_sampled: Maximum number of times an item can be sampled before
+        it is deleted, or None to re-use existing table's max_size.
+      extensions: Optional sequence of extensions used to add extra features to
+        the table, or None to re-use existing table's max_size.
+      signature: Optional nested structure containing `tf.TypeSpec` objects,
+        describing the schema of items in this table, or None to re-use existing
+        table's max_size.
+    Returns:
+      Table with the same configuration as the original one (modulo overrides).
+    """
+    info = self.info
+    if not sampler:
+      sampler = pybind.selector_from_proto(
+          info.sampler_options.SerializeToString())
+    if not remover:
+      remover = pybind.selector_from_proto(
+          info.remover_options.SerializeToString())
+    if not rate_limiter:
+      rate_limiter = rate_limiters.RateLimiter(
+          samples_per_insert=info.rate_limiter_info.samples_per_insert,
+          min_size_to_sample=info.rate_limiter_info.min_size_to_sample,
+          min_diff=info.rate_limiter_info.min_diff,
+          max_diff=info.rate_limiter_info.max_diff)
+    pick = lambda a, b: a if a is not None else b
+    return Table(
+        name=pick(name, self.name),
+        sampler=sampler,
+        remover=remover,
+        max_size=pick(max_size, info.max_size),
+        rate_limiter=rate_limiter,
+        max_times_sampled=pick(max_times_sampled, info.max_times_sampled),
+        extensions=pick(extensions, self._extensions),
+        signature=pick(signature, self._signature))
 
   def __repr__(self):
     return repr(self.internal_table)

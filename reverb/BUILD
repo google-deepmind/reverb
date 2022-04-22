@@ -111,6 +111,7 @@ reverb_pybind_extension(
         "//reverb/cc:writer",
         "//reverb/cc/checkpointing:interface",
         "//reverb/cc/platform:checkpointing",
+        "//reverb/cc/platform:checkpointing_utils",
         "//reverb/cc/platform:server",
         "//reverb/cc/selectors:fifo",
         "//reverb/cc/selectors:heap",

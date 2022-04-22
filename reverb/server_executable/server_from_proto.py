@@ -18,7 +18,6 @@
 from typing import Sequence
 
 import reverb
-from reverb import pybind
 from reverb import reverb_types
 
 from reverb.cc import schema_pb2
@@ -57,12 +56,10 @@ def rate_limiter_from_proto(
     proto: checkpoint_pb2.RateLimiterCheckpoint
 ) -> reverb.rate_limiters.RateLimiter:
   return reverb.rate_limiters.RateLimiter(
-      internal_limiter=pybind.RateLimiter(
-          samples_per_insert=proto.samples_per_insert,
-          min_size_to_sample=proto.min_size_to_sample,
-          min_diff=proto.min_diff,
-          max_diff=proto.max_diff,
-      ))
+      samples_per_insert=proto.samples_per_insert,
+      min_size_to_sample=proto.min_size_to_sample,
+      min_diff=proto.min_diff,
+      max_diff=proto.max_diff)
 
 
 def tables_from_proto(

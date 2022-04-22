@@ -32,18 +32,13 @@
 #include "absl/time/time.h"
 #include "reverb/cc/checkpointing/checkpoint.pb.h"
 #include "reverb/cc/chunk_store.h"
+#include "reverb/cc/platform/checkpointing_utils.h"
 #include "reverb/cc/platform/hash_map.h"
 #include "reverb/cc/platform/hash_set.h"
 #include "reverb/cc/platform/logging.h"
 #include "reverb/cc/platform/status_macros.h"
 #include "reverb/cc/rate_limiter.h"
 #include "reverb/cc/schema.pb.h"
-#include "reverb/cc/selectors/fifo.h"
-#include "reverb/cc/selectors/heap.h"
-#include "reverb/cc/selectors/interface.h"
-#include "reverb/cc/selectors/lifo.h"
-#include "reverb/cc/selectors/prioritized.h"
-#include "reverb/cc/selectors/uniform.h"
 #include "reverb/cc/support/tf_util.h"
 #include "reverb/cc/support/trajectory_util.h"
 #include "reverb/cc/table.h"
@@ -125,27 +120,6 @@ inline bool HasItems(const std::string& path) {
   return tensorflow::Env::Default()
       ->FileExists(tensorflow::io::JoinPath(path, kItemsFileName))
       .ok();
-}
-
-std::unique_ptr<ItemSelector> MakeDistribution(
-    const KeyDistributionOptions& options) {
-  switch (options.distribution_case()) {
-    case KeyDistributionOptions::kFifo:
-      return absl::make_unique<FifoSelector>();
-    case KeyDistributionOptions::kLifo:
-      return absl::make_unique<LifoSelector>();
-    case KeyDistributionOptions::kUniform:
-      return absl::make_unique<UniformSelector>();
-    case KeyDistributionOptions::kPrioritized:
-      return absl::make_unique<PrioritizedSelector>(
-          options.prioritized().priority_exponent());
-    case KeyDistributionOptions::kHeap:
-      return absl::make_unique<HeapSelector>(options.heap().min_heap());
-    case KeyDistributionOptions::DISTRIBUTION_NOT_SET:
-      REVERB_LOG(REVERB_FATAL) << "Selector not set";
-    default:
-      REVERB_LOG(REVERB_FATAL) << "Selector not supported";
-  }
 }
 
 absl::StatusOr<size_t> GetTableIndex(
@@ -490,8 +464,8 @@ absl::Status LoadWithCompression(absl::string_view path,
                             GetTableIndex(*tables, checkpoint.table_name()));
     std::shared_ptr<Table>& server_table = tables->at(table_idx);
 
-    auto sampler = MakeDistribution(checkpoint.sampler());
-    auto remover = MakeDistribution(checkpoint.remover());
+    auto sampler = MakeSelector(checkpoint.sampler());
+    auto remover = MakeSelector(checkpoint.remover());
     auto rate_limiter =
         std::make_shared<RateLimiter>(checkpoint.rate_limiter());
     auto extensions = server_table->UnsafeClearExtensions();
