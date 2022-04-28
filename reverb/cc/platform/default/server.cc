@@ -86,8 +86,7 @@ class ServerImpl : public Server {
     reverb_service_->Close();
 
     // Set a deadline as the sampler streams never closes by themselves.
-    server_->Shutdown(std::chrono::system_clock::now() +
-                      std::chrono::seconds(5));
+    server_->Shutdown(std::chrono::system_clock::now());
 
     running_ = false;
   }
