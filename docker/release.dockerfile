@@ -1,23 +1,12 @@
-# Run the following commands in order:
-#
-# REVERB_DIR="/tmp/reverb"  # (change to the cloned reverb directory, e.g. "$HOME/reverb")
-# docker build --tag tensorflow:reverb_release - < "$REVERB_DIR/docker/release.dockerfile"
-# docker run --rm -it -v ${REVERB_DIR}:/tmp/reverb \
-#   -v ${HOME}/.gitconfig:/home/${USER}/.gitconfig:ro \
-#   --name reverb_release tensorflow:reverb_release bash
-#
-# Test that everything worked:
-#
-# bazel test -c opt --copt=-mavx --config=manylinux2014 --test_output=errors //reverb/...
 ARG cpu_base_image="tensorflow/build:latest-python3.7"
 ARG base_image=$cpu_base_image
 FROM $base_image
 
-LABEL maintainer="Reverb Team <no-reply@google.com>"
+LABEL maintainer="no-reply@google.com"
 
 # Re-declare args because the args declared before FROM can't be used in any
 # instruction after a FROM.
-ARG cpu_base_image="tensorflow/build:2.8-python3.7"
+ARG cpu_base_image="tensorflow/build:latest-python3.7"
 ARG base_image=$cpu_base_image
 ARG tensorflow_pip="tf-nightly"
 ARG python_version="python3.7"
@@ -78,6 +67,7 @@ ARG pip_dependencies=' \
       dm-tree>=0.1.5 \
       google-api-python-client \
       h5py \
+      mock \
       numpy \
       oauth2client \
       pandas \
@@ -100,7 +90,5 @@ RUN rm /dt7/usr/include/x86_64-linux-gnu/python3.10
 RUN ln -s "/usr/include/x86_64-linux-gnu/python3.8" "/dt7/usr/include/x86_64-linux-gnu/python3.8"
 RUN ln -s "/usr/include/x86_64-linux-gnu/python3.9" "/dt7/usr/include/x86_64-linux-gnu/python3.9"
 RUN ln -s "/usr/include/x86_64-linux-gnu/python3.10" "/dt7/usr/include/x86_64-linux-gnu/python3.10"
-
-WORKDIR "/tmp/reverb"
 
 CMD ["/bin/bash"]
