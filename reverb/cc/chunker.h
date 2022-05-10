@@ -184,12 +184,18 @@ class Chunker : public std::enable_shared_from_this<Chunker> {
   absl::Status ApplyConfig(std::shared_ptr<ChunkerOptions> options)
       ABSL_LOCKS_EXCLUDED(mu_);
 
-  // Called by parent `TrajectoryWriter` when an item has been finalized. If
-  // any of `refs` was created by this `Chunker` then `item` and a filtered
-  // (only the ones created by this `Chunker`) vector of `refs` is forwarded to
-  // the `ChunkerOptions` so it can adapt.
-  absl::Status OnItemFinalized(const PrioritizedItem& item,
-                               absl::Span<const std::shared_ptr<CellRef>> refs);
+  // Called by parent `TrajectoryWriter` when an item has been finalized.
+  //
+  // `item` and `child_refs` are forwarded to the `ChunkerOption` so it can
+  // adapt to data.
+  //
+  // `child_refs` must only contain `CellRef` created by this `Chunker`. No
+  // validation is done (to avoid the overhead of locking the weak pointer to
+  // the parrent `Chunker`) so the caller is responsible for providing valid
+  // input.
+  absl::Status OnItemFinalized(
+      const PrioritizedItem& item,
+      absl::Span<const std::shared_ptr<CellRef>> child_refs);
 
  private:
   friend CellRef;

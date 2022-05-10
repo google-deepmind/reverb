@@ -430,24 +430,8 @@ absl::Status Chunker::CopyUncompressedDataForCell(const CellRef* ref,
 
 absl::Status Chunker::OnItemFinalized(
     const PrioritizedItem& item,
-    absl::Span<const std::shared_ptr<CellRef>> refs) {
-  std::vector<std::shared_ptr<CellRef>> child_refs;
-  for (const auto& ref : refs) {
-    auto chunker_sp = ref->chunker().lock();
-    if (!chunker_sp) {
-      return absl::FailedPreconditionError(absl::StrCat(
-          "Chunker::OnItemFinalized: Unable to lock the weak_ptr for the "
-          "chunker associated with chunk_key: ",
-          ref->chunk_key()));
-    }
-    if (chunker_sp.get() == this) {
-      child_refs.push_back(ref);
-    }
-  }
-  if (!child_refs.empty()) {
-    REVERB_RETURN_IF_ERROR(options_->OnItemFinalized(item, child_refs));
-  }
-  return absl::OkStatus();
+    absl::Span<const std::shared_ptr<CellRef>> child_refs) {
+  return options_->OnItemFinalized(item, child_refs);
 }
 
 absl::Status ValidateChunkerOptions(const ChunkerOptions* options) {

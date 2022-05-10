@@ -664,9 +664,24 @@ absl::Status TrajectoryWriter::RunStreamWorker() {
       streamed_chunk_keys = GetKeepKeys(streamed_chunk_keys);
     }
 
-    for (auto& [_, chunker] : chunkers_) {
+    // Group the item references by chunker and pass it to their respective
+    // chunker to allow it to adapt to the data.
+    internal::flat_hash_map<Chunker*, std::vector<std::shared_ptr<CellRef>>>
+        refs_per_chunker;
+    for (auto& ref : item_and_refs->refs) {
+      auto chunker_sp = ref->chunker().lock();
+      if (!chunker_sp) {
+        return absl::FailedPreconditionError(absl::StrCat(
+            "Chunker::OnItemFinalized: Unable to lock the weak_ptr for the "
+            "chunker associated with chunk_key: ",
+            ref->chunk_key()));
+      }
+      refs_per_chunker[chunker_sp.get()].push_back(ref);
+    }
+
+    for (auto& [chunker, refs] : refs_per_chunker) {
       REVERB_RETURN_IF_ERROR(
-          chunker->OnItemFinalized(item_and_refs->item, item_and_refs->refs));
+          chunker->OnItemFinalized(item_and_refs->item, refs));
     }
 
     // All chunks have been written to the stream so the item can now be

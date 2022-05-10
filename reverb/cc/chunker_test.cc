@@ -693,33 +693,7 @@ TEST(Chunker, ApplyConfigRequireBufferToBeEmpty) {
           /*max_chunk_length=*/1, /*num_keep_alive_refs=*/5)));
 }
 
-TEST(Chunker, OnItemFinalizedIsNoopIfNoRefsCreatedByChunker) {
-  auto options_a = std::make_shared<MockChunkerOptions>();
-  EXPECT_CALL(*options_a, GetMaxChunkLength()).WillRepeatedly(Return(1));
-  EXPECT_CALL(*options_a, GetNumKeepAliveRefs()).WillRepeatedly(Return(1));
-
-  auto options_b = std::make_shared<MockChunkerOptions>();
-  EXPECT_CALL(*options_b, GetMaxChunkLength()).WillRepeatedly(Return(1));
-  EXPECT_CALL(*options_b, GetNumKeepAliveRefs()).WillRepeatedly(Return(1));
-
-  auto chunker_a = std::make_shared<Chunker>(kIntSpec, options_a);
-  auto chunker_b = std::make_shared<Chunker>(kIntSpec, options_b);
-
-  // Take a step with one of the chunkers.
-  std::weak_ptr<CellRef> step;
-  REVERB_ASSERT_OK(
-      chunker_a->Append(MakeZeroTensor<tensorflow::DT_INT32>(kIntSpec),
-                        {/*episode_id=*/1, /*step=*/0}, &step));
-
-  // The call should be ignored by the other chunker since none of the refs
-  // came from it.
-  EXPECT_CALL(*options_b, OnItemFinalized(_, _)).Times(0);
-  REVERB_EXPECT_OK(chunker_b->OnItemFinalized(
-      testing::MakePrioritizedItem(1, 1.0, {*step.lock()->GetChunk()->get()}),
-      {step.lock()}));
-}
-
-TEST(Chunker, OnItemFinalizedFiltersRefsAndForwardsToOptions) {
+TEST(Chunker, OnItemFinalizedForwardsItemAndRefsToOptions) {
   auto options_a = std::make_shared<MockChunkerOptions>();
   EXPECT_CALL(*options_a, GetMaxChunkLength()).WillRepeatedly(Return(1));
   EXPECT_CALL(*options_a, GetNumKeepAliveRefs()).WillRepeatedly(Return(1));
@@ -748,17 +722,16 @@ TEST(Chunker, OnItemFinalizedFiltersRefsAndForwardsToOptions) {
                                                *ref_a.lock()->GetChunk()->get(),
                                                *ref_b.lock()->GetChunk()->get(),
                                            });
-  std::vector<std::shared_ptr<CellRef>> refs = {ref_a.lock(), ref_b.lock()};
 
   EXPECT_CALL(*options_a, OnItemFinalized(testing::EqualsProto(item),
                                           ElementsAre(ref_a.lock())))
       .Times(1);
-  REVERB_EXPECT_OK(chunker_a->OnItemFinalized(item, refs));
+  REVERB_EXPECT_OK(chunker_a->OnItemFinalized(item, {ref_a.lock()}));
 
   EXPECT_CALL(*options_b, OnItemFinalized(testing::EqualsProto(item),
                                           ElementsAre(ref_b.lock())))
       .Times(1);
-  REVERB_EXPECT_OK(chunker_b->OnItemFinalized(item, refs));
+  REVERB_EXPECT_OK(chunker_b->OnItemFinalized(item, {ref_b.lock()}));
 }
 
 TEST(Chunker, ApplyConfigRejectsInvalidOptions) {
