@@ -14,7 +14,9 @@
 
 #include "reverb/cc/table_extensions/insert_on_sample.h"
 
+#include <memory>
 #include <string>
+#include <vector>
 
 #include "absl/strings/str_format.h"
 #include "absl/strings/string_view.h"
@@ -64,6 +66,18 @@ void InsertOnSampleExtension::BeforeUnregisterTable(const Table& table) {
 std::string InsertOnSampleExtension::DebugString() const {
   return absl::StrFormat("InsertOnSampleExtension(source=%s, target=%s)",
                          table_name_, target_table_->name());
+}
+
+void InsertOnSampleExtension::OnCheckpointLoaded(
+    const std::vector<std::shared_ptr<Table>>& tables) {
+  for (const auto& table : tables) {
+    if (table->name() == target_table_->name()) {
+      target_table_ = table;
+      return;
+    }
+  }
+  REVERB_CHECK(false) << "Target table (" << target_table_->name()
+                      << ") not found in list of loaded tables";
 }
 
 }  // namespace deepmind::reverb

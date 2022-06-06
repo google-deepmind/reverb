@@ -15,6 +15,7 @@
 #ifndef REVERB_CC_TABLE_EXTENSIONS_INTERFACE_H_
 #define REVERB_CC_TABLE_EXTENSIONS_INTERFACE_H_
 
+#include <memory>
 #include <vector>
 
 #include <cstdint>
@@ -42,6 +43,15 @@ class TableExtension {
   // mutex. It will still be executed sequentially holding extension worker
   // mutex, but accessing table is not allowed.
   virtual bool CanRunAsync() const = 0;
+
+  // Called after all tables have been loaded from a checkpoint but their items
+  // have not yet been inserted. This allows extensions which create links
+  // between tables to replace their pointers of their target tables with the
+  // ones loaded from the checkpoint.
+  //
+  // Noop by default.
+  virtual void OnCheckpointLoaded(
+      const std::vector<std::shared_ptr<Table>>& tables) {}
 
   // Returns a summary string description.
   virtual std::string DebugString() const = 0;

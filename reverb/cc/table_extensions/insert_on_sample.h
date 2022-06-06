@@ -15,6 +15,9 @@
 #ifndef REVERB_CC_TABLE_EXTENSIONS_INSERT_ON_SAMPLE_H_
 #define REVERB_CC_TABLE_EXTENSIONS_INSERT_ON_SAMPLE_H_
 
+#include <memory>
+#include <vector>
+
 #include "reverb/cc/table.h"
 #include "reverb/cc/table_extensions/base.h"
 
@@ -37,6 +40,15 @@ class InsertOnSampleExtension : public TableExtensionBase {
   InsertOnSampleExtension(std::shared_ptr<Table> target_table,
                           absl::Duration timeout);
 
+  // Called after all tables have been loaded from a checkpoint but their items
+  // have not yet been inserted. This allows us to replace `target_table` with
+  // the table of the same name loaded from the checkpoint.
+  //
+  // If `tables` does not contain any table with the same name as `target_table`
+  // then death is triggered.
+  void OnCheckpointLoaded(
+      const std::vector<std::shared_ptr<Table>>& tables) override;
+
   // Inserts a copy of the item into the target table.
   void ApplyOnSample(const ExtensionItem& item) override;
 
@@ -51,7 +63,7 @@ class InsertOnSampleExtension : public TableExtensionBase {
 
  private:
   std::shared_ptr<Table> target_table_;
-  // We save this so that `DebugString` don't have to take the lock to access
+  // We save this so that `DebugString` don't have to acquire the lock to access
   // `table_`.
   std::string table_name_;
   absl::Duration timeout_;

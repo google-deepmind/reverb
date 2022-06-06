@@ -458,6 +458,8 @@ absl::Status LoadWithCompression(absl::string_view path,
       << "Completed reading compressed trajectory data. We'll now start "
          "assembling the checkpointed tables.";
 
+  std::vector<std::shared_ptr<TableExtension>> all_table_extensions;
+
   for (auto& checkpoint_ref : table_checkpoints) {
     auto& checkpoint = checkpoint_ref.second;
     REVERB_ASSIGN_OR_RETURN(size_t table_idx,
@@ -474,6 +476,9 @@ absl::Status LoadWithCompression(absl::string_view path,
             ? absl::make_optional(std::move(checkpoint.signature()))
             : absl::nullopt;
 
+    std::copy(extensions.begin(), extensions.end(),
+              std::back_inserter(all_table_extensions));
+
     auto loaded_table = std::make_shared<Table>(
         /*name=*/checkpoint.table_name(),
         /*sampler=*/std::move(sampler),
@@ -488,7 +493,19 @@ absl::Status LoadWithCompression(absl::string_view path,
     loaded_table->set_num_unique_samples_from_checkpoint(
         checkpoint.num_unique_samples());
 
-    for (auto& checkpoint_item : table_to_items[checkpoint.table_name()]) {
+    server_table.swap(loaded_table);
+  }
+
+  // Notify the extensions about the updated list of tables so they can update
+  // their target table pointers (if any). It is important that we do this
+  // before the items are loaded to allow the extensions to handle `OnInsert`
+  // correctly.
+  for (auto& extension : all_table_extensions) {
+    extension->OnCheckpointLoaded(*tables);
+  }
+
+  for (auto& table : *tables) {
+    for (auto& checkpoint_item : table_to_items[table->name()]) {
       Table::Item insert_item;
       std::swap(insert_item.item, checkpoint_item);
 
@@ -514,13 +531,11 @@ absl::Status LoadWithCompression(absl::string_view path,
       // The original table has already been destroyed so if this fails then
       // there is way to recover.
       REVERB_RETURN_IF_ERROR(
-          loaded_table->InsertCheckpointItem(std::move(insert_item)));
+          table->InsertCheckpointItem(std::move(insert_item)));
     }
 
-    server_table.swap(loaded_table);
-
     REVERB_LOG(REVERB_INFO)
-        << "Table " << checkpoint.table_name()
+        << "Table " << table->name()
         << " has been successfully loaded from the checkpoint.";
   }
 
