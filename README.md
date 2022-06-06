@@ -65,16 +65,16 @@ binary, see the
 For Python 3.7:
 
 ```shell
-$ export reverb_version=0.6.0
+$ export reverb_version=0.8.0
 # Python 3.7
-$ export python_version=36
+$ export python_version=37
 $ pip install https://storage.googleapis.com/rl-infra-builds/dm_reverb/builds/dbg/$reverb_version/dm_reverb-$reverb_version-cp$python_version-cp${python_version}m-manylinux2010_x86_64.whl
 ```
 
 For python 3.8 and 3.9 follow this pattern:
 
 ```shell
-$ export reverb_version=0.6.0
+$ export reverb_version=0.8.0
 # Python 3.9
 $ export python_version=39
 $ pip install https://storage.googleapis.com/rl-infra-builds/dm_reverb/builds/dbg/$reverb_version/dm_reverb-$reverb_version-cp$python_version-cp$python_version-manylinux2010_x86_64.whl
