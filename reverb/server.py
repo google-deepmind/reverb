@@ -18,6 +18,8 @@ See ./client.py and ./tf_client.py for details of how to interact with the
 service.
 """
 
+from __future__ import annotations
+
 import abc
 import collections
 from typing import Optional, Sequence
@@ -170,7 +172,7 @@ class Table:
             name: str,
             max_size: int,
             extensions: Sequence[TableExtensionBase] = (),
-            signature: Optional[reverb_types.SpecNest] = None):
+            signature: Optional[reverb_types.SpecNest] = None) -> Table:
     """Constructs a Table which acts like a queue.
 
     Args:
@@ -197,7 +199,7 @@ class Table:
             name: str,
             max_size: int,
             extensions: Sequence[TableExtensionBase] = (),
-            signature: Optional[reverb_types.SpecNest] = None):
+            signature: Optional[reverb_types.SpecNest] = None) -> Table:
     """Constructs a Table which acts like a stack.
 
     Args:
@@ -220,7 +222,7 @@ class Table:
         signature=signature)
 
   @property
-  def name(self):
+  def name(self) -> str:
     return self.internal_table.name()
 
   @property
@@ -244,7 +246,7 @@ class Table:
               rate_limiter: Optional[rate_limiters.RateLimiter] = None,
               max_times_sampled: Optional[int] = None,
               extensions: Optional[Sequence[TableExtensionBase]] = None,
-              signature: Optional[reverb_types.SpecNest] = None):
+              signature: Optional[reverb_types.SpecNest] = None) -> Table:
     """Constructs a new, empty table from the definition of the current one.
 
     All settings needed to construct the table that are not explicitly specified
@@ -294,7 +296,7 @@ class Table:
         extensions=pick(extensions, self._extensions),
         signature=pick(signature, self._signature))
 
-  def __repr__(self):
+  def __repr__(self) -> str:
     return repr(self.internal_table)
 
 
@@ -356,11 +358,11 @@ class Server:
     if hasattr(self, '_port'):
       portpicker.return_port(self._port)
 
-  def __repr__(self):
+  def __repr__(self) -> str:
     return repr(self._server)
 
   @property
-  def port(self):
+  def port(self) -> int:
     """Port the gRPC service is running at."""
     return self._port
 
@@ -384,6 +386,6 @@ class Server:
     if self._server.Wait():
       raise KeyboardInterrupt
 
-  def localhost_client(self):
+  def localhost_client(self) -> client.Client:
     """Creates a client connect to the localhost channel."""
     return client.Client(f'localhost:{self._port}')
