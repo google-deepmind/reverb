@@ -283,9 +283,13 @@ PYBIND11_MODULE(libpybind, m) {
           "info",
           [](Table *table) -> py::bytes {
             // Return a serialized TableInfo proto bytes string.
-            return py::bytes(table->info().SerializeAsString());
-          },
-          py::call_guard<py::gil_scoped_release>())
+            std::string table_info;
+            {
+              py::gil_scoped_release g;
+              table_info = table->info().SerializeAsString();
+            }
+            return py::bytes(table_info);
+          })
       .def("__repr__", &Table::DebugString,
            py::call_guard<py::gil_scoped_release>());
 
