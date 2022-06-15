@@ -107,7 +107,7 @@ class StructuredWriter:
       path = tree.flatten_with_path(self._data_structure)[int(col_idx)][0]
 
       raise ValueError(
-          f'{parts[0]} for column {col_idx} (path={path}). {rest}')
+          f'{parts[0]} for column {col_idx} (path={path}). {rest}') from e
 
   def flush(self,
             block_until_num_items: int = 0,
