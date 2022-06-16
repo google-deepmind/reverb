@@ -37,7 +37,8 @@ Execute from the root of the git repository. The end result will end up in
 ##################################
 # Builds the container with Python 3.7, 3.8, 3.9, and 3.10. Set the
 # `build-arg tensorflow_pip` to the version of TensorFlow to build against.
-$ docker build --tag tensorflow:reverb_release \
+$ docker build --pull --no-cache \
+  --tag tensorflow:reverb_release \
   --build-arg tensorflow_pip=tensorflow~=2.8.0 \
   --build-arg python_version="python3.7 python3.8 python3.9 python3.10" \
   - < "$REVERB_DIR/docker/release.dockerfile"
