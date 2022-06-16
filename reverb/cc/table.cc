@@ -924,7 +924,7 @@ Table::CheckpointAndChunks Table::Checkpoint() {
   // finalized before the items are added
   *checkpoint.mutable_rate_limiter() = rate_limiter_->CheckpointReader(&mu_);
 
-  absl::flat_hash_set<std::shared_ptr<ChunkStore::Chunk>> chunks;
+  internal::flat_hash_set<std::shared_ptr<ChunkStore::Chunk>> chunks;
   std::vector<PrioritizedItem> items;
   for (const auto& entry : data_) {
     items.push_back(entry.second->item);

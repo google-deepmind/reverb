@@ -222,7 +222,7 @@ class Writer {
   std::list<ChunkData> chunks_;
 
   // Keys of the chunks which have been streamed to the server.
-  absl::flat_hash_set<uint64_t> streamed_chunk_keys_;
+  internal::flat_hash_set<uint64_t> streamed_chunk_keys_;
 
   // The key used to reference the items currently in `buffer_`.
   uint64_t next_chunk_key_;

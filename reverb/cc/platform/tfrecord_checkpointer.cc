@@ -184,7 +184,7 @@ absl::Status TFRecordCheckpointer::Save(std::vector<Table*> tables,
   REVERB_RETURN_IF_ERROR(FromTensorflowStatus(
       tensorflow::Env::Default()->RecursivelyCreateDir(dir_path)));
 
-  absl::flat_hash_set<std::shared_ptr<ChunkStore::Chunk>> chunks;
+  internal::flat_hash_set<std::shared_ptr<ChunkStore::Chunk>> chunks;
   std::vector<PrioritizedItem> items;
   {
     RecordWriterUniquePtr table_writer;

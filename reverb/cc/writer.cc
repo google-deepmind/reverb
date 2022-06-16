@@ -492,7 +492,7 @@ bool Writer::WritePendingData() {
   // already been sent. After the items has been inserted we want the server
   // to keep references only to the ones which the client still keeps
   // around.
-  absl::flat_hash_set<uint64_t> item_chunk_keys;
+  internal::flat_hash_set<uint64_t> item_chunk_keys;
   for (const auto& item : pending_items_) {
     for (auto key : internal::GetChunkKeys(item.flat_trajectory())) {
       item_chunk_keys.insert(key);

@@ -153,7 +153,7 @@ class Table {
   struct CheckpointAndChunks {
     PriorityTableCheckpoint checkpoint;
     std::vector<PrioritizedItem> items;
-    absl::flat_hash_set<std::shared_ptr<ChunkStore::Chunk>> chunks;
+    internal::flat_hash_set<std::shared_ptr<ChunkStore::Chunk>> chunks;
   };
 
   // Constructor.
