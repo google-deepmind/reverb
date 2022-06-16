@@ -231,7 +231,6 @@ reverb_cc_library(
         ":reverb_service_cc_proto",
         ":schema_cc_proto",
         ":tensor_compression",
-        "//reverb/cc/platform:hash_map",
         "//reverb/cc/platform:hash_set",
         "//reverb/cc/platform:logging",
         "//reverb/cc/platform:status_macros",

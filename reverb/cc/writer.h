@@ -23,13 +23,11 @@
 #include "grpcpp/impl/codegen/sync_stream.h"
 #include <cstdint>
 #include "absl/base/thread_annotations.h"
-#include "absl/flags/flag.h"
 #include "absl/random/random.h"
 #include "absl/status/status.h"
 #include "absl/strings/string_view.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/types/optional.h"
-#include "reverb/cc/platform/hash_map.h"
 #include "reverb/cc/platform/hash_set.h"
 #include "reverb/cc/platform/thread.h"
 #include "reverb/cc/reverb_service.grpc.pb.h"
@@ -38,7 +36,6 @@
 #include "reverb/cc/support/signature.h"
 #include "tensorflow/core/framework/tensor.h"
 #include "tensorflow/core/framework/tensor_shape.h"
-#include "tensorflow/core/lib/hash/hash.h"
 
 namespace deepmind {
 namespace reverb {
