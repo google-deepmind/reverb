@@ -123,8 +123,8 @@ class SampleToInsertRatio(RateLimiter):
 
     if max_diff - min_diff < 2 * max(1.0, samples_per_insert):
       raise ValueError(
-          'The size of error_buffer must be >= 2 * max(1.0, samples_per_insert) '
-          'as smaller values could completely block samples and/or insert calls.'
+          'The size of error_buffer must be >= max(1.0, samples_per_insert) as '
+          'smaller values could completely block samples and/or insert calls.'
       )
 
     if max_diff < samples_per_insert * min_size_to_sample:
