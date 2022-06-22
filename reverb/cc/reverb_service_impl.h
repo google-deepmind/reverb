@@ -22,15 +22,11 @@
 #include "absl/random/random.h"
 #include "absl/status/status.h"
 #include "absl/strings/string_view.h"
-#include "absl/time/time.h"
 #include "reverb/cc/checkpointing/interface.h"
-#include "reverb/cc/task_worker.h"
 #include "reverb/cc/platform/hash_map.h"
 #include "reverb/cc/reverb_service.grpc.pb.h"
 #include "reverb/cc/reverb_service.pb.h"
 #include "reverb/cc/schema.pb.h"
-#include "reverb/cc/support/periodic_closure.h"
-#include "reverb/cc/support/unbounded_queue.h"
 #include "reverb/cc/table.h"
 
 namespace deepmind {

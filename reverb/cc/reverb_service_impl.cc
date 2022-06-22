@@ -23,7 +23,6 @@
 
 #include "absl/base/thread_annotations.h"
 #include "absl/flags/flag.h"
-#include "absl/memory/memory.h"
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
@@ -33,19 +32,14 @@
 #include "absl/time/time.h"
 #include "reverb/cc/checkpointing/interface.h"
 #include "reverb/cc/platform/hash_map.h"
-#include "reverb/cc/platform/hash_set.h"
 #include "reverb/cc/platform/logging.h"
 #include "reverb/cc/platform/status_macros.h"
-#include "reverb/cc/platform/thread.h"
 #include "reverb/cc/reverb_server_reactor.h"
-#include "reverb/cc/reverb_service.grpc.pb.h"
 #include "reverb/cc/reverb_service.pb.h"
-#include "reverb/cc/sampler.h"
-#include "reverb/cc/support/cleanup.h"
 #include "reverb/cc/support/grpc_util.h"
 #include "reverb/cc/support/trajectory_util.h"
 #include "reverb/cc/support/uint128.h"
-#include "reverb/cc/support/unbounded_queue.h"
+#include "reverb/cc/task_worker.h"
 
 ABSL_FLAG(size_t, reverb_callback_executor_num_threads, 32,
           "Number of threads in the callback executor thread pool.");
