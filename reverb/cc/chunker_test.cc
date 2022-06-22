@@ -765,6 +765,19 @@ TEST(Chunker, DeltaEncodeIsRespected) {
   EXPECT_TRUE(step.lock()->GetChunk()->get()->delta_encoded());
 }
 
+TEST(Chunker, DataUncompressedSizeIsPopulated) {
+  auto chunker = MakeChunker(kIntSpec, /*max_chunk_length=*/2,
+                             /*num_keep_alive_refs=*/2,
+                             /*delta_encode=*/true);
+
+  std::weak_ptr<CellRef> step;
+  REVERB_ASSERT_OK(
+      chunker->Append(MakeZeroTensor<tensorflow::DT_INT32>(kIntSpec),
+                      {/*episode_id=*/1, /*step=*/0}, &step));
+  REVERB_ASSERT_OK(chunker->Flush());
+  EXPECT_GT(step.lock()->GetChunk()->get()->data_uncompressed_size(), 0);
+}
+
 TEST(ValidateChunkerOptions, Valid) {
   auto options =
       absl::make_unique<ConstantChunkerOptions>(/*max_chunk_length=*/2,

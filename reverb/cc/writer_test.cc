@@ -695,6 +695,21 @@ TEST(WriterTest, MultiChunkItemsAreCorrect) {
       SizeIs(1));
 }
 
+TEST(WriterTest, DataUncompressedSizeIsPopulatedInChunks) {
+  std::vector<InsertStreamRequest> requests;
+  auto stub = MakeGoodStub(&requests);
+  Writer writer(stub, /*chunk_length=*/2,
+                /*max_timesteps=*/2, /*delta_encoded=*/true);
+
+  REVERB_EXPECT_OK(writer.Append(MakeTimestep()));
+  REVERB_EXPECT_OK(writer.Append(MakeTimestep()));
+  REVERB_EXPECT_OK(writer.CreateItem("dist", 2, 1.0));
+
+  ASSERT_THAT(requests, SizeIs(1));
+  ASSERT_THAT(requests[0].chunks(), SizeIs(1));
+  EXPECT_GT(requests[0].chunks(0).data_uncompressed_size(), 0);
+}
+
 TEST(WriterTest, WriteTimeStepsMatchingSignature) {
   std::vector<InsertStreamRequest> requests;
   tensorflow::StructuredValue signature =

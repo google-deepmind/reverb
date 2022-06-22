@@ -134,6 +134,16 @@ TEST(ChunkTest, EpisodeId) {
   }
 }
 
+TEST(ChunkTest, UncompressedDataSize_ReturnsOneIfUndefined) {
+  EXPECT_EQ(ChunkStore::Chunk(ChunkData{}).uncompressed_data_size(), 1);
+}
+
+TEST(ChunkTest, UncompressedDataSize_ReturnsValueIfDefined) {
+  ChunkData data;
+  data.set_data_uncompressed_size(1337);
+  EXPECT_EQ(ChunkStore::Chunk(data).uncompressed_data_size(), 1337);
+}
+
 }  // namespace
 }  // namespace reverb
 }  // namespace deepmind

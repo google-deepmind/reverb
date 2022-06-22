@@ -27,6 +27,9 @@ message ChunkData {
   // parse).
   int32 data_tensors_len = 6;
 
+  // Size of the tensors in `data` before compression.
+  int64 data_uncompressed_size = 7;
+
   // True if delta encoding has been applied before compressing data.
   bool delta_encoded = 4;
 

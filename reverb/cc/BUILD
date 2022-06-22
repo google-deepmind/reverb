@@ -151,10 +151,8 @@ reverb_cc_library(
     hdrs = ["chunk_store.h"],
     deps = [
         ":schema_cc_proto",
-        ":tensor_compression",
         "//reverb/cc/platform:hash_map",
-        "//reverb/cc/platform:logging",
-    ] + reverb_tf_deps() + reverb_absl_deps(),
+    ] + reverb_absl_deps(),
 )
 
 reverb_cc_library(

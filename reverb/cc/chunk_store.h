@@ -27,8 +27,6 @@
 #include "absl/types/span.h"
 #include "reverb/cc/platform/hash_map.h"
 #include "reverb/cc/schema.pb.h"
-#include "tensorflow/core/framework/tensor.h"
-#include "tensorflow/core/framework/tensor_shape.h"
 
 namespace deepmind {
 namespace reverb {
@@ -85,6 +83,10 @@ class ChunkStore {
 
     // (Potentially cached) size of `data`.
     size_t DataByteSizeLong() const;
+
+    // Size (bytes) of the tensors before compression. Alias for
+    // `data().data_uncompressed_size()`.
+    size_t uncompressed_data_size() const;
 
     // Alias for `data().sequence_range().episode_id()`.
     uint64_t episode_id() const;

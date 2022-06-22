@@ -427,6 +427,13 @@ absl::Status Writer::Finish(bool retry_on_unavailable) {
   chunk_data.mutable_sequence_range()->set_end(index_within_episode_ +
                                                buffer_.size() - 1);
 
+  // Calculate the size of the data before compression.
+  int64_t total_uncompressed_size = 0;
+  for (const auto& tensor : batched_tensors) {
+    total_uncompressed_size += tensor.TotalBytes();
+  }
+  chunk_data.set_data_uncompressed_size(total_uncompressed_size);
+
   if (delta_encoded_) {
     batched_tensors = DeltaEncodeList(batched_tensors, true);
     chunk_data.set_delta_encoded(true);

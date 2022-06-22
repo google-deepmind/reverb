@@ -22,13 +22,9 @@
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 #include "absl/synchronization/mutex.h"
-#include "absl/time/time.h"
 #include "absl/types/span.h"
 #include "reverb/cc/platform/hash_map.h"
-#include "reverb/cc/platform/logging.h"
 #include "reverb/cc/schema.pb.h"
-#include "reverb/cc/tensor_compression.h"
-#include "tensorflow/core/framework/tensor.h"
 
 namespace deepmind {
 namespace reverb {
@@ -43,6 +39,12 @@ size_t ChunkStore::Chunk::DataByteSizeLong() const {
   absl::call_once(data_byte_size_once_,
                   [this]() { data_byte_size_ = data_.ByteSizeLong(); });
   return data_byte_size_;
+}
+
+size_t ChunkStore::Chunk::uncompressed_data_size() const {
+  // If the field has not been populated then we return 1 to avoid potential
+  // zero division downstream.
+  return std::max<size_t>(data_.data_uncompressed_size(), 1);
 }
 
 uint64_t ChunkStore::Chunk::episode_id() const {

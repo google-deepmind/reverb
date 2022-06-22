@@ -255,6 +255,9 @@ absl::Status Chunker::FlushLocked() {
   REVERB_RETURN_IF_ERROR(
       FromTensorflowStatus(tensorflow::tensor::Concat(buffer_, &batched)));
 
+  // Save the size of the tensor before compression is applied.
+  chunk->set_data_uncompressed_size(batched.TotalBytes());
+
   if (options_->GetDeltaEncode()) {
     batched = DeltaEncode(batched, /*encode=*/true);
     chunk->set_delta_encoded(true);
