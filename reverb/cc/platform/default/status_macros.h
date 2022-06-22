@@ -17,6 +17,7 @@
 
 // IWYU pragma: private
 #include "absl/status/status.h"
+#include "reverb/cc/platform/logging.h"
 
 // Evaluates an expression that produces a `absl::Status`. If the status
 // is not ok, returns it from the current function.
@@ -95,6 +96,6 @@
   }                                                        \
   lhs = std::move(statusor.value())
 
-#define REVERB_CHECK_OK(val) CHECK_EQ(::absl::OkStatus(), (val))
+#define REVERB_CHECK_OK(val) REVERB_CHECK_EQ(::absl::OkStatus(), (val))
 
 #endif  // REVERB_CC_PLATFORM_DEFAULT_STATUS_H_

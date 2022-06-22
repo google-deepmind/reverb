@@ -78,6 +78,7 @@ reverb_cc_library(
         "status_matchers.h",
     ],
     deps = [
+        "//reverb/cc/platform:logging",
         "@com_google_absl//absl/status",
     ],
 )
