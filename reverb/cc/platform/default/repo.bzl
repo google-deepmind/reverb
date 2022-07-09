@@ -252,7 +252,6 @@ def _python_includes_repo_impl(repo_ctx):
 cc_library(
     name = "python_includes",
     hdrs = glob(["python_includes/**/*.h"]),
-    srcs = ["{}"],
     includes = ["python_includes"],
     visibility = ["//visibility:public"],
 )
