@@ -243,16 +243,12 @@ def _python_includes_repo_impl(repo_ctx):
         python_solib.basename,
     )
 
-    # Note, "@python_includes" is a misnomer since we include the
-    # libpythonX.Y.so in the srcs, so we can get access to python's various
-    # symbols at link time.
     repo_ctx.file(
         "BUILD",
         content = """
 cc_library(
     name = "python_includes",
     hdrs = glob(["python_includes/**/*.h"]),
-    srcs = ["{}"],
     includes = ["python_includes"],
     visibility = ["//visibility:public"],
 )
