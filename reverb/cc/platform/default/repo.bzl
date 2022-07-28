@@ -346,11 +346,11 @@ def googletest_deps():
 def absl_deps():
     http_archive(
         name = "com_google_absl",
-        sha256 = "237e2e6aec7571ae90d961d02de19f56861a7417acbbc15713b8926e39d461ed",  # SHARED_ABSL_SHA
-        strip_prefix = "abseil-cpp-215105818dfde3174fe799600bb0f3cae233d0bf",
+        sha256 = "94aef187f688665dc299d09286bfa0d22c4ecb86a80b156dff6aabadc5a5c26d",  # SHARED_ABSL_SHA
+        strip_prefix = "abseil-cpp-273292d1cfc0a94a65082ee350509af1d113344d",
         urls = [
-            "https://storage.googleapis.com/mirror.tensorflow.org/github.com/abseil/abseil-cpp/archive/215105818dfde3174fe799600bb0f3cae233d0bf.tar.gz",
-            "https://github.com/abseil/abseil-cpp/archive/215105818dfde3174fe799600bb0f3cae233d0bf.tar.gz",
+            "https://storage.googleapis.com/mirror.tensorflow.org/github.com/abseil/abseil-cpp/archive/273292d1cfc0a94a65082ee350509af1d113344d.tar.gz",
+            "https://github.com/abseil/abseil-cpp/archive/273292d1cfc0a94a65082ee350509af1d113344d.tar.gz",
         ],
     )
 
