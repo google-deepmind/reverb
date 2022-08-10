@@ -13,7 +13,7 @@ build:manylinux2014 --crosstool_top=//third_party/toolchains/preconfig/ubuntu16.
 
 build -c opt
 build --cxxopt="-std=c++17"
-# We can emove this flag (we keep it explicit for now)
+# We can remove this flag (we keep it explicit for now)
 build --cxxopt="-D_GLIBCXX_USE_CXX11_ABI=1"
 build --auto_output_filter=subpackages
 build --copt="-Wall" --copt="-Wno-sign-compare"
