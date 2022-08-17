@@ -38,23 +38,23 @@ def reverb_kernel_library(name, srcs = [], deps = [], **kwargs):
         **kwargs
     )
 
+def _removesuffix(x, txt):
+    """Backport of x._removesuffix(txt) for Python version earlier than 3.9."""
+    if x.endswith(txt):
+        return x[:-len(txt)]
+    return x
+
 def _normalize_proto(x):
     if x.endswith("_proto"):
-        x = x.rstrip("_proto")
+        x = _removesuffix(x, "_proto")
     if x.endswith("_cc"):
-        x = x.rstrip("_cc")
+        x = _removesuffix(x, "_cc")
     if x.endswith("_pb2"):
-        x = x.rstrip("_pb2")
+        x = _removesuffix(x, "_pb2")
     return x
 
 def _filegroup_name(x):
     return _normalize_proto(x) + "_filegroup"
-
-def _strip_proto_suffix(x):
-    # Workaround for bug that str.rstrip(".END") takes off more than just ".END"
-    if x.endswith(".proto"):
-        x = x[:-6]
-    return x
 
 def reverb_cc_proto_library(name, srcs = [], deps = [], **kwargs):
     """Build a proto cc_library.
@@ -76,8 +76,8 @@ def reverb_cc_proto_library(name, srcs = [], deps = [], **kwargs):
       deps: Any reverb_cc_proto_library targets.
       **kwargs: Any additional args for the cc_library rule.
     """
-    gen_srcs = [_strip_proto_suffix(x) + ".pb.cc" for x in srcs]
-    gen_hdrs = [_strip_proto_suffix(x) + ".pb.h" for x in srcs]
+    gen_srcs = [_removesuffix(x, ".proto") + ".pb.cc" for x in srcs]
+    gen_hdrs = [_removesuffix(x, ".proto") + ".pb.h" for x in srcs]
     src_paths = ["$(location {})".format(x) for x in srcs]
     dep_srcs = []
     for x in deps:
@@ -134,7 +134,7 @@ def reverb_py_proto_library(name, srcs = [], deps = [], **kwargs):
 
     This rule does three things:
 
-    1) Create a filegroup with name `name` that contains `srcs`
+    1) Create a filegroup with name `<name>_filegroup` that contains `srcs`
        and any sources from deps named "x_proto" or "x_py_proto".
 
     2) Uses protoc to compile srcs to _pb2.py files, allowing any
@@ -149,7 +149,7 @@ def reverb_py_proto_library(name, srcs = [], deps = [], **kwargs):
       deps: Any reverb_cc_proto_library targets.
       **kwargs: Any additional args for the cc_library rule.
     """
-    gen_srcs = [_strip_proto_suffix(x) + "_pb2.py" for x in srcs]
+    gen_srcs = [_removesuffix(x, ".proto") + "_pb2.py" for x in srcs]
     src_paths = ["$(location {})".format(x) for x in srcs]
     proto_deps = []
     py_deps = []
@@ -212,8 +212,8 @@ def reverb_cc_grpc_library(
       generate_mocks: If true, creates mock headers for each source.
       **kwargs: Any additional args for the cc_library rule.
     """
-    gen_srcs = [x.rstrip(".proto") + ".grpc.pb.cc" for x in srcs]
-    gen_hdrs = [x.rstrip(".proto") + ".grpc.pb.h" for x in srcs]
+    gen_srcs = [_removesuffix(x, ".proto") + ".grpc.pb.cc" for x in srcs]
+    gen_hdrs = [_removesuffix(x, ".proto") + ".grpc.pb.h" for x in srcs]
     proto_src_deps = []
     for x in deps:
         if x.endswith("_proto"):
@@ -221,7 +221,7 @@ def reverb_cc_grpc_library(
     src_paths = ["$(location {})".format(x) for x in srcs]
 
     if generate_mocks:
-        gen_mocks = [x.rstrip(".proto") + "_mock.grpc.pb.h" for x in srcs]
+        gen_mocks = [_removesuffix(x, ".proto") + "_mock.grpc.pb.h" for x in srcs]
     else:
         gen_mocks = []
 
