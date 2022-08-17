@@ -47,6 +47,9 @@ def _normalize_proto(x):
         x = x.rstrip("_pb2")
     return x
 
+def _filegroup_name(x):
+    return _normalize_proto(x) + "_filegroup"
+
 def _strip_proto_suffix(x):
     # Workaround for bug that str.rstrip(".END") takes off more than just ".END"
     if x.endswith(".proto"):
@@ -58,7 +61,7 @@ def reverb_cc_proto_library(name, srcs = [], deps = [], **kwargs):
 
     This rule does three things:
 
-    1) Create a filegroup with name `name` that contains `srcs`
+    1) Create a filegroup with name `<name>_filegroup` that contains `srcs`
        and any sources from deps named "x_proto" or "x_cc_proto".
 
     2) Uses protoc to compile srcs to .h/.cc files, allowing any
@@ -79,9 +82,9 @@ def reverb_cc_proto_library(name, srcs = [], deps = [], **kwargs):
     dep_srcs = []
     for x in deps:
         if x.endswith("_proto"):
-            dep_srcs.append(_normalize_proto(x))
+            dep_srcs.append(_filegroup_name(x))
     native.filegroup(
-        name = _normalize_proto(name),
+        name = _filegroup_name(name),
         srcs = srcs + dep_srcs,
         **kwargs
     )
@@ -152,11 +155,11 @@ def reverb_py_proto_library(name, srcs = [], deps = [], **kwargs):
     py_deps = []
     for x in deps:
         if x.endswith("_proto"):
-            proto_deps.append(_normalize_proto(x))
+            proto_deps.append(_filegroup_name(x))
         else:
             py_deps.append(x)
     native.filegroup(
-        name = _normalize_proto(name),
+        name = _filegroup_name(name),
         srcs = srcs + proto_deps,
         **kwargs
     )
@@ -214,7 +217,7 @@ def reverb_cc_grpc_library(
     proto_src_deps = []
     for x in deps:
         if x.endswith("_proto"):
-            proto_src_deps.append(_normalize_proto(x))
+            proto_src_deps.append(_filegroup_name(x))
     src_paths = ["$(location {})".format(x) for x in srcs]
 
     if generate_mocks:
