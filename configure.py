@@ -55,6 +55,12 @@ def main():
       type=str,
       default=os.path.abspath(os.path.dirname(__file__)),
       help='The absolute path to your active Bazel workspace.')
+  parser.add_argument(
+      '--force_defaults',
+      type=bool,
+      default=False,
+      help='Whether to force the usage of default values, skipping manual selection. This can be useful for automated scripts'
+  )
   args = parser.parse_args()
 
   _REVERB_WORKSPACE_ROOT = args.workspace
@@ -66,7 +72,7 @@ def main():
   environ_cp = dict(os.environ)
 
   reset_configure_bazelrc()
-  setup_python(environ_cp)
+  setup_python(environ_cp, args.force_defaults)
 
 
 def get_from_env_or_user_or_default(environ_cp, var_name, ask_for_var,
@@ -87,14 +93,14 @@ def get_from_env_or_user_or_default(environ_cp, var_name, ask_for_var,
   """
   var = environ_cp.get(var_name)
   if not var:
-    var = get_input(ask_for_var)
+    var = _get_input(ask_for_var)
     print('\n')
   if not var:
     var = var_default
   return var
 
 
-def get_input(question):
+def _get_input(question):
   try:
     try:
       answer = raw_input(question)
@@ -105,24 +111,37 @@ def get_input(question):
   return answer
 
 
-def setup_python(environ_cp):
-  """Setup python related env variables."""
+def setup_python(environ_cp, force_defaults: bool):
+  """Setup python related env variables.
+
+  Args:
+    environ_cp: The environment dict, as `dict(os.environ)`.
+    force_defaults: If True, we won't be asking for user inputs. Suited for
+      scripts.
+  """
   # Get PYTHON_BIN_PATH, default is the current running python.
   default_python_bin_path = sys.executable
   ask_python_bin_path = ('Please specify the location of python. [Default is '
                          '%s]: ') % default_python_bin_path
   while True:
-    python_bin_path = get_from_env_or_user_or_default(environ_cp,
-                                                      'PYTHON_BIN_PATH',
-                                                      ask_python_bin_path,
-                                                      default_python_bin_path)
+    if force_defaults:
+      python_bin_path = default_python_bin_path
+      print(f'Using Python binary {python_bin_path}')
+    else:
+      python_bin_path = get_from_env_or_user_or_default(
+          environ_cp, 'PYTHON_BIN_PATH', ask_python_bin_path,
+          default_python_bin_path)
     # Check if the path is valid
     if os.path.isfile(python_bin_path) and os.access(python_bin_path, os.X_OK):
       break
     elif not os.path.exists(python_bin_path):
       print('Invalid python path: %s cannot be found.' % python_bin_path)
+      if force_defaults:
+        return
     else:
       print('%s is not executable.  Is it the python binary?' % python_bin_path)
+      if force_defaults:
+        return
     environ_cp['PYTHON_BIN_PATH'] = ''
 
   # Get PYTHON_LIB_PATH
@@ -135,11 +154,15 @@ def setup_python(environ_cp):
       print('Found possible Python library paths:\n  %s' %
             '\n  '.join(python_lib_paths))
       default_python_lib_path = python_lib_paths[0]
-      python_lib_path = get_input(
-          'Please input the desired Python library path to use.  '
-          'Default is [%s]\n' % python_lib_paths[0])
-      if not python_lib_path:
+      if force_defaults:
         python_lib_path = default_python_lib_path
+        print(f'Using Python lib {default_python_lib_path}')
+      else:
+        python_lib_path = _get_input(
+            'Please input the desired Python library path to use.  '
+            'Default is [%s]\n' % default_python_lib_path)
+        if not python_lib_path:
+          python_lib_path = default_python_lib_path
     environ_cp['PYTHON_LIB_PATH'] = python_lib_path
 
   # Set-up env variables used by python_configure.bzl
@@ -157,9 +180,8 @@ def setup_python(environ_cp):
       write_action_env_to_bazelrc('PYTHONPATH', environ_cp.get('PYTHONPATH'))
 
   # Write tools/python_bin_path.sh
-  with open(
-      os.path.join(_REVERB_WORKSPACE_ROOT, 'python_bin_path.sh'),
-      'w') as f:
+  with open(os.path.join(_REVERB_WORKSPACE_ROOT, 'python_bin_path.sh'),
+            'w') as f:
     f.write('export PYTHON_BIN_PATH="%s"' % python_bin_path)
 
 
@@ -179,8 +201,8 @@ def get_python_path(environ_cp, python_bin_path):
     library_paths = [
         run_shell([
             python_bin_path, '-c',
-            'from distutils.sysconfig import get_python_lib;'
-            'print(get_python_lib())'
+            ('from distutils.sysconfig import get_python_lib;'
+             'print(get_python_lib())')
         ])
     ]
 
@@ -228,6 +250,7 @@ def write_to_bazelrc(line):
 def reset_configure_bazelrc():
   """Reset file that contains customized config settings."""
   open(_REVERB_BAZELRC, 'w').close()
+
 
 if __name__ == '__main__':
   main()
