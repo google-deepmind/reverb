@@ -16,6 +16,8 @@
 
 import datetime
 import itertools
+import re
+
 from typing import Any, Iterator, List, MutableMapping, Optional, Sequence, Tuple, Union
 
 import numpy as np
@@ -297,11 +299,29 @@ class TrajectoryWriter:
             f'in the active step by previous (partial) append call and thus '
             f'must be omitted or set to None but got: {column_data}')
 
-    # Flatten the data and pass it to the C++ writer for column wise append.
-    if partial_step:
-      flat_column_data_references = self._writer.AppendPartial(flat_column_data)
-    else:
-      flat_column_data_references = self._writer.Append(flat_column_data)
+    try:
+      # Flatten the data and pass it to the C++ writer for column wise append.
+      if partial_step:
+        flat_column_data_references = self._writer.AppendPartial(
+            flat_column_data)
+      else:
+        flat_column_data_references = self._writer.Append(flat_column_data)
+    except ValueError as e:
+      # If it wasn't a bad dtype or shape error then we'll just propagate the
+      # error as is.
+      column_idx = re.findall(r' for column (\d+)', str(e))
+      if len(column_idx) != 1:
+        raise
+
+      # The C++ layer will raise an error referencing the invalid column using
+      # the index of the flattened columns. This is quite hard to interpret so
+      # we'll reformat the error message to include the path for the field in
+      # the original structure instead.
+      new_message = str(e).replace(
+          f'for column {column_idx[0]}',
+          f'for column {self._get_path_for_column_index(int(column_idx[0]))}')
+
+      raise ValueError(new_message) from e
 
     # Append references to respective columns. Note that we use the expanded
     # structure in order to populate the columns missing from the data with

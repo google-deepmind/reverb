@@ -14,6 +14,7 @@
 
 """Tests for reverb.trajectory_writer."""
 
+import copy
 from typing import Optional
 from unittest import mock
 
@@ -469,6 +470,90 @@ class TrajectoryColumnTest(parameterized.TestCase):
   def tearDownClass(cls):
     super().tearDownClass()
     cls._server.stop()
+
+  def test_dtype_of_columns_are_validated(self):
+    writer = self.client.trajectory_writer(num_keep_alive_refs=10)
+
+    # Define the structure with the first append.
+    data = {
+        'scalar': 1,
+        'nest': {
+            'sub': 1.0,
+            'sub_list': [1, 2, 3],
+        },
+    }
+    writer.append(data)
+
+    # Modify the type of columns and check that the error message references the
+    # correct path.
+    with self.assertRaisesRegex(
+        ValueError,
+        r'Tensor of wrong dtype provided for column \(\'scalar\',\)\. Got '
+        r'double but expected int64\.'):
+      bad_scalar = copy.deepcopy(data)
+      bad_scalar['scalar'] = 1.0
+      writer.append(bad_scalar)
+
+    with self.assertRaisesRegex(
+        ValueError,
+        r'Tensor of wrong dtype provided for column \(\'nest\', \'sub\'\)\. Got '
+        r'int64 but expected double\.'):
+      bad_nest_scalar = copy.deepcopy(data)
+      bad_nest_scalar['nest']['sub'] = 1
+      writer.append(bad_nest_scalar)
+
+    with self.assertRaisesRegex(
+        ValueError,
+        r'Tensor of wrong dtype provided for column '
+        r'\(\'nest\', \'sub_list\', 1\)\. Got double but expected int64\.'):
+      bad_nest_list = copy.deepcopy(data)
+      bad_nest_list['nest']['sub_list'][1] = 2.0
+      writer.append(bad_nest_list)
+
+  def test_shapes_of_columns_are_validated(self):
+    writer = self.client.trajectory_writer(num_keep_alive_refs=10)
+
+    # Define the structure with the first append.
+    data = {
+        'scalar': 1,
+        'nest': {
+            'sub': np.array([1.0, 2.0]),
+            'sub_list': [
+                np.arange(3),
+                np.arange(3),
+                np.arange(3),
+            ],
+        },
+    }
+    writer.append(data)
+
+    # Modify the shapes of columns and check that the error message references
+    # the correct path.
+    with self.assertRaisesRegex(
+        ValueError,
+        r'Tensor of incompatible shape provided for column \(\'scalar\',\)\. '
+        r'Got \[2\] which is incompatible with \[\]\.'):
+      bad_scalar = copy.deepcopy(data)
+      bad_scalar['scalar'] = np.arange(2)
+      writer.append(bad_scalar)
+
+    with self.assertRaisesRegex(
+        ValueError,
+        r'Tensor of incompatible shape provided for column '
+        r'\(\'nest\', \'sub\'\)\. Got \[1,2\] which is incompatible with '
+        r'\[2\]\.'):
+      bad_nest = copy.deepcopy(data)
+      bad_nest['nest']['sub'] = data['nest']['sub'].reshape([1, 2])
+      writer.append(bad_nest)
+
+    with self.assertRaisesRegex(
+        ValueError,
+        r'Tensor of incompatible shape provided for column '
+        r'\(\'nest\', \'sub_list\', 0\)\. Got \[10\] which is incompatible '
+        r'with \[3\]\.'):
+      bad_nest_list = copy.deepcopy(data)
+      bad_nest_list['nest']['sub_list'][0] = np.arange(10)
+      writer.append(bad_nest_list)
 
   def test_numpy(self):
     writer = self.client.trajectory_writer(num_keep_alive_refs=10)
