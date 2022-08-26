@@ -538,9 +538,7 @@ def reverb_py_test(
 def reverb_pybind_deps():
     return [
         "@pybind11",
-        "@tensorflow_includes//:includes",
-        "@tensorflow_solib//:framework_lib",
-    ]
+    ] + reverb_tf_deps()
 
 def reverb_tf_ops_visibility():
     return [
@@ -548,10 +546,14 @@ def reverb_tf_ops_visibility():
     ]
 
 def reverb_tf_deps():
+    # tensorflow_includes doesn't include absl headers, so we bring in
+    # ours. Note that our absl deps' version must match that of TF
+    # and we need to include all the absl headers that tensorflow
+    # includes rely on.
     return [
         "@tensorflow_includes//:includes",
         "@tensorflow_solib//:framework_lib",
-    ]
+    ] + reverb_absl_deps()
 
 def reverb_grpc_deps():
     return ["@com_github_grpc_grpc//:grpc++"]
