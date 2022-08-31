@@ -328,6 +328,7 @@ def github_grpc_deps():
         strip_prefix = "grpc-reverb_fix",
         urls = [
             # Patched version of GRPC / boringSSL to make it compile with old TF GCC compiler
+            # (see b/244280763 for details).
             "https://github.com/qstanczyk/grpc/archive/reverb_fix.tar.gz",
         ],
     )
