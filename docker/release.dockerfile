@@ -65,7 +65,6 @@ ARG pip_dependencies=' \
       contextlib2 \
       dataclasses \
       dm-tree>=0.1.5 \
-      google-api-python-client \
       h5py \
       mock \
       numpy \
