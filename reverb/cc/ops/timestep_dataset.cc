@@ -179,7 +179,7 @@ class ReverbTimestepDatasetOp : public tensorflow::data::DatasetOpKernel {
     tensorflow::Status InputDatasets(
         std::vector<const DatasetBase*>* inputs) const override {
       inputs->clear();
-      return tensorflow::Status::OK();
+      return tensorflow::OkStatus();
     }
 
    protected:
@@ -229,7 +229,7 @@ class ReverbTimestepDatasetOp : public tensorflow::data::DatasetOpKernel {
           },
           output));
 
-      return tensorflow::Status::OK();
+      return tensorflow::OkStatus();
     }
 
    private:
@@ -307,17 +307,17 @@ class ReverbTimestepDatasetOp : public tensorflow::data::DatasetOpKernel {
           *end_of_sequence = false;
           *out_tensors = Sampler::WithInfoTensors(*info, std::move(data));
           rate_limited_ = info->rate_limited();
-          return tensorflow::Status::OK();
+          return tensorflow::OkStatus();
         } else if (sampler_options_.rate_limiter_timeout <
                        absl::InfiniteDuration() &&
                    errors::IsRateLimiterTimeout(status)) {
           *end_of_sequence = true;
-          return tensorflow::Status::OK();
+          return tensorflow::OkStatus();
         } else if (absl::IsOutOfRange(status) &&
                    sampler_options_.max_samples > 0) {
           // `max_samples` samples have already been returned by the iterator.
           *end_of_sequence = true;
-          return tensorflow::Status::OK();
+          return tensorflow::OkStatus();
         } else {
           return ToTensorflowStatus(status);
         }
