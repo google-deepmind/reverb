@@ -23,6 +23,9 @@ namespace deepmind {
 namespace reverb {
 namespace pybind {
 
+// One MUST initialize Numpy, e.g. within the Pybind11 module definition before
+// calling C Numpy functions.
+// See https://pythonextensionpatterns.readthedocs.io/en/latest/cpp_and_numpy.html
 void ImportNumpy();
 
 tensorflow::Status TensorToNdArray(const tensorflow::Tensor &tensor,
