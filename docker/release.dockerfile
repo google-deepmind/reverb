@@ -81,9 +81,9 @@ RUN for python in ${python_version}; do \
 RUN rm get-pip.py
 
 # Removes existing links so they can be created to point where we expect.
-RUN rm /dt7/usr/include/x86_64-linux-gnu/python3.8
-RUN rm /dt7/usr/include/x86_64-linux-gnu/python3.9
-RUN rm /dt7/usr/include/x86_64-linux-gnu/python3.10
+RUN rm -f /dt7/usr/include/x86_64-linux-gnu/python3.8
+RUN rm -f /dt7/usr/include/x86_64-linux-gnu/python3.9
+RUN rm -f /dt7/usr/include/x86_64-linux-gnu/python3.10
 
 # Needed until this is included in the base TF image.
 RUN ln -s "/usr/include/x86_64-linux-gnu/python3.8" "/dt7/usr/include/x86_64-linux-gnu/python3.8"
