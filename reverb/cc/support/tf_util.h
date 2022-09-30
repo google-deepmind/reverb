@@ -25,7 +25,7 @@ namespace reverb {
 // Converts a tensorflow::Status object to an absl::Status object.
 inline absl::Status FromTensorflowStatus(const tensorflow::Status& status) {
   if (status.ok()) {
-    return absl::OkStatus();
+    return absl::Status();
   } else {
     return absl::Status(static_cast<absl::StatusCode>(status.code()),
                         status.error_message());
@@ -35,7 +35,7 @@ inline absl::Status FromTensorflowStatus(const tensorflow::Status& status) {
 // Converts an absl::Status object to a tensorflow::Status object.
 inline tensorflow::Status ToTensorflowStatus(const absl::Status& status) {
   if (status.ok()) {
-    return tensorflow::Status::OK();
+    return tensorflow::Status();
   } else {
     return tensorflow::Status(
         static_cast<tensorflow::error::Code>(status.code()), status.message());
