@@ -22,4 +22,4 @@ set -eu
 
 
 # Call the C++ compiler
-/dt7/usr/bin/gcc "$@"
+/dt9/usr/bin/gcc "$@"

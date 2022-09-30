@@ -93,12 +93,12 @@ def _windows_msvc_impl(ctx):
     builtin_sysroot = None
 
     cxx_builtin_include_directories = [
-        "/dt7/usr/lib/gcc/x86_64-pc-linux-gnu/7/include",
-        "/dt7/usr/lib/gcc/x86_64-pc-linux-gnu/7/include-fixed",
-        "/dt7/usr/include",
-        "/dt7/usr/include/c++/7",
-        "/dt7/usr/include/c++/7/x86_64-pc-linux-gnu",
-        "/dt7/usr/include/c++/7/backward",
+        "/dt9/usr/lib/gcc/x86_64-pc-linux-gnu/9/include",
+        "/dt9/usr/lib/gcc/x86_64-pc-linux-gnu/9/include-fixed",
+        "/dt9/usr/include",
+        "/dt9/usr/include/c++/9",
+        "/dt9/usr/include/c++/9/x86_64-pc-linux-gnu",
+        "/dt9/usr/include/c++/9/backward",
     ]
 
     cpp_link_nodeps_dynamic_library_action = action_config(
@@ -1351,7 +1351,7 @@ def _impl(ctx):
         tool_path(name = "ar", path = "/usr/bin/ar"),
         tool_path(name = "ld", path = "/usr/bin/ld"),
         tool_path(name = "cpp", path = "/usr/bin/cpp"),
-        tool_path(name = "gcc", path = "/dt7/usr/bin/gcc"),
+        tool_path(name = "gcc", path = "/dt9/usr/bin/gcc"),
         tool_path(name = "dwp", path = "/usr/bin/dwp"),
         tool_path(name = "gcov", path = "/usr/bin/gcov"),
         tool_path(name = "nm", path = "/usr/bin/nm"),
@@ -1361,12 +1361,12 @@ def _impl(ctx):
     ]
 
     cxx_builtin_include_directories = [
-        "/dt7/usr/lib/gcc/x86_64-pc-linux-gnu/7/include",
-        "/dt7/usr/lib/gcc/x86_64-pc-linux-gnu/7/include-fixed",
-        "/dt7/usr/include",
-        "/dt7/usr/include/c++/7",
-        "/dt7/usr/include/c++/7/x86_64-pc-linux-gnu",
-        "/dt7/usr/include/c++/7/backward",
+        "/dt9/usr/lib/gcc/x86_64-pc-linux-gnu/9/include",
+        "/dt9/usr/lib/gcc/x86_64-pc-linux-gnu/9/include-fixed",
+        "/dt9/usr/include",
+        "/dt9/usr/include/c++/7",
+        "/dt9/usr/include/c++/9/x86_64-pc-linux-gnu",
+        "/dt9/usr/include/c++/9/backward",
     ]
 
     action_configs = []
@@ -1401,7 +1401,7 @@ def _impl(ctx):
         "-fuse-ld=gold",
         "-Wl,-no-as-needed",
         "-Wl,-z,relro,-z,now",
-        "-B/dt7/usr/bin",
+        "-B/dt9/usr/bin",
         "-pass-exit-codes",
         "-lstdc++",
         "-lm",
@@ -1713,7 +1713,7 @@ def _impl(ctx):
         target_system_name = "x86_64-unknown-linux-gnu",
         target_cpu = "k8",
         target_libc = "glibc_2.19",
-        compiler = "/dt7/usr/bin/gcc",
+        compiler = "/dt9/usr/bin/gcc",
         abi_version = "gcc",
         abi_libc_version = "glibc_2.19",
         tool_paths = tool_paths,

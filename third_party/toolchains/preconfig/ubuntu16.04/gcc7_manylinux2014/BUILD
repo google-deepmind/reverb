@@ -45,7 +45,7 @@ filegroup(
 cc_toolchain_suite(
     name = "toolchain",
     toolchains = {
-        "k8|/dt7/usr/bin/gcc": ":cc-compiler-k8",
+        "k8|/dt9/usr/bin/gcc": ":cc-compiler-k8",
         "k8": ":cc-compiler-k8",
         "armeabi-v7a|compiler": ":cc-compiler-armeabi-v7a",
         "armeabi-v7a": ":cc-compiler-armeabi-v7a",
@@ -69,7 +69,7 @@ cc_toolchain(
 
 cc_toolchain_config(
     name = "linux_gnu_x86",
-    compiler = "/dt7/usr/bin/gcc",
+    compiler = "/dt9/usr/bin/gcc",
     cpu = "k8",
 )
 

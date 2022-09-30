@@ -81,14 +81,27 @@ RUN for python in ${python_version}; do \
 RUN rm get-pip.py
 
 # Removes existing links so they can be created to point where we expect.
-RUN rm -f /dt7/usr/include/x86_64-linux-gnu/python3.8
-RUN rm -f /dt7/usr/include/x86_64-linux-gnu/python3.9
-RUN rm -f /dt7/usr/include/x86_64-linux-gnu/python3.10
+RUN rm /dt9/usr/include/x86_64-linux-gnu/python3.8
+RUN rm /dt9/usr/include/x86_64-linux-gnu/python3.9
+RUN rm /dt9/usr/include/x86_64-linux-gnu/python3.10
 
 # Needed until this is included in the base TF image.
-RUN ln -s "/usr/include/x86_64-linux-gnu/python3.8" "/dt7/usr/include/x86_64-linux-gnu/python3.8"
-RUN ln -s "/usr/include/x86_64-linux-gnu/python3.9" "/dt7/usr/include/x86_64-linux-gnu/python3.9"
-RUN ln -s "/usr/include/x86_64-linux-gnu/python3.10" "/dt7/usr/include/x86_64-linux-gnu/python3.10"
+RUN ln -s "/usr/include/x86_64-linux-gnu/python3.8" "/dt9/usr/include/x86_64-linux-gnu/python3.8"
+RUN ln -s "/usr/include/x86_64-linux-gnu/python3.9" "/dt9/usr/include/x86_64-linux-gnu/python3.9"
+RUN ln -s "/usr/include/x86_64-linux-gnu/python3.10" "/dt9/usr/include/x86_64-linux-gnu/python3.10"
+
+# bazel build -c opt --copt=-mavx --config=manylinux2014 --test_output=errors //...
+
+# Update binutils to avoid linker(gold) issue. See b/227299577#comment9
+RUN wget http://old-releases.ubuntu.com/ubuntu/pool/main/b/binutils/binutils_2.35.1-1ubuntu1_amd64.deb \
+ && wget http://old-releases.ubuntu.com/ubuntu/pool/main/b/binutils/binutils-x86-64-linux-gnu_2.35.1-1ubuntu1_amd64.deb \
+ && wget http://old-releases.ubuntu.com/ubuntu/pool/main/b/binutils/binutils-common_2.35.1-1ubuntu1_amd64.deb \
+ && wget http://old-releases.ubuntu.com/ubuntu/pool/main/b/binutils/libbinutils_2.35.1-1ubuntu1_amd64.deb
+
+RUN dpkg -i binutils_2.35.1-1ubuntu1_amd64.deb \
+            binutils-x86-64-linux-gnu_2.35.1-1ubuntu1_amd64.deb \
+            binutils-common_2.35.1-1ubuntu1_amd64.deb \
+            libbinutils_2.35.1-1ubuntu1_amd64.deb
 
 WORKDIR "/tmp/reverb"
 
