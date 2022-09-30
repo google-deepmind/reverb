@@ -80,12 +80,12 @@ $ docker run --rm --mount "type=bind,src=$REVERB_DIR,dst=/tmp/reverb" \
    Use the `python_version` arg to configure the container with 3.7 or 3.8.
 
   ```shell
-  $ docker build --tag tensorflow:reverb - < "$REVERB_DIR/docker/dev.dockerfile"
+  $ docker build --tag tensorflow:reverb - < "$REVERB_DIR/docker/release.dockerfile"
 
   # Alternatively you can build the container with Python 3.8 support.
   $ docker build --tag tensorflow:reverb \
       --build-arg python_version=python3.8 \
-      - < "$REVERB_DIR/docker/dev.dockerfile"
+      - < "$REVERB_DIR/docker/release.dockerfile"
   ```
 
 1. Run and enter the Docker container.
