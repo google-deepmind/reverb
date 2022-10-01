@@ -14,9 +14,8 @@
 
 """Pytype helpers."""
 
-import collections
 import dataclasses
-from typing import Any, Iterable, Mapping, Optional, Union, get_type_hints
+from typing import Iterable, Mapping, Optional, Union
 
 from reverb import pybind
 import tensorflow.compat.v1 as tf
@@ -38,13 +37,6 @@ SelectorType = Union[Fifo, Heap, Lifo, Prioritized, Uniform]
 # Note that this is effectively treated as `Any`; see b/109648354.
 SpecNest = Union[
     tf.TensorSpec, Iterable['SpecNest'], Mapping[str, 'SpecNest']]  # pytype: disable=not-supported-yet
-
-_table_info_proto_types = get_type_hints(schema_pb2.TableInfo) or {}
-
-_table_info_type_dict = collections.OrderedDict(
-    (descr.name, _table_info_proto_types.get(descr.name, Any))
-    for descr in schema_pb2.TableInfo.DESCRIPTOR.fields)
-_table_info_type_dict['signature'] = Optional[SpecNest]
 
 
 @dataclasses.dataclass
