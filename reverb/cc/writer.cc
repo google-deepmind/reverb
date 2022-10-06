@@ -363,12 +363,14 @@ absl::Status Writer::Close(bool retry_on_unavailable) {
     return absl::FailedPreconditionError(
         "Calling method Close after Close has been called");
   }
+  bool server_unavailable = false;
   if (!pending_items_.empty()) {
     auto status = Finish(retry_on_unavailable);
     if (!status.ok()) {
       if (!absl::IsUnavailable(status) || retry_on_unavailable) {
         return status;
       }
+      server_unavailable = true;
       // if retries are disabled and the server is Unavailable, we continue and
       // set the Writer as closed.
       REVERB_LOG(REVERB_INFO)
@@ -376,9 +378,14 @@ absl::Status Writer::Close(bool retry_on_unavailable) {
     }
   }
   if (stream_) {
-    stream_->WritesDone();
-    REVERB_LOG_IF(REVERB_ERROR, !ConfirmItems(0))
-        << "Unable to confirm that items were written.";
+    if (!server_unavailable){
+      // If the stream was closed on the server side, we cannot write on the
+      // stream, but there is no good way of checking if the stream is closed
+      // from the client without calling Read or Finish.
+      stream_->WritesDone();
+      REVERB_LOG_IF(REVERB_ERROR, !ConfirmItems(0))
+          << "Unable to confirm that items were written.";
+    }
     auto confirmation_status = StopItemConfirmationWorker();
     REVERB_LOG_IF(REVERB_ERROR, !confirmation_status.ok())
         << "Error when stopping the confirmation worker: "
