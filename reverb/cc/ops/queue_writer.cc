@@ -142,7 +142,7 @@ absl::Status QueueWriter::CreateItem(
           tensorflow::tensor::Concat(column_tensors, &out[col_idx])));
     }
 
-    if (out[col_idx].IsAligned()) {
+    if (!out[col_idx].IsAligned()) {
       out[col_idx] = tensorflow::tensor::DeepCopy(out[col_idx]);
     }
   }
