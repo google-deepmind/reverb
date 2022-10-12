@@ -104,6 +104,30 @@ class TestSampleToInsertRatio(parameterized.TestCase):
       rate_limiters.SampleToInsertRatio(samples_per_insert, min_size_to_sample,
                                         error_buffer)
 
+  @parameterized.named_parameters(
+      {
+          'testcase_name': 'valid',
+          'samples_per_insert': 1,
+          'want': None,
+      },
+      {
+          'testcase_name': 'zero',
+          'samples_per_insert': 0,
+          'want': ValueError,
+      },
+      {
+          'testcase_name': 'negative',
+          'samples_per_insert': -1,
+          'want': ValueError,
+      },
+  )
+  def test_validates_samples_per_insert(self, samples_per_insert, want):
+    if want:
+      with self.assertRaises(want):
+        rate_limiters.SampleToInsertRatio(samples_per_insert, 10, 100)
+    else:
+      rate_limiters.SampleToInsertRatio(samples_per_insert, 10, 100)
+
 
 class TestMinSize(parameterized.TestCase):
 

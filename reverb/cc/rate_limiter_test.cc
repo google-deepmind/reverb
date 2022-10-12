@@ -377,6 +377,11 @@ TEST(RateLimiterDeathTest, DiesIfMinSizeToSampleNonPositive) {
   ASSERT_DEATH(RateLimiter(1, -1, 0, 5), "");
 }
 
+TEST(RateLimiterDeathTest, DiesIfSamplesPerInsertNonPositive) {
+  ASSERT_DEATH(RateLimiter(0, 1, -100, 100), "");
+  ASSERT_DEATH(RateLimiter(-1, 1, -100, 100), "");
+}
+
 }  // namespace
 }  // namespace reverb
 }  // namespace deepmind

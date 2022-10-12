@@ -57,6 +57,7 @@ RateLimiter::RateLimiter(double samples_per_insert, int64_t min_size_to_sample,
       samples_(0),
       deletes_(0) {
   REVERB_CHECK_GT(min_size_to_sample, 0);
+  REVERB_CHECK_GT(samples_per_insert, 0);
 }
 
 RateLimiter::RateLimiter(const RateLimiterCheckpoint& checkpoint)
