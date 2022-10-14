@@ -140,7 +140,7 @@ class ServerImpl : public Server {
 absl::Status StartServer(std::vector<std::shared_ptr<Table>> tables, int port,
                          std::shared_ptr<Checkpointer> checkpointer,
                          std::unique_ptr<Server> *server) {
-  auto s = absl::make_unique<ServerImpl>(port);
+  auto s = std::make_unique<ServerImpl>(port);
   REVERB_RETURN_IF_ERROR(
       s->Initialize(std::move(tables), std::move(checkpointer)));
   *server = std::move(s);

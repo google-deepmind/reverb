@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <memory>
+
 #include "reverb/cc/platform/checkpointing.h"
 #include "reverb/cc/platform/tfrecord_checkpointer.h"
 
@@ -21,7 +23,7 @@ namespace reverb {
 std::unique_ptr<Checkpointer> CreateDefaultCheckpointer(
     std::string root_dir, std::string group,
     absl::optional<std::string> fallback_checkpoint_path) {
-  return absl::make_unique<TFRecordCheckpointer>(
+  return std::make_unique<TFRecordCheckpointer>(
       std::move(root_dir), std::move(group),
       std::move(fallback_checkpoint_path));
 }

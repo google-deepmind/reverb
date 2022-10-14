@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <memory>
+
 #include "absl/status/status.h"
 #include "absl/strings/match.h"
 #include "reverb/cc/client.h"
@@ -145,11 +147,11 @@ class ReverbTrajectoryDatasetOp : public tensorflow::data::DatasetOpKernel {
           shapes_(std::move(shapes)),
           table_(std::move(table)),
           sampler_options_(sampler_options),
-          client_(absl::make_unique<Client>(server_address_)) {}
+          client_(std::make_unique<Client>(server_address_)) {}
 
     std::unique_ptr<tensorflow::data::IteratorBase> MakeIteratorInternal(
         const std::string& prefix) const override {
-      return absl::make_unique<Iterator>(
+      return std::make_unique<Iterator>(
           tensorflow::data::DatasetIterator<Dataset>::Params{
               this, absl::StrCat(prefix, "::ReverbDataset")},
           client_.get(), table_, sampler_options_, dtypes_, shapes_);

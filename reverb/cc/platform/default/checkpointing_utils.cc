@@ -14,9 +14,11 @@
 
 #include "reverb/cc/platform/checkpointing_utils.h"
 
+#include <memory>
+
 #include "reverb/cc/checkpointing/checkpoint.pb.h"
-#include "reverb/cc/selectors/fifo.h"
 #include "reverb/cc/checkpointing/interface.h"
+#include "reverb/cc/selectors/fifo.h"
 #include "reverb/cc/selectors/heap.h"
 #include "reverb/cc/selectors/interface.h"
 #include "reverb/cc/selectors/lifo.h"
@@ -30,16 +32,16 @@ std::unique_ptr<ItemSelector> MakeSelector(
     const KeyDistributionOptions& options) {
   switch (options.distribution_case()) {
     case KeyDistributionOptions::kFifo:
-      return absl::make_unique<FifoSelector>();
+      return std::make_unique<FifoSelector>();
     case KeyDistributionOptions::kLifo:
-      return absl::make_unique<LifoSelector>();
+      return std::make_unique<LifoSelector>();
     case KeyDistributionOptions::kUniform:
-      return absl::make_unique<UniformSelector>();
+      return std::make_unique<UniformSelector>();
     case KeyDistributionOptions::kPrioritized:
-      return absl::make_unique<PrioritizedSelector>(
+      return std::make_unique<PrioritizedSelector>(
           options.prioritized().priority_exponent());
     case KeyDistributionOptions::kHeap:
-      return absl::make_unique<HeapSelector>(options.heap().min_heap());
+      return std::make_unique<HeapSelector>(options.heap().min_heap());
     case KeyDistributionOptions::DISTRIBUTION_NOT_SET:
       REVERB_LOG(REVERB_FATAL) << "Selector not set";
   }

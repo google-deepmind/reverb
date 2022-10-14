@@ -15,6 +15,8 @@
 #ifndef REVERB_CC_SUPPORT_CLEANUP_H_
 #define REVERB_CC_SUPPORT_CLEANUP_H_
 
+#include <memory>
+
 #include "absl/base/attributes.h"
 #include "absl/memory/memory.h"
 
@@ -41,7 +43,7 @@ class Cleanup {
 template <typename Callback>
 ABSL_MUST_USE_RESULT std::unique_ptr<Cleanup<Callback>> MakeCleanup(
     Callback&& callback) {
-  return absl::make_unique<Cleanup<Callback>>(std::forward<Callback>(callback));
+  return std::make_unique<Cleanup<Callback>>(std::forward<Callback>(callback));
 }
 
 }  // namespace internal

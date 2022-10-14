@@ -14,6 +14,8 @@
 
 #include "reverb/cc/selectors/heap.h"
 
+#include <memory>
+
 #include "absl/strings/str_cat.h"
 #include "reverb/cc/checkpointing/checkpoint.pb.h"
 #include "reverb/cc/schema.pb.h"
@@ -41,7 +43,7 @@ absl::Status HeapSelector::Insert(ItemSelector::Key key, double priority) {
         absl::StrCat("Key ", key, " already inserted."));
   }
   nodes_[key] =
-      absl::make_unique<HeapNode>(key, priority * sign_, update_count_++);
+      std::make_unique<HeapNode>(key, priority * sign_, update_count_++);
   heap_.Push(nodes_[key].get());
   return absl::OkStatus();
 }

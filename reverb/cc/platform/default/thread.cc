@@ -14,6 +14,7 @@
 
 #include "reverb/cc/platform/thread.h"
 
+#include <memory>
 #include <thread>  // NOLINT(build/c++11)
 
 #include "absl/memory/memory.h"
@@ -37,7 +38,7 @@ class StdThread : public Thread {
 
 std::unique_ptr<Thread> StartThread(absl::string_view name,
                                     std::function<void()> fn) {
-  return {absl::make_unique<StdThread>(std::move(fn))};
+  return {std::make_unique<StdThread>(std::move(fn))};
 }
 
 }  // namespace internal

@@ -51,18 +51,18 @@ std::string MakeRoot() {
 }
 
 std::unique_ptr<Table> MakeUniformTable(const std::string& name) {
-  return absl::make_unique<Table>(
-      name, absl::make_unique<UniformSelector>(),
-      absl::make_unique<FifoSelector>(), 1000, 0,
-      absl::make_unique<RateLimiter>(1.0, 1, -DBL_MAX, DBL_MAX));
+  return std::make_unique<Table>(
+      name, std::make_unique<UniformSelector>(),
+      std::make_unique<FifoSelector>(), 1000, 0,
+      std::make_unique<RateLimiter>(1.0, 1, -DBL_MAX, DBL_MAX));
 }
 
 std::unique_ptr<Table> MakePrioritizedTable(const std::string& name,
                                             double exponent) {
-  return absl::make_unique<Table>(
-      name, absl::make_unique<PrioritizedSelector>(exponent),
-      absl::make_unique<HeapSelector>(), 1000, 0,
-      absl::make_unique<RateLimiter>(1.0, 1, -DBL_MAX, DBL_MAX));
+  return std::make_unique<Table>(
+      name, std::make_unique<PrioritizedSelector>(exponent),
+      std::make_unique<HeapSelector>(), 1000, 0,
+      std::make_unique<RateLimiter>(1.0, 1, -DBL_MAX, DBL_MAX));
 }
 
 std::unique_ptr<Table> MakeSignatureTable(const std::string& name) {
@@ -73,10 +73,10 @@ std::unique_ptr<Table> MakeSignatureTable(const std::string& name) {
   tensorflow::TensorShapeProto shape;
   tensorflow::TensorShape({2}).AsProto(spec->mutable_shape());
 
-  return absl::make_unique<Table>(
-      name, absl::make_unique<UniformSelector>(),
-      absl::make_unique<FifoSelector>(), 1000, 0,
-      absl::make_unique<RateLimiter>(1.0, 1, -DBL_MAX, +DBL_MAX),
+  return std::make_unique<Table>(
+      name, std::make_unique<UniformSelector>(),
+      std::make_unique<FifoSelector>(), 1000, 0,
+      std::make_unique<RateLimiter>(1.0, 1, -DBL_MAX, +DBL_MAX),
       std::vector<std::shared_ptr<TableExtension>>(), std::move(signature));
 }
 
