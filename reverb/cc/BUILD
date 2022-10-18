@@ -138,10 +138,6 @@ reverb_cc_library(
     name = "conversions",
     srcs = ["conversions.cc"],
     hdrs = ["conversions.h"],
-    visibility = [
-        "//reverb:__subpackages__",
-        "//third_party/py/courier:__subpackages__",
-    ],
     deps = reverb_pybind_deps(),
 )
 
