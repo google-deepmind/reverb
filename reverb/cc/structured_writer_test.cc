@@ -577,7 +577,7 @@ TEST(ValidateStructuredWriterConfig, ZeroStep) {
 }
 
 TEST(StructuredWriter, PatternFromPartialData) {
-  auto fake_writer = absl::make_unique<FakeWriter>(2);
+  auto fake_writer = std::make_unique<FakeWriter>(2);
   FakeWriter* fake_writer_ptr = fake_writer.get();
 
   auto config = MakeConfig(R"pb(
@@ -604,7 +604,7 @@ TEST(StructuredWriter, PatternFromPartialData) {
 }
 
 TEST(StructuredWriter, PatternFromAppendPartial) {
-  auto fake_writer = absl::make_unique<FakeWriter>(3);
+  auto fake_writer = std::make_unique<FakeWriter>(3);
   FakeWriter* fake_writer_ptr = fake_writer.get();
 
   auto config = MakeConfig(R"pb(
@@ -653,7 +653,7 @@ TEST(StructuredWriter, PatternFromAppendPartial) {
 }
 
 TEST(StructuredWriter, DoesNotForwwardUnusedColumns) {
-  auto fake_writer = absl::make_unique<FakeWriter>(4);
+  auto fake_writer = std::make_unique<FakeWriter>(4);
   FakeWriter* fake_writer_ptr = fake_writer.get();
 
   auto config = MakeConfig(R"pb(
@@ -680,7 +680,7 @@ TEST(StructuredWriter, DoesNotForwwardUnusedColumns) {
 }
 
 TEST(StructuredWriter, CanHandlePointlessSteps) {
-  auto fake_writer = absl::make_unique<FakeWriter>(2);
+  auto fake_writer = std::make_unique<FakeWriter>(2);
   FakeWriter* fake_writer_ptr = fake_writer.get();
 
   auto config = MakeConfig(R"pb(
@@ -720,8 +720,7 @@ TEST(StructuredWriter, StepIsOpen) {
     conditions: { buffer_length: true ge: 1 }
   )pb");
 
-  StructuredWriter writer(absl::make_unique<FakeWriter>(3),
-                          {std::move(config)});
+  StructuredWriter writer(std::make_unique<FakeWriter>(3), {std::move(config)});
 
   // The step should not be opened when the writer is first created.
   EXPECT_FALSE(writer.step_is_open());
@@ -757,7 +756,7 @@ using ParamT = std::pair<std::string, std::vector<std::vector<Tensor>>>;
 class StructuredWriterTest : public ::testing::TestWithParam<ParamT> {};
 
 TEST_P(StructuredWriterTest, AppliesPattern) {
-  auto fake_writer = absl::make_unique<FakeWriter>(3);
+  auto fake_writer = std::make_unique<FakeWriter>(3);
   FakeWriter* fake_writer_ptr = fake_writer.get();
 
   auto params = GetParam();

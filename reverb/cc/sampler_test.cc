@@ -15,6 +15,7 @@
 #include "reverb/cc/sampler.h"
 
 #include <list>
+#include <memory>
 #include <vector>
 
 #include "grpcpp/client_context.h"
@@ -113,7 +114,7 @@ class FakeStub : public /* grpc_gen:: */MockReverbServiceStub {
   void AddStream(std::vector<SampleStreamResponse> responses,
                  grpc::Status status = grpc::Status::OK) {
     absl::WriterMutexLock lock(&mu_);
-    streams_.push_back(absl::make_unique<FakeStream>(
+    streams_.push_back(std::make_unique<FakeStream>(
         [this](const SampleStreamRequest& request) {
           absl::WriterMutexLock lock(&mu_);
           requests_.push_back(request);

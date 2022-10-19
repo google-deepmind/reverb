@@ -1381,7 +1381,7 @@ class TrajectoryWriterSignatureValidationTest : public ::testing::Test {
             },
         }),
     };
-    writer_ = absl::make_unique<TrajectoryWriter>(stub, options);
+    writer_ = std::make_unique<TrajectoryWriter>(stub, options);
 
     // Take a step with enough columns to be able to compose both valid and
     // invalid trajectories.

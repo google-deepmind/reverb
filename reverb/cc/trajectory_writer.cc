@@ -281,7 +281,7 @@ TrajectoryWriter::TrajectoryWriter(
     const Options& options)
     : stub_(std::move(stub)),
       options_(options),
-      key_generator_(absl::make_unique<internal::UniformKeyGenerator>()),
+      key_generator_(std::make_unique<internal::UniformKeyGenerator>()),
       episode_id_(key_generator_->Generate()),
       episode_step_(0),
       closed_(false),
@@ -542,7 +542,7 @@ absl::Status TrajectoryWriter::SetContextAndCreateStream() {
   if (closed_) {
     return absl::CancelledError("TrajectoryWriter::Close has been called.");
   }
-  context_ = absl::make_unique<grpc::ClientContext>();
+  context_ = std::make_unique<grpc::ClientContext>();
   context_->set_wait_for_ready(false);
   stub_->async()->InsertStream(context_.get(), this);
   stream_ok_ = true;

@@ -829,7 +829,7 @@ class StreamingTrajectoryWriterSignatureValidationTest
             },
         }),
     };
-    writer_ = absl::make_unique<StreamingTrajectoryWriter>(stub, options);
+    writer_ = std::make_unique<StreamingTrajectoryWriter>(stub, options);
 
     // Take a step with enough columns to be able to compose both valid and
     // invalid trajectories.

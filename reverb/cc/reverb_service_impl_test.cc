@@ -156,17 +156,17 @@ tensorflow::StructuredValue MakeSignature() {
 }
 
 std::unique_ptr<RateLimiter> MakeLimiter() {
-  return absl::make_unique<RateLimiter>(kSamplesPerInsert, kMinSizeToSample,
-                                        kMinDiff, kMaxDiff);
+  return std::make_unique<RateLimiter>(kSamplesPerInsert, kMinSizeToSample,
+                                       kMinDiff, kMaxDiff);
 }
 
 std::unique_ptr<ReverbServiceImpl> MakeService(
     int max_size, std::unique_ptr<Checkpointer> checkpointer,
     std::vector<std::shared_ptr<Table>> tables = {}) {
-  tables.push_back(absl::make_unique<Table>(
+  tables.push_back(std::make_unique<Table>(
       /*name=*/"dist",
-      /*sampler=*/absl::make_unique<UniformSelector>(),
-      /*remover=*/absl::make_unique<FifoSelector>(),
+      /*sampler=*/std::make_unique<UniformSelector>(),
+      /*remover=*/std::make_unique<FifoSelector>(),
       /*max_size=*/max_size,
       /*max_times_sampled=*/0,
       /*rate_limiter=*/MakeLimiter(),
@@ -707,7 +707,7 @@ TEST(ReverbServiceImplTest, InitializeConnectionFromOtherProcess) {
 
 // TODO(b/179142085): Add more tests for the InsertWorker
 TEST(InsertWorkerTest, InsertWorkerReturnsCorrectStats) {
-  auto insert_worker = absl::make_unique<InsertWorker>(
+  auto insert_worker = std::make_unique<InsertWorker>(
       /*num_threads=*/1, /*max_queue_size_to_warn=*/3, "TestWorker");
   Table::Item item;
   item.item.set_table("my_table");

@@ -16,6 +16,7 @@
 
 #include <algorithm>
 #include <iterator>
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
@@ -497,7 +498,7 @@ bool Writer::WritePendingData() {
   };
   if (!stream_) {
     streamed_chunk_keys_.clear();
-    context_ = absl::make_unique<grpc::ClientContext>();
+    context_ = std::make_unique<grpc::ClientContext>();
     stream_ = stub_->InsertStream(context_.get());
     StartItemConfirmationWorker();
   }

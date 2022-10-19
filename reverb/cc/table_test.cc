@@ -63,7 +63,7 @@ MATCHER_P(HasSampledItemKey, key, "") { return arg.ref->item.key() == key; }
 
 template <typename... Ts>
 std::unique_ptr<Table> MakeTable(Ts... args) {
-  auto table = absl::make_unique<Table>(args...);
+  auto table = std::make_unique<Table>(args...);
   table->SetCallbackExecutor(std::make_shared<TaskExecutor>(1, "worker"));
   return table;
 }

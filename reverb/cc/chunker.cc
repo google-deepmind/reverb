@@ -102,7 +102,7 @@ Chunker::Chunker(internal::TensorSpec spec,
                  std::shared_ptr<ChunkerOptions> options)
     : spec_(std::move(spec)),
       options_(std::move(options)),
-      key_generator_(absl::make_unique<internal::UniformKeyGenerator>()) {
+      key_generator_(std::make_unique<internal::UniformKeyGenerator>()) {
   if (!options_->GetCompressionDisabled()){
     REVERB_CHECK_GE(options_->GetNumKeepAliveRefs(),
                     options_->GetMaxChunkLength());
@@ -248,7 +248,7 @@ absl::Status Chunker::FlushLocked() {
     return absl::OkStatus();
   }
 
-  auto chunk = absl::make_unique<ChunkData>();
+  auto chunk = std::make_unique<ChunkData>();
   chunk->set_chunk_key(next_chunk_key_);
 
   tensorflow::Tensor batched;

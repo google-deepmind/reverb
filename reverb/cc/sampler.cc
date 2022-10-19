@@ -121,7 +121,7 @@ absl::Status AsSample(std::vector<SampleStreamResponse::SampleEntry> responses,
     }
   }
 
-  *sample = absl::make_unique<Sample>(
+  *sample = std::make_unique<Sample>(
       std::make_shared<SampleInfo>(std::move(info)), std::move(column_chunks),
       std::move(squeeze_columns));
 
@@ -165,7 +165,7 @@ absl::Status AsSample(const Table::SampledItem& sampled_item,
   info->set_table_size(sampled_item.table_size);
   info->set_rate_limited(sampled_item.rate_limited);
 
-  *sample = absl::make_unique<deepmind::reverb::Sample>(
+  *sample = std::make_unique<deepmind::reverb::Sample>(
       std::move(info), std::move(column_chunks), std::move(squeeze_columns));
 
   return absl::OkStatus();
@@ -208,7 +208,7 @@ class GrpcSamplerWorker : public SamplerWorker {
       if (closed_) {
         return {0, absl::CancelledError("`Close` called on Sampler.")};
       }
-      context_ = absl::make_unique<grpc::ClientContext>();
+      context_ = std::make_unique<grpc::ClientContext>();
       context_->set_wait_for_ready(false);
       stream = stub_->SampleStream(context_.get());
     }
@@ -467,7 +467,7 @@ std::vector<std::unique_ptr<SamplerWorker>> MakeGrpcWorkers(
   std::vector<std::unique_ptr<SamplerWorker>> workers;
   workers.reserve(num_workers);
   for (int i = 0; i < num_workers; i++) {
-    workers.push_back(absl::make_unique<GrpcSamplerWorker>(
+    workers.push_back(std::make_unique<GrpcSamplerWorker>(
         stub, table_name, options.max_in_flight_samples_per_worker));
   }
 
@@ -482,7 +482,7 @@ std::vector<std::unique_ptr<SamplerWorker>> MakeLocalWorkers(
   std::vector<std::unique_ptr<SamplerWorker>> workers;
   workers.reserve(num_workers);
   for (int i = 0; i < num_workers; ++i) {
-    workers.push_back(absl::make_unique<LocalSamplerWorker>(
+    workers.push_back(std::make_unique<LocalSamplerWorker>(
         table, options.max_in_flight_samples_per_worker));
   }
   return workers;

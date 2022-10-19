@@ -123,7 +123,7 @@ absl::Status Client::NewWriter(int chunk_length, int max_timesteps,
   // some limits.
   REVERB_RETURN_IF_ERROR(MaybeUpdateServerInfoCache(absl::InfiniteDuration(),
                                                     &cached_flat_signatures));
-  *writer = absl::make_unique<Writer>(
+  *writer = std::make_unique<Writer>(
       stub_, chunk_length, max_timesteps, delta_encoded,
       std::move(cached_flat_signatures), max_in_flight_items);
   return absl::OkStatus();
@@ -165,11 +165,11 @@ absl::Status Client::NewSampler(
     REVERB_LOG_EVERY_POW_2(REVERB_INFO)
         << "Sampler and server are owned by the same process (" << getpid()
         << ") so Table " << table << " is accessed directly without gRPC.";
-    *sampler = absl::make_unique<Sampler>(std::move(table_ptr), options,
-                                          std::move(dtypes_and_shapes));
+    *sampler = std::make_unique<Sampler>(std::move(table_ptr), options,
+                                         std::move(dtypes_and_shapes));
   } else {
-    *sampler = absl::make_unique<Sampler>(stub_, table, options,
-                                          std::move(dtypes_and_shapes));
+    *sampler = std::make_unique<Sampler>(stub_, table, options,
+                                         std::move(dtypes_and_shapes));
   }
 
   return absl::OkStatus();
@@ -419,7 +419,7 @@ absl::Status Client::NewTrajectoryWriter(
     const TrajectoryWriter::Options& options,
     std::unique_ptr<TrajectoryWriter>* writer) {
   REVERB_RETURN_IF_ERROR(options.Validate());
-  *writer = absl::make_unique<TrajectoryWriter>(stub_, options);
+  *writer = std::make_unique<TrajectoryWriter>(stub_, options);
   return absl::OkStatus();
 }
 
@@ -427,7 +427,7 @@ absl::Status Client::NewStreamingTrajectoryWriter(
     const TrajectoryWriter::Options& options,
     std::unique_ptr<StreamingTrajectoryWriter>* writer) {
   REVERB_RETURN_IF_ERROR(options.Validate());
-  *writer = absl::make_unique<StreamingTrajectoryWriter>(stub_, options);
+  *writer = std::make_unique<StreamingTrajectoryWriter>(stub_, options);
   return absl::OkStatus();
 }
 
@@ -487,8 +487,8 @@ absl::Status Client::NewStructuredWriter(
   std::unique_ptr<TrajectoryWriter> trajectory_writer;
   REVERB_RETURN_IF_ERROR(NewTrajectoryWriter(options, &trajectory_writer));
 
-  *writer = absl::make_unique<StructuredWriter>(std::move(trajectory_writer),
-                                                std::move(configs));
+  *writer = std::make_unique<StructuredWriter>(std::move(trajectory_writer),
+                                               std::move(configs));
 
   return absl::OkStatus();
 }

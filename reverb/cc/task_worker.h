@@ -15,6 +15,7 @@
 #ifndef REVERB_CC_TASK_WORKER_H_
 #define REVERB_CC_TASK_WORKER_H_
 
+#include <memory>
 #include <string>
 
 #include "absl/strings/str_format.h"
@@ -120,7 +121,7 @@ class TaskWorker {
   struct ThreadStatsMutex {
     ThreadStats stats;
     // We use unique_ptr to make the struct movable.
-    std::unique_ptr<absl::Mutex> mu = absl::make_unique<absl::Mutex>();
+    std::unique_ptr<absl::Mutex> mu = std::make_unique<absl::Mutex>();
   };
 
   void RunWorker(std::shared_ptr<ThreadStatsMutex> thread_stats);

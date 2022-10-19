@@ -780,13 +780,13 @@ TEST(Chunker, DataUncompressedSizeIsPopulated) {
 
 TEST(ValidateChunkerOptions, Valid) {
   auto options =
-      absl::make_unique<ConstantChunkerOptions>(/*max_chunk_length=*/2,
-                                                /*num_keep_alive_refs=*/2);
+      std::make_unique<ConstantChunkerOptions>(/*max_chunk_length=*/2,
+                                               /*num_keep_alive_refs=*/2);
   REVERB_EXPECT_OK(ValidateChunkerOptions(options.get()));
 }
 
 TEST(ValidateChunkerOptions, ZeroMaxChunkLength) {
-  auto options = absl::make_unique<ConstantChunkerOptions>(
+  auto options = std::make_unique<ConstantChunkerOptions>(
       /*max_chunk_length=*/0, /*num_keep_alive_refs=*/2);
   auto status = ValidateChunkerOptions(options.get());
   EXPECT_EQ(status.code(), absl::StatusCode::kInvalidArgument);
@@ -796,8 +796,8 @@ TEST(ValidateChunkerOptions, ZeroMaxChunkLength) {
 
 TEST(ValidateChunkerOptions, NegativeMaxChunkLength) {
   auto options =
-      absl::make_unique<ConstantChunkerOptions>(/*max_chunk_length=*/-1,
-                                                /*num_keep_alive_refs=*/2);
+      std::make_unique<ConstantChunkerOptions>(/*max_chunk_length=*/-1,
+                                               /*num_keep_alive_refs=*/2);
   auto status = ValidateChunkerOptions(options.get());
   EXPECT_EQ(status.code(), absl::StatusCode::kInvalidArgument);
   EXPECT_THAT(std::string(status.message()),
@@ -805,7 +805,7 @@ TEST(ValidateChunkerOptions, NegativeMaxChunkLength) {
 }
 
 TEST(ValidateChunkerOptions, ZeroNumKeepAliveRefs) {
-  auto options = absl::make_unique<ConstantChunkerOptions>(
+  auto options = std::make_unique<ConstantChunkerOptions>(
       /*max_chunk_length=*/2, /*num_keep_alive_refs=*/0);
   auto status = ValidateChunkerOptions(options.get());
   EXPECT_EQ(status.code(), absl::StatusCode::kInvalidArgument);
@@ -815,7 +815,7 @@ TEST(ValidateChunkerOptions, ZeroNumKeepAliveRefs) {
 }
 
 TEST(ValidateChunkerOptions, NegativeNumKeepAliveRefs) {
-  auto options = absl::make_unique<ConstantChunkerOptions>(
+  auto options = std::make_unique<ConstantChunkerOptions>(
       /*max_chunk_length=*/2,
       /*num_keep_alive_refs=*/-1);
   auto status = ValidateChunkerOptions(options.get());
@@ -826,7 +826,7 @@ TEST(ValidateChunkerOptions, NegativeNumKeepAliveRefs) {
 }
 
 TEST(ValidateChunkerOptions, NumKeepAliveLtMaxChunkLength) {
-  auto options = absl::make_unique<ConstantChunkerOptions>(
+  auto options = std::make_unique<ConstantChunkerOptions>(
       /*max_chunk_length=*/6, /*num_keep_alive_refs=*/5);
   auto status = ValidateChunkerOptions(options.get());
   EXPECT_EQ(status.code(), absl::StatusCode::kInvalidArgument);

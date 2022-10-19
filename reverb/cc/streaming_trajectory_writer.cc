@@ -412,7 +412,7 @@ void StreamingTrajectoryWriter::ProcessItemConfirmations() {
 }
 
 void StreamingTrajectoryWriter::SetContextAndCreateStream() {
-  context_ = absl::make_unique<grpc::ClientContext>();
+  context_ = std::make_unique<grpc::ClientContext>();
   context_->set_wait_for_ready(true);
   stream_ = stub_->InsertStream(context_.get());
   item_confirmation_worker_ =

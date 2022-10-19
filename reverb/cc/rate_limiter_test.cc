@@ -41,9 +41,9 @@ constexpr absl::Duration kTimeout = absl::Milliseconds(100);
 
 std::unique_ptr<Table> MakeTable(const std::string &name,
                                  std::shared_ptr<RateLimiter> limiter) {
-  return absl::make_unique<Table>(name, absl::make_unique<UniformSelector>(),
-                                  absl::make_unique<UniformSelector>(), 10000,
-                                  0, std::move(limiter));
+  return std::make_unique<Table>(name, std::make_unique<UniformSelector>(),
+                                 std::make_unique<UniformSelector>(), 10000, 0,
+                                 std::move(limiter));
 }
 
 TEST(RateLimiterTest, BlocksSamplesUntilMinInsertsReached) {
