@@ -621,7 +621,7 @@ class _ColumnHistory:
     if isinstance(val, int):
       return TrajectoryColumn([self._slice(val)], squeeze=True, path=path)
     elif isinstance(val, slice):
-      return TrajectoryColumn(self._slice(val), path=path)
+      return TrajectoryColumn(self._slice(val), path=path)  # pytype: disable=wrong-arg-types
     elif isinstance(val, list):
       return TrajectoryColumn([self._slice(x) for x in val], path=path)
     else:
