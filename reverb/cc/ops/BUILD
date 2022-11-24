@@ -17,18 +17,13 @@ reverb_kernel_library(
     name = "ops",
     srcs = [
         "client.cc",
-        "pattern_dataset.cc",
         "timestep_dataset.cc",
         "trajectory_dataset.cc",
     ],
     deps = [
-        ":queue_writer",
-        "//reverb/cc:chunker",
         "//reverb/cc:client",
         "//reverb/cc:errors",
         "//reverb/cc:sampler",
-        "//reverb/cc:structured_writer",
-        "//reverb/cc:patterns_cc_proto",
         "//reverb/cc/platform:logging",
         "//reverb/cc/support:tf_util",
         "//reverb/cc:schema_cc_proto",

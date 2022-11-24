@@ -35,8 +35,6 @@ from reverb.client import Writer
 from reverb.errors import DeadlineExceededError
 from reverb.errors import ReverbError
 
-from reverb.pattern_dataset import PatternDataset
-
 from reverb.platform.default import checkpointers
 
 from reverb.replay_sample import ReplaySample
