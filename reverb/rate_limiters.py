@@ -100,7 +100,7 @@ class SampleToInsertRatio(RateLimiter):
       samples_per_insert: The average number of times the learner should sample
         each item in the replay error_buffer during the item's entire lifetime.
       min_size_to_sample: The minimum number of items that the table must
-        contain  before transitioning into stage 2.
+        contain before transitioning into stage 2.
       error_buffer: Maximum size of the "error" before calls should be blocked.
         When a single value is provided then inferred range is
           (
@@ -161,15 +161,16 @@ class Queue(RateLimiter):
   NOTE: Must be used in conjunction with a Fifo sampler and remover.
   """
 
-  def __init__(self, size: int):
+  def __init__(self, size: int, min_size_to_sample: int = 1):
     """Constructor of Queue (do not use directly).
 
     Args:
       size: Maximum size of the queue.
+      min_size_to_sample: The minimum number of items that the table must contain.
     """
     super().__init__(
         samples_per_insert=1.0,
-        min_size_to_sample=1,
+        min_size_to_sample=min_size_to_sample,
         min_diff=0.0,
         max_diff=size)
 
