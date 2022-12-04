@@ -381,7 +381,7 @@ class TrajectoryWriter : public ColumnWriter,
 
   // Union of `GetChunkKeys` from all column chunkers and all the chunks
   // referenced by pending items (except for chunks only referenced by the first
-  // item) filtered by presense in `streamed_chunk_keys. The chunks referenced
+  // item) filtered by presence in `streamed_chunk_keys. The chunks referenced
   // only by the first item can safely be ignored as the server "keep keys" is
   // updated with the insert item message.
   internal::flat_hash_set<uint64_t> GetKeepKeys(
