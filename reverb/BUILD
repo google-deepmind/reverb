@@ -24,6 +24,7 @@ reverb_pytype_strict_library(
         ":client",
         ":errors",
         ":item_selectors",
+        ":pattern_dataset",
         ":rate_limiters",
         ":replay_sample",
         ":server",
@@ -340,5 +341,29 @@ reverb_py_test(
     deps = [
         ":pybind",
         ":replay_sample",
+    ],
+)
+
+reverb_pytype_library(
+    name = "pattern_dataset",
+    srcs = ["pattern_dataset.py"],
+    srcs_version = "PY3",
+    strict_deps = False,
+    tags = ["pytype_unchecked_annotations"],
+    deps = [
+        ":replay_sample",
+        ":structured_writer",
+        "//reverb/cc:patterns_py_pb2",
+        "//reverb/cc/ops:gen_reverb_ops",
+    ],
+)
+
+reverb_py_test(
+    name = "pattern_dataset_test",
+    srcs = ["pattern_dataset_test.py"],
+    deps = [
+        ":pattern_dataset",
+        ":replay_sample",
+        ":structured_writer",
     ],
 )
