@@ -640,7 +640,7 @@ class TrajectoryColumnTest(parameterized.TestCase):
       ('np_complex64', np.zeros(shape=(), dtype=np.complex64)),
       ('np_complex128', np.zeros(shape=(), dtype=np.complex128)),
       ('np_bool', np.zeros(shape=(), dtype=np.bool)),
-      ('np_object', np.zeros(shape=(), dtype=np.object)),
+      ('np_object', np.zeros(shape=(), dtype=object)),
   )
   def test_dtype(self, data):
     expected_dtype = np.asarray(data).dtype
