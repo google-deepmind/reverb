@@ -392,6 +392,7 @@ class _ConditionBuilder:
     incomplete_condition.mod_eq.mod = cmp
     return _ConditionBuilder(incomplete_condition)
 
+  # pytype: disable=signature-mismatch  # overriding-return-type-checks
   def __eq__(self, cmp: int) -> patterns_pb2.Condition:
     condition = copy.deepcopy(self._incomplete_condition)
     if condition.mod_eq.mod:
@@ -420,6 +421,7 @@ class _ConditionBuilder:
     condition = self > cmp
     condition.inverse = True
     return condition
+  # pytype: enable=signature-mismatch  # overriding-return-type-checks
 
 
 class Condition:
