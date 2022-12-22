@@ -54,7 +54,7 @@ class TestNdArrayToTensorAndBack(parameterized.TestCase):
       (np.array(1, dtype=np.uint16),),
       (np.array(1, dtype=np.uint32),),
       (np.array(1, dtype=np.uint64),),
-      (np.array(True, dtype=np.bool),),
+      (np.array(True, dtype=bool),),
       (np.array(1, dtype=np.complex64),),
       (np.array(1, dtype=np.complex128),),
       (np.array([b'a string']),),

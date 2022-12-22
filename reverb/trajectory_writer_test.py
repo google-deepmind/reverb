@@ -559,14 +559,14 @@ class TrajectoryColumnTest(parameterized.TestCase):
     writer = self.client.trajectory_writer(num_keep_alive_refs=10)
 
     for i in range(10):
-      writer.append({'a': i, 'b': np.ones([3, 3], np.float) * i})
+      writer.append({'a': i, 'b': np.ones([3, 3], float) * i})
 
       np.testing.assert_array_equal(writer.history['a'][:].numpy(),
                                     np.arange(i + 1, dtype=np.int64))
 
       np.testing.assert_array_equal(
           writer.history['b'][:].numpy(),
-          np.stack([np.ones([3, 3], np.float) * x for x in range(i + 1)]))
+          np.stack([np.ones([3, 3], float) * x for x in range(i + 1)]))
 
   def test_numpy_squeeze(self):
     writer = self.client.trajectory_writer(num_keep_alive_refs=10)
@@ -639,7 +639,7 @@ class TrajectoryColumnTest(parameterized.TestCase):
       ('np_uint64', np.zeros(shape=(), dtype=np.uint64)),
       ('np_complex64', np.zeros(shape=(), dtype=np.complex64)),
       ('np_complex128', np.zeros(shape=(), dtype=np.complex128)),
-      ('np_bool', np.zeros(shape=(), dtype=np.bool)),
+      ('np_bool', np.zeros(shape=(), dtype=bool)),
       ('np_object', np.zeros(shape=(), dtype=object)),
   )
   def test_dtype(self, data):
