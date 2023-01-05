@@ -73,23 +73,28 @@ class SampleToInsertRatio(RateLimiter):
   all insert calls and blocks all sample calls. Note that it is possible to
   transition into stage 1 from stage 2 when items are removed from the table.
 
-  During stage 2 the limiter attempts to maintain the ratio
-  `samples_per_inserts` between the samples and inserts. This is done by
-  measuring the "error" in this ratio, calculated as:
+  During stage 2 the limiter attempts to maintain the `samples_per_insert`
+  ratio between the samples and inserts. This is done by
+  measuring the `error`, calculated as:
 
-    number_of_inserts * samples_per_insert - number_of_samples
+    error = number_of_inserts * samples_per_insert - number_of_samples
 
-  If `error_buffer` is a number and this quantity is larger than
-  `min_size_to_sample * samples_per_insert + error_buffer` then insert calls
-  will be blocked; sampling will be blocked for error less than
-  `min_size_to_sample * samples_per_insert - error_buffer`.
+  and making sure that `error` stays within `allowed_range`. Any operation
+  which would move `error` outside of the `allowed_range` is blocked.
+  Such approach allows for small deviation from a target `samples_per_insert`,
+  which eliminates excessive blocking of insert/sample operations and improves
+  performance.
 
-  If `error_buffer` is a tuple of two numbers then insert calls will block if
-  the error is larger than error_buffer[1], and sampling will block if the error
-  is less than error_buffer[0].
+  If `error_buffer` is a tuple of two numbers then `allowed_range` is defined as
 
-  `error_buffer` exists to avoid unnecessary blocking for a system that is
-  more or less in equilibrium.
+    (error_buffer[0], error_buffer[1])
+
+  When `error_buffer` is a single number then the range is defined as
+
+    (
+      min_size_to_sample * samples_per_insert - error_buffer,
+      min_size_to_sample * samples_per_insert + error_buffer
+    )
   """
 
   def __init__(self, samples_per_insert: float, min_size_to_sample: int,
