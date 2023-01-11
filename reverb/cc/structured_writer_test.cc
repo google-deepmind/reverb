@@ -109,6 +109,7 @@ class FakeWriter : public ColumnWriter {
     }
 
     trajectories_.push_back(std::move(columns));
+    priorities_.push_back(priority);
 
     return absl::OkStatus();
   }
@@ -134,6 +135,8 @@ class FakeWriter : public ColumnWriter {
   const std::vector<std::vector<Tensor>>& trajectories() const {
     return trajectories_;
   }
+
+  const std::vector<double>& priorities() const { return priorities_; }
 
   std::vector<std::vector<absl::optional<Tensor>>> steps() const {
     if (std::all_of(steps_.back().begin(), steps_.back().end(),
@@ -164,6 +167,7 @@ class FakeWriter : public ColumnWriter {
 
   std::vector<std::shared_ptr<Chunker>> chunkers_;
   CellRef::EpisodeInfo current_step_ = {0, 0};
+  std::vector<double> priorities_;
   std::vector<std::vector<Tensor>> trajectories_;
   std::vector<std::vector<absl::optional<Tensor>>> steps_;
 };
@@ -214,7 +218,7 @@ TEST(ValidateStructuredWriterConfig, Valid_NoStart) {
       R"pb(
         flat { flat_source_index: 0 stop: -1 }
         table: "table"
-        priority: 1.0
+        priority { constant_fn { value: 1.0 } }
         conditions { buffer_length: true ge: 1 }
       )pb")));
 }
@@ -224,7 +228,7 @@ TEST(ValidateStructuredWriterConfig, Valid_WithStartAndStop) {
       R"pb(
         flat { flat_source_index: 0 start: -2 stop: -1 }
         table: "table"
-        priority: 1.0
+        priority { constant_fn { value: 1.0 } }
         conditions { buffer_length: true ge: 2 }
       )pb")));
 }
@@ -234,7 +238,7 @@ TEST(ValidateStructuredWriterConfig, Valid_WithStartAndNoStop) {
       R"pb(
         flat { flat_source_index: 0 start: -2 }
         table: "table"
-        priority: 1.0
+        priority { constant_fn { value: 1.0 } }
         conditions { buffer_length: true ge: 2 }
       )pb")));
 }
@@ -245,7 +249,7 @@ TEST(ValidateStructuredWriterConfig, NoStartAndNoStop) {
           R"pb(
             flat { flat_source_index: 0 }
             table: "table"
-            priority: 1.0
+            priority { constant_fn { value: 1.0 } }
           )pb")),
       StatusIs(absl::StatusCode::kInvalidArgument,
                "At least one of `start` and `stop` must be specified."));
@@ -256,7 +260,7 @@ TEST(ValidateStructuredWriterConfig, NegativeFlatSourceIndex) {
                   R"pb(
                     flat { flat_source_index: -1 }
                     table: "table"
-                    priority: 1.0
+                    priority { constant_fn { value: 1.0 } }
                   )pb")),
               StatusIs(absl::StatusCode::kInvalidArgument,
                        "`flat_source_index` must be >= 0 but got -1."));
@@ -266,7 +270,7 @@ TEST(ValidateStructuredWriterConfig, ZeroStart) {
   EXPECT_THAT(ValidateStructuredWriterConfig(MakeConfig(R"pb(
                 flat { flat_source_index: 0 start: 0 }
                 table: "table"
-                priority: 1.0
+                priority { constant_fn { value: 1.0 } }
               )pb")),
               StatusIs(absl::StatusCode::kInvalidArgument,
                        "`start` must be < 0 but got 0."));
@@ -276,7 +280,7 @@ TEST(ValidateStructuredWriterConfig, PositiveStart) {
   EXPECT_THAT(ValidateStructuredWriterConfig(MakeConfig(R"pb(
                 flat { flat_source_index: 0 start: 1 }
                 table: "table"
-                priority: 1.0
+                priority { constant_fn { value: 1.0 } }
               )pb")),
               StatusIs(absl::StatusCode::kInvalidArgument,
                        "`start` must be < 0 but got 1."));
@@ -286,7 +290,7 @@ TEST(ValidateStructuredWriterConfig, PositiveStop) {
   EXPECT_THAT(ValidateStructuredWriterConfig(MakeConfig(R"pb(
                 flat { flat_source_index: 0 start: -1 stop: 1 }
                 table: "table"
-                priority: 1.0
+                priority { constant_fn { value: 1.0 } }
               )pb")),
               StatusIs(absl::StatusCode::kInvalidArgument,
                        "`stop` must be <= 0 but got 1."));
@@ -297,7 +301,7 @@ TEST(ValidateStructuredWriterConfig, StopEqualToStart) {
       ValidateStructuredWriterConfig(MakeConfig(R"pb(
         flat { flat_source_index: 0 start: -2 stop: -2 }
         table: "table"
-        priority: 1.0
+        priority { constant_fn { value: 1.0 } }
       )pb")),
       StatusIs(absl::StatusCode::kInvalidArgument,
                "`stop` (-2) must be > `start` (-2) when both are specified."));
@@ -308,7 +312,7 @@ TEST(ValidateStructuredWriterConfig, StopLessThanStart) {
       ValidateStructuredWriterConfig(MakeConfig(R"pb(
         flat { flat_source_index: 0 start: -2 stop: -3 }
         table: "table"
-        priority: 1.0
+        priority { constant_fn { value: 1.0 } }
       )pb")),
       StatusIs(absl::StatusCode::kInvalidArgument,
                "`stop` (-3) must be > `start` (-2) when both are specified."));
@@ -318,7 +322,7 @@ TEST(ValidateStructuredWriterConfig, ZeroStopAndNoStart) {
   EXPECT_THAT(ValidateStructuredWriterConfig(MakeConfig(R"pb(
                 flat { flat_source_index: 0 stop: 0 }
                 table: "table"
-                priority: 1.0
+                priority { constant_fn { value: 1.0 } }
               )pb")),
               StatusIs(absl::StatusCode::kInvalidArgument,
                        "`stop` must be < 0 when `start` isn't set but got 0."));
@@ -329,7 +333,7 @@ TEST(ValidateStructuredWriterConfig, NoBufferLengthCondition) {
       ValidateStructuredWriterConfig(MakeConfig(R"pb(
         flat { flat_source_index: 0 stop: -1 }
         table: "table"
-        priority: 1.0
+        priority { constant_fn { value: 1.0 } }
       )pb")),
       StatusIs(absl::StatusCode::kInvalidArgument,
                "Config does not contain required buffer length condition;"));
@@ -340,7 +344,7 @@ TEST(ValidateStructuredWriterConfig, TooSmallBufferLengthCondition_SingleNode) {
       ValidateStructuredWriterConfig(MakeConfig(R"pb(
         flat { flat_source_index: 0 stop: -2 }
         table: "table"
-        priority: 1.0
+        priority { constant_fn { value: 1.0 } }
         conditions { buffer_length: true ge: 1 }
       )pb")),
       StatusIs(absl::StatusCode::kInvalidArgument,
@@ -353,7 +357,7 @@ TEST(ValidateStructuredWriterConfig, TooSmallBufferLengthCondition_MultiNode) {
         flat { flat_source_index: 0 stop: -2 }
         flat { flat_source_index: 0 start: -3 }
         table: "table"
-        priority: 1.0
+        priority { constant_fn { value: 1.0 } }
         conditions { buffer_length: true ge: 2 }
       )pb")),
       StatusIs(absl::StatusCode::kInvalidArgument,
@@ -364,7 +368,7 @@ TEST(ValidateStructuredWriterConfig, Valid_TooLargeBufferLength_SingleNode) {
   REVERB_EXPECT_OK(ValidateStructuredWriterConfig(MakeConfig(R"pb(
     flat { flat_source_index: 0 stop: -2 }
     table: "table"
-    priority: 1.0
+    priority { constant_fn { value: 1.0 } }
     conditions { buffer_length: true ge: 3 }
   )pb")));
 }
@@ -374,7 +378,7 @@ TEST(ValidateStructuredWriterConfig, Valid_TooLargeBufferLength_MultiNode) {
     flat { flat_source_index: 0 stop: -2 }
     flat { flat_source_index: 0 stop: -1 }
     table: "table"
-    priority: 1.0
+    priority { constant_fn { value: 1.0 } }
     conditions { buffer_length: true ge: 3 }
   )pb")));
 }
@@ -383,7 +387,7 @@ TEST(ValidateStructuredWriterConfig, NoLeftInCondition) {
   EXPECT_THAT(ValidateStructuredWriterConfig(MakeConfig(R"pb(
                 flat { flat_source_index: 0 stop: -2 }
                 table: "table"
-                priority: 1.0
+                priority { constant_fn { value: 1.0 } }
                 conditions { ge: 2 }
               )pb")),
               StatusIs(absl::StatusCode::kInvalidArgument,
@@ -394,7 +398,7 @@ TEST(ValidateStructuredWriterConfig, NegativeModuloInCondition) {
   EXPECT_THAT(ValidateStructuredWriterConfig(MakeConfig(R"pb(
                 flat { flat_source_index: 0 stop: -2 }
                 table: "table"
-                priority: 1.0
+                priority { constant_fn { value: 1.0 } }
                 conditions {
                   step_index: true
                   mod_eq { mod: -2 eq: 0 }
@@ -408,7 +412,7 @@ TEST(ValidateStructuredWriterConfig, ZeroModuloInCondition) {
   EXPECT_THAT(ValidateStructuredWriterConfig(MakeConfig(R"pb(
                 flat { flat_source_index: 0 stop: -2 }
                 table: "table"
-                priority: 1.0
+                priority { constant_fn { value: 1.0 } }
                 conditions {
                   step_index: true
                   mod_eq { mod: 0 eq: 0 }
@@ -422,7 +426,7 @@ TEST(ValidateStructuredWriterConfig, NegativeModuloEqInCondition) {
   EXPECT_THAT(ValidateStructuredWriterConfig(MakeConfig(R"pb(
                 flat { flat_source_index: 0 stop: -2 }
                 table: "table"
-                priority: 1.0
+                priority { constant_fn { value: 1.0 } }
                 conditions {
                   step_index: true
                   mod_eq { mod: 2 eq: -1 }
@@ -436,7 +440,7 @@ TEST(ValidateStructuredWriterConfig, NoCmpInCondition) {
   EXPECT_THAT(ValidateStructuredWriterConfig(MakeConfig(R"pb(
                 flat { flat_source_index: 0 stop: -2 }
                 table: "table"
-                priority: 1.0
+                priority { constant_fn { value: 1.0 } }
                 conditions { step_index: true }
               )pb")),
               StatusIs(absl::StatusCode::kInvalidArgument,
@@ -447,7 +451,7 @@ TEST(ValidateStructuredWriterConfig, NegativeFlatSourceIndexInCondition) {
   EXPECT_THAT(ValidateStructuredWriterConfig(MakeConfig(R"pb(
                 flat { flat_source_index: 0 stop: -2 }
                 table: "table"
-                priority: 1.0
+                priority { constant_fn { value: 1.0 } }
                 conditions { flat_source_index: -1 }
               )pb")),
               StatusIs(absl::StatusCode::kInvalidArgument,
@@ -458,7 +462,7 @@ TEST(ValidateStructuredWriterConfig, Valid_EndOfEpisodeCondition) {
   REVERB_EXPECT_OK(ValidateStructuredWriterConfig(MakeConfig(R"pb(
     flat { flat_source_index: 0 stop: -2 }
     table: "table"
-    priority: 1.0
+    priority { constant_fn { value: 1.0 } }
     conditions { buffer_length: true ge: 2 }
     conditions { is_end_episode: true eq: 1 }
   )pb")));
@@ -468,7 +472,7 @@ TEST(ValidateStructuredWriterConfig, Valid_FlatSourceIndexCondition) {
   REVERB_EXPECT_OK(ValidateStructuredWriterConfig(MakeConfig(R"pb(
     flat { flat_source_index: 0 stop: -2 }
     table: "table"
-    priority: 1.0
+    priority { constant_fn { value: 1.0 } }
     conditions { buffer_length: true ge: 2 }
     conditions { flat_source_index: 0 eq: 1 }
   )pb")));
@@ -478,7 +482,7 @@ TEST(ValidateStructuredWriterConfig, EndOfEpisode_NotUsingEqOne) {
   auto valid = MakeConfig(R"pb(
     flat { flat_source_index: 0 stop: -2 }
     table: "table"
-    priority: 1.0
+    priority { constant_fn { value: 1.0 } }
     conditions { buffer_length: true ge: 2 }
     conditions { is_end_episode: true eq: 1 }
   )pb");
@@ -516,7 +520,7 @@ TEST(ValidateStructuredWriterConfig, EndOfEpisode_NotUsingEqOne) {
 TEST(ValidateStructuredWriterConfig, FlatIsEmpty) {
   EXPECT_THAT(ValidateStructuredWriterConfig(MakeConfig(R"pb(
                 table: "table"
-                priority: 1.0
+                priority { constant_fn { value: 1.0 } }
               )pb")),
               StatusIs(absl::StatusCode::kInvalidArgument,
                        "`flat` must not be empty."));
@@ -525,29 +529,18 @@ TEST(ValidateStructuredWriterConfig, FlatIsEmpty) {
 TEST(ValidateStructuredWriterConfig, TableIsEmpty) {
   EXPECT_THAT(ValidateStructuredWriterConfig(MakeConfig(R"pb(
                 flat { flat_source_index: 0 stop: -2 }
-                priority: 1.0
+                priority { constant_fn { value: 1.0 } }
                 conditions { buffer_length: true ge: 2 }
               )pb")),
               StatusIs(absl::StatusCode::kInvalidArgument,
                        "`table` must not be empty."));
 }
 
-TEST(ValidateStructuredWriterConfig, NegativePriority) {
-  EXPECT_THAT(ValidateStructuredWriterConfig(MakeConfig(R"pb(
-                flat { flat_source_index: 0 stop: -2 }
-                table: "table"
-                priority: -1.0
-                conditions { buffer_length: true ge: 2 }
-              )pb")),
-              StatusIs(absl::StatusCode::kInvalidArgument,
-                       "`priority` must be >= 0 but got -1.0"));
-}
-
 TEST(ValidateStructuredWriterConfig, StepSetWhenStartUnset) {
   EXPECT_THAT(ValidateStructuredWriterConfig(MakeConfig(R"pb(
                 flat { flat_source_index: 0 stop: -3 step: 2 }
                 table: "table"
-                priority: 1.0
+                priority { constant_fn { value: 1.0 } }
                 conditions { buffer_length: true ge: 3 }
               )pb")),
               StatusIs(absl::StatusCode::kInvalidArgument,
@@ -558,7 +551,7 @@ TEST(ValidateStructuredWriterConfig, NegativeStep) {
   EXPECT_THAT(ValidateStructuredWriterConfig(MakeConfig(R"pb(
                 flat { flat_source_index: 0 start: -3 step: -1 }
                 table: "table"
-                priority: 1.0
+                priority { constant_fn { value: 1.0 } }
                 conditions { buffer_length: true ge: 3 }
               )pb")),
               StatusIs(absl::StatusCode::kInvalidArgument,
@@ -569,7 +562,7 @@ TEST(ValidateStructuredWriterConfig, ZeroStep) {
   EXPECT_THAT(ValidateStructuredWriterConfig(MakeConfig(R"pb(
                 flat { flat_source_index: 0 start: -3 step: 0 }
                 table: "table"
-                priority: 1.0
+                priority { constant_fn { value: 1.0 } }
                 conditions { buffer_length: true ge: 3 }
               )pb")),
               StatusIs(absl::StatusCode::kInvalidArgument,
@@ -584,7 +577,7 @@ TEST(StructuredWriter, PatternFromPartialData) {
     flat { flat_source_index: 0 stop: -1 }
     flat { flat_source_index: 1 start: -2 }
     table: "table"
-    priority: 1.0
+    priority { constant_fn { value: 1.0 } }
     conditions: { buffer_length: true ge: 2 }
   )pb");
 
@@ -612,7 +605,7 @@ TEST(StructuredWriter, PatternFromAppendPartial) {
     flat { flat_source_index: 1 start: -2 }
     flat { flat_source_index: 2 stop: -1 }
     table: "table"
-    priority: 1.0
+    priority { constant_fn { value: 1.0 } }
     conditions: { buffer_length: true ge: 2 }
   )pb");
 
@@ -660,7 +653,7 @@ TEST(StructuredWriter, DoesNotForwwardUnusedColumns) {
     flat { flat_source_index: 0 stop: -1 }
     flat { flat_source_index: 2 stop: -1 }
     table: "table"
-    priority: 1.0
+    priority { constant_fn { value: 1.0 } }
     conditions: { buffer_length: true ge: 1 }
   )pb");
 
@@ -686,7 +679,7 @@ TEST(StructuredWriter, CanHandlePointlessSteps) {
   auto config = MakeConfig(R"pb(
     flat { flat_source_index: 1 stop: -1 }
     table: "table"
-    priority: 1.0
+    priority { constant_fn { value: 1.0 } }
     conditions: { buffer_length: true ge: 1 }
     conditions: { step_index: true eq: 1 }
   )pb");
@@ -716,7 +709,7 @@ TEST(StructuredWriter, StepIsOpen) {
     flat { flat_source_index: 1 start: -1 }
     flat { flat_source_index: 2 stop: -1 }
     table: "table"
-    priority: 1.0
+    priority { constant_fn { value: 1.0 } }
     conditions: { buffer_length: true ge: 1 }
   )pb");
 
@@ -762,7 +755,7 @@ TEST_P(StructuredWriterTest, AppliesPattern) {
   auto params = GetParam();
   auto config = MakeConfig(params.first);
   config.set_table("table");
-  config.set_priority(1.0);
+  config.mutable_priority()->mutable_constant_fn()->set_value(1.0);
 
   auto it = std::max_element(config.flat().begin(), config.flat().end(),
                              [](const auto& a, const auto& b) {
@@ -1022,6 +1015,50 @@ INSTANTIATE_TEST_SUITE_P(
                               {MakeTensor(22)},
                               {MakeTensor(24)},
                           })));
+
+TEST_P(StructuredWriterTest, AppliesPatternAndComputesTDError) {
+  auto fake_writer = std::make_unique<FakeWriter>(3);
+  FakeWriter* fake_writer_ptr = fake_writer.get();
+
+  auto config = MakeConfig(R"pb(flat { flat_source_index: 1 start: -2 })pb");
+  std::vector<std::vector<Tensor>> expected_trajectories = {
+      {MakeTensor({20, 21})},
+      {MakeTensor({21, 22})},
+      {MakeTensor({22, 23})},
+      {MakeTensor({23, 24})},
+  };
+  std::vector<double> expected_priorities = {20.75, 21.75, 22.75, 23.75};
+  config.set_table("table");
+  auto td_error = config.mutable_priority()->mutable_td_error();
+  td_error->set_max_priority_weight(.5);
+  td_error->set_flat_source_index(1);  // we use the first column
+
+  auto it = std::max_element(config.flat().begin(), config.flat().end(),
+                             [](const auto& a, const auto& b) {
+                               return std::abs(std::min(a.start(), a.stop())) <
+                                      std::abs(std::min(b.start(), b.stop()));
+                             });
+  auto* condition = config.add_conditions();
+  condition->set_buffer_length(true);
+  condition->set_ge(std::abs(std::min(it->start(), it->stop())));
+
+  StructuredWriter writer(std::move(fake_writer), {std::move(config)});
+
+  for (int i = 0; i < 5; i++) {
+    REVERB_EXPECT_OK(writer.Append(MakeStep({10 + i, 20 + i, 30 + i})));
+  }
+  REVERB_EXPECT_OK(writer.EndEpisode(/*clear_buffers=*/true));
+
+  ExpectTrajectoriesEqual(fake_writer_ptr->trajectories(),
+                          expected_trajectories);
+  auto got_priorities = fake_writer_ptr->priorities();
+
+  ASSERT_EQ(expected_priorities.size(), got_priorities.size())
+      << "Wrong number of priorities";
+  for (int i = 0; i < got_priorities.size(); i++) {
+    EXPECT_EQ(got_priorities[i], expected_priorities[i]);
+  }
+}
 
 }  // namespace
 }  // namespace deepmind::reverb

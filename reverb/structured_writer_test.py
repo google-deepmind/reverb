@@ -466,6 +466,35 @@ class StructuredWriterTest(parameterized.TestCase):
         'Flattened data has an unexpected length, got 4 but wanted 2.'):
       writer.append({'a': 2, 'b': {'c': 2, 'd': [2, 2]}})
 
+  def test_td_error(self):
+    step_spec = {'a': None, 'b': None, 'c': None}
+    pattern_fn = lambda x: {'last_a': x['a'][-1], 'last_c': x['c'][-1]}
+
+    configs = structured_writer.create_config(
+        pattern=structured_writer.pattern_from_transform(step_spec, pattern_fn),
+        table=TABLES[0],
+        priority=structured_writer.td_error(
+            max_priority_weight=.5,
+            step_structure=step_spec,
+            get_field_from_step_fn=lambda x: x['c']))
+    writer = self.client.structured_writer([configs])
+    for i in range(5):
+      writer.append({'a': i, 'b': i + 1, 'c': i + 2})
+    writer.flush()
+
+    info = self.client.server_info(1)
+    num_items = info[TABLES[0]].current_size
+    self.assertEqual(num_items, 5)
+
+    sampler = self.client.sample(TABLES[0], num_samples=5, emit_timesteps=False)
+    priorities = []
+    for sample in sampler:
+      priorities.append(sample.info.priority)
+    # Each episode only has one step, so the TD error is the value of the
+    # error in the step (column c).
+    expected_priorities = [2., 3., 4., 5., 6.]
+    self.assertSequenceEqual(priorities, expected_priorities)
+
 
 class TestInferSignature(parameterized.TestCase):
 

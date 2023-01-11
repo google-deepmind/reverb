@@ -489,6 +489,9 @@ class TrajectoryColumn {
   // True if the column is squeezed.
   bool squeezed() const { return squeeze_; }
 
+  // Returns a reference to the rows.
+  std::vector<std::weak_ptr<CellRef>>& refs() { return refs_; }
+
  private:
   // References to the rows that make up the column.
   std::vector<std::weak_ptr<CellRef>> refs_;

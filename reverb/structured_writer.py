@@ -288,13 +288,16 @@ def pattern_from_transform(
 
 def create_config(pattern: Pattern,
                   table: str,
-                  conditions: Sequence[patterns_pb2.Condition] = ()):
+                  conditions: Sequence[patterns_pb2.Condition] = (),
+                  priority: Optional[patterns_pb2.Priority] = None):
   structure = tree.map_structure(lambda _: None, pattern)
+  if priority is None:
+    priority = constant_priority_fn(1.0)
   return patterns_pb2.StructuredWriterConfig(
       flat=tree.flatten(pattern),
       pattern_structure=nested_structure_coder.encode_structure(structure),
       table=table,
-      priority=1.0,
+      priority=priority,
       conditions=conditions)
 
 
@@ -421,6 +424,7 @@ class _ConditionBuilder:
     condition = self > cmp
     condition.inverse = True
     return condition
+
   # pytype: enable=signature-mismatch  # overriding-return-type-checks
 
 
@@ -450,3 +454,62 @@ class Condition:
         for i in range(len(tree.flatten(step_structure)))
     ]
     return tree.unflatten_as(step_structure, flat)
+
+
+def constant_priority_fn(value: float) -> patterns_pb2.Priority:
+  """Builds a priority function that always returns the same value.
+
+  Args:
+    value: constant priority value.
+
+  Returns:
+    Priority function that always returns a constant value.
+  """
+
+  return patterns_pb2.Priority(
+      constant_fn=patterns_pb2.Priority.ConstantPriorityFn(value=value))
+
+
+def td_error(
+    max_priority_weight: float, step_structure: tree.Structure[Any],
+    get_field_from_step_fn: Callable[[tree.Structure[Any]], Any]
+) -> patterns_pb2.Priority:
+  """Builds a td_error priority function.
+
+  See details of the TD error in https://openreview.net/pdf?id=r1lyTjAqYX.
+
+  The TD error of a trajectory is computed by combining the TD error at each
+  timestep. If that column is called `td_error`, the computation to obtain the
+  trajectory TD error is:
+
+  ```
+  abs_td_error = jnp.abs(td_error)
+  max_priority = max_priority_weight * jnp.max(abs_td_error, axis=0)
+  mean_priority = (1 - max_priority_weight) * jnp.mean(abs_td_error, axis=0)
+  priority = max_priority + mean_priority
+  ```
+
+  Args:
+    max_priority_weight: max priority weight to use in the TD error computation.
+    step_structure: structure of the step.
+    get_field_from_step_fn: This function gets a step and returns the field that
+      contains the per-step TD error. Note that this field corresponds to the
+      input step, and has to be present also in the resulting trajectory (if the
+      trajectory is a dictionary, the name of the field in the trajectory can
+      change). Besides, this field from the input step should only correspond to
+      one field in the resulting trajectory, otherwise we cannot guarantee which
+      one is used to compute the priority.
+
+  Returns:
+    A priority function which computes the priority as the TD error.
+  """
+
+  def get_flat_index(step_structure):
+    flat = list(range(len(tree.flatten(step_structure))))
+    return tree.unflatten_as(step_structure, flat)
+
+  index = get_field_from_step_fn(get_flat_index(step_structure))
+
+  return patterns_pb2.Priority(
+      td_error=patterns_pb2.Priority.TDError(
+          max_priority_weight=max_priority_weight, flat_source_index=index))

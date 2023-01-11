@@ -158,10 +158,74 @@ bool CheckCondition(
   }
 }
 
-absl::StatusOr<std::vector<TrajectoryColumn>> BuildTrajectory(
+struct TrajectoryAndPriority {
+  std::vector<TrajectoryColumn> data;
+  double priority;
+};
+
+absl::StatusOr<double> ComputeTDError(TrajectoryColumn& column, double weight) {
+  // See details of the TD Error in https://openreview.net/pdf?id=r1lyTjAqYX.
+  double max_error = std::numeric_limits<double>::lowest();
+  double total_error = 0;
+  for (const auto& ref : column.refs()) {
+    tensorflow::Tensor tensor;
+    REVERB_RETURN_IF_ERROR(ref.lock()->GetData(&tensor));
+
+    if (tensor.dtype() != tensorflow::DT_DOUBLE &&
+        tensor.dtype() != tensorflow::DT_FLOAT &&
+        tensor.dtype() != tensorflow::DT_INT32 &&
+        tensor.dtype() != tensorflow::DT_INT64) {
+      return absl::InvalidArgumentError(absl::StrFormat(
+          "TD Error expects a double/float/int tensor and it is %d",
+          tensor.dtype()));
+    }
+    if (tensor.NumElements() != 1)
+      return absl::InvalidArgumentError("TD Error expects a scalar tensor");
+    double abs_error = 0.0;
+    switch (tensor.dtype()) {
+      case tensorflow::DT_DOUBLE:
+        abs_error = std::abs(tensor.flat<double>().data()[0]);
+        break;
+      case tensorflow::DT_FLOAT:
+        abs_error = std::abs(tensor.flat<float>().data()[0]);
+        break;
+      case tensorflow::DT_INT32:
+        abs_error = std::abs(tensor.flat<int32_t>().data()[0]);
+        break;
+      case tensorflow::DT_INT64:
+        abs_error = std::abs(tensor.flat<int64_t>().data()[0]);
+        break;
+      default:
+        REVERB_CHECK(false)
+            << "TDError expects a tensor of type double, float or int and it "
+               "got "
+            << tensor.dtype() << ".";
+    }
+    max_error = std::max(abs_error, max_error);
+    total_error += abs_error;
+  }
+  double mean_error = total_error / column.refs().size();
+  double max_priority = weight * max_error;
+  double mean_priority = (1 - weight) * mean_error;
+  return max_priority + mean_priority;
+}
+
+absl::StatusOr<TrajectoryAndPriority> BuildTrajectory(
     const StructuredWriterConfig& config,
     const std::vector<std::deque<std::shared_ptr<CellRef>>>& columns) {
   std::vector<TrajectoryColumn> out;
+  Priority priority = config.priority();
+  double priority_value = 0.0;
+  switch (priority.priority_fn_case()) {
+    case Priority::kConstantFn:
+      priority_value = priority.constant_fn().value();
+      break;
+    case Priority::kTdError:
+      break;
+    default:
+      return absl::InvalidArgumentError(
+          "The Priority function undefined. This should never happen");
+  }
   out.reserve(columns.size());
 
   for (const auto& node : config.flat()) {
@@ -189,9 +253,16 @@ absl::StatusOr<std::vector<TrajectoryColumn>> BuildTrajectory(
     }
 
     out.emplace_back(std::move(refs), !HasStart(node) && HasStop(node));
+    if (priority.has_td_error() &&
+        priority.td_error().flat_source_index() == node.flat_source_index()) {
+      REVERB_ASSIGN_OR_RETURN(
+          priority_value,
+          ComputeTDError(out.back(),
+                         priority.td_error().max_priority_weight()));
+    }
   }
 
-  return out;
+  return TrajectoryAndPriority{std::move(out), priority_value};
 }
 
 absl::Status ValidateCondition(const Condition& condition) {
@@ -307,10 +378,6 @@ absl::Status ValidateStructuredWriterConfig(
   }
   if (config.table().empty()) {
     return absl::InvalidArgumentError("`table` must not be empty.");
-  }
-  if (config.priority() < 0) {
-    return absl::InvalidArgumentError(absl::StrFormat(
-        "`priority` must be >= 0 but got %f.", config.priority()));
   }
 
   for (const auto& node : config.flat()) {
@@ -476,7 +543,7 @@ absl::Status StructuredWriter::ApplyConfigs(bool is_end_of_episode) {
 
     REVERB_ASSIGN_OR_RETURN(auto trajectory, trajectory_or_status);
     REVERB_RETURN_IF_ERROR(writer_->CreateItem(
-        c.config.table(), c.config.priority(), std::move(trajectory)));
+        c.config.table(), trajectory.priority, std::move(trajectory.data)));
 
     c.last_applied = current_step;
     c.steps_since_applied = 0;
