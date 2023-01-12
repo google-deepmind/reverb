@@ -235,20 +235,23 @@ def _tensorflow_solib_repo_impl(repo_ctx):
     tf_lib_path = _find_tf_lib_path(repo_ctx)
     repo_ctx.symlink(tf_lib_path, "tensorflow_solib")
     if is_darwin(repo_ctx):
-        suffix = "2.dylib"
+        tensorflow_solib = "libtensorflow_cc.2.dylib"
+        full_path = repo_ctx.path("tensorflow_solib/{}".format(tensorflow_solib))
+        if not full_path.exists:
+            tensorflow_solib = "libtensorflow_framework.2.dylib"
     else:
-        suffix = "so.2"
+        tensorflow_solib = "libtensorflow_framework.so.2"
 
     repo_ctx.file(
         "BUILD",
         content = """
 cc_library(
     name = "framework_lib",
-    srcs = ["tensorflow_solib/libtensorflow_framework.{suffix}"],
+    srcs = ["tensorflow_solib/{tensorflow_solib}"],
     deps = ["@python_includes", "@python_includes//:numpy_includes"],
     visibility = ["//visibility:public"],
 )
-""".format(suffix=suffix))
+""".format(tensorflow_solib=tensorflow_solib))
 
 def _python_includes_repo_impl(repo_ctx):
     python_include_path = _find_python_include_path(repo_ctx)
@@ -267,9 +270,6 @@ def _python_includes_repo_impl(repo_ctx):
     else:
         python_includes_srcs = 'srcs = ["%s"],' % python_solib.basename
 
-    # Note, "@python_includes" is a misnomer since we include the
-    # libpythonX.Y.so in the srcs, so we can get access to python's various
-    # symbols at link time.
     repo_ctx.file(
         "BUILD",
         content = """
@@ -394,7 +394,7 @@ def _protoc_archive(ctx):
 
     if is_darwin(ctx):
         platform = "osx"
-        sha256 = ""
+        sha256 = "99729771ccb2f70621ac20f241f6ab1c70271f2c6bd2ea1ddbd9c2f7ae08d316"
     else:
         platform = "linux"
 

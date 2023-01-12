@@ -20,6 +20,7 @@ function build_wheel() {
   DESTDIR="$2"
   RELEASE_FLAG="$3"
   TF_VERSION_FLAG="$4"
+  PLATFORM="$5"
 
   # Before we leave the top-level directory, make sure we know how to
   # call python.
@@ -93,7 +94,7 @@ function usage() {
   echo "    --release         build a release version"
   echo "    --dst             path to copy the .whl into."
   echo "    --tf-version      tensorflow version dependency passed to setup.py."
-  echo "    --plat            platform."
+  echo "    --platform        platform."
   echo ""
   exit 1
 }
@@ -105,7 +106,7 @@ function main() {
   # This is where the source code is copied and where the whl will be built.
   DST_DIR=""
 
-  PLATFORM="manylinux2010_x86_64"
+  PLATFORM="manylinux2014_x86_64"
 
   while true; do
     if [[ "$1" == "--help" ]]; then
@@ -136,7 +137,7 @@ function main() {
   fi
 
   prepare_src "$TMPDIR"
-  build_wheel "$TMPDIR" "$DST_DIR" "$RELEASE_FLAG" "$TF_VERSION_FLAG"
+  build_wheel "$TMPDIR" "$DST_DIR" "$RELEASE_FLAG" "$TF_VERSION_FLAG" "$PLATFORM"
 }
 
 main "$@"
