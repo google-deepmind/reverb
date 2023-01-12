@@ -105,18 +105,17 @@ for python_version in $PYTHON_VERSIONS; do
   else
     echo "Error unknown --python. Only [3.7|3.8|3.9|3.10]"
     exit 1
+  fi
 
   export PYTHON_BIN_PATH=`which python${python_version}`
   export PYTHON_LIB_PATH=`${PYTHON_BIN_PATH} -c 'import site; print(site.getsitepackages()[0])'`
 
   if [ "$(uname)" = "Darwin" ]; then
     bazel_config=""
-    version=`sw_vers -productVersion | sed 's/\./_/g' | cut -d"_" -f1,2`
-    PLATFORM="macosx_${version}_"`uname -m`
+    PLATFORM=`${PYTHON_BIN_PATH} -c "from distutils import util; print(util.get_platform())"`
   else
-    bazel_config="--config=manylinux2010"
-    bazel_config=""
-    PLATFORM="manylinux2010_x86_64"
+    bazel_config="--config=manylinux2014"
+    PLATFORM="manylinux2014_x86_64"
   fi
 
   # Configures Bazel environment for selected Python version.
@@ -141,7 +140,7 @@ for python_version in $PYTHON_VERSIONS; do
   ./bazel-bin/reverb/pip_package/build_pip_package --dst $OUTPUT_DIR $PIP_PKG_EXTRA_ARGS --platform "$PLATFORM"
 
   # Installs pip package.
-  $PYTHON_BIN_PATH -mpip install --force-reinstall ${OUTPUT_DIR}*${ABI}*.whl
+  $PYTHON_BIN_PATH -m pip install --force-reinstall ${OUTPUT_DIR}*${ABI}*.whl
 
   if [ "$PYTHON_TESTS" = "true" ]; then
     echo "Run Python tests..."

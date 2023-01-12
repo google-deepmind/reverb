@@ -394,7 +394,7 @@ def _protoc_archive(ctx):
 
     if is_darwin(ctx):
         platform = "osx"
-        sha256 = ""
+        sha256 = "99729771ccb2f70621ac20f241f6ab1c70271f2c6bd2ea1ddbd9c2f7ae08d316"
     else:
         platform = "linux"
 
