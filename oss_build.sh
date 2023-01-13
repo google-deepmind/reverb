@@ -95,20 +95,27 @@ for python_version in $PYTHON_VERSIONS; do
   fi
 
   if [ "$python_version" = "3.7" ]; then
-    export PYTHON_BIN_PATH=/usr/bin/python3.7 && export PYTHON_LIB_PATH=/usr/local/lib/python3.7/dist-packages
     ABI=cp37
   elif [ "$python_version" = "3.8" ]; then
-    export PYTHON_BIN_PATH=/usr/bin/python3.8 && export PYTHON_LIB_PATH=/usr/local/lib/python3.8/dist-packages
     ABI=cp38
   elif [ "$python_version" = "3.9" ]; then
-    export PYTHON_BIN_PATH=/usr/bin/python3.9 && export PYTHON_LIB_PATH=/usr/local/lib/python3.9/dist-packages
     ABI=cp39
   elif [ "$python_version" = "3.10" ]; then
-    export PYTHON_BIN_PATH=/usr/bin/python3.10 && export PYTHON_LIB_PATH=/usr/local/lib/python3.10/dist-packages
     ABI=cp310
   else
     echo "Error unknown --python. Only [3.7|3.8|3.9|3.10]"
     exit 1
+  fi
+
+  export PYTHON_BIN_PATH=`which python${python_version}`
+  export PYTHON_LIB_PATH=`${PYTHON_BIN_PATH} -c 'import site; print(site.getsitepackages()[0])'`
+
+  if [ "$(uname)" = "Darwin" ]; then
+    bazel_config=""
+    PLATFORM=`${PYTHON_BIN_PATH} -c "from distutils import util; print(util.get_platform())"`
+  else
+    bazel_config="--config=manylinux2014"
+    PLATFORM="manylinux2014_x86_64"
   fi
 
   # Configures Bazel environment for selected Python version.
@@ -121,24 +128,25 @@ for python_version in $PYTHON_VERSIONS; do
   # someone's system unexpectedly. We are executing the python tests after
   # installing the final package making this approach satisfactory.
   # TODO(b/157223742): Execute Python tests as well.
-  bazel test -c opt --copt=-mavx --config=manylinux2014 --test_output=errors //reverb/cc/...
+  bazel test -c opt --copt=-mavx ${bazel_config} --test_output=errors //reverb/cc/...
 
   EXTRA_OPT=""
   if [ "$DEBUG_BUILD" = "true" ]; then
      EXTRA_OPT="--copt=-g2"
   fi
+
   # Builds Reverb and creates the wheel package.
-  bazel build -c opt --copt=-mavx $EXTRA_OPT --config=manylinux2014 reverb/pip_package:build_pip_package
-  ./bazel-bin/reverb/pip_package/build_pip_package --dst $OUTPUT_DIR $PIP_PKG_EXTRA_ARGS
+  bazel build -c opt --copt=-mavx $EXTRA_OPT $bazel_config reverb/pip_package:build_pip_package
+  ./bazel-bin/reverb/pip_package/build_pip_package --dst $OUTPUT_DIR $PIP_PKG_EXTRA_ARGS --platform "$PLATFORM"
 
   # Installs pip package.
-  $PYTHON_BIN_PATH -mpip install ${OUTPUT_DIR}*${ABI}*.whl
+  $PYTHON_BIN_PATH -m pip install --force-reinstall ${OUTPUT_DIR}*${ABI}*.whl
 
   if [ "$PYTHON_TESTS" = "true" ]; then
     echo "Run Python tests..."
     set +e
 
-    bash run_python_tests.sh |& tee ./unittest_log.txt
+    bash run_python_tests.sh 2>&1 | tee ./unittest_log.txt
     UNIT_TEST_ERROR_CODE=$?
     set -e
     if [[ $UNIT_TEST_ERROR_CODE != 0 ]]; then

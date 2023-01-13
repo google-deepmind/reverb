@@ -29,7 +29,8 @@ py_test() {
 
   echo "===========Running Python tests============"
 
-  for test_file in `find reverb/ -name '*_test.py' -print`
+  cd reverb/  # Fix OSX circular import error
+  for test_file in `find ./ -name '*_test.py' -print`
   do
     echo "####=======Testing ${test_file}=======####"
     ${PYTHON_BIN_PATH} "${test_file}"
