@@ -26,7 +26,7 @@ set -e
 set -o pipefail
 
 # Flags
-PYTHON_VERSIONS=3.7 # Options 3.7 (default), 3.8, or 3.9.
+PYTHON_VERSIONS=3.9 # Options 3.9 (default), 3.8, 3.10 or 3.11.
 CLEAN=false # Set to true to run bazel clean.
 OUTPUT_DIR=/tmp/reverb/dist/
 PYTHON_TESTS=true
@@ -38,7 +38,7 @@ PIP_PKG_EXTRA_ARGS="" # Extra args passed to `build_pip_package`.
 if [[ $# -lt 1 ]] ; then
   echo "Usage:"
   echo "--release [Indicates this is a release build. Otherwise nightly.]"
-  echo "--python [3.7(default)|3.8|3.9|3.10]"
+  echo "--python [3.9(default)|3.8|3.10|3.11]"
   echo "--clean  [true to run bazel clean]"
   echo "--tf_dep_override  [Required tensorflow version to pass to setup.py."
   echo "                    Examples: tensorflow==2.3.0rc0  or tensorflow>=2.3.0]"
@@ -94,10 +94,7 @@ for python_version in $PYTHON_VERSIONS; do
     bazel clean
   fi
 
-  if [ "$python_version" = "3.7" ]; then
-    export PYTHON_BIN_PATH=/usr/bin/python3.7 && export PYTHON_LIB_PATH=/usr/local/lib/python3.7/dist-packages
-    ABI=cp37
-  elif [ "$python_version" = "3.8" ]; then
+  if [ "$python_version" = "3.8" ]; then
     export PYTHON_BIN_PATH=/usr/bin/python3.8 && export PYTHON_LIB_PATH=/usr/local/lib/python3.8/dist-packages
     ABI=cp38
   elif [ "$python_version" = "3.9" ]; then
@@ -106,8 +103,11 @@ for python_version in $PYTHON_VERSIONS; do
   elif [ "$python_version" = "3.10" ]; then
     export PYTHON_BIN_PATH=/usr/bin/python3.10 && export PYTHON_LIB_PATH=/usr/local/lib/python3.10/dist-packages
     ABI=cp310
+  elif [ "$python_version" = "3.11" ]; then
+    export PYTHON_BIN_PATH=/usr/bin/python3.11 && export PYTHON_LIB_PATH=/usr/local/lib/python3.11/dist-packages
+    ABI=cp311
   else
-    echo "Error unknown --python. Only [3.7|3.8|3.9|3.10]"
+    echo "Error unknown --python. Only [3.8|3.9|3.10|3.11]"
     exit 1
   fi
 
@@ -128,7 +128,7 @@ for python_version in $PYTHON_VERSIONS; do
      EXTRA_OPT="--copt=-g2"
   fi
   # Builds Reverb and creates the wheel package.
-  bazel build -c opt --copt=-mavx $EXTRA_OPT --config=manylinux2014 reverb/pip_package:build_pip_package
+  bazel build --sandbox_debug --verbose_failures -c opt --copt=-mavx $EXTRA_OPT --config=manylinux2014 reverb/pip_package:build_pip_package
   ./bazel-bin/reverb/pip_package/build_pip_package --dst $OUTPUT_DIR $PIP_PKG_EXTRA_ARGS
 
   # Installs pip package.

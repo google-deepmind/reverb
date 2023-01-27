@@ -1,4 +1,4 @@
-ARG cpu_base_image="tensorflow/build:latest-python3.7"
+ARG cpu_base_image="tensorflow/build:latest-python3.9"
 ARG base_image=$cpu_base_image
 FROM $base_image
 
@@ -6,10 +6,10 @@ LABEL maintainer="no-reply@google.com"
 
 # Re-declare args because the args declared before FROM can't be used in any
 # instruction after a FROM.
-ARG cpu_base_image="tensorflow/build:latest-python3.7"
+ARG cpu_base_image="tensorflow/build:latest-python3.9"
 ARG base_image=$cpu_base_image
 ARG tensorflow_pip="tf-nightly"
-ARG python_version="python3.7"
+ARG python_version="python3.9"
 ARG APT_COMMAND="apt-get -o Acquire::Retries=3 -y"
 
 # Stops tzdata from asking about timezones and blocking install on user input.
@@ -30,14 +30,15 @@ RUN ${APT_COMMAND} update && ${APT_COMMAND} install -y --no-install-recommends \
         libzmq3-dev \
         lsof \
         pkg-config \
-        python3.7-dev \
         python3.8-dev \
         python3.9-dev \
         python3.10-dev \
+        python3.11-dev \
         # python >= 3.8 needs distutils for packaging.
         python3.8-distutils \
         python3.9-distutils \
         python3.10-distutils \
+        python3.11-distutils \
         rename \
         rsync \
         sox \
@@ -84,11 +85,13 @@ RUN rm get-pip.py
 RUN rm /dt9/usr/include/x86_64-linux-gnu/python3.8
 RUN rm /dt9/usr/include/x86_64-linux-gnu/python3.9
 RUN rm /dt9/usr/include/x86_64-linux-gnu/python3.10
+RUN rm /dt9/usr/include/x86_64-linux-gnu/python3.11
 
 # Needed until this is included in the base TF image.
 RUN ln -s "/usr/include/x86_64-linux-gnu/python3.8" "/dt9/usr/include/x86_64-linux-gnu/python3.8"
 RUN ln -s "/usr/include/x86_64-linux-gnu/python3.9" "/dt9/usr/include/x86_64-linux-gnu/python3.9"
 RUN ln -s "/usr/include/x86_64-linux-gnu/python3.10" "/dt9/usr/include/x86_64-linux-gnu/python3.10"
+RUN ln -s "/usr/include/x86_64-linux-gnu/python3.11" "/dt9/usr/include/x86_64-linux-gnu/python3.11"
 
 # bazel build -c opt --copt=-mavx --config=manylinux2014 --test_output=errors //...
 
