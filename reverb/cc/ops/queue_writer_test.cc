@@ -486,7 +486,7 @@ TEST(QueueWriter, CreateItemWithSqueezedColumn) {
   auto status = writer.CreateItem(
       "table", 1.0,
       {TrajectoryColumn({step[0].value()}, true)});
-  EXPECT_OK(status);
+  REVERB_EXPECT_OK(status);
   EXPECT_EQ(queue.size(), 1);
 
   for (auto trajectory : queue){
