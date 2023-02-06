@@ -9,6 +9,7 @@ if [ "$${PROTOC_VERSION}" -ne "$${TF_PROTO_VERSION}" ]; then
   echo Your protoc version does not match the tensorflow proto header \
        required version: "$${PROTOC_VERSION}" vs. "$${TF_PROTO_VERSION}" 1>&2
   echo Please update the PROTOC_VERSION in your WORKSPACE file. 1>&2
+  echo https://github.com/deepmind/reverb/tree/master/reverb/pip_package 1>&2
   echo !!!!!!!!!!!!!!!!!!!!!!!!!!!!! 1>&2
   false
 else

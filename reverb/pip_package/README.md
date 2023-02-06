@@ -6,7 +6,7 @@ This document covers a couple scenarios:
 
  *  <a href='#Release'>Create a Reverb release</a>
  *  <a href='#Develop'>Develop Reverb inside a Docker container</a>
-
+ *  <a href='#builds-tips-and-hints'>Build tips and hints</a>
 
 While there is overlap in the above scenarios, treating them separately seems
 the most clear at the moment. Before you get started, setup a local variable
@@ -118,3 +118,30 @@ $ docker run --rm --mount "type=bind,src=$REVERB_DIR,dst=/tmp/reverb" \
   # *.whl.
   $ $PYTHON_BIN_PATH -mpip install --upgrade /tmp/reverb_build/dist/*.whl
   ```
+
+<a id='#builds-tips-and-hints'></a>
+
+## Builds Tips and Hints
+
+### protoc / protobuf version mismatch
+
+There is a
+[check in the Reverb build process](https://github.com/deepmind/reverb/blob/master/third_party/protobuf.BUILD)
+that checks if the protoc library in Tensorflow matches what Reverb is using. It
+throws this error if there is a mismatch: "Please update the PROTOC_VERSION in
+your WORKSPACE". Here for search reasons :-).
+
+Tensorflow sets its version of Protobuf in this
+[WORKSPACE](https://github.com/tensorflow/tensorflow/blob/master/tensorflow/workspace2.bzl)
+file. Reverb sets its version of protoc in this
+[WORKSPACE](https://github.com/deepmind/reverb/blob/master/WORKSPACE) file. The
+twist is the protobuf people release protoc as 21.9 and the protobuf library as
+3.21.0 as seen
+[here](https://github.com/protocolbuffers/protobuf/releases/tag/v21.12).
+
+Until Feb-2023, Tensorflow was using a version of Protobuf that was ~2 years
+old. In Feb 2023, TF jumped to the latest protobuf 3.21.9.
+
+Note: While I am pretty sure Tensorflow was on 21.9 as of Feb-2023, The checker
+in Reverb saw it as 21.0. 21.0 worked so I (tobyboyd) did not look into it any
+farther.
