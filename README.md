@@ -62,15 +62,6 @@ to ensure the files are there, e.g.
 binary, see the
 [build instructions](https://github.com/deepmind/reverb/tree/master/reverb/pip_package#create-a-stable-reverb-release).
 
-For Python 3.7:
-
-```shell
-$ export reverb_version=0.8.0
-# Python 3.7
-$ export python_version=37
-$ pip install https://storage.googleapis.com/rl-infra-builds/dm_reverb/builds/dbg/$reverb_version/dm_reverb-$reverb_version-cp$python_version-cp${python_version}m-manylinux2010_x86_64.whl
-```
-
 For python 3.8 and 3.9 follow this pattern:
 
 ```shell
@@ -84,6 +75,28 @@ $ pip install https://storage.googleapis.com/rl-infra-builds/dm_reverb/builds/db
 
 [This guide](reverb/pip_package/README.md#how-to-develop-and-build-reverb-with-the-docker-containers)
 details how to build Reverb from source.
+
+
+### Reverb Releases
+
+Due to some underlying libraries such as `protoc` and `absl`, Reverb has to be
+paired with a specific version of TensorFlow. If installing Reverb as
+`pip install dm-reverb[tensorflow]` the correct version of Tensorflow will be
+installed. The table below lists the version of TensorFlow that each release of
+Reverb is associated with and some versions of interest:
+
+  * 0.11.0 first version to support Python 3.11.
+  * 0.10.0 last version to support Python 3.7.
+
+
+Release | Branch / Tag                                               | TensorFlow Version
+------- | ---------------------------------------------------------- | ------------------
+Nightly | [master](https://github.com/deepmind/reverb)               | tf-nightly
+0.11.0  | [v0.11.0](https://github.com/deepmind/reverb/tree/v0.11.0) | 2.12.0
+0.10.0  | [v0.10.0](https://github.com/deepmind/reverb/tree/v0.10.0) | 2.11.0
+0.9.0  | [v0.9.0](https://github.com/deepmind/reverb/tree/v0.9.0)   | 2.10.0
+0.8.0  | [v0.8.0](https://github.com/deepmind/reverb/tree/v0.8.0)   | 2.9.0
+0.7.x  | [v0.7.0](https://github.com/deepmind/reverb/tree/v0.7.0)   | 2.8.0
 
 ## Quick Start
 
@@ -169,7 +182,7 @@ Although originally designed for off-policy reinforcement learning, Reverb's
 flexibility makes it just as useful for on-policy reinforcement -- or even
 (un)supervised learning. Creative users have even used Reverb to store and
 distribute frequently updated data (such as model weights), acting as an
-in-memory light-weight alternative to a distributed file system where each table
+in-memory lightweight alternative to a distributed file system where each table
 represents a file.
 
 ### Tables
