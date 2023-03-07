@@ -37,8 +37,8 @@ inline tensorflow::Status ToTensorflowStatus(const absl::Status& status) {
   if (status.ok()) {
     return tensorflow::Status();
   } else {
-    return tensorflow::Status(
-        static_cast<tensorflow::error::Code>(status.code()), status.message());
+    return tensorflow::Status(static_cast<tsl::errors::Code>(status.code()),
+                              status.message());
   }
 }
 
