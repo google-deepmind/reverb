@@ -275,6 +275,8 @@ class InsertOp : public tensorflow::OpKernel {
                                   tables_t(i), 1, priorities_t(i))));
     }
 
+    OP_REQUIRES_OK(context, ToTensorflowStatus(writer->Flush()));
+
     OP_REQUIRES_OK(context, ToTensorflowStatus(writer->Close()));
   }
 
