@@ -178,8 +178,9 @@ class ReverbPatternDatasetOp : public tensorflow::data::UnaryDatasetOpKernel {
       return "ReverbPatternDatasetOp::Dataset";
     }
 
-    int64_t CardinalityInternal() const override {
-      int64_t n = input_->Cardinality();
+    int64_t CardinalityInternal(
+        tensorflow::data::CardinalityOptions options) const override {
+      int64_t n = input_->Cardinality(options);
       if (n == tensorflow::data::kInfiniteCardinality) {
         // We don't know what's the cardinality of the output as it depends on
         // the patterns and the conditions of each config. However, if the input
