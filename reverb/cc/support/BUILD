@@ -195,9 +195,9 @@ reverb_cc_test(
         "//reverb/cc:chunk_store",
         "//reverb/cc:schema_cc_proto",
         "//reverb/cc:tensor_compression",
+        "//reverb/cc/platform:status_matchers",
         "//reverb/cc/testing:proto_test_util",
         "//reverb/cc/testing:tensor_testutil",
-        "//reverb/cc/platform:status_matchers",
     ] + reverb_tf_deps(),
 )
 

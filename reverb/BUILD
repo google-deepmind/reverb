@@ -101,13 +101,12 @@ reverb_pybind_extension(
     visibility = [":__subpackages__"],
     deps = [
         "//reverb/cc:chunker",
-        "//reverb/cc/support:tf_util",
         "//reverb/cc:client",
+        "//reverb/cc:conversions",
         "//reverb/cc:patterns_cc_proto",
         "//reverb/cc:sampler",
         "//reverb/cc:structured_writer",
         "//reverb/cc:table",
-        "//reverb/cc:conversions",
         "//reverb/cc:trajectory_writer",
         "//reverb/cc:writer",
         "//reverb/cc/checkpointing:interface",
@@ -120,6 +119,7 @@ reverb_pybind_extension(
         "//reverb/cc/selectors:lifo",
         "//reverb/cc/selectors:prioritized",
         "//reverb/cc/selectors:uniform",
+        "//reverb/cc/support:tf_util",
         "//reverb/cc/table_extensions:interface",
     ] + reverb_pybind_deps() + reverb_absl_deps(),
 )
