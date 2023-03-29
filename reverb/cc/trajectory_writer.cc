@@ -71,9 +71,7 @@ class ArenaOwnedRequest {
     r_.mutable_chunks()->UnsafeArenaAddAllocated(data);
     request_size_bytes_ += data->ByteSizeLong();
   }
-  inline int64_t RequestSize() {
-    return request_size_bytes_;
-  }
+  inline int64_t RequestSize() { return request_size_bytes_; }
   inline void AddKeepChunkKeys(uint64_t keep_key) {
     r_.add_keep_chunk_keys(keep_key);
     request_size_bytes_ += sizeof(uint64_t);
