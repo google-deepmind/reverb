@@ -103,7 +103,7 @@ class SampleToInsertRatio(RateLimiter):
 
     Args:
       samples_per_insert: The average number of times the learner should sample
-        each item in the replay error_buffer during the item's entire lifetime.
+        each item in the replay buffer during the item's entire lifetime.
       min_size_to_sample: The minimum number of items that the table must
         contain  before transitioning into stage 2.
       error_buffer: Maximum size of the "error" before calls should be blocked.
