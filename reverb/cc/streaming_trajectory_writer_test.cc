@@ -124,8 +124,8 @@ inline tensorflow::Tensor MakeRandomTensor(const internal::TensorSpec& spec) {
   absl::BitGen bit_gen;
   for (int i = 0; i < tensor.NumElements(); i++) {
     if (spec.dtype == tensorflow::DT_INT32) {
-      tensor.flat<int32_t>()(i) =
-          absl::Uniform<int32_t>(bit_gen, 0, std::numeric_limits<int32_t>::max());
+      tensor.flat<int32_t>()(i) = absl::Uniform<int32_t>(
+          bit_gen, 0, std::numeric_limits<int32_t>::max());
     } else {
       REVERB_LOG(REVERB_FATAL) << "Unexpeted dtype";
     }

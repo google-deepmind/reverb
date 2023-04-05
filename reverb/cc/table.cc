@@ -145,8 +145,8 @@ void NotifyPendingInserts(const std::vector<Table::InsertRequest>& requests) {
 
 Table::Table(std::string name, std::shared_ptr<ItemSelector> sampler,
              std::shared_ptr<ItemSelector> remover, int64_t max_size,
-             int32_t max_times_sampled, std::shared_ptr<RateLimiter> rate_limiter,
-             Extensions extensions,
+             int32_t max_times_sampled,
+             std::shared_ptr<RateLimiter> rate_limiter, Extensions extensions,
              absl::optional<tensorflow::StructuredValue> signature)
     : sampler_(std::move(sampler)),
       remover_(std::move(remover)),
@@ -155,10 +155,10 @@ Table::Table(std::string name, std::shared_ptr<ItemSelector> sampler,
       max_size_(max_size),
       max_enqueued_inserts_(
           std::max(1L, std::min<int64_t>(max_size * kMaxEnqueuedInsertsPerc,
-                                       kMaxEnqueuedInserts))),
+                                         kMaxEnqueuedInserts))),
       max_enqueued_extension_ops_(
           std::max(1L, std::min<int64_t>(max_size * kMaxPendingExtensionOpsPerc,
-                                       kMaxPendingExtensionOps))),
+                                         kMaxPendingExtensionOps))),
       max_times_sampled_(max_times_sampled),
       name_(std::move(name)),
       rate_limiter_(std::move(rate_limiter)),
