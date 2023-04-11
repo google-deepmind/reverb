@@ -367,10 +367,10 @@ class LocalSamplerWorker : public SamplerWorker {
 
       // Try to double previously returned response batch size while not
       // exceeding the limits.
-      auto batch_size =
-          std::min<int64_t>(max_in_flight_samples_,
-                          std::min<int64_t>(2 * prev_batch_size,
-                                          num_samples - num_samples_returned));
+      auto batch_size = std::min<int64_t>(
+          max_in_flight_samples_,
+          std::min<int64_t>(2 * prev_batch_size,
+                            num_samples - num_samples_returned));
       // Reservation can be negative if previously reserved slots are being
       // returned.
       if (!queue->Reserve(batch_size - reserved_slots_)) {
@@ -445,18 +445,18 @@ class LocalSamplerWorker : public SamplerWorker {
 
 int64_t GetNumWorkers(const Sampler::Options& options) {
   int64_t max_samples = options.max_samples == Sampler::kUnlimitedMaxSamples
-                          ? INT64_MAX
-                          : options.max_samples;
+                            ? INT64_MAX
+                            : options.max_samples;
   int64_t num_workers = options.num_workers == Sampler::kAutoSelectValue
-                          ? Sampler::kDefaultNumWorkers
-                          : options.num_workers;
+                            ? Sampler::kDefaultNumWorkers
+                            : options.num_workers;
 
   // If a subset of the workers are able to fetch all of `max_samples` in the
   // first batch then there is no point in creating all of them.
   return std::min<int64_t>(
       num_workers,
-      std::max<int64_t>(1,
-                      max_samples / options.max_in_flight_samples_per_worker));
+      std::max<int64_t>(
+          1, max_samples / options.max_in_flight_samples_per_worker));
 }
 
 std::vector<std::unique_ptr<SamplerWorker>> MakeGrpcWorkers(
