@@ -292,16 +292,14 @@ absl::Status Table::TableWorkerLoop() {
       // to hold this mutex each time worker stats are updated, so
       // `worker_time_distribution_` is updated periodically.
       worker_time_distribution_ = worker_stats;
-      if (insert_idx == current_inserts.size() &&
-          !pending_inserts_.empty()) {
+      if (insert_idx == current_inserts.size() && !pending_inserts_.empty()) {
         // Get a new batch of insert requests as previous batch is done.
         progress++;
         insert_idx = 0;
         current_inserts.clear();
         std::swap(current_inserts, pending_inserts_);
       }
-      if (sample_idx == current_sampling.size() &&
-          !pending_sampling_.empty()) {
+      if (sample_idx == current_sampling.size() && !pending_sampling_.empty()) {
         // Get a new batch of sample requests as previous batch is done.
         progress++;
         sample_idx = 0;
@@ -342,8 +340,8 @@ absl::Status Table::TableWorkerLoop() {
           worker_stats.Enter(TableWorkerState::kSleeping);
         }
         worker_time_distribution_ = worker_stats;
-        rate_limited = !current_sampling.empty() &&
-                       sample_idx != current_sampling.size();
+        rate_limited =
+            !current_sampling.empty() && sample_idx != current_sampling.size();
         wakeup_worker_.WaitWithDeadline(&worker_mu_, wakeup);
         worker_stats.Enter(TableWorkerState::kRunning);
       }
@@ -362,16 +360,12 @@ absl::Status Table::TableWorkerLoop() {
   // all pending requests.
   {
     absl::MutexLock lock(&worker_mu_);
-    current_inserts.insert(
-      current_inserts.end(),
-      std::make_move_iterator(pending_inserts_.begin()),
-      std::make_move_iterator(pending_inserts_.end())
-    );
-    current_sampling.insert(
-      current_sampling.end(),
-      std::make_move_iterator(pending_sampling_.begin()),
-      std::make_move_iterator(pending_sampling_.end())
-    );
+    current_inserts.insert(current_inserts.end(),
+                           std::make_move_iterator(pending_inserts_.begin()),
+                           std::make_move_iterator(pending_inserts_.end()));
+    current_sampling.insert(current_sampling.end(),
+                            std::make_move_iterator(pending_sampling_.begin()),
+                            std::make_move_iterator(pending_sampling_.end()));
   }
   auto status = absl::CancelledError("RateLimiter has been cancelled");
   {
@@ -519,8 +513,8 @@ absl::Status Table::InsertOrAssign(Item item, absl::Duration timeout) {
   absl::Notification insert_done_c;
   auto insert_done = std::make_shared<InsertCallback>(
       [&](uint64_t) { insert_done_c.Notify(); });
-  REVERB_RETURN_IF_ERROR(InsertOrAssignAsync(std::move(item), &can_insert,
-                                             insert_done));
+  REVERB_RETURN_IF_ERROR(
+      InsertOrAssignAsync(std::move(item), &can_insert, insert_done));
   if (insert_done_c.WaitForNotificationWithTimeout(timeout)) {
     return absl::OkStatus();
   }
@@ -558,6 +552,7 @@ absl::Status Table::InsertOrAssignInternal(std::shared_ptr<Item> item) {
   if (data_.contains(key)) {
     REVERB_RETURN_IF_ERROR(UpdateItem(key, priority));
     ExtensionOperation(ExtensionRequest::CallType::kMemoryRelease, item);
+    WaitForBackgroundWork();
     return absl::OkStatus();
   }
 
@@ -588,6 +583,7 @@ absl::Status Table::InsertOrAssignInternal(std::shared_ptr<Item> item) {
   // Now that the new item has been inserted and an older item has
   // (potentially) been removed the insert can be finalized.
   rate_limiter_->Insert(&mu_);
+  WaitForBackgroundWork();
   return absl::OkStatus();
 }
 
@@ -633,8 +629,10 @@ void Table::EnqueSampleRequest(int num_samples,
     absl::MutexLock lock(&worker_mu_);
     if (stop_worker_) {
       absl::MutexLock table_lock(&mu_);
-      FinalizeSampleRequest(std::move(request), absl::CancelledError(
-          "EnqueSampleRequest: RateLimiter has been cancelled"));
+      FinalizeSampleRequest(
+          std::move(request),
+          absl::CancelledError(
+              "EnqueSampleRequest: RateLimiter has been cancelled"));
       return;
     }
     pending_sampling_.push_back(std::move(request));
@@ -701,6 +699,7 @@ absl::Status Table::SampleInternal(bool rate_limited, SampledItem* result) {
   if (item->item.times_sampled() == max_times_sampled_) {
     REVERB_RETURN_IF_ERROR(DeleteItem(item->item.key()));
   }
+  WaitForBackgroundWork();
   return absl::OkStatus();
 }
 
@@ -795,6 +794,7 @@ absl::Status Table::DeleteItem(Table::Key key,
   if (deleted_item) {
     *deleted_item = std::move(item);
   }
+  WaitForBackgroundWork();
   return absl::OkStatus();
 }
 
@@ -809,13 +809,13 @@ void Table::ExtensionOperation(ExtensionRequest::CallType type,
         extension->OnInsert(&mu_, e_item);
         break;
       case ExtensionRequest::CallType::kSample:
-          extension->OnSample(&mu_, e_item);
+        extension->OnSample(&mu_, e_item);
         break;
       case ExtensionRequest::CallType::kUpdate:
-          extension->OnUpdate(&mu_, e_item);
+        extension->OnUpdate(&mu_, e_item);
         break;
       case ExtensionRequest::CallType::kDelete:
-          extension->OnDelete(&mu_, e_item);
+        extension->OnDelete(&mu_, e_item);
         break;
       case ExtensionRequest::CallType::kMemoryRelease:
         break;
@@ -833,18 +833,18 @@ void Table::ExtensionOperation(ExtensionRequest::CallType type,
     return;
   }
 
-  // We push the request to the queue BEFORE we check if the size has been
-  // exceeded. This is done to ensure that the order of the requests in the
-  // queue is the same as the calls that created the requests.
   ExtensionRequest request = {type, std::move(e_item)};
   extension_requests_.push_back(std::move(request));
 
-  while (extension_requests_.size() > max_enqueued_extension_ops_) {
-    extension_buffer_available_cv_.Wait(&mu_);
-  }
-
   if (extension_requests_.size() == 1) {
     extension_work_available_cv_.Signal();
+  }
+}
+
+void Table::WaitForBackgroundWork() {
+  while (extension_worker_ &&
+         extension_requests_.size() > max_enqueued_extension_ops_) {
+    extension_buffer_available_cv_.Wait(&mu_);
   }
 }
 
@@ -857,7 +857,7 @@ absl::Status Table::UpdateItem(Key key, double priority) {
   REVERB_RETURN_IF_ERROR(sampler_->Update(key, priority));
   REVERB_RETURN_IF_ERROR(remover_->Update(key, priority));
   ExtensionOperation(ExtensionRequest::CallType::kUpdate, it->second);
-
+  WaitForBackgroundWork();
   return absl::OkStatus();
 }
 
@@ -964,7 +964,7 @@ absl::Status Table::InsertCheckpointItem(Table::Item&& item) {
     ++episode_refs_[chunk->episode_id()];
   }
   ExtensionOperation(ExtensionRequest::CallType::kInsert, it->second);
-
+  WaitForBackgroundWork();
   return absl::OkStatus();
 }
 

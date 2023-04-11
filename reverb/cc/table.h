@@ -437,10 +437,18 @@ class Table {
   // Executes a given extension operation for all extensions registered with the
   // table. If extension worker is enabled, operation is executed asynchronously
   // for all extensions that support asynchronous execution. For synchronous
-  // extensions operation is executed synchronously.
+  // extensions operation is executed synchronously. Call to this function
+  // should be followed by WaitForBackgroundWork to make sure background work
+  // queue does not grow too big.
   void ExtensionOperation(ExtensionRequest::CallType type,
                           const std::shared_ptr<Item>& item)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_);
+
+  // Waits for extension worker to process excessive work load. Note that it
+  // releases table's lock when waiting, so it is important to call this
+  // function only at the end of the critical section to guarantee atomicity of
+  // the operation.
+  void WaitForBackgroundWork() ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_);
 
   // Extensions worker execution loop. It is executed by a dedicated thread
   // and it performs enqueued extension operations. Operations are executed in
