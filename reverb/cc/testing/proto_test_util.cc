@@ -48,7 +48,8 @@ ChunkData MakeChunkData(uint64_t key, SequenceRange range, int num_tensors) {
   return chunk;
 }
 
-SequenceRange MakeSequenceRange(uint64_t episode_id, int32_t start, int32_t end) {
+SequenceRange MakeSequenceRange(uint64_t episode_id, int32_t start,
+                                int32_t end) {
   REVERB_CHECK_LE(start, end);
   SequenceRange sequence;
   sequence.set_episode_id(episode_id);
