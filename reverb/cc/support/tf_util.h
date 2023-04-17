@@ -28,7 +28,7 @@ inline absl::Status FromTensorflowStatus(const tensorflow::Status& status) {
     return absl::Status();
   } else {
     return absl::Status(static_cast<absl::StatusCode>(status.code()),
-                        status.error_message());
+                        status.message());
   }
 }
 
