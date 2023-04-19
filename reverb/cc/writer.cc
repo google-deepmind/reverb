@@ -15,6 +15,7 @@
 #include "reverb/cc/writer.h"
 
 #include <algorithm>
+#include <cmath>
 #include <iterator>
 #include <memory>
 #include <string>
@@ -168,6 +169,9 @@ absl::Status Writer::CreateItem(const std::string& table, int num_timesteps,
   if (num_timesteps > max_timesteps_) {
     return absl::InvalidArgumentError(
         "`num_timesteps` must be <= `max_timesteps`");
+  }
+  if (std::isnan(priority)) {
+    return absl::InvalidArgumentError("`priority` must not be nan.");
   }
 
   const internal::DtypesAndShapes* dtypes_and_shapes = nullptr;

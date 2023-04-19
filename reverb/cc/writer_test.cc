@@ -15,6 +15,7 @@
 #include "reverb/cc/writer.h"
 
 #include <algorithm>
+#include <cmath>
 #include <memory>
 #include <queue>
 #include <string>
@@ -852,6 +853,25 @@ TEST(WriterTest, WriteTimeStepsInconsistentShapeError) {
                   "timestep offset 0, flattened index 0, saw a tensor of "
                   "dtype float, shape [4], but expected tensor 'tensor0' of "
                   "dtype float and shape compatible with [5]"));
+}
+
+TEST(WriterTest, WriteNanPriorityError) {
+  std::vector<InsertStreamRequest> requests;
+  auto stub = MakeGoodStub(&requests);
+  Client client(stub);
+  std::unique_ptr<Writer> writer;
+  REVERB_EXPECT_OK(client.NewWriter(2, 6, /*delta_encoded=*/false, &writer));
+
+  REVERB_ASSERT_OK(writer->Append(
+      MakeTimestep(/*num_tensors=*/1, /*shape=*/tensorflow::TensorShape({1}))));
+  REVERB_ASSERT_OK(writer->Append(
+      MakeTimestep(/*num_tensors=*/1, /*shape=*/tensorflow::TensorShape({1}))));
+
+  auto status = writer->CreateItem("dist", 2, std::nan("1"));
+
+  EXPECT_EQ(status.code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_THAT(std::string(status.message()),
+              ::testing::HasSubstr("`priority` must not be nan."));
 }
 
 TEST(WriterTest, WriteTimeStepsInconsistentShapeErrorAgainstBoundedSpec) {

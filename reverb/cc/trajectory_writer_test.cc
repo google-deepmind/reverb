@@ -13,8 +13,10 @@
 // limitations under the License.
 
 #include "reverb/cc/trajectory_writer.h"
+
 #include <grpcpp/support/status.h>
 
+#include <cmath>
 #include <limits>
 #include <memory>
 #include <string>
@@ -1356,6 +1358,24 @@ TEST(TrajectoryWriter, CreateItemValidatesSqueezedColumns) {
       std::string(status.message()),
       ::testing::HasSubstr("Error in column 0: TrajectoryColumn must contain "
                            "exactly one row when squeeze is set but got 2."));
+}
+
+TEST(TrajectoryWriter, CreateItemValidatesPriorityIsNotNan) {
+  AsyncInterface success_stream;
+  auto stub = std::make_shared<MockReverbServiceAsyncStub>();
+  EXPECT_CALL(*stub, async()).WillRepeatedly(Return(&success_stream));
+
+  TrajectoryWriter writer(
+      stub, MakeOptions(/*max_chunk_length=*/1, /*num_keep_alive_refs=*/1));
+
+  StepRef step;
+  REVERB_ASSERT_OK(writer.Append(Step({MakeTensor(kIntSpec)}), &step));
+
+  auto status =
+      writer.CreateItem("table", std::nan("1"), MakeTrajectory({step}));
+  EXPECT_EQ(status.code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_THAT(std::string(status.message()),
+              ::testing::HasSubstr("`priority` must not be nan."));
 }
 
 class TrajectoryWriterSignatureValidationTest : public ::testing::Test {

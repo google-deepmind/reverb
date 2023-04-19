@@ -14,6 +14,7 @@
 
 #include "reverb/cc/trajectory_writer.h"
 
+#include <cmath>
 #include <limits>
 #include <memory>
 #include <vector>
@@ -429,6 +430,9 @@ absl::Status TrajectoryWriter::CreateItem(
       std::all_of(trajectory.begin(), trajectory.end(),
                   [](const TrajectoryColumn& col) { return col.empty(); })) {
     return absl::InvalidArgumentError("trajectory must not be empty.");
+  }
+  if (std::isnan(priority)) {
+    return absl::InvalidArgumentError("`priority` must not be nan.");
   }
 
   {
