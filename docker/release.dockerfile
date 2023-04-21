@@ -51,7 +51,7 @@ RUN ${APT_COMMAND} update && ${APT_COMMAND} install -y --no-install-recommends \
 RUN curl -O https://bootstrap.pypa.io/get-pip.py
 
 # Installs known working version of bazel.
-ARG bazel_version=3.7.2
+ARG bazel_version=5.3.0
 ENV BAZEL_VERSION ${bazel_version}
 RUN mkdir /bazel && \
     cd /bazel && \
@@ -96,12 +96,14 @@ RUN ln -s "/usr/include/x86_64-linux-gnu/python3.11" "/dt9/usr/include/x86_64-li
 # bazel build -c opt --copt=-mavx --config=manylinux2014 --test_output=errors //...
 
 # Update binutils to avoid linker(gold) issue. See b/227299577#comment9
-RUN wget http://old-releases.ubuntu.com/ubuntu/pool/main/b/binutils/binutils_2.35.1-1ubuntu1_amd64.deb \
+RUN \
+ wget http://old-releases.ubuntu.com/ubuntu/pool/main/b/binutils/binutils_2.35.1-1ubuntu1_amd64.deb \
  && wget http://old-releases.ubuntu.com/ubuntu/pool/main/b/binutils/binutils-x86-64-linux-gnu_2.35.1-1ubuntu1_amd64.deb \
  && wget http://old-releases.ubuntu.com/ubuntu/pool/main/b/binutils/binutils-common_2.35.1-1ubuntu1_amd64.deb \
  && wget http://old-releases.ubuntu.com/ubuntu/pool/main/b/binutils/libbinutils_2.35.1-1ubuntu1_amd64.deb
 
-RUN dpkg -i binutils_2.35.1-1ubuntu1_amd64.deb \
+RUN \
+  dpkg -i binutils_2.35.1-1ubuntu1_amd64.deb \
             binutils-x86-64-linux-gnu_2.35.1-1ubuntu1_amd64.deb \
             binutils-common_2.35.1-1ubuntu1_amd64.deb \
             libbinutils_2.35.1-1ubuntu1_amd64.deb

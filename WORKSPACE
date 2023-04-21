@@ -15,6 +15,7 @@ load(
     "//reverb/cc/platform/default:repo.bzl",
     "absl_deps",
     "cc_tf_configure",
+    "github_apple_deps",
     "github_grpc_deps",
     "googletest_deps",
     "protoc_deps",
@@ -27,6 +28,8 @@ absl_deps()
 
 # Note that the Python dependencies are not tracked by bazel here, but
 # in setup.py.
+
+github_apple_deps()
 
 ## Begin GRPC related deps
 github_grpc_deps()

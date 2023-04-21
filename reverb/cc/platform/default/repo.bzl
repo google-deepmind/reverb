@@ -317,6 +317,18 @@ def python_deps():
         ],
     )
 
+def github_apple_deps():
+    http_archive(
+        name = "build_bazel_rules_apple",
+        sha256 = "36072d4f3614d309d6a703da0dfe48684ec4c65a89611aeb9590b45af7a3e592",
+        urls = ["https://github.com/bazelbuild/rules_apple/releases/download/1.0.1/rules_apple.1.0.1.tar.gz"],
+    )
+    http_archive(
+        name = "build_bazel_apple_support",
+        sha256 = "ce1042cf936540eaa7b49c4549d7cd9b6b1492acbb6e765840a67a34b8e17a97",
+        urls = ["https://github.com/bazelbuild/apple_support/releases/download/1.1.0/apple_support.1.1.0.tar.gz"],
+    )
+
 def github_grpc_deps():
     http_archive(
         name = "com_github_grpc_grpc",
@@ -347,11 +359,11 @@ def googletest_deps():
 def absl_deps():
     http_archive(
         name = "com_google_absl",
-        sha256 = "94aef187f688665dc299d09286bfa0d22c4ecb86a80b156dff6aabadc5a5c26d",  # SHARED_ABSL_SHA
-        strip_prefix = "abseil-cpp-273292d1cfc0a94a65082ee350509af1d113344d",
+        sha256 = "8eeec9382fc0338ef5c60053f3a4b0e0708361375fe51c9e65d0ce46ccfe55a7",  # SHARED_ABSL_SHA
+        strip_prefix = "abseil-cpp-b971ac5250ea8de900eae9f95e06548d14cd95fe",
         urls = [
-            "https://storage.googleapis.com/mirror.tensorflow.org/github.com/abseil/abseil-cpp/archive/273292d1cfc0a94a65082ee350509af1d113344d.tar.gz",
-            "https://github.com/abseil/abseil-cpp/archive/273292d1cfc0a94a65082ee350509af1d113344d.tar.gz",
+            "https://storage.googleapis.com/mirror.tensorflow.org/github.com/abseil/abseil-cpp/archive/b971ac5250ea8de900eae9f95e06548d14cd95fe.tar.gz",
+            "https://github.com/abseil/abseil-cpp/archive/b971ac5250ea8de900eae9f95e06548d14cd95fe.tar.gz",
         ],
     )
 
