@@ -28,6 +28,7 @@ set -o pipefail
 # Flags
 PYTHON_VERSIONS=3.9 # Options 3.9 (default), 3.8, 3.10 or 3.11.
 CLEAN=false # Set to true to run bazel clean.
+CLEAR_CACHE=false # Set to true to delete Bazel cache folder. b/279235134
 OUTPUT_DIR=/tmp/reverb/dist/
 PYTHON_TESTS=true
 DEBUG_BUILD=false
@@ -40,6 +41,7 @@ if [[ $# -lt 1 ]] ; then
   echo "--release [Indicates this is a release build. Otherwise nightly.]"
   echo "--python [3.9(default)|3.8|3.10|3.11]"
   echo "--clean  [true to run bazel clean]"
+  echo "--clear_bazel_cache  [true to delete Bazel cache folder]"
   echo "--tf_dep_override  [Required tensorflow version to pass to setup.py."
   echo "                    Examples: tensorflow==2.3.0rc0  or tensorflow>=2.3.0]"
   echo "--python_tests  [true (default) to run python tests.]"
@@ -60,6 +62,10 @@ while [[ $# -gt -0 ]]; do
       ;;
       --clean)
       CLEAN="$2" # `true` to run bazel clean. False otherwise.
+      shift
+      ;;
+      --clear_bazel_cache)
+      CLEAR_CACHE="$2"
       shift
       ;;
       --python_tests)
@@ -91,6 +97,9 @@ for python_version in $PYTHON_VERSIONS; do
 
   # Cleans the environment.
   if [ "$CLEAN" = "true" ]; then
+    if [ "$CLEAR_CACHE" = "true" ]; then
+      rm -rf $HOME/.cache/bazel
+    fi
     bazel clean
   fi
 
