@@ -579,4 +579,8 @@ def reverb_absl_deps():
         "@com_google_absl//absl/types:optional",
         "@com_google_absl//absl/types:span",
         "@com_google_absl//absl/flags:flag",
+        # This is not used within Reverb directly but tensorflow/tsl/platform/env.h introduced this
+        # dependency on 2023-04-25 in
+        # https://github.com/tensorflow/tensorflow/commit/134a9f87c22ffb111080f9d6626f202ad0cce2a4.
+        "@com_google_absl//absl/functional:any_invocable",
     ]
