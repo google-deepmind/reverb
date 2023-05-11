@@ -14,6 +14,9 @@
 
 #include "reverb/cc/conversions.h"
 
+#include "absl/status/status.h"
+#include "absl/strings/str_cat.h"
+
 namespace deepmind {
 namespace reverb {
 namespace pybind {
@@ -65,23 +68,23 @@ char const *NumpyTypeName(int numpy_type) {
   }
 }
 
-tensorflow::Status PyObjectToString(PyObject *obj, const char **ptr,
-                                    Py_ssize_t *len, PyObject **ptr_owner) {
+absl::Status PyObjectToString(PyObject *obj, const char **ptr, Py_ssize_t *len,
+                              PyObject **ptr_owner) {
   *ptr_owner = nullptr;
   if (PyBytes_Check(obj)) {
     char *buf;
     if (PyBytes_AsStringAndSize(obj, &buf, len) != 0) {
-      return tensorflow::errors::Internal("Unable to get element as bytes.");
+      return absl::InternalError("Unable to get element as bytes.");
     }
     *ptr = buf;
   } else if (PyUnicode_Check(obj)) {
     *ptr = PyUnicode_AsUTF8AndSize(obj, len);
     if (*ptr == nullptr) {
-      return tensorflow::errors::Internal("Unable to convert element to UTF-8");
+      return absl::InternalError("Unable to convert element to UTF-8");
     }
   } else {
-    return tensorflow::errors::Internal("Unsupported object type ",
-                                        obj->ob_type->tp_name);
+    return absl::InternalError(
+        absl::StrCat("Unsupported object type ", obj->ob_type->tp_name));
   }
 
   return tensorflow::OkStatus();
@@ -90,14 +93,14 @@ tensorflow::Status PyObjectToString(PyObject *obj, const char **ptr,
 // Iterate over the string array 'array', extract the ptr and len of each string
 // element and call f(ptr, len).
 template <typename F>
-tensorflow::Status PyBytesArrayMap(PyArrayObject *array, F f) {
+absl::Status PyBytesArrayMap(PyArrayObject *array, F f) {
   auto iter = make_safe(PyArray_IterNew(reinterpret_cast<PyObject *>(array)));
 
   while (PyArray_ITER_NOTDONE(iter.get())) {
     auto item = make_safe(PyArray_GETITEM(
         array, static_cast<char *>(PyArray_ITER_DATA(iter.get()))));
     if (!item) {
-      return tensorflow::errors::Internal(
+      return absl::InternalError(
           "Unable to get element from the feed - no item.");
     }
     Py_ssize_t len;
@@ -111,8 +114,8 @@ tensorflow::Status PyBytesArrayMap(PyArrayObject *array, F f) {
   return tensorflow::OkStatus();
 }
 
-tensorflow::Status StringTensorToPyArray(const tensorflow::Tensor &tensor,
-                                         PyArrayObject *dst) {
+absl::Status StringTensorToPyArray(const tensorflow::Tensor &tensor,
+                                   PyArrayObject *dst) {
   DCHECK_EQ(tensor.dtype(), tensorflow::DT_STRING);
 
   auto iter = make_safe(PyArray_IterNew(reinterpret_cast<PyObject *>(dst)));
@@ -123,15 +126,15 @@ tensorflow::Status StringTensorToPyArray(const tensorflow::Tensor &tensor,
     auto py_string =
         make_safe(PyBytes_FromStringAndSize(value.c_str(), value.size()));
     if (py_string == nullptr) {
-      return tensorflow::errors::Internal(
+      return absl::InternalError(absl::StrCat(
           "failed to create a python byte array when converting element #", i,
-          " of a TF_STRING tensor to a numpy ndarray");
+          " of a TF_STRING tensor to a numpy ndarray"));
     }
 
     if (PyArray_SETITEM(dst, PyArray_ITER_DATA(iter.get()), py_string.get()) !=
         0) {
-      return tensorflow::errors::Internal("Error settings element #", i,
-                                          " in the numpy ndarray");
+      return absl::InternalError(
+          absl::StrCat("Error settings element #", i, " in the numpy ndarray"));
     }
 
     PyArray_ITER_NEXT(iter.get());
@@ -140,8 +143,8 @@ tensorflow::Status StringTensorToPyArray(const tensorflow::Tensor &tensor,
   return tensorflow::OkStatus();
 }
 
-tensorflow::Status GetPyDescrFromDataType(tensorflow::DataType dtype,
-                                          PyArray_Descr **out_descr) {
+absl::Status GetPyDescrFromDataType(tensorflow::DataType dtype,
+                                    PyArray_Descr **out_descr) {
   switch (dtype) {
 #define TF_TO_PY_ARRAY_TYPE_CASE(TF_DTYPE, PY_ARRAY_TYPE) \
   case TF_DTYPE:                                          \
@@ -167,20 +170,20 @@ tensorflow::Status GetPyDescrFromDataType(tensorflow::DataType dtype,
 #undef TF_DTYPE_TO_PY_ARRAY_TYPE_CASE
 
     default:
-      return tensorflow::errors::Internal(
-          "Unsupported tf type: ", tensorflow::DataType_Name(dtype));
+      return absl::InternalError(absl::StrCat(
+          "Unsupported tf type: ", tensorflow::DataType_Name(dtype)));
   }
 
   return tensorflow::OkStatus();
 }
 
-tensorflow::Status GetPyDescrFromTensor(const tensorflow::Tensor &tensor,
-                                        PyArray_Descr **out_descr) {
+absl::Status GetPyDescrFromTensor(const tensorflow::Tensor &tensor,
+                                  PyArray_Descr **out_descr) {
   return GetPyDescrFromDataType(tensor.dtype(), out_descr);
 }
 
-tensorflow::Status GetTensorDtypeFromPyArray(
-    PyArrayObject *array, tensorflow::DataType *out_tf_datatype) {
+absl::Status GetTensorDtypeFromPyArray(PyArrayObject *array,
+                                       tensorflow::DataType *out_tf_datatype) {
   int pyarray_type = PyArray_TYPE(array);
   switch (pyarray_type) {
 #define NP_TO_TF_DTYPE_CASE(NP_DTYPE, TF_DTYPE) \
@@ -217,25 +220,24 @@ tensorflow::Status GetTensorDtypeFromPyArray(
 
     default:
 
-      return tensorflow::errors::Internal("Unsupported numpy type: ",
-                                          NumpyTypeName(pyarray_type));
+      return absl::InternalError(absl::StrCat("Unsupported numpy type: ",
+                                              NumpyTypeName(pyarray_type)));
   }
   return tensorflow::OkStatus();
 }
 
-inline tensorflow::Status VerifyDtypeIsSupported(
-    const tensorflow::DataType &dtype) {
+inline absl::Status VerifyDtypeIsSupported(const tensorflow::DataType &dtype) {
   if (!tensorflow::DataTypeCanUseMemcpy(dtype) &&
       dtype != tensorflow::DT_STRING) {
-    return tensorflow::errors::Unimplemented(
+    return absl::UnimplementedError(absl::StrCat(
         "ndarrays that maps to tensors with dtype ",
-        tensorflow::DataType_Name(dtype), " are not yet supported");
+        tensorflow::DataType_Name(dtype), " are not yet supported"));
   }
   return tensorflow::OkStatus();
 }
 
-tensorflow::Status NdArrayToTensor(PyObject *ndarray,
-                                   tensorflow::Tensor *out_tensor) {
+absl::Status NdArrayToTensor(PyObject *ndarray,
+                             tensorflow::Tensor *out_tensor) {
   DCHECK(out_tensor != nullptr);
   auto array_safe = make_safe(PyArray_FromAny(
       /*op=*/ndarray,
@@ -245,7 +247,7 @@ tensorflow::Status NdArrayToTensor(PyObject *ndarray,
       /*requirements=*/NPY_ARRAY_CARRAY_RO,
       /*context=*/nullptr));
   if (!array_safe) {
-    return tensorflow::errors::InvalidArgument(
+    return absl::InvalidArgumentError(
         "Provided input could not be interpreted as an ndarray");
   }
   PyArrayObject *py_array = reinterpret_cast<PyArrayObject *>(array_safe.get());
@@ -275,15 +277,15 @@ tensorflow::Status NdArrayToTensor(PyObject *ndarray,
           out_t[i++] = tensorflow::tstring(ptr, len);
         }));
   } else {
-    return tensorflow::errors::Unimplemented("Unexpected dtype: ",
-                                             tensorflow::DataTypeString(dtype));
+    return absl::UnimplementedError(
+        absl::StrCat("Unexpected dtype: ", tensorflow::DataTypeString(dtype)));
   }
 
   return tensorflow::OkStatus();
 }
 
-tensorflow::Status TensorToNdArray(const tensorflow::Tensor &tensor,
-                                   PyObject **out_ndarray) {
+absl::Status TensorToNdArray(const tensorflow::Tensor &tensor,
+                             PyObject **out_ndarray) {
   TF_RETURN_IF_ERROR(VerifyDtypeIsSupported(tensor.dtype()));
 
   // Extract the numpy type and dimensions.
@@ -299,7 +301,7 @@ tensorflow::Status TensorToNdArray(const tensorflow::Tensor &tensor,
   auto safe_out_ndarray =
       make_safe(PyArray_Empty(dims.size(), dims.data(), descr, 0));
   if (!safe_out_ndarray) {
-    return tensorflow::errors::Internal("Could not allocate ndarray");
+    return absl::InternalError("Could not allocate ndarray");
   }
 
   // Populate the ndarray with data from the tensor.
@@ -310,9 +312,9 @@ tensorflow::Status TensorToNdArray(const tensorflow::Tensor &tensor,
   } else if (tensor.dtype() == tensorflow::DT_STRING) {
     TF_RETURN_IF_ERROR(StringTensorToPyArray(tensor, py_array));
   } else {
-    return tensorflow::errors::Unimplemented(
-        "Unexpected tensor dtype: ",
-        tensorflow::DataTypeString(tensor.dtype()));
+    return absl::UnimplementedError(
+        absl::StrCat("Unexpected tensor dtype: ",
+                     tensorflow::DataTypeString(tensor.dtype())));
   }
 
   *out_ndarray = safe_out_ndarray.release();

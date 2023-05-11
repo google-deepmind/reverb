@@ -138,7 +138,7 @@ reverb_cc_library(
     name = "conversions",
     srcs = ["conversions.cc"],
     hdrs = ["conversions.h"],
-    deps = reverb_pybind_deps(),
+    deps = reverb_pybind_deps() + reverb_absl_deps(),
 )
 
 reverb_cc_library(
