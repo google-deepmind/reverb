@@ -1,29 +1,23 @@
 # Platform-specific code for reverb
-
-load(
-    "//reverb/cc/platform/default:build_rules.bzl",
-    "reverb_cc_library",
-    "reverb_grpc_deps",
-    "reverb_tf_deps",
-)
-
+load("@rules_cc//cc:defs.bzl", "cc_library")
 package(default_visibility = ["//reverb/cc/platform:__pkg__"])
 
 licenses(["notice"])
 
 exports_files(["LICENSE"])
 
-reverb_cc_library(
+cc_library(
     name = "snappy",
     srcs = ["snappy.cc"],
     deps = [
         "//reverb/cc/platform:snappy_hdr",
+        "@com_google_snappy//:snappy",
         "@com_google_absl//absl/strings",
-    ] + reverb_tf_deps(),
-    alwayslink = 1,
+    ],
+    alwayslink = True,
 )
 
-reverb_cc_library(
+cc_library(
     name = "checkpointer",
     srcs = ["default_checkpointer.cc"],
     deps = [
@@ -32,7 +26,7 @@ reverb_cc_library(
         "//reverb/cc/platform:tfrecord_checkpointer",
         "@com_google_absl//absl/strings",
     ],
-    alwayslink = 1,
+    alwayslink = True,
 )
 
 cc_library(
@@ -49,11 +43,12 @@ cc_library(
         "//reverb/cc/selectors:prioritized",
         "//reverb/cc/selectors:uniform",
         "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/random",
     ],
-    alwayslink = 1,
+    alwayslink = True,
 )
 
-reverb_cc_library(
+cc_library(
     name = "server",
     srcs = ["server.cc"],
     deps = [
@@ -67,11 +62,11 @@ reverb_cc_library(
         "//reverb/cc/platform:tfrecord_checkpointer",
         "//reverb/cc/support:periodic_closure",
         "@com_google_absl//absl/strings",
-    ] + reverb_grpc_deps(),
-    alwayslink = 1,
+    ],
+    alwayslink = True,
 )
 
-reverb_cc_library(
+cc_library(
     name = "status_macros",
     hdrs = [
         "status_macros.h",
@@ -83,7 +78,7 @@ reverb_cc_library(
     ],
 )
 
-reverb_cc_library(
+cc_library(
     name = "status_matchers",
     hdrs = ["status_matchers.h"],
     deps = [
@@ -91,7 +86,7 @@ reverb_cc_library(
     ],
 )
 
-reverb_cc_library(
+cc_library(
     name = "thread",
     srcs = ["thread.cc"],
     deps = [
@@ -99,23 +94,23 @@ reverb_cc_library(
         "@com_google_absl//absl/memory",
         "@com_google_absl//absl/strings",
     ],
-    alwayslink = 1,
+    alwayslink = True,
 )
 
-reverb_cc_library(
+cc_library(
     name = "logging",
     srcs = ["logging.cc"],
     hdrs = ["logging.h"],
-    deps = reverb_tf_deps(),
+    # deps = reverb_tf_deps(),
 )
 
-reverb_cc_library(
+cc_library(
     name = "hash",
     hdrs = ["hash.h"],
-    deps = reverb_tf_deps(),
+    # deps = reverb_tf_deps(),
 )
 
-reverb_cc_library(
+cc_library(
     name = "hash_map",
     hdrs = ["hash_map.h"],
     deps = [
@@ -124,7 +119,7 @@ reverb_cc_library(
     ],
 )
 
-reverb_cc_library(
+cc_library(
     name = "hash_set",
     hdrs = ["hash_set.h"],
     deps = [
@@ -133,21 +128,25 @@ reverb_cc_library(
     ],
 )
 
-reverb_cc_library(
+cc_library(
     name = "grpc_utils",
     srcs = ["grpc_utils.cc"],
+    defines = ["BAZEL_BUILD"],
     deps = [
         "//reverb/cc/platform:grpc_utils_hdr",
-    ] + reverb_grpc_deps(),
-    alwayslink = 1,
+        "@com_google_absl//absl/strings",
+        "@local_config_tf//:tf_header_lib",
+        "@com_github_grpc_grpc//:grpc++",
+    ],
+    alwayslink = True,
 )
 
-reverb_cc_library(
+cc_library(
     name = "net",
     srcs = ["net.cc"],
     deps = [
         "//reverb/cc/platform:logging",
         "//reverb/cc/platform:net_hdr",
     ],
-    alwayslink = 1,
+    alwayslink = True,
 )

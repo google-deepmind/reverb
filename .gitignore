@@ -1,0 +1,4 @@
+python_bin_path.sh
+bazel-*
+.ipynb_checkpoints
+.reverb.bazelrc

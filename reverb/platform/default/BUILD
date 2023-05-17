@@ -1,19 +1,16 @@
-load(
-    "//reverb/cc/platform:build_rules.bzl",
-    "reverb_pytype_strict_library",
-)
+load("@rules_python//python:defs.bzl", "py_library")
 
 package(default_visibility = ["//reverb:__subpackages__"])
 
 licenses(["notice"])
 
-reverb_pytype_strict_library(
+py_library(
     name = "load_op_library",
     srcs = ["load_op_library.py"],
     srcs_version = "PY3",
 )
 
-reverb_pytype_strict_library(
+py_library(
     name = "checkpointers",
     srcs = ["checkpointers.py"],
     srcs_version = "PY3",
@@ -22,13 +19,13 @@ reverb_pytype_strict_library(
     ],
 )
 
-reverb_pytype_strict_library(
+py_library(
     name = "ensure_tf_install",
     srcs = ["ensure_tf_install.py"],
     srcs_version = "PY3",
 )
 
-reverb_pytype_strict_library(
+py_library(
     name = "server_main_command_line_args",
     srcs = ["server_main_command_line_args.py"],
     srcs_version = "PY3",

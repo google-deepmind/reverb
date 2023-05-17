@@ -1,15 +1,9 @@
-load(
-    "//reverb/cc/platform:build_rules.bzl",
-    "reverb_absl_deps",
-    "reverb_cc_library",
-    "reverb_tf_deps",
-)
-
+load("@rules_cc//cc:defs.bzl", "cc_library")
 package(default_visibility = ["//reverb:__subpackages__"])
 
 licenses(["notice"])
 
-reverb_cc_library(
+cc_library(
     name = "proto_test_util",
     testonly = 1,
     srcs = ["proto_test_util.cc"],
@@ -18,21 +12,20 @@ reverb_cc_library(
         "//reverb/cc:schema_cc_proto",
         "//reverb/cc:tensor_compression",
         "//reverb/cc/platform:logging",
-    ] + reverb_tf_deps(),
+    ]
 )
 
-reverb_cc_library(
+cc_library(
     name = "tensor_testutil",
     testonly = 1,
     hdrs = ["tensor_testutil.h"],
     deps = [
         "//reverb/cc/platform:logging",
-    ] + reverb_tf_deps(),
+    ]
 )
 
-reverb_cc_library(
+cc_library(
     name = "time_testutil",
     testonly = 1,
     hdrs = ["time_testutil.h"],
-    deps = reverb_absl_deps(),
 )

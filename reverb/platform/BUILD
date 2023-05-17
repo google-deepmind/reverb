@@ -1,28 +1,19 @@
-load(
-    "//reverb/cc/platform:build_rules.bzl",
-    "reverb_py_test",
-    "reverb_pytype_strict_library",
-)
-
+load("@rules_python//python:defs.bzl", "py_library", "py_test")
 package(default_visibility = [":__subpackages__"])
 
 licenses(["notice"])
 
-reverb_pytype_strict_library(
+py_library(
     name = "checkpointers_lib",
     srcs = ["checkpointers_lib.py"],
     srcs_version = "PY3",
-    deps = [
-        "//reverb:pybind",
-    ],
+    data = ["//reverb:pybind.so"],
 )
 
-reverb_py_test(
+py_test(
     name = "checkpointers_lib_test",
     srcs = ["checkpointers_lib_test.py"],
     python_version = "PY3",
-    deps = [
-        ":checkpointers_lib",
-        "//reverb:pybind",
-    ],
+    deps = [":checkpointers_lib"],
+    data = ["//reverb:pybind.so"],
 )

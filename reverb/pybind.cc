@@ -188,7 +188,7 @@ namespace {
 
 namespace py = pybind11;
 
-PYBIND11_MODULE(libpybind, m) {
+PYBIND11_MODULE(pybind, m) {
   // Initialization code to use numpy types in the type casters.
   pybind::ImportNumpy();
 

@@ -1,38 +1,51 @@
 workspace(name = "reverb")
 
-# To change to a version of protoc compatible with tensorflow:
-#  1. Convert the required header version to a version string, e.g.:
-#     3011004 => "3.11.4"
-#  2. Calculate the sha256 of the binary:
-#     PROTOC_VERSION="3.11.4"
-#     curl -L "https://github.com/protocolbuffers/protobuf/releases/download/v${PROTOC_VERSION}/protoc-${PROTOC_VERSION}-linux-x86_64.zip" | sha256sum
-#  3. Update the two variables below.
-#
-PROTOC_VERSION = "21.0"
-PROTOC_SHA256 = "a2a92003da7b8c0c08aab530a3c1967d377c2777723482adb9d2eb38c87a9d5f"
+load("//tf:tf_configure.bzl", "tf_configure")
 
-load(
-    "//reverb/cc/platform/default:repo.bzl",
-    "absl_deps",
-    "cc_tf_configure",
-    "github_apple_deps",
-    "github_grpc_deps",
-    "googletest_deps",
-    "protoc_deps",
-    "python_deps",
+tf_configure(name = "local_config_tf")
+
+load("@bazel_tools//tools/build_defs/repo:git.bzl", "git_repository")
+load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
+
+http_archive(
+    name = "pybind11",
+    build_file = "@pybind11_bazel//:pybind11.BUILD",
+    sha256 = "832e2f309c57da9c1e6d4542dedd34b24e4192ecb4d62f6f4866a737454c9970",
+    strip_prefix = "pybind11-2.10.4",
+    urls = ["https://github.com/pybind/pybind11/archive/refs/tags/v2.10.4.tar.gz"],
+)
+http_archive(
+    name = "pybind11_bazel",
+    sha256 = "6426567481ee345eb48661e7db86adc053881cb4dd39fbf527c8986316b682b9",
+    strip_prefix = "pybind11_bazel-fc56ce8a8b51e3dd941139d329b63ccfea1d304b",
+    urls = ["https://github.com/pybind/pybind11_bazel/archive/fc56ce8a8b51e3dd941139d329b63ccfea1d304b.zip"],
+)
+load("@pybind11_bazel//:python_configure.bzl", "python_configure")
+python_configure(name = "local_config_python")
+
+git_repository(
+    name = "com_google_snappy",
+    commit = "c9f9edf6d75bb065fa47468bf035e051a57bec7c",
+    remote = "https://github.com/google/snappy",
 )
 
-googletest_deps()
+http_archive(
+    name = "com_github_grpc_grpc",
+    sha256 = "5e53505a6c84030a26c4fddd71b3f46feec8e0a8eccff2a903b189d349ca6ff5",
+    strip_prefix = "grpc-1.54.0",
+    urls = ["https://github.com/grpc/grpc/archive/refs/tags/v1.54.0.tar.gz"],
+)
 
-absl_deps()
+ABSL_COMMIT = "273292d1cfc0a94a65082ee350509af1d113344d"
 
-# Note that the Python dependencies are not tracked by bazel here, but
-# in setup.py.
+ABSL_SHA256 = "94aef187f688665dc299d09286bfa0d22c4ecb86a80b156dff6aabadc5a5c26d"
 
-github_apple_deps()
-
-## Begin GRPC related deps
-github_grpc_deps()
+http_archive(
+    name = "com_google_absl",
+    sha256 = ABSL_SHA256,
+    strip_prefix = "abseil-cpp-{commit}".format(commit = ABSL_COMMIT),
+    urls = ["https://github.com/abseil/abseil-cpp/archive/{commit}.tar.gz".format(commit = ABSL_COMMIT)],
+)
 
 load("@com_github_grpc_grpc//bazel:grpc_deps.bzl", "grpc_deps")
 
@@ -41,30 +54,3 @@ grpc_deps()
 load("@com_github_grpc_grpc//bazel:grpc_extra_deps.bzl", "grpc_extra_deps")
 
 grpc_extra_deps()
-
-
-load("@upb//bazel:workspace_deps.bzl", "upb_deps")
-
-upb_deps()
-
-load(
-    "@build_bazel_rules_apple//apple:repositories.bzl",
-    "apple_rules_dependencies",
-)
-
-apple_rules_dependencies()
-
-load(
-    "@build_bazel_apple_support//lib:repositories.bzl",
-    "apple_support_dependencies",
-)
-
-apple_support_dependencies()
-## End GRPC related deps
-
-
-cc_tf_configure()
-
-python_deps()
-
-protoc_deps(version = PROTOC_VERSION, sha256 = PROTOC_SHA256)

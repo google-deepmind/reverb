@@ -1,32 +1,29 @@
-load(
-    "//reverb/cc/platform:build_rules.bzl",
-    "reverb_cc_proto_library",
-    "reverb_py_proto_library",
-    "reverb_py_test",
-    "reverb_pytype_strict_binary",
-    "reverb_pytype_strict_library",
-)
+load("@rules_proto//proto:defs.bzl", "proto_library")
+load("@rules_cc//cc:defs.bzl", "cc_proto_library")
+load("@rules_python//python:defs.bzl", "py_library", "py_binary", "py_test")
+load("@com_github_grpc_grpc//bazel:python_rules.bzl", "py_proto_library")
 
 package(default_visibility = ["//reverb:__subpackages__"])
 
 licenses(["notice"])
 
-reverb_cc_proto_library(
+proto_library(
+    name = "reverb_config_proto",
+    srcs = ["reverb_config.proto"],
+    deps = ["//reverb/cc/checkpointing:checkpoint_proto"],
+)
+
+cc_proto_library(
     name = "reverb_config_cc_proto",
-    srcs = ["reverb_config.proto"],
-    deps = ["//reverb/cc/checkpointing:checkpoint_cc_proto"],
+    deps = [":reverb_config_proto"],
 )
 
-reverb_py_proto_library(
+py_proto_library(
     name = "reverb_config_py_pb2",
-    srcs = ["reverb_config.proto"],
-    deps = [
-        ":reverb_config_cc_proto",
-        "//reverb/cc/checkpointing:checkpoint_cc_proto",
-    ],
+    deps = [":reverb_config_proto"],
 )
 
-reverb_pytype_strict_library(
+py_library(
     name = "server_from_proto",
     srcs = ["server_from_proto.py"],
     srcs_version = "PY3",
@@ -38,10 +35,9 @@ reverb_pytype_strict_library(
     ],
 )
 
-reverb_py_test(
+py_test(
     name = "server_from_proto_test",
     srcs = ["server_from_proto_test.py"],
-    enable_dashboard = False,
     srcs_version = "PY3",
     deps = [
         ":server_from_proto",
@@ -51,17 +47,19 @@ reverb_py_test(
     ],
 )
 
-reverb_pytype_strict_binary(
+py_binary(
     name = "server_main",
     srcs = ["server_main.py"],
     srcs_version = "PY3",
     deps = [
         ":server_from_proto",
         "//reverb",
-        "//reverb:pybind",
         "//reverb:reverb_types",
         "//reverb/cc:schema_py_pb2",
         "//reverb/cc/checkpointing:checkpoint_py_pb2",
         "//reverb/platform/default:server_main_command_line_args",
     ],
+    data = [
+        "//reverb:pybind.so",
+    ]
 )
