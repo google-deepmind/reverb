@@ -357,7 +357,13 @@ checkpoint_path = client.checkpoint()
 To restore the `reverb.Server` from a checkpoint:
 
 ```python
-checkpointer = reverb.checkpointers.DefaultCheckpointer(path=checkpoint_path)
+# The checkpointer accepts the path of the root directory in which checkpoints
+# are written. If we pass the root directory of the checkpoints written above
+# then the new server will load the most recent checkpoint written from the old
+# server.
+checkpointer = reverb.platform.checkpointers_lib.DefaultCheckpointer(
+  path=checkpoint_path.rsplit('/', 1)[0])
+
 # The arguments passed to `tables=` must be the same as those used by the
 # `Server` that wrote the checkpoint.
 server = reverb.Server(tables=[...], checkpointer=checkpointer)
