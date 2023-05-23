@@ -343,8 +343,8 @@ number of Reverb servers and create separate clients for each server.
 ### Checkpointing
 
 Reverb supports checkpointing; the state and content of Reverb servers can be
-stored to permanent storage. While pointing, the `Server` serializes all of its
-data and metadata needed to reconstruct it. During this process the `Server`
+stored to permanent storage. While checkpointing, the `Server` serializes all of
+its data and metadata needed to reconstruct it. During this process the `Server`
 blocks all incoming insert, sample, update, and delete requests.
 
 Checkpointing is done with a call from the Reverb `Client`:
