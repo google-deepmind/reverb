@@ -16,26 +16,26 @@
 #define REVERB_CC_CONVERSIONS_H_
 
 #include "numpy/arrayobject.h"
-#include "absl/status/status.h"
-#include "tensorflow/core/framework/tensor.h"
 #include "tensorflow/core/framework/types.h"
+#include "tensorflow/core/framework/tensor.h"
 
 namespace deepmind {
 namespace reverb {
 namespace pybind {
 
 // One MUST initialize Numpy, e.g. within the Pybind11 module definition before
-// calling C Numpy functions. See
-// https://pythonextensionpatterns.readthedocs.io/en/latest/cpp_and_numpy.html
+// calling C Numpy functions.
+// See https://pythonextensionpatterns.readthedocs.io/en/latest/cpp_and_numpy.html
 void ImportNumpy();
 
-absl::Status TensorToNdArray(const tensorflow::Tensor &tensor,
-                             PyObject **out_ndarray);
+tensorflow::Status TensorToNdArray(const tensorflow::Tensor &tensor,
+                                   PyObject **out_ndarray);
 
-absl::Status NdArrayToTensor(PyObject *ndarray, tensorflow::Tensor *out_tensor);
+tensorflow::Status NdArrayToTensor(PyObject *ndarray,
+                                   tensorflow::Tensor *out_tensor);
 
-absl::Status GetPyDescrFromDataType(tensorflow::DataType dtype,
-                                    PyArray_Descr **out_descr);
+tensorflow::Status GetPyDescrFromDataType(tensorflow::DataType dtype,
+                                          PyArray_Descr **out_descr);
 
 }  // namespace pybind
 }  // namespace reverb

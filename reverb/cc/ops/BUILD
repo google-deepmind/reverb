@@ -1,26 +1,29 @@
-load(
-    "//reverb/cc/platform:build_rules.bzl",
-    "reverb_absl_deps",
-    "reverb_cc_library",
-    "reverb_cc_test",
-    "reverb_gen_op_wrapper_py",
-    "reverb_kernel_library",
-    "reverb_tf_deps",
-    "reverb_tf_ops_visibility",
-)
-
-package(default_visibility = reverb_tf_ops_visibility())
-
+load("@rules_cc//cc:defs.bzl", "cc_library", "cc_test")
+package(default_visibility = ["//reverb:__subpackages__"])
 licenses(["notice"])
 
-reverb_kernel_library(
-    name = "ops",
+py_library(
+    name = "gen_reverb_ops",
+    srcs = [
+        "__init__.py",
+        "gen_reverb_ops.py",
+    ],
+    data = [
+        ":libgen_reverb_ops_gen_op.so",
+    ],
+    srcs_version = "PY2AND3",
+    visibility = ["//visibility:public"],
+)
+
+cc_binary(
+    name = "libgen_reverb_ops_gen_op.so",
     srcs = [
         "client.cc",
         "pattern_dataset.cc",
         "timestep_dataset.cc",
         "trajectory_dataset.cc",
     ],
+    visibility = ["//visibility:public"],
     deps = [
         ":queue_writer",
         "//reverb/cc:chunker",
@@ -32,16 +35,19 @@ reverb_kernel_library(
         "//reverb/cc:structured_writer",
         "//reverb/cc/platform:logging",
         "//reverb/cc/support:tf_util",
-    ] + reverb_absl_deps(),
+        "@local_config_tf//:tf_header_lib",
+        "@local_config_tf//:libtensorflow_framework",
+    ],
+    linkshared = True,
+    copts = [
+        "-pthread",
+        "-std=c++17",
+        "-undefined dynamic_lookup",
+        "-D_GLIBCXX_USE_CXX11_ABI=1",
+    ],
 )
 
-reverb_gen_op_wrapper_py(
-    name = "gen_reverb_ops",
-    out = "gen_reverb_ops.py",
-    kernel_lib = ":ops",
-)
-
-reverb_cc_library(
+cc_library(
     name = "queue_writer",
     srcs = ["queue_writer.cc"],
     hdrs = ["queue_writer.h"],
@@ -55,10 +61,10 @@ reverb_cc_library(
         "//reverb/cc/support:key_generators",
         "//reverb/cc/support:tf_util",
         "//reverb/cc/support:trajectory_util",
-    ] + reverb_tf_deps() + reverb_absl_deps(),
+    ],
 )
 
-reverb_cc_test(
+cc_test(
     name = "queue_writer_test",
     srcs = ["queue_writer_test.cc"],
     deps = [
@@ -71,5 +77,5 @@ reverb_cc_test(
         "//reverb/cc/support:queue",
         "//reverb/cc/testing:proto_test_util",
         "//reverb/cc/testing:tensor_testutil",
-    ] + reverb_tf_deps() + reverb_absl_deps(),
+    ],
 )

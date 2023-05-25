@@ -30,12 +30,6 @@ There are two steps for building the Reverb package.
 Execute from the root of the git repository. The end result will end up in
 `$REVERB_DIR/dist`.
 
-> :warning: Bazel is caching the first version of files or a config of the first
-   version of Python used. If building reverb concecutively for different
-   versions of Python `--clear_bazel_cache true` is needed and included in
-   the commands below. Running the docker once for each python version also
-   works. This issue may resolve itself in the future.
-
 ```shell
 
 ##################################
@@ -46,7 +40,7 @@ Execute from the root of the git repository. The end result will end up in
 # If building against an RC, use == rather than ~= for `tensorflow_pip`.
 $ docker build --pull --no-cache \
   --tag tensorflow:reverb_release \
-  --build-arg tensorflow_pip=tensorflow~=2.12.0 \
+  --build-arg tensorflow_pip=tensorflow~=2.8.0 \
   --build-arg python_version="python3.8 python3.9 python3.10 python3.11" \
   - < "$REVERB_DIR/docker/release.dockerfile"
 
@@ -59,16 +53,14 @@ $ docker build --pull --no-cache \
 # Packages for Python 3.8, 3.9, 3.10, and 3.11 are created.
 $ docker run --rm --mount "type=bind,src=$REVERB_DIR,dst=/tmp/reverb" \
   tensorflow:reverb_release bash oss_build.sh --clean true \
-  --clear_bazel_cache true \ --tf_dep_override "tensorflow~=2.12.0" \
-  --release --python "3.8 3.9 3.10 3.11"
+  --tf_dep_override "tensorflow~=2.11.0" --release --python "3.8 3.9 3.10 3.11"
 
 # Builds Reverb against an RC of TensorFlow. `>=` and `~=` are not effective
 # because pip does not recognize 2.4.0rc0 as greater than 2.3.0. RC builds need
 # to have a strict dependency on the RC of TensorFlow used.
 $ docker run --rm --mount "type=bind,src=$REVERB_DIR,dst=/tmp/reverb" \
   tensorflow:reverb_release bash oss_build.sh --clean true \
-  --clear_bazel_cache true --tf_dep_override "tensorflow==2.12.0rc0" \
-  --release --python "3.8 3.9 3.10 3.11"
+  --tf_dep_override "tensorflow==2.12.0rc0" --release --python "3.8 3.9 3.10 3.11"
 
 # Builds a debug version of Reverb. The debug version is not labeled as debug
 # as that can result in a user installing both the debug and regular packages
@@ -77,8 +69,8 @@ $ docker run --rm --mount "type=bind,src=$REVERB_DIR,dst=/tmp/reverb" \
 # Debug builds are ~90M compared to normal builds that are closer to 7M.
 $ docker run --rm --mount "type=bind,src=$REVERB_DIR,dst=/tmp/reverb" \
   tensorflow:reverb_release bash oss_build.sh --clean true --debug_build true \
-  --clear_bazel_cache true --output_dir /tmp/reverb/dist/debug/ \
-  --tf_dep_override "tensorflow~=2.12.0" --release --python "3.8 3.9 3.10 3.11"
+  --output_dir /tmp/reverb/dist/debug/ --tf_dep_override "tensorflow~=2.10.0" \
+  --release --python "3.8 3.9 3.10 3.11"
 
 ```
 

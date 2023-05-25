@@ -39,6 +39,8 @@ import argparse
 import os
 import subprocess
 import sys
+import platform
+import tensorflow as tf
 
 _REVERB_BAZELRC_FILENAME = '.reverb.bazelrc'
 _REVERB_WORKSPACE_ROOT = ''
@@ -172,12 +174,34 @@ def setup_python(environ_cp, force_defaults: bool):
   write_to_bazelrc('build --repo_env=PYTHON_BIN_PATH=\"%s"' % python_bin_path)
   environ_cp['PYTHON_BIN_PATH'] = python_bin_path
 
+  write_to_bazelrc('build --spawn_strategy=standalone')
+  write_to_bazelrc('build --strategy=Genrule=standalone')
+
   # If choosen python_lib_path is from a path specified in the PYTHONPATH
   # variable, need to tell bazel to include PYTHONPATH
   if environ_cp.get('PYTHONPATH'):
     python_paths = environ_cp.get('PYTHONPATH').split(':')
     if python_lib_path in python_paths:
       write_action_env_to_bazelrc('PYTHONPATH', environ_cp.get('PYTHONPATH'))
+
+  cflags = tf.sysconfig.get_compile_flags()
+  lflags = tf.sysconfig.get_link_flags()
+
+  tf_header_dir = next(cflag[2:] for cflag in cflags if cflag.startswith('-I'))
+  tf_shared_dir = next(lflag[2:] for lflag in lflags if lflag.startswith('-L'))
+  tf_shared_lib_name = next(lflag[2:] for lflag in lflags if lflag.startswith('-l'))
+  lib_ext = {
+    'Darwin': 'dylib',
+    'Linux': 'so',
+  }[platform.system()]
+  tf_lib_prefix = 'lib' if platform.system() in ('Darwin', 'Linux') else ''
+  
+  write_action_env_to_bazelrc('TF_HEADER_DIR', tf_header_dir)
+  write_action_env_to_bazelrc('TF_SHARED_LIBRARY_DIR', tf_shared_dir)
+  write_action_env_to_bazelrc('TF_SHARED_LIBRARY_NAME', tf_lib_prefix + tf_shared_lib_name + os.path.extsep + lib_ext)
+
+  # if platform.system() == 'Darwin':
+  #   write_to_bazelrc('build --copt="-undefined dynamic_lookup"')
 
   # Write tools/python_bin_path.sh
   with open(os.path.join(_REVERB_WORKSPACE_ROOT, 'python_bin_path.sh'),

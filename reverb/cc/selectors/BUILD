@@ -1,24 +1,17 @@
-load(
-    "//reverb/cc/platform:build_rules.bzl",
-    "reverb_absl_deps",
-    "reverb_cc_library",
-    "reverb_cc_test",
-    "reverb_tf_deps",
-)
-
+load("@rules_cc//cc:defs.bzl", "cc_library", "cc_test")
 package(default_visibility = ["//reverb:__subpackages__"])
 
 licenses(["notice"])
 
-reverb_cc_library(
+cc_library(
     name = "interface",
     hdrs = ["interface.h"],
     deps = [
         "//reverb/cc/checkpointing:checkpoint_cc_proto",
-    ] + reverb_tf_deps() + reverb_absl_deps(),
+    ]
 )
 
-reverb_cc_library(
+cc_library(
     name = "uniform",
     srcs = ["uniform.cc"],
     hdrs = ["uniform.h"],
@@ -28,10 +21,13 @@ reverb_cc_library(
         "//reverb/cc/checkpointing:checkpoint_cc_proto",
         "//reverb/cc/platform:hash_map",
         "//reverb/cc/platform:logging",
-    ] + reverb_tf_deps() + reverb_absl_deps(),
+        "@com_google_absl//absl/random",
+        "@com_google_absl//absl/status",
+        "@local_config_tf//:tf_header_lib"
+    ]
 )
 
-reverb_cc_library(
+cc_library(
     name = "fifo",
     srcs = ["fifo.cc"],
     hdrs = ["fifo.h"],
@@ -41,10 +37,12 @@ reverb_cc_library(
         "//reverb/cc/checkpointing:checkpoint_cc_proto",
         "//reverb/cc/platform:hash_map",
         "//reverb/cc/platform:logging",
-    ] + reverb_tf_deps() + reverb_absl_deps(),
+        "@local_config_tf//:tf_header_lib",
+        "@com_google_absl//absl/status",
+    ]
 )
 
-reverb_cc_library(
+cc_library(
     name = "lifo",
     srcs = ["lifo.cc"],
     hdrs = ["lifo.h"],
@@ -54,10 +52,12 @@ reverb_cc_library(
         "//reverb/cc/checkpointing:checkpoint_cc_proto",
         "//reverb/cc/platform:hash_map",
         "//reverb/cc/platform:logging",
-    ] + reverb_tf_deps() + reverb_absl_deps(),
+        "@local_config_tf//:tf_header_lib",
+        "@com_google_absl//absl/status",
+    ]
 )
 
-reverb_cc_library(
+cc_library(
     name = "prioritized",
     srcs = ["prioritized.cc"],
     hdrs = ["prioritized.h"],
@@ -68,10 +68,12 @@ reverb_cc_library(
         "//reverb/cc/platform:hash_map",
         "//reverb/cc/platform:logging",
         "//reverb/cc/platform:status_macros",
-    ] + reverb_tf_deps() + reverb_absl_deps(),
+        "@local_config_tf//:tf_header_lib",
+        "@com_google_absl//absl/random",
+    ]
 )
 
-reverb_cc_library(
+cc_library(
     name = "heap",
     srcs = ["heap.cc"],
     hdrs = ["heap.h"],
@@ -81,10 +83,12 @@ reverb_cc_library(
         "//reverb/cc/checkpointing:checkpoint_cc_proto",
         "//reverb/cc/platform:hash_map",
         "//reverb/cc/support:intrusive_heap",
-    ] + reverb_tf_deps() + reverb_absl_deps(),
+        "@local_config_tf//:tf_header_lib",
+        "@com_google_absl//absl/status",
+    ]
 )
 
-reverb_cc_test(
+cc_test(
     name = "uniform_test",
     srcs = ["uniform_test.cc"],
     deps = [
@@ -92,10 +96,10 @@ reverb_cc_test(
         "//reverb/cc:schema_cc_proto",
         "//reverb/cc/platform:status_matchers",
         "//reverb/cc/testing:proto_test_util",
-    ] + reverb_absl_deps(),
+    ]
 )
 
-reverb_cc_test(
+cc_test(
     name = "fifo_test",
     srcs = ["fifo_test.cc"],
     deps = [
@@ -103,10 +107,10 @@ reverb_cc_test(
         "//reverb/cc:schema_cc_proto",
         "//reverb/cc/platform:status_matchers",
         "//reverb/cc/testing:proto_test_util",
-    ] + reverb_absl_deps(),
+    ]
 )
 
-reverb_cc_test(
+cc_test(
     name = "lifo_test",
     srcs = ["lifo_test.cc"],
     deps = [
@@ -114,10 +118,10 @@ reverb_cc_test(
         "//reverb/cc:schema_cc_proto",
         "//reverb/cc/platform:status_matchers",
         "//reverb/cc/testing:proto_test_util",
-    ] + reverb_absl_deps(),
+    ]
 )
 
-reverb_cc_test(
+cc_test(
     name = "prioritized_test",
     srcs = ["prioritized_test.cc"],
     deps = [
@@ -126,10 +130,10 @@ reverb_cc_test(
         "//reverb/cc/platform:hash_map",
         "//reverb/cc/platform:status_matchers",
         "//reverb/cc/testing:proto_test_util",
-    ] + reverb_absl_deps(),
+    ]
 )
 
-reverb_cc_test(
+cc_test(
     name = "heap_test",
     srcs = ["heap_test.cc"],
     deps = [
