@@ -10,7 +10,9 @@ load(
     "reverb_pytype_strict_library",
 )
 
-package(default_visibility = [":__subpackages__"])
+package(
+    default_visibility = [":__subpackages__"],
+)
 
 licenses(["notice"])
 
