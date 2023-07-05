@@ -280,7 +280,7 @@ def reverb_cc_test(name, srcs, deps = [], **kwargs):
         **kwargs
     )
 
-def reverb_gen_op_wrapper_py(name, out, kernel_lib, linkopts = [], **kwargs):
+def reverb_gen_op_wrapper_py(name, out, kernel_lib, ops_lib = None, linkopts = [], **kwargs):
     """Generates the py_library `name` with a data dep on the ops in kernel_lib.
 
     The resulting py_library creates file `$out`, and has a dependency on a
@@ -290,7 +290,9 @@ def reverb_gen_op_wrapper_py(name, out, kernel_lib, linkopts = [], **kwargs):
     Args:
       name: The name of the py_library.
       out: The name of the python file.  Use "gen_{name}_ops.py".
-      kernel_lib: A cc_kernel_library target to generate for.
+      kernel_lib: A cc_kernel_library kernel target to generate for.
+      ops_lib: A cc_kernel_library ops target to generate for.
+      linkopts: Forwarded to the `cc_binary` internal target.
       **kwargs: Any args to the `cc_binary` and `py_library` internal rules.
     """
     if not out.endswith(".py"):
@@ -307,7 +309,7 @@ def reverb_gen_op_wrapper_py(name, out, kernel_lib, linkopts = [], **kwargs):
     )
     native.cc_binary(
         name = "{}.so".format(module_name),
-        deps = [kernel_lib] + reverb_tf_deps() + [version_script_file],
+        deps = [kernel_lib] + ([ops_lib] if ops_lib else []) + reverb_tf_deps() + [version_script_file],
         copts = tf_copts() + [
             "-fno-strict-aliasing",  # allow a wider range of code [aliasing] to compile.
             "-fvisibility=hidden",  # avoid symbol clashes between DSOs.

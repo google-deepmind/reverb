@@ -14,6 +14,16 @@ package(default_visibility = reverb_tf_ops_visibility())
 licenses(["notice"])
 
 reverb_kernel_library(
+    name = "ops_metadata",
+    srcs = [
+        "client_metadata.cc",
+        "pattern_dataset_metadata.cc",
+        "timestep_dataset_metadata.cc",
+        "trajectory_dataset_metadata.cc",
+    ],
+)
+
+reverb_kernel_library(
     name = "ops",
     srcs = [
         "client.cc",
@@ -22,6 +32,7 @@ reverb_kernel_library(
         "trajectory_dataset.cc",
     ],
     deps = [
+        ":ops_metadata",
         ":queue_writer",
         "//reverb/cc:chunker",
         "//reverb/cc:client",
@@ -39,6 +50,7 @@ reverb_gen_op_wrapper_py(
     name = "gen_reverb_ops",
     out = "gen_reverb_ops.py",
     kernel_lib = ":ops",
+    ops_lib = ":ops_metadata",
 )
 
 reverb_cc_library(

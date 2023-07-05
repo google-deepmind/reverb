@@ -43,41 +43,6 @@ namespace deepmind {
 namespace reverb {
 namespace {
 
-REGISTER_OP("ReverbPatternDataset")
-    .Input("dataset: variant")
-    .Input("other_arguments: Targuments")
-    .Attr("clear_after_episode: bool")
-    .Attr("configs: list(string)")
-    .Attr("is_end_of_episode: func")
-    .Attr("Targuments: list(type) >= 0")
-    .Attr("dtypes: list(type) >= 1")
-    .Attr("shapes: list(shape) >= 1")
-    .Attr("metadata: string = ''")
-    .Output("output_dataset: variant")
-    .SetShapeFn(tensorflow::shape_inference::ScalarShape)
-    .Doc(R"doc(
-Converts a dataset of steps into a dataset of trajectories by applying the
-Reverb patterns (`configs`).
-
-`clear_after_episode` indicates trajectories should respect episode boundaries
-(if False, it may create trajectories that contain data from different
-episodes).
-
-`configs` is the list of reverb patterns to apply to the dataset of steps. The
- patterns are serialized StructuredWriterConfig protos.
-
-`is_end_of_episode` is a function to apply to a step to indicate if this is the
- last one of an episode.
-
-`dtypes` and `shapes` must match the types and shapes of the elements of the
-output dataset.
-
-`other_arguments` and `Targuments` refer to the other arguments of
-`is_end_of_episode` and their types respectively.
-
-This operation only supports eager mode (there is no TF1 support).
-)doc");
-
 class ReverbPatternDatasetOp : public tensorflow::data::UnaryDatasetOpKernel {
  public:
   explicit ReverbPatternDatasetOp(tensorflow::OpKernelConstruction* ctx)
