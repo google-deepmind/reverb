@@ -31,7 +31,7 @@ Execute from the root of the git repository. The end result will end up in
 `$REVERB_DIR/dist`.
 
 > :warning: Bazel is caching the first version of files or a config of the first
-   version of Python used. If building reverb concecutively for different
+   version of Python used. If building reverb consecutively for different
    versions of Python `--clear_bazel_cache true` is needed and included in
    the commands below. Running the docker once for each python version also
    works. This issue may resolve itself in the future.
@@ -59,7 +59,7 @@ $ docker build --pull --no-cache \
 # Packages for Python 3.8, 3.9, 3.10, and 3.11 are created.
 $ docker run --rm --mount "type=bind,src=$REVERB_DIR,dst=/tmp/reverb" \
   tensorflow:reverb_release bash oss_build.sh --clean true \
-  --clear_bazel_cache true \ --tf_dep_override "tensorflow~=2.12.0" \
+  --clear_bazel_cache true --tf_dep_override "tensorflow~=2.12.0" \
   --release --python "3.8 3.9 3.10 3.11"
 
 # Builds Reverb against an RC of TensorFlow. `>=` and `~=` are not effective
