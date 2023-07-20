@@ -131,17 +131,15 @@ absl::Status AsSample(std::vector<SampleStreamResponse::SampleEntry> responses,
 absl::Status AsSample(const Table::SampledItem& sampled_item,
                       std::unique_ptr<Sample>* sample) {
   internal::flat_hash_map<uint64_t, std::shared_ptr<ChunkStore::Chunk>> chunks(
-      sampled_item.ref->chunks.size());
-  for (auto& chunk : sampled_item.ref->chunks) {
+      sampled_item.ref->chunks().size());
+  for (auto& chunk : sampled_item.ref->chunks()) {
     chunks[chunk->key()] = chunk;
   }
 
   std::vector<std::vector<tensorflow::Tensor>> column_chunks;
-  column_chunks.reserve(
-      sampled_item.ref->item.flat_trajectory().columns_size());
+  column_chunks.reserve(sampled_item.ref->flat_trajectory().columns_size());
 
-  for (const auto& column :
-       sampled_item.ref->item.flat_trajectory().columns()) {
+  for (const auto& column : sampled_item.ref->flat_trajectory().columns()) {
     std::vector<tensorflow::Tensor> unpacked_chunks;
 
     for (const auto& slice : column.chunk_slices()) {
@@ -154,11 +152,11 @@ absl::Status AsSample(const Table::SampledItem& sampled_item,
   }
 
   std::vector<bool> squeeze_columns;
-  for (const auto& col : sampled_item.ref->item.flat_trajectory().columns()) {
+  for (const auto& col : sampled_item.ref->flat_trajectory().columns()) {
     squeeze_columns.push_back(col.squeeze());
   }
   auto info = std::make_shared<SampleInfo>();
-  info->mutable_item()->set_key(sampled_item.ref->item.key());
+  info->mutable_item()->set_key(sampled_item.ref->key());
   info->mutable_item()->set_priority(sampled_item.priority);
   info->mutable_item()->set_times_sampled(sampled_item.times_sampled);
   info->set_probability(sampled_item.probability);

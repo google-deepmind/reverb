@@ -36,6 +36,7 @@
 #include "reverb/cc/platform/status_macros.h"
 #include "reverb/cc/reverb_server_reactor.h"
 #include "reverb/cc/reverb_service.pb.h"
+#include "reverb/cc/schema.pb.h"
 #include "reverb/cc/support/grpc_util.h"
 #include "reverb/cc/support/trajectory_util.h"
 #include "reverb/cc/support/uint128.h"
@@ -231,19 +232,20 @@ ReverbServiceImpl::InsertStream(grpc::CallbackServerContext* context) {
       }
       bool can_insert = true;
       for (auto& request_item : *request->mutable_items()) {
-        Table::Item item;
-        if (auto status = GetItemWithChunks(&item, &request_item);
-            !status.ok()) {
-          return status;
+        auto item_or_status = GetItemWithChunks(std::move(request_item));
+        if (!item_or_status.ok()) {
+          return ToGrpcStatus(item_or_status.status());
         }
-        const auto& table_name = item.item.table();
+
+        const auto& table_name = item_or_status->table();
         // Check that table name is valid.
         auto table = server_->TableByName(table_name);
         if (table == nullptr) {
           return TableNotFound(table_name);
         }
-        if (auto status = table->InsertOrAssignAsync(
-                std::move(item), &can_insert, insert_completed_);
+        if (auto status =
+                table->InsertOrAssignAsync(std::move(item_or_status).value(),
+                                           &can_insert, insert_completed_);
             !status.ok()) {
           return ToGrpcStatus(status);
         }
@@ -272,22 +274,20 @@ ReverbServiceImpl::InsertStream(grpc::CallbackServerContext* context) {
       return grpc::Status::OK;
     }
 
-    grpc::Status GetItemWithChunks(
-        Table::Item* item,
-        PrioritizedItem* request_item) {
+    absl::StatusOr<Table::Item> GetItemWithChunks(
+        PrioritizedItem request_item) {
+      std::vector<std::shared_ptr<ChunkStore::Chunk>> chunks;
       for (ChunkStore::Key key :
-           internal::GetChunkKeys(request_item->flat_trajectory())) {
+           internal::GetChunkKeys(request_item.flat_trajectory())) {
         auto it = chunks_.find(key);
         if (it == chunks_.end()) {
-          return Internal(
+          return absl::InternalError(
               absl::StrCat("Could not find sequence chunk ", key, "."));
         }
-        item->chunks.push_back(it->second);
+        chunks.push_back(it->second);
       }
 
-      item->item = std::move(*request_item);
-
-      return grpc::Status::OK;
+      return Table::Item(std::move(request_item), std::move(chunks));
     }
 
     grpc::Status ReleaseOutOfRangeChunks(absl::Span<const uint64_t> keep_keys) {
@@ -623,31 +623,30 @@ ReverbServiceImpl::SampleStream(grpc::CallbackServerContext* context) {
       }
       SampleStreamResponseCtx* response = &responses_to_send_.back();
       auto* entry = response->payload.add_entries();
-      for (int i = 0; i < sample->ref->chunks.size(); i++) {
-        entry->set_end_of_sequence(i + 1 == sample->ref->chunks.size());
+      for (int i = 0; i < sample->ref->chunks().size(); i++) {
+        entry->set_end_of_sequence(i + 1 == sample->ref->chunks().size());
         // Attach the info to the first message.
         if (i == 0) {
           auto* item = entry->mutable_info()->mutable_item();
-          auto& sample_item = sample->ref->item;
-          item->set_key(sample_item.key());
-          item->set_table(sample_item.table());
+          item->set_key(sample->ref->key());
+          item->set_table(std::string(sample->ref->table()));
           item->set_priority(sample->priority);
           item->set_times_sampled(sample->times_sampled);
           // ~SampleStreamResponseCtx releases these fields from the proto
           // upon destruction of the item.
           item->/*unsafe_arena_*/set_allocated_inserted_at(
-              sample_item.mutable_inserted_at());
+              sample->ref->unsafe_mutable_inserted_at());
           item->/*unsafe_arena_*/set_allocated_flat_trajectory(
-              sample_item.mutable_flat_trajectory());
+              sample->ref->unsafe_mutable_flat_trajectory());
           entry->mutable_info()->set_probability(sample->probability);
           entry->mutable_info()->set_table_size(sample->table_size);
           entry->mutable_info()->set_rate_limited(sample->rate_limited);
         }
         ChunkData* chunk =
-            const_cast<ChunkData*>(&sample->ref->chunks[i]->data());
+            const_cast<ChunkData*>(&sample->ref->chunks()[i]->data());
         current_response_size_bytes_ += chunk->ByteSizeLong();
         entry->mutable_data()->UnsafeArenaAddAllocated(chunk);
-        if (i < sample->ref->chunks.size() - 1 &&
+        if (i < sample->ref->chunks().size() - 1 &&
             current_response_size_bytes_ > kMaxSampleResponseSizeBytes) {
           // Current response is too big, start a new one.
           responses_to_send_.emplace();

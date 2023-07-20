@@ -155,10 +155,11 @@ TEST(TFRecordCheckpointerTest, SaveAndLoad) {
     REVERB_EXPECT_OK(loaded_tables[i]->Sample(&sample));
     bool item_found = false;
     for (auto& item : tables[i]->Copy()) {
-      if (item.item.key() == sample.ref->item.key()) {
+      if (item.key() == sample.ref->key()) {
         item_found = true;
-        item.item.set_times_sampled(item.item.times_sampled() + 1);
-        EXPECT_THAT(item.item, EqualsProto(sample.ref->item));
+        item.set_times_sampled(item.times_sampled() + 1);
+        EXPECT_THAT(item.AsPrioritizedItem(),
+                    EqualsProto(sample.ref->AsPrioritizedItem()));
         break;
       }
     }

@@ -58,8 +58,8 @@ using ::testing::ElementsAre;
 using ::testing::IsEmpty;
 using ::testing::SizeIs;
 
-MATCHER_P(HasItemKey, key, "") { return arg.item.key() == key; }
-MATCHER_P(HasSampledItemKey, key, "") { return arg.ref->item.key() == key; }
+MATCHER_P(HasItemKey, key, "") { return arg.key() == key; }
+MATCHER_P(HasSampledItemKey, key, "") { return arg.ref->key() == key; }
 
 template <typename... Ts>
 std::unique_ptr<Table> MakeTable(Ts... args) {
@@ -70,17 +70,16 @@ std::unique_ptr<Table> MakeTable(Ts... args) {
 
 TableItem MakeItem(uint64_t key, double priority,
                    const std::vector<SequenceRange>& sequences) {
-  TableItem item;
-
+  std::vector<std::shared_ptr<ChunkStore::Chunk>> chunks(sequences.size());
   std::vector<ChunkData> data(sequences.size());
+
   for (int i = 0; i < sequences.size(); i++) {
     data[i] = testing::MakeChunkData(key * 100 + i, sequences[i]);
-    item.chunks.push_back(std::make_shared<ChunkStore::Chunk>(data[i]));
+    chunks[i] = std::make_shared<ChunkStore::Chunk>(data[i]);
   }
 
-  item.item = testing::MakePrioritizedItem(key, priority, data);
-
-  return item;
+  return TableItem(testing::MakePrioritizedItem(key, priority, data),
+                   std::move(chunks));
 }
 
 TableItem MakeItem(uint64_t key, double priority) {
@@ -121,7 +120,7 @@ TEST(TableTest, CopyAfterInsert) {
   auto items = table->Copy();
   ASSERT_THAT(items, SizeIs(1));
   EXPECT_THAT(
-      items[0].item,
+      items[0].AsPrioritizedItem(),
       Partially(testing::EqualsProto("key: 3 times_sampled: 0 priority: 123")));
 }
 
@@ -141,7 +140,7 @@ TEST(TableTest, InsertOrAssignOverwrites) {
 
   auto items = table->Copy();
   ASSERT_THAT(items, SizeIs(1));
-  EXPECT_EQ(items[0].item.priority(), 456);
+  EXPECT_EQ(items[0].priority(), 456);
 }
 
 TEST(TableTest, UpdatesAreAppliedPartially) {
@@ -156,7 +155,7 @@ TEST(TableTest, UpdatesAreAppliedPartially) {
 
   auto items = table->Copy();
   ASSERT_THAT(items, SizeIs(1));
-  EXPECT_EQ(items[0].item.priority(), 456);
+  EXPECT_EQ(items[0].priority(), 456);
 }
 
 TEST(TableTest, DeletesAreAppliedPartially) {
@@ -195,10 +194,15 @@ TEST(TableTest, SampleMatchesInsert) {
 
   Table::SampledItem sample;
   REVERB_EXPECT_OK(table->Sample(&sample));
-  item.item.set_times_sampled(1);
-  sample.ref->item.clear_inserted_at();
-  EXPECT_THAT(sample.ref->item, testing::EqualsProto(item.item));
-  EXPECT_EQ(sample.ref->chunks, item.chunks);
+
+  PrioritizedItem insert_item = item.AsPrioritizedItem();
+  insert_item.set_times_sampled(1);
+
+  PrioritizedItem sample_item = sample.ref->AsPrioritizedItem();
+  sample_item.clear_inserted_at();
+
+  EXPECT_THAT(insert_item, testing::EqualsProto(sample_item));
+  EXPECT_EQ(sample.ref->chunks(), item.chunks());
   EXPECT_EQ(sample.probability, 1);
 }
 
@@ -208,11 +212,11 @@ TEST(TableTest, SampleIncrementsSampleTimes) {
   REVERB_EXPECT_OK(table->InsertOrAssign(MakeItem(3, 123)));
 
   Table::SampledItem item;
-  EXPECT_EQ(table->Copy()[0].item.times_sampled(), 0);
+  EXPECT_EQ(table->Copy()[0].times_sampled(), 0);
   REVERB_EXPECT_OK(table->Sample(&item));
-  EXPECT_EQ(table->Copy()[0].item.times_sampled(), 1);
+  EXPECT_EQ(table->Copy()[0].times_sampled(), 1);
   REVERB_EXPECT_OK(table->Sample(&item));
-  EXPECT_EQ(table->Copy()[0].item.times_sampled(), 2);
+  EXPECT_EQ(table->Copy()[0].times_sampled(), 2);
 }
 
 TEST(TableTest, MaxTimesSampledIsRespected) {
@@ -221,9 +225,9 @@ TEST(TableTest, MaxTimesSampledIsRespected) {
   REVERB_EXPECT_OK(table->InsertOrAssign(MakeItem(3, 123)));
 
   Table::SampledItem item;
-  EXPECT_EQ(table->Copy()[0].item.times_sampled(), 0);
+  EXPECT_EQ(table->Copy()[0].times_sampled(), 0);
   REVERB_ASSERT_OK(table->Sample(&item));
-  EXPECT_EQ(table->Copy()[0].item.times_sampled(), 1);
+  EXPECT_EQ(table->Copy()[0].times_sampled(), 1);
   REVERB_ASSERT_OK(table->Sample(&item));
   EXPECT_THAT(table->Copy(), IsEmpty());
 }
@@ -303,8 +307,8 @@ TEST(TableTest, InsertDeletesWhenOverflowing) {
   auto items = table->Copy();
   EXPECT_THAT(items, SizeIs(10));
   for (const Table::Item& item : items) {
-    EXPECT_GE(item.item.key(), 5);
-    EXPECT_LT(item.item.key(), 15);
+    EXPECT_GE(item.key(), 5);
+    EXPECT_LT(item.key(), 15);
   }
 }
 
@@ -687,9 +691,9 @@ TEST(TableTest, GetExistingItem) {
   REVERB_EXPECT_OK(table->InsertOrAssign(MakeItem(2, 1)));
   REVERB_EXPECT_OK(table->InsertOrAssign(MakeItem(3, 1)));
 
-  TableItem item;
-  EXPECT_TRUE(table->Get(2, &item));
-  EXPECT_THAT(item, HasItemKey(2));
+  auto item_or_status = table->Get(2);
+  REVERB_ASSERT_OK(item_or_status);
+  EXPECT_THAT(item_or_status.value(), HasItemKey(2));
 }
 
 TEST(TableTest, GetMissingItem) {
@@ -698,8 +702,8 @@ TEST(TableTest, GetMissingItem) {
   REVERB_EXPECT_OK(table->InsertOrAssign(MakeItem(1, 1)));
   REVERB_EXPECT_OK(table->InsertOrAssign(MakeItem(3, 1)));
 
-  TableItem item;
-  EXPECT_FALSE(table->Get(2, &item));
+  auto status = table->Get(2).status();
+  EXPECT_EQ(status.code(), absl::StatusCode::kNotFound);
 }
 
 TEST(TableTest, SampleSetsTableSize) {
@@ -869,7 +873,7 @@ TEST(TableTest, InsertOrAssignOfItemWithoutTrajectory) {
   auto table = MakeUniformTable("dist");
 
   auto item = MakeItem(1, 1);
-  item.item.clear_flat_trajectory();
+  item.unsafe_mutable_flat_trajectory()->Clear();
   auto status = table->InsertOrAssign(item);
   EXPECT_EQ(status.code(), absl::StatusCode::kInvalidArgument);
   EXPECT_THAT(std::string(status.message()),
@@ -880,7 +884,7 @@ TEST(TableTest, InsertOrAssignOfItemWithChunkMissmatch) {
   auto table = MakeUniformTable("dist");
 
   auto item = MakeItem(1, 1);
-  item.item.mutable_flat_trajectory()
+  item.unsafe_mutable_flat_trajectory()
       ->mutable_columns(0)
       ->mutable_chunk_slices(0)
       ->set_chunk_key(1337);
@@ -896,8 +900,12 @@ TEST(TableTest, InsertOrAssignOfItemWithChunkLengthMissmatch) {
   auto table = MakeUniformTable("dist");
 
   auto item = MakeItem(1, 1);
-  item.chunks.push_back(item.chunks.front());
-  auto status = table->InsertOrAssign(item);
+
+  std::vector<std::shared_ptr<ChunkStore::Chunk>> chunks = item.chunks();
+  chunks.push_back(chunks.front());
+
+  auto status = table->InsertOrAssign(
+      TableItem(item.AsPrioritizedItem(), std::move(chunks)));
   EXPECT_EQ(status.code(), absl::StatusCode::kInvalidArgument);
   EXPECT_THAT(
       std::string(status.message()),

@@ -23,6 +23,7 @@
 #include "absl/synchronization/mutex.h"
 #include "absl/time/time.h"
 #include "reverb/cc/platform/logging.h"
+#include "reverb/cc/schema.pb.h"
 
 namespace deepmind::reverb {
 
@@ -40,19 +41,20 @@ void InsertOnSampleExtension::ApplyOnSample(const ExtensionItem& item) {
   if (item.times_sampled != 1) return;
 
   // Make a copy of the item in the source table.
-  TableItem copy = *item.ref;
+  PrioritizedItem copy = item.ref->AsPrioritizedItem();
 
   // Clear the inserted_at but we keep the same `key` and `times_sampled` (1).
   // Keeping the same key allows the user to send priority updates to the target
   // table straight away.
-  copy.item.set_table(target_table_->name());
-  copy.item.clear_inserted_at();
+  copy.set_table(target_table_->name());
+  copy.clear_inserted_at();
 
   // Insert the item into the target table.
-  auto status = target_table_->InsertOrAssign(std::move(copy), timeout_);
+  auto status = target_table_->InsertOrAssign(
+      Table::Item(std::move(copy), item.ref->chunks()), timeout_);
   REVERB_LOG_IF(REVERB_WARNING, !status.ok())
       << "Unexpected error when copying item "
-      << "from table '" << item.ref->item.table() << "' to table '"
+      << "from table '" << item.ref->table() << "' to table '"
       << target_table_->name() << "': " << status;
 }
 

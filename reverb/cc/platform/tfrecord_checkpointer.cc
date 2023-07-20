@@ -506,37 +506,35 @@ absl::Status LoadWithCompression(absl::string_view path,
 
   for (auto& table : *tables) {
     for (auto& checkpoint_item : table_to_items[table->name()]) {
-      Table::Item insert_item;
-      std::swap(insert_item.item, checkpoint_item);
-
-      if (insert_item.item.has_deprecated_sequence_range()) {
+      if (checkpoint_item.has_deprecated_sequence_range()) {
         std::vector<std::shared_ptr<ChunkStore::Chunk>> trajectory_chunks;
         REVERB_RETURN_IF_ERROR(chunk_store->Get(
-            insert_item.item.deprecated_chunk_keys(), &trajectory_chunks));
+            checkpoint_item.deprecated_chunk_keys(), &trajectory_chunks));
 
-        *insert_item.item.mutable_flat_trajectory() =
+        *checkpoint_item.mutable_flat_trajectory() =
             internal::FlatTimestepTrajectory(
                 trajectory_chunks,
-                insert_item.item.deprecated_sequence_range().offset(),
-                insert_item.item.deprecated_sequence_range().length());
+                checkpoint_item.deprecated_sequence_range().offset(),
+                checkpoint_item.deprecated_sequence_range().length());
 
-        insert_item.item.clear_deprecated_sequence_range();
-        insert_item.item.clear_deprecated_chunk_keys();
+        checkpoint_item.clear_deprecated_sequence_range();
+        checkpoint_item.clear_deprecated_chunk_keys();
       }
 
+      std::vector<std::shared_ptr<ChunkStore::Chunk>> chunks;
       REVERB_RETURN_IF_ERROR(chunk_store->Get(
-          internal::GetChunkKeys(insert_item.item.flat_trajectory()),
-          &insert_item.chunks));
+          internal::GetChunkKeys(checkpoint_item.flat_trajectory()), &chunks));
 
       // The original table has already been destroyed so if this fails then
       // there is way to recover.
-      REVERB_RETURN_IF_ERROR(
-          table->InsertCheckpointItem(std::move(insert_item)));
+      REVERB_RETURN_IF_ERROR(table->InsertCheckpointItem(
+          Table::Item(std::move(checkpoint_item), std::move(chunks))));
     }
 
     REVERB_LOG(REVERB_INFO)
-        << "Table " << table->name()
-        << " has been successfully loaded from the checkpoint.";
+        << "Table " << table->name() << " and " << table->size()
+        << " items have been successfully loaded from checkpoint at path "
+        << path << ".";
   }
 
   REVERB_LOG(REVERB_INFO) << "Successfully loaded " << table_checkpoints.size()

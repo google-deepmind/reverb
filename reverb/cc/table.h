@@ -16,7 +16,6 @@
 #define REVERB_CC_TABLE_H_
 
 #include <cstddef>
-#include <initializer_list>
 #include <memory>
 #include <string>
 #include <utility>
@@ -25,6 +24,8 @@
 #include <cstdint>
 #include "absl/base/thread_annotations.h"
 #include "absl/status/status.h"
+#include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/types/optional.h"
 #include "absl/types/span.h"
@@ -43,11 +44,68 @@
 namespace deepmind {
 namespace reverb {
 
-// Used for representing items of the priority distribution. See
-// PrioritizedItem in schema.proto for documentation.
-struct TableItem {
-  PrioritizedItem item;
-  std::vector<std::shared_ptr<ChunkStore::Chunk>> chunks;
+// Used for representing items of the priority distribution. The fields of this
+// class largely mimics that of PrioritizedItem in schema.proto. This
+// indirection is required as the fields of the table item is accessed from
+// multiple threads concurrently while simultaneously modifying a subset of the
+// fields. This exact access patterns are carefully designed to avoid any
+// races on the modified fields. However, protobufs invalidate ALL fields for
+// concurrent access when ANY field is modified. This means that we are unable
+// to safely borrow the (relatively large) `flat_trajectory` field while
+// incrementing `times_samples` while using the proto directly. We are thus able
+// to safely access the static fields in the wrapped proto by simply extracting
+// the (small) mutable fields into this wrapper class.
+class TableItem {
+ public:
+  TableItem() = default;
+
+  TableItem(PrioritizedItem item,
+            std::vector<std::shared_ptr<ChunkStore::Chunk>> chunks);
+
+  // Unique identifier of this item in the table.
+  uint64_t key() const;
+
+  // The name of the table that the item belongs to.
+  absl::string_view table() const;
+
+  // Priority used for selecting the item for sampling and eviction.
+  double priority() const;
+  void set_priority(double priority);
+
+  // The number of times this item has been sampled from the table.
+  int32_t times_sampled() const;
+  void set_times_sampled(int32_t times_sampled);
+
+  // The time when the item was inserted into the table.
+  const google::protobuf::Timestamp& inserted_at() const;
+
+  // `inserted_at` is assumed to be immutable but some internal use cases
+  // require that we temporarily borrow the mutable object in order to avoid
+  // costly copies. This requires extreme care and must ONLY BE USED INTERNAL
+  // TO REVERB.
+  google::protobuf::Timestamp* unsafe_mutable_inserted_at();
+
+  // Flattened representation of the item's trajectory.
+  const FlatTrajectory& flat_trajectory() const;
+
+  // `flat_trajectory` is assumed to be immutable but some internal use cases
+  // require that we temporarily borrow the mutable object in order to avoid
+  // costly copies. This requires extreme care and must ONLY BE USED INTERNAL
+  // TO REVERB.
+  FlatTrajectory* unsafe_mutable_flat_trajectory();
+
+  // Chunks of data which the item trajectory represent.
+  const std::vector<std::shared_ptr<ChunkStore::Chunk>>& chunks() const;
+
+  // Creates a PrioritizedItem by copying the fields of the `PrioritizedItem` we
+  // wrapped combined with the updated values of the mutable fields.
+  PrioritizedItem AsPrioritizedItem() const;
+
+ private:
+  PrioritizedItem item_;
+  std::vector<std::shared_ptr<ChunkStore::Chunk>> chunks_;
+  int32_t times_sampled_;
+  double priority_;
 };
 
 // Table item wrapper used by extensions. It holds shared pointer to the
@@ -55,8 +113,8 @@ struct TableItem {
 // are mutable part of the TableItem.
 struct ExtensionItem {
   ExtensionItem(std::shared_ptr<TableItem> item) : ref(std::move(item)) {
-    times_sampled = ref->item.times_sampled();
-    priority = ref->item.priority();
+    times_sampled = ref->times_sampled();
+    priority = ref->priority();
   }
   std::shared_ptr<TableItem> ref;
   int32_t times_sampled;
@@ -296,8 +354,8 @@ class Table {
   // sure that this method, nor any other method, is called concurrently.
   std::vector<std::shared_ptr<TableExtension>> UnsafeClearExtensions();
 
-  // Lookup a single item. Returns true if found, else false.
-  bool Get(Key key, Item* item) ABSL_LOCKS_EXCLUDED(mu_);
+  // Lookup a single item.
+  absl::StatusOr<Item> Get(Key key) ABSL_LOCKS_EXCLUDED(mu_);
 
   // Get pointer to `data_`. Must only be called by extensions while lock held.
   const internal::flat_hash_map<Key, std::shared_ptr<Item>>* RawLookup()

@@ -35,8 +35,8 @@ struct InsertTaskInfo {
   Table::Item item;        // Item to be inserted.
   std::shared_ptr<Table> table;  // Table where the item should be inserted
   std::string DebugString() const {
-    return absl::StrFormat("InsertTask{item key: %d, table: %s}",
-                           item.item.key(), item.item.table());
+    return absl::StrFormat("InsertTask{item key: %d, table: %s}", item.key(),
+                           item.table());
   }
 };
 

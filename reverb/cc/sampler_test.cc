@@ -230,22 +230,22 @@ ChunkData MakeChunkData(uint64_t key, SequenceRange range) {
 TableItem MakeItem(uint64_t key, double priority,
                    const std::vector<SequenceRange>& sequences, int32_t offset,
                    int32_t length) {
-  TableItem item;
-
+  std::vector<std::shared_ptr<ChunkStore::Chunk>> chunks;
   std::vector<ChunkData> data(sequences.size());
   for (int i = 0; i < sequences.size(); i++) {
     data[i] = MakeChunkData(key * 100 + i, sequences[i]);
-    item.chunks.push_back(std::make_shared<ChunkStore::Chunk>(data[i]));
+    chunks.push_back(std::make_shared<ChunkStore::Chunk>(data[i]));
   }
 
-  item.item = testing::MakePrioritizedItem(key, priority, data);
+  Table::Item item(testing::MakePrioritizedItem(key, priority, data),
+                   std::move(chunks));
 
   int32_t remaining = length;
   for (int slice_index = 0; slice_index < sequences.size(); slice_index++) {
-    for (int col_index = 0;
-         col_index < item.item.flat_trajectory().columns_size(); col_index++) {
+    for (int col_index = 0; col_index < item.flat_trajectory().columns_size();
+         col_index++) {
       auto* col =
-          item.item.mutable_flat_trajectory()->mutable_columns(col_index);
+          item.unsafe_mutable_flat_trajectory()->mutable_columns(col_index);
       auto* slice = col->mutable_chunk_slices(slice_index);
       slice->set_offset(offset);
       slice->set_length(
@@ -253,10 +253,8 @@ TableItem MakeItem(uint64_t key, double priority,
       slice->set_index(col_index);
     }
 
-    remaining -= item.item.flat_trajectory()
-                     .columns(0)
-                     .chunk_slices(slice_index)
-                     .length();
+    remaining -=
+        item.flat_trajectory().columns(0).chunk_slices(slice_index).length();
     offset = 0;
   }
 
@@ -282,7 +280,8 @@ void InsertItem(Table* table, uint64_t key, double priority,
   }
 
   auto item = MakeItem(key, priority, ranges, offset, length);
-  item.item.mutable_flat_trajectory()->mutable_columns(0)->set_squeeze(squeeze);
+  item.unsafe_mutable_flat_trajectory()->mutable_columns(0)->set_squeeze(
+      squeeze);
   REVERB_EXPECT_OK(table->InsertOrAssign(std::move(item)));
 }
 

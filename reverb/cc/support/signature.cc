@@ -224,7 +224,7 @@ tensorflow::StructuredValue StructuredValueFromItem(const TableItem& item) {
   tensorflow::StructuredValue value;
 
   auto get_tensor = [&](const FlatTrajectory::ChunkSlice& slice) {
-    for (const auto& chunk : item.chunks) {
+    for (const auto& chunk : item.chunks()) {
       if (chunk->key() == slice.chunk_key()) {
         return &chunk->data().data().tensors(slice.index());
       }
@@ -232,9 +232,9 @@ tensorflow::StructuredValue StructuredValueFromItem(const TableItem& item) {
     REVERB_CHECK(false) << "Invalid item.";
   };
 
-  for (int col_idx = 0; col_idx < item.item.flat_trajectory().columns_size();
+  for (int col_idx = 0; col_idx < item.flat_trajectory().columns_size();
        col_idx++) {
-    const auto& col = item.item.flat_trajectory().columns(col_idx);
+    const auto& col = item.flat_trajectory().columns(col_idx);
     const auto* tensor_proto = get_tensor(col.chunk_slices(0));
 
     auto* spec =

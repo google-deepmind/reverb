@@ -709,12 +709,17 @@ TEST(ReverbServiceImplTest, InitializeConnectionFromOtherProcess) {
 TEST(InsertWorkerTest, InsertWorkerReturnsCorrectStats) {
   auto insert_worker = std::make_unique<InsertWorker>(
       /*num_threads=*/1, /*max_queue_size_to_warn=*/3, "TestWorker");
-  Table::Item item;
-  item.item.set_table("my_table");
+
+  PrioritizedItem prioritized_item;
+  prioritized_item.set_table("my_table");
+
+  Table::Item item(std::move(prioritized_item), {});
   absl::BlockingCounter counter(2);
   for (int i = 0; i < 2; i++) {
-    InsertTaskInfo task_info;
-    task_info.item = item;
+    InsertTaskInfo task_info = {
+        .item = item,
+        .table = nullptr,
+    };
     insert_worker->Schedule(
         task_info,
         [&counter](InsertTaskInfo task_info, const absl::Status& status,

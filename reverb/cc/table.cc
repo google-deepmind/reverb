@@ -26,6 +26,7 @@
 #include <cstdint>
 #include "absl/memory/memory.h"
 #include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/synchronization/notification.h"
@@ -66,22 +67,22 @@ inline void EncodeAsTimestampProto(absl::Time t,
 }
 
 inline absl::Status CheckItemValidity(const Table::Item& item) {
-  if (item.item.flat_trajectory().columns().empty() ||
-      item.item.flat_trajectory().columns(0).chunk_slices().empty()) {
+  if (item.flat_trajectory().columns().empty() ||
+      item.flat_trajectory().columns(0).chunk_slices().empty()) {
     return absl::InvalidArgumentError("Item trajectory must not be empty.");
   }
 
-  auto trajectory_keys = internal::GetChunkKeys(item.item.flat_trajectory());
-  if (trajectory_keys.size() != item.chunks.size()) {
+  auto trajectory_keys = internal::GetChunkKeys(item.flat_trajectory());
+  if (trajectory_keys.size() != item.chunks().size()) {
     return absl::InvalidArgumentError(
-        absl::StrCat("The number of chunks (", item.chunks.size(),
+        absl::StrCat("The number of chunks (", item.chunks().size(),
                      ") does not equal the number of chunks referenced "
                      "in item's trajectory (",
                      trajectory_keys.size(), ")."));
   }
 
   for (int i = 0; i < trajectory_keys.size(); ++i) {
-    if (item.chunks[i]->key() != trajectory_keys[i]) {
+    if (item.chunks()[i]->key() != trajectory_keys[i]) {
       return absl::InvalidArgumentError(
           "Item chunks does not match chunks referenced in trajectory.");
     }
@@ -138,7 +139,7 @@ void NotifyPendingInserts(const std::vector<Table::InsertRequest>& requests) {
     auto to_notify = r.insert_completed.lock();
     // Callback might have been destroyed in the meantime.
     if (to_notify != nullptr) {
-      (*to_notify)(r.item->item.key());
+      (*to_notify)(r.item->key());
     }
   }
 }
@@ -229,7 +230,7 @@ absl::Status Table::TableWorkerLoop() {
         worker_stats.Enter(TableWorkerState::kActivelyInserting);
         if (insert_idx < current_inserts.size() &&
             rate_limiter_->CanInsert(&mu_, 1)) {
-          uint64_t id = current_inserts[insert_idx].item->item.key();
+          uint64_t id = current_inserts[insert_idx].item->key();
           REVERB_RETURN_IF_ERROR(InsertOrAssignInternal(
               std::move(current_inserts[insert_idx].item)));
           auto callback =
@@ -263,7 +264,7 @@ absl::Status Table::TableWorkerLoop() {
                 SampleInternal(rate_limited, &request->samples.back()));
             // Capacity of the samples collection indicates how many items
             // should be sampled.
-            for (const auto& chunk : request->samples.back().ref->chunks) {
+            for (const auto& chunk : request->samples.back().ref->chunks()) {
               current_sampling_response_size_bytes += chunk->DataByteSizeLong();
             }
             if (request->samples.capacity() == request->samples.size() ||
@@ -547,8 +548,8 @@ absl::Status Table::InsertOrAssignAsync(
 }
 
 absl::Status Table::InsertOrAssignInternal(std::shared_ptr<Item> item) {
-  const auto key = item->item.key();
-  const auto priority = item->item.priority();
+  const auto key = item->key();
+  const auto priority = item->priority();
   if (data_.contains(key)) {
     REVERB_RETURN_IF_ERROR(UpdateItem(key, priority));
     ExtensionOperation(ExtensionRequest::CallType::kMemoryRelease, item);
@@ -558,7 +559,7 @@ absl::Status Table::InsertOrAssignInternal(std::shared_ptr<Item> item) {
 
   // Set the insertion timestamp after the lock has been acquired as this
   // represents the order it was inserted into the sampler and remover.
-  EncodeAsTimestampProto(absl::Now(), item->item.mutable_inserted_at());
+  EncodeAsTimestampProto(absl::Now(), item->unsafe_mutable_inserted_at());
   data_[key] = std::move(item);
 
   REVERB_RETURN_IF_ERROR(sampler_->Insert(key, priority));
@@ -569,7 +570,7 @@ absl::Status Table::InsertOrAssignInternal(std::shared_ptr<Item> item) {
   // Increment references to the episode/s the item is referencing.
   // We increment before a possible call to DeleteItem since the sampler can
   // return this key.
-  for (const auto& chunk : it->second->chunks) {
+  for (const auto& chunk : it->second->chunks()) {
     ++episode_refs_[chunk->episode_id()];
   }
 
@@ -674,19 +675,19 @@ absl::Status Table::SampleInternal(bool rate_limited, SampledItem* result) {
   std::shared_ptr<Item>& item = data_[sample.key];
   // If this is the first time the item was sampled then update unique
   // sampled counter.
-  if (item->item.times_sampled() == 0) {
+  if (item->times_sampled() == 0) {
     ++num_unique_samples_;
   }
   // Increment the sample count.
-  item->item.set_times_sampled(item->item.times_sampled() + 1);
+  item->set_times_sampled(item->times_sampled() + 1);
 
   // Copy Details of the sampled item.
   *result = {
       .ref = item,
       .probability = sample.probability,
       .table_size = static_cast<int64_t>(data_.size()),
-      .priority = item->item.priority(),
-      .times_sampled = item->item.times_sampled(),
+      .priority = item->priority(),
+      .times_sampled = item->times_sampled(),
       .rate_limited = rate_limited,
   };
 
@@ -696,8 +697,8 @@ absl::Status Table::SampleInternal(bool rate_limited, SampledItem* result) {
   // If there is an upper bound of the number of times an item can be
   // sampled and it is now reached then delete the item before the lock is
   // released.
-  if (item->item.times_sampled() == max_times_sampled_) {
-    REVERB_RETURN_IF_ERROR(DeleteItem(item->item.key()));
+  if (item->times_sampled() == max_times_sampled_) {
+    REVERB_RETURN_IF_ERROR(DeleteItem(item->key()));
   }
   WaitForBackgroundWork();
   return absl::OkStatus();
@@ -773,7 +774,7 @@ absl::Status Table::DeleteItem(Table::Key key,
   if (it == data_.end()) return absl::OkStatus();
 
   // Decrement counts to the episodes the item is referencing.
-  for (const auto& chunk : it->second->chunks) {
+  for (const auto& chunk : it->second->chunks()) {
     auto ep_it = episode_refs_.find(chunk->episode_id());
     if (ep_it == episode_refs_.end()) {
       return absl::FailedPreconditionError(
@@ -853,7 +854,7 @@ absl::Status Table::UpdateItem(Key key, double priority) {
   if (it == data_.end()) {
     return absl::OkStatus();
   }
-  it->second->item.set_priority(priority);
+  it->second->set_priority(priority);
   REVERB_RETURN_IF_ERROR(sampler_->Update(key, priority));
   REVERB_RETURN_IF_ERROR(remover_->Update(key, priority));
   ExtensionOperation(ExtensionRequest::CallType::kUpdate, it->second);
@@ -927,8 +928,8 @@ Table::CheckpointAndChunks Table::Checkpoint() {
   internal::flat_hash_set<std::shared_ptr<ChunkStore::Chunk>> chunks;
   std::vector<PrioritizedItem> items;
   for (const auto& entry : data_) {
-    items.push_back(entry.second->item);
-    chunks.insert(entry.second->chunks.begin(), entry.second->chunks.end());
+    items.push_back(entry.second->AsPrioritizedItem());
+    chunks.insert(entry.second->chunks().begin(), entry.second->chunks().end());
   }
 
   // Sort the items in ascending order based on their insertion time. This makes
@@ -946,21 +947,19 @@ absl::Status Table::InsertCheckpointItem(Table::Item&& item) {
         "InsertCheckpointItem called on already full Table. table size: ",
         data_.size(), ", maximum size: ", max_size_));
   }
-  if (data_.contains(item.item.key())) {
+  if (data_.contains(item.key())) {
     return absl::FailedPreconditionError(absl::StrCat(
         "InsertCheckpointItem called for item with already present key: ",
-        item.item.key()));
+        item.key()));
   }
 
-  REVERB_RETURN_IF_ERROR(
-      sampler_->Insert(item.item.key(), item.item.priority()));
-  REVERB_RETURN_IF_ERROR(
-      remover_->Insert(item.item.key(), item.item.priority()));
+  REVERB_RETURN_IF_ERROR(sampler_->Insert(item.key(), item.priority()));
+  REVERB_RETURN_IF_ERROR(remover_->Insert(item.key(), item.priority()));
 
-  const auto key = item.item.key();
+  const auto key = item.key();
   auto it = data_.emplace(key, std::make_shared<Item>(std::move(item))).first;
 
-  for (const auto& chunk : it->second->chunks) {
+  for (const auto& chunk : it->second->chunks()) {
     ++episode_refs_[chunk->episode_id()];
   }
   ExtensionOperation(ExtensionRequest::CallType::kInsert, it->second);
@@ -968,14 +967,13 @@ absl::Status Table::InsertCheckpointItem(Table::Item&& item) {
   return absl::OkStatus();
 }
 
-bool Table::Get(Table::Key key, Table::Item* item) {
+absl::StatusOr<Table::Item> Table::Get(Table::Key key) {
   absl::MutexLock lock(&mu_);
   auto it = data_.find(key);
   if (it != data_.end()) {
-    *item = *it->second;
-    return true;
+    return *it->second;
   }
-  return false;
+  return absl::NotFoundError(absl::StrCat("Key not found: ", key));
 }
 
 const internal::flat_hash_map<Table::Key, std::shared_ptr<Table::Item>>*
@@ -1105,6 +1103,53 @@ int Table::num_pending_async_sample_requests() const {
 bool Table::all_extensions_are_up_to_date() const {
   absl::MutexLock lock(&mu_);
   return extension_requests_.empty() && extension_worker_sleeps_;
+}
+
+TableItem::TableItem(PrioritizedItem item,
+                     std::vector<std::shared_ptr<ChunkStore::Chunk>> chunks)
+    : item_(std::move(item)),
+      chunks_(std::move(chunks)),
+      times_sampled_(item_.times_sampled()),
+      priority_(item_.priority()) {}
+
+uint64_t TableItem::key() const { return item_.key(); }
+
+absl::string_view TableItem::table() const { return item_.table(); }
+
+double TableItem::priority() const { return priority_; }
+void TableItem::set_priority(double priority) { priority_ = priority; }
+
+int32_t TableItem::times_sampled() const { return times_sampled_; }
+
+void TableItem::set_times_sampled(int32_t times_sampled) {
+  times_sampled_ = times_sampled;
+}
+
+const google::protobuf::Timestamp& TableItem::inserted_at() const {
+  return item_.inserted_at();
+}
+
+google::protobuf::Timestamp* TableItem::unsafe_mutable_inserted_at() {
+  return item_.mutable_inserted_at();
+}
+
+const FlatTrajectory& TableItem::flat_trajectory() const {
+  return item_.flat_trajectory();
+}
+FlatTrajectory* TableItem::unsafe_mutable_flat_trajectory() {
+  return item_.mutable_flat_trajectory();
+}
+
+const std::vector<std::shared_ptr<ChunkStore::Chunk>>& TableItem::chunks()
+    const {
+  return chunks_;
+}
+
+PrioritizedItem TableItem::AsPrioritizedItem() const {
+  PrioritizedItem copy = item_;
+  copy.set_times_sampled(times_sampled_);
+  copy.set_priority(priority_);
+  return copy;
 }
 
 }  // namespace reverb
