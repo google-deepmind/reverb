@@ -85,6 +85,7 @@ paired with a specific version of TensorFlow. If installing Reverb as
 installed. The table below lists the version of TensorFlow that each release of
 Reverb is associated with and some versions of interest:
 
+  * 0.13.0 dropped Python 3.8 support.
   * 0.11.0 first version to support Python 3.11.
   * 0.10.0 last version to support Python 3.7.
 
@@ -92,6 +93,7 @@ Reverb is associated with and some versions of interest:
 Release | Branch / Tag                                               | TensorFlow Version
 ------- | ---------------------------------------------------------- | ------------------
 Nightly | [master](https://github.com/deepmind/reverb)               | tf-nightly
+0.13.0  | [v0.12.0](https://github.com/deepmind/reverb/tree/v0.13.0) | 2.14.0
 0.12.0  | [v0.12.0](https://github.com/deepmind/reverb/tree/v0.12.0) | 2.13.0
 0.11.0  | [v0.11.0](https://github.com/deepmind/reverb/tree/v0.11.0) | 2.12.0
 0.10.0  | [v0.10.0](https://github.com/deepmind/reverb/tree/v0.10.0) | 2.11.0

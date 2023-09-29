@@ -19,14 +19,14 @@
 #
 # Example usage after building release docker:
 #   docker run --rm -it -v ${REVERB_DIR}:/tmp/reverb tensorflow:reverb_release \
-#   bash oss_build.sh --python 3.8
+#   bash oss_build.sh --python 3.9
 
 # Exit if any process returns non-zero status.
 set -e
 set -o pipefail
 
 # Flags
-PYTHON_VERSIONS=3.9 # Options 3.9 (default), 3.8, 3.10 or 3.11.
+PYTHON_VERSIONS=3.9 # Options 3.9 (default), 3.10 or 3.11.
 CLEAN=false # Set to true to run bazel clean.
 CLEAR_CACHE=false # Set to true to delete Bazel cache folder. b/279235134
 OUTPUT_DIR=/tmp/reverb/dist/
@@ -39,7 +39,7 @@ PIP_PKG_EXTRA_ARGS="" # Extra args passed to `build_pip_package`.
 if [[ $# -lt 1 ]] ; then
   echo "Usage:"
   echo "--release [Indicates this is a release build. Otherwise nightly.]"
-  echo "--python [3.9(default)|3.8|3.10|3.11]"
+  echo "--python [3.9(default)|3.10|3.11]"
   echo "--clean  [true to run bazel clean]"
   echo "--clear_bazel_cache  [true to delete Bazel cache folder]"
   echo "--tf_dep_override  [Required tensorflow version to pass to setup.py."
@@ -103,10 +103,7 @@ for python_version in $PYTHON_VERSIONS; do
     bazel clean
   fi
 
-  if [ "$python_version" = "3.8" ]; then
-    export PYTHON_BIN_PATH=/usr/bin/python3.8 && export PYTHON_LIB_PATH=/usr/local/lib/python3.8/dist-packages
-    ABI=cp38
-  elif [ "$python_version" = "3.9" ]; then
+  if [ "$python_version" = "3.9" ]; then
     export PYTHON_BIN_PATH=/usr/bin/python3.9 && export PYTHON_LIB_PATH=/usr/local/lib/python3.9/dist-packages
     ABI=cp39
   elif [ "$python_version" = "3.10" ]; then
@@ -116,7 +113,7 @@ for python_version in $PYTHON_VERSIONS; do
     export PYTHON_BIN_PATH=/usr/bin/python3.11 && export PYTHON_LIB_PATH=/usr/local/lib/python3.11/dist-packages
     ABI=cp311
   else
-    echo "Error unknown --python. Only [3.8|3.9|3.10|3.11]"
+    echo "Error unknown --python. Only [3.9|3.10|3.11]"
     exit 1
   fi
 

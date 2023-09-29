@@ -30,12 +30,10 @@ RUN ${APT_COMMAND} update && ${APT_COMMAND} install -y --no-install-recommends \
         libzmq3-dev \
         lsof \
         pkg-config \
-        python3.8-dev \
         python3.9-dev \
         python3.10-dev \
         python3.11-dev \
-        # python >= 3.8 needs distutils for packaging.
-        python3.8-distutils \
+        # python >= 3.9 needs distutils for packaging.
         python3.9-distutils \
         python3.10-distutils \
         python3.11-distutils \
@@ -82,13 +80,11 @@ RUN for python in ${python_version}; do \
 RUN rm get-pip.py
 
 # Removes existing links so they can be created to point where we expect.
-RUN rm /dt9/usr/include/x86_64-linux-gnu/python3.8
 RUN rm /dt9/usr/include/x86_64-linux-gnu/python3.9
 RUN rm /dt9/usr/include/x86_64-linux-gnu/python3.10
 RUN rm /dt9/usr/include/x86_64-linux-gnu/python3.11
 
 # Needed until this is included in the base TF image.
-RUN ln -s "/usr/include/x86_64-linux-gnu/python3.8" "/dt9/usr/include/x86_64-linux-gnu/python3.8"
 RUN ln -s "/usr/include/x86_64-linux-gnu/python3.9" "/dt9/usr/include/x86_64-linux-gnu/python3.9"
 RUN ln -s "/usr/include/x86_64-linux-gnu/python3.10" "/dt9/usr/include/x86_64-linux-gnu/python3.10"
 RUN ln -s "/usr/include/x86_64-linux-gnu/python3.11" "/dt9/usr/include/x86_64-linux-gnu/python3.11"
