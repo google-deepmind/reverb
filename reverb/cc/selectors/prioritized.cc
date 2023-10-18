@@ -17,8 +17,6 @@
 #include <cmath>
 #include <cstddef>
 
-#include "absl/random/distributions.h"
-#include "absl/random/random.h"
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 #include "reverb/cc/platform/logging.h"
@@ -56,9 +54,7 @@ PrioritizedSelector::PrioritizedSelector(double priority_exponent,
     : priority_exponent_(priority_exponent),
       capacity_(std::pow(2, 17)),
       sum_tree_(capacity_),
-      rng_(seed) {
-  REVERB_CHECK_GE(priority_exponent_, 0);
-}
+      rng_(seed) {}
 
 absl::Status PrioritizedSelector::Delete(Key key) {
   const size_t last_index = key_to_index_.size() - 1;
