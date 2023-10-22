@@ -9,7 +9,8 @@ build --action_env=PYTHON_BIN_PATH=python3
 build --repo_env=PYTHON_BIN_PATH=python3
 build --python_path=python3
 
-build:manylinux2014 --crosstool_top=//third_party/toolchains/preconfig/ubuntu16.04/gcc7_manylinux2014:toolchain
+build:manylinux2014 --crosstool_top=//third_party/toolchains/clang_toolchain/crosstool:toolchain
+build:manylinux2014 --copt="-w"
 
 build -c opt
 build --cxxopt="-std=c++17"
