@@ -16,6 +16,7 @@
 #define REVERB_CC_SELECTORS_INTERFACE_H_
 
 #include <cstdint>
+
 #include "absl/status/status.h"
 #include "reverb/cc/checkpointing/checkpoint.pb.h"
 

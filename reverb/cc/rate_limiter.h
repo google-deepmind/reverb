@@ -17,7 +17,6 @@
 
 #include <string>
 
-#include <cstdint>
 #include "absl/base/thread_annotations.h"
 #include "absl/container/fixed_array.h"
 #include "absl/status/status.h"

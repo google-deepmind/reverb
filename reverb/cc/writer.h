@@ -21,7 +21,6 @@
 
 #include "grpcpp/impl/codegen/client_context.h"
 #include "grpcpp/impl/codegen/sync_stream.h"
-#include <cstdint>
 #include "absl/base/thread_annotations.h"
 #include "absl/random/random.h"
 #include "absl/status/status.h"

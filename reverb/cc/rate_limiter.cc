@@ -19,7 +19,6 @@
 #include <utility>
 
 #include "google/protobuf/duration.pb.h"
-#include <cstdint>
 #include "absl/base/thread_annotations.h"
 #include "absl/container/fixed_array.h"
 #include "absl/strings/str_cat.h"

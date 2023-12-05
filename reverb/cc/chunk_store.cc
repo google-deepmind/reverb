@@ -18,7 +18,6 @@
 #include <utility>
 #include <vector>
 
-#include <cstdint>
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 #include "absl/synchronization/mutex.h"

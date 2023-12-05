@@ -15,13 +15,13 @@
 #include "reverb/cc/platform/tfrecord_checkpointer.h"
 
 #include <algorithm>
+#include <cstdint>
 #include <iterator>
 #include <memory>
 #include <string>
 #include <utility>
 #include <vector>
 
-#include <cstdint>
 #include "absl/memory/memory.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
@@ -265,8 +265,8 @@ absl::Status TFRecordCheckpointer::Save(std::vector<Table*> tables,
   int history_counter = 0;
   for (auto it = filenames.rbegin(); it != filenames.rend(); it++) {
     if (++history_counter > keep_latest) {
-      tensorflow::int64 undeleted_files;
-      tensorflow::int64 undeleted_dirs;
+      int64_t undeleted_files;
+      int64_t undeleted_dirs;
       REVERB_RETURN_IF_ERROR(
           FromTensorflowStatus(tensorflow::Env::Default()->DeleteRecursively(
               *it, &undeleted_files, &undeleted_dirs)));
@@ -309,7 +309,7 @@ absl::Status LoadWithCompression(absl::string_view path,
                    &table_reader, compression_type));
 
     absl::Status table_status;
-    tensorflow::uint64 table_offset = 0;
+    uint64_t table_offset = 0;
     tensorflow::tstring table_record;
     do {
       table_status = FromTensorflowStatus(
@@ -368,7 +368,7 @@ absl::Status LoadWithCompression(absl::string_view path,
 
     PrioritizedItem item;
     absl::Status item_status;
-    tensorflow::uint64 item_offset = 0;
+    uint64_t item_offset = 0;
     tensorflow::tstring item_record;
     std::vector<PrioritizedItem>* items = nullptr;
     do {
@@ -420,7 +420,7 @@ absl::Status LoadWithCompression(absl::string_view path,
 
     ChunkData chunk_data;
     absl::Status chunk_status;
-    tensorflow::uint64 chunk_offset = 0;
+    uint64_t chunk_offset = 0;
     tensorflow::tstring chunk_record;
     do {
       chunk_status = FromTensorflowStatus(

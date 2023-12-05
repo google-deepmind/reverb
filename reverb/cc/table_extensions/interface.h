@@ -18,7 +18,6 @@
 #include <memory>
 #include <vector>
 
-#include <cstdint>
 #include "absl/base/thread_annotations.h"
 #include "absl/status/status.h"
 #include "absl/synchronization/mutex.h"

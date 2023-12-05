@@ -23,7 +23,6 @@
 #include <vector>
 
 #include "absl/base/attributes.h"
-#include <cstdint>
 #include "absl/status/status.h"
 #include "absl/time/time.h"
 #include "reverb/cc/platform/thread.h"
@@ -196,12 +195,12 @@ class Sampler {
   //
   // The metadata fields extracted are:
   //
-  //   * [uint64] Key of the sampled item.
+  //   * [uint64_t] Key of the sampled item.
   //   * [double] The probability of selecting this item at the time it was
   //     sampled.
-  //   * [int64] The size of the table when the item was sampled.
+  //   * [int64_t] The size of the table when the item was sampled.
   //   * [double] The priority of the item when it was sampled.
-  //   * [int32] The number of times the item has been sampled (including this
+  //   * [int32_t] The number of times the item has been sampled (including this
   //     sample).
   //
   static std::vector<tensorflow::Tensor> WithInfoTensors(

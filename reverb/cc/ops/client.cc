@@ -14,11 +14,11 @@
 
 #include "reverb/cc/client.h"
 
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
 
-#include <cstdint>
 #include "absl/strings/str_cat.h"
 #include "reverb/cc/sampler.h"
 #include "reverb/cc/support/tf_util.h"
@@ -156,7 +156,7 @@ class UpdatePrioritiesOp : public tensorflow::OpKernel {
     std::vector<KeyWithPriority> updates;
     for (int i = 0; i < keys->dim_size(0); i++) {
       KeyWithPriority update;
-      update.set_key(keys->flat<tensorflow::uint64>()(i));
+      update.set_key(keys->flat<uint64_t>()(i));
       update.set_priority(priorities->flat<double>()(i));
       updates.push_back(std::move(update));
     }

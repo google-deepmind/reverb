@@ -16,12 +16,12 @@
 #define REVERB_CC_TABLE_H_
 
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <utility>
 #include <vector>
 
-#include <cstdint>
 #include "absl/base/thread_annotations.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
@@ -167,7 +167,8 @@ class Table {
   // Multiple `ChunkData` can be sent with the same `SampleStreamResponseCtx`.
   // If the size of the message exceeds this value then the request is sent and
   // the remaining chunks are sent with other messages.
-  static constexpr int64_t kMaxSampleResponseSizeBytes = 1 * 1024 * 1024;  // 1MB.
+  static constexpr int64_t kMaxSampleResponseSizeBytes =
+      1 * 1024 * 1024;  // 1MB.
 
   struct SampleRequest;
   using Key = ItemSelector::Key;

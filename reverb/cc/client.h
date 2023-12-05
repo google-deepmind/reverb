@@ -21,7 +21,6 @@
 #include <string>
 #include <vector>
 
-#include <cstdint>
 #include "absl/base/thread_annotations.h"
 #include "absl/numeric/int128.h"
 #include "absl/status/status.h"
