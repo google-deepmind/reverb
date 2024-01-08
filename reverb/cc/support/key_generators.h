@@ -15,6 +15,7 @@
 #ifndef REVERB_CC_SUPPORT_KEY_GENERATORS_H_
 #define REVERB_CC_SUPPORT_KEY_GENERATORS_H_
 
+#include <cstdint>
 #include <limits>
 
 #include "absl/random/random.h"
@@ -31,7 +32,7 @@ class UniformKeyGenerator : public KeyGenerator {
  public:
   uint64_t Generate() override {
     return absl::Uniform<uint64_t>(bit_gen_, 0,
-                                 std::numeric_limits<uint64_t>::max());
+                                   std::numeric_limits<uint64_t>::max());
   }
 
  private:
