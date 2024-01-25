@@ -501,6 +501,19 @@ class TestInferSignature(parameterized.TestCase):
   @parameterized.parameters(
       {
           'patterns': [{
+              'even_a': REF_STEP['a'][-8::2],
+              'odd_a': REF_STEP['a'][-7::2],
+          },],
+          'step_spec': {
+              'a': np.zeros([3, 3], np.float32),
+          },
+          'want': {
+              'even_a': TensorSpec([4, 3, 3], np.float32, 'even_a'),
+              'odd_a': TensorSpec([4, 3, 3], np.float32, 'odd_a'),
+          },
+      },
+      {
+          'patterns': [{
               'older': REF_STEP['a'][-3:-1],
               'last_a': REF_STEP['a'][-1],
           },],

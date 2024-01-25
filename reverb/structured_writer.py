@@ -19,6 +19,7 @@ TODO(b/204560248): Expand the documentation.
 
 import copy
 import datetime
+import math
 
 from typing import Any, Callable, NewType, Optional, Sequence
 
@@ -355,7 +356,7 @@ def infer_signature(configs: Sequence[Config],
     for node in nodes:
       shape = list(flat_step_spec[node.flat_source_index].shape)
       if node.HasField('start'):
-        length = (node.stop - node.start) // (node.step or 1)
+        length = math.ceil((node.stop - node.start) / (node.step or 1))
         shape = [length, *shape]
 
       shapes.append(tensor_shape.TensorShape(shape))
