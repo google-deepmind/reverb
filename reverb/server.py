@@ -263,12 +263,12 @@ class Table:
       rate_limiter: Manages the data flow by limiting the sample and insert
         calls. Configuration of the original table is used when not specified.
       max_times_sampled: Maximum number of times an item can be sampled before
-        it is deleted, or None to re-use existing table's max_size.
+        it is deleted, or None to re-use existing table's max_times_sampled.
       extensions: Optional sequence of extensions used to add extra features to
-        the table, or None to re-use existing table's max_size.
+        the table, or None to re-use existing table's extensions.
       signature: Optional nested structure containing `tf.TypeSpec` objects,
         describing the schema of items in this table, or None to re-use existing
-        table's max_size.
+        table's signature.
     Returns:
       Table with the same configuration as the original one (modulo overrides).
     """
