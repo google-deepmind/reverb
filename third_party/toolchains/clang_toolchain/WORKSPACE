@@ -1,0 +1,2 @@
+# DO NOT EDIT: automatically generated WORKSPACE file for remote_cuda_configure rule
+workspace(name = "sigbuild-r2.14-clang_config_cuda")
