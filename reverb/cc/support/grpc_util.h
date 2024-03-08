@@ -67,7 +67,8 @@ inline std::string FormatGrpcStatus(const grpc::Status& s) {
 // The hostname from gRPC is URL encoded.
 inline bool IsLocalhostOrInProcess(absl::string_view hostname) {
   return absl::StrContains(hostname, ":127.0.0.1:") ||
-         absl::StrContains(hostname, "::1") || hostname == "unknown";
+         absl::StrContains(hostname, "::1") || hostname == "unknown" ||
+         hostname.empty();
 }
 
 }  // namespace reverb
