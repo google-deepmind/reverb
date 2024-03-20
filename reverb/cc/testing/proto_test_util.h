@@ -52,7 +52,11 @@ class ProtoStringMatcher {
   explicit ProtoStringMatcher(const std::string& expected)
       : expected_proto_str_(expected) {}
   explicit ProtoStringMatcher(const google::protobuf::Message& expected)
-      : expected_proto_str_(expected.DebugString()) {}
+      : expected_proto_str_([&]() -> std::string {
+          std::string result;
+          google::protobuf::TextFormat::PrintToString(expected, &result);
+          return result;
+        }()) {}
 
   template <typename Message>
   bool MatchAndExplain(const Message& actual_proto,
