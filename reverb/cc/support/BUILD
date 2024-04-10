@@ -22,7 +22,7 @@ reverb_cc_library(
 reverb_cc_library(
     name = "grpc_util",
     hdrs = ["grpc_util.h"],
-    deps = reverb_tf_deps() + reverb_grpc_deps() + reverb_absl_deps(),
+    deps = reverb_grpc_deps() + reverb_absl_deps(),
 )
 
 reverb_cc_library(

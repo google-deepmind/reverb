@@ -15,13 +15,15 @@
 #ifndef LEARNING_DEEPMIND_REPLAY_REVERB_SUPPORT_GRPC_UTIL_H_
 #define LEARNING_DEEPMIND_REPLAY_REVERB_SUPPORT_GRPC_UTIL_H_
 
+#include <string>
+
 #include "grpcpp/grpcpp.h"
 #include "grpcpp/impl/codegen/proto_utils.h"
+#include "grpcpp/support/status.h"
 #include "absl/status/status.h"
+#include "absl/strings/match.h"
 #include "absl/strings/string_view.h"
 #include "absl/strings/substitute.h"
-#include "tensorflow/core/lib/core/error_codes.pb.h"
-#include "tensorflow/core/lib/core/status.h"
 
 namespace deepmind {
 namespace reverb {
