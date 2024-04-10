@@ -350,7 +350,12 @@ absl::Status Table::TableWorkerLoop() {
       // Notify sample requests which exceeded deadline.
       absl::MutexLock lock(&mu_);
       for (auto& sample : to_terminate) {
-        FinalizeSampleRequest(std::move(sample), errors::RateLimiterTimeout());
+        if (sample->samples.empty()) {
+          FinalizeSampleRequest(std::move(sample),
+                                errors::RateLimiterTimeout());
+        } else {
+          FinalizeSampleRequest(std::move(sample), absl::OkStatus());
+        }
       }
       to_terminate.clear();
     }
