@@ -95,12 +95,6 @@ absl::Status ReverbServiceImpl::Create(
   return absl::OkStatus();
 }
 
-absl::Status ReverbServiceImpl::Create(
-    std::vector<std::shared_ptr<Table>> tables,
-    std::unique_ptr<ReverbServiceImpl>* service) {
-  return Create(std::move(tables), /*checkpointer=*/nullptr, service);
-}
-
 absl::Status ReverbServiceImpl::Initialize(
     std::vector<std::shared_ptr<Table>> tables) {
   if (checkpointer_ != nullptr) {

@@ -41,10 +41,6 @@ class ReverbServiceImpl : public /* grpc_gen:: */ReverbService::CallbackService 
       std::shared_ptr<Checkpointer> checkpointer,
       std::unique_ptr<ReverbServiceImpl>* service);
 
-  static absl::Status Create(
-      std::vector<std::shared_ptr<Table>> tables,
-      std::unique_ptr<ReverbServiceImpl>* service);
-
   grpc::ServerUnaryReactor* Checkpoint(grpc::CallbackServerContext* context,
                                        const CheckpointRequest* request,
                                        CheckpointResponse* response) override;
