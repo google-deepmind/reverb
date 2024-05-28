@@ -36,9 +36,8 @@ http_archive(
     urls = ["https://github.com/grpc/grpc/archive/refs/tags/v1.54.0.tar.gz"],
 )
 
-ABSL_COMMIT = "273292d1cfc0a94a65082ee350509af1d113344d"
-
-ABSL_SHA256 = "94aef187f688665dc299d09286bfa0d22c4ecb86a80b156dff6aabadc5a5c26d"
+ABSL_COMMIT = "fb3621f4f897824c0dbe0615fa94543df6192f30"
+ABSL_SHA256 = "0320586856674d16b0b7a4d4afb22151bdc798490bb7f295eddd8f6a62b46fea"
 
 http_archive(
     name = "com_google_absl",
