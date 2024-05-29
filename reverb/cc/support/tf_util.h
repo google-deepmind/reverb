@@ -24,26 +24,12 @@ namespace reverb {
 
 // Converts a tensorflow::Status object to an absl::Status object.
 inline absl::Status FromTensorflowStatus(const tensorflow::Status& status) {
-  if (status.ok()) {
-    return absl::Status();
-  } else {
-    // TODO: This could be wrong? It looks like message does not exist for TF status?
-    return absl::Status(static_cast<absl::StatusCode>(status.code()),
-                        status.error_message());
-  }
+  return status;
 }
 
 // Converts an absl::Status object to a tensorflow::Status object.
 inline tensorflow::Status ToTensorflowStatus(const absl::Status& status) {
-  if (status.ok()) {
-    return tensorflow::Status();
-  } else {
-    // TODO: Could very well be wrong?
-    // TODO: Maybe constructor linked below did not exist in version of TF I am using?
-    // TODO: https://github.com/tensorflow/tensorflow/blob/cb16f493dcf46f502296a76b23d40c813a2b4b2f/tensorflow/tsl/platform/status.h#L105
-    // return tensorflow::Status(status.code(), status.message());
-    return tensorflow::Status(static_cast<tsl::error::Code>(status.code()), status.message());
-  }
+  return status;
 }
 
 }  // namespace reverb
