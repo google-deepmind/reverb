@@ -124,7 +124,7 @@ bool AllReady(absl::Span<const std::shared_ptr<CellRef>> refs) {
 bool ContainsAll(const internal::flat_hash_set<uint64_t>& set,
                  absl::Span<const std::shared_ptr<CellRef>> refs) {
   return absl::c_all_of(refs, [&set](const auto& ref) {
-    return set.template contains(ref->chunk_key());
+    return set.contains(ref->chunk_key());
   });
 }
 
