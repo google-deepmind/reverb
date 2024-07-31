@@ -59,7 +59,6 @@ char const *NumpyTypeName(int numpy_type) {
     TYPE_CASE(NPY_DATETIME);
     TYPE_CASE(NPY_TIMEDELTA);
     TYPE_CASE(NPY_HALF);
-    TYPE_CASE(NPY_NTYPES);
     TYPE_CASE(NPY_NOTYPE);
     TYPE_CASE(NPY_USERDEF);
 
@@ -131,8 +130,9 @@ absl::Status StringTensorToPyArray(const tensorflow::Tensor &tensor,
           " of a TF_STRING tensor to a numpy ndarray"));
     }
 
-    if (PyArray_SETITEM(dst, PyArray_ITER_DATA(iter.get()), py_string.get()) !=
-        0) {
+    if (PyArray_SETITEM(dst,
+                        reinterpret_cast<char *>(PyArray_ITER_DATA(iter.get())),
+                        py_string.get()) != 0) {
       return absl::InternalError(
           absl::StrCat("Error settings element #", i, " in the numpy ndarray"));
     }
