@@ -15,6 +15,8 @@
 #ifndef LEARNING_DEEPMIND_REPLAY_REVERB_TENSOR_COMPRESSION_H_
 #define LEARNING_DEEPMIND_REPLAY_REVERB_TENSOR_COMPRESSION_H_
 
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "tensorflow/core/framework/tensor.h"
 #include "tensorflow/core/framework/tensor.pb.h"
 
@@ -33,11 +35,11 @@ std::vector<tensorflow::Tensor> DeltaEncodeList(
 
 // Compresses a Tensor with Zippy. The resulting `proto` must be read with
 // `DecompressTensorFromProto`. Note that string tensors are not compressed.
-void CompressTensorAsProto(const tensorflow::Tensor& tensor,
-                           tensorflow::TensorProto* proto);
+absl::Status CompressTensorAsProto(const tensorflow::Tensor& tensor,
+                                   tensorflow::TensorProto* proto);
 
 // Assumes that the TensorProto was built by calling `CompressTensorAsProto`.
-tensorflow::Tensor DecompressTensorFromProto(
+absl::StatusOr<tensorflow::Tensor> DecompressTensorFromProto(
     const tensorflow::TensorProto& proto);
 
 template <typename T>

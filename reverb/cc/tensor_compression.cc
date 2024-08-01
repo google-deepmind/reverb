@@ -14,14 +14,17 @@
 
 #include "reverb/cc/tensor_compression.h"
 
-#include <cstdint>
+#include <vector>
 
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "reverb/cc/platform/logging.h"
 #include "reverb/cc/platform/snappy.h"
 #include "tensorflow/core/framework/register_types.h"
 #include "tensorflow/core/framework/tensor_shape.h"
 #include "tensorflow/core/framework/types.h"
 #include "tensorflow/core/framework/types.pb.h"
+#include "tensorflow/tsl/platform/status.h"
 
 namespace deepmind {
 namespace reverb {
@@ -78,19 +81,21 @@ std::vector<tensorflow::Tensor> DeltaEncodeList(
   return outputs;
 }
 
-void CompressTensorAsProto(const tensorflow::Tensor& tensor,
-                           tensorflow::TensorProto* proto) {
+absl::Status CompressTensorAsProto(const tensorflow::Tensor& tensor,
+                                   tensorflow::TensorProto* proto) {
   if (tensor.dtype() == tensorflow::DT_STRING) {
     tensor.AsProtoTensorContent(proto);
+    return absl::OkStatus();
   } else {
     proto->set_dtype(tensor.dtype());
     tensor.shape().AsProto(proto->mutable_tensor_shape());
     SnappyCompressFromString(tensor.tensor_data(),
                              proto->mutable_tensor_content());
+    return absl::OkStatus();
   }
 }
 
-tensorflow::Tensor DecompressTensorFromProto(
+absl::StatusOr<tensorflow::Tensor> DecompressTensorFromProto(
     const tensorflow::TensorProto& proto) {
   if (proto.dtype() == tensorflow::DT_STRING) {
     tensorflow::Tensor tensor;
@@ -100,8 +105,7 @@ tensorflow::Tensor DecompressTensorFromProto(
     tensorflow::Tensor tensor(proto.dtype(),
                               tensorflow::TensorShape(proto.tensor_shape()));
     const auto& tensor_content = proto.tensor_content();
-    SnappyUncompressToString(tensor_content,
-                             tensor.tensor_data().size(),
+    SnappyUncompressToString(tensor_content, tensor.tensor_data().size(),
                              const_cast<char*>(tensor.tensor_data().data()));
     return tensor;
   }

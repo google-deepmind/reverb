@@ -18,6 +18,7 @@ reverb_cc_library(
         "//reverb/cc:schema_cc_proto",
         "//reverb/cc:tensor_compression",
         "//reverb/cc/platform:logging",
+        "//third_party/absl/log:check",
     ] + reverb_tf_deps(),
 )
 

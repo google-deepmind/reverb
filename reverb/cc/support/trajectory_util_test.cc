@@ -246,8 +246,10 @@ TEST(UnpackChunkColumn, SelectsCorrectColumn) {
   tensorflow::Tensor second_col_tensor(static_cast<int32_t>(9000));
 
   ChunkData data;
-  CompressTensorAsProto(first_col_tensor, data.mutable_data()->add_tensors());
-  CompressTensorAsProto(second_col_tensor, data.mutable_data()->add_tensors());
+  ASSERT_OK(CompressTensorAsProto(first_col_tensor,
+                                  data.mutable_data()->add_tensors()));
+  ASSERT_OK(CompressTensorAsProto(second_col_tensor,
+                                  data.mutable_data()->add_tensors()));
   data.set_data_tensors_len(2);
 
   tensorflow::Tensor first_got;

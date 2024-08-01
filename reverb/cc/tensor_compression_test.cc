@@ -14,8 +14,9 @@
 
 #include "reverb/cc/tensor_compression.h"
 
-#include <string>
+#include <vector>
 
+#include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "reverb/cc/testing/tensor_testutil.h"
 #include "tensorflow/core/framework/register_types.h"
@@ -24,6 +25,7 @@
 #include "tensorflow/core/framework/tensor_shape.h"
 #include "tensorflow/core/framework/types.h"
 #include "tensorflow/core/framework/types.pb.h"
+#include "tensorflow/core/platform/tstring.h"
 
 namespace deepmind {
 namespace reverb {
@@ -68,9 +70,10 @@ TEST(TensorCompressionTest, StringTensor) {
   tensor.flat<tensorflow::tstring>()(1) = "world";
 
   tensorflow::TensorProto proto;
-  CompressTensorAsProto(tensor, &proto);
+  ASSERT_OK(CompressTensorAsProto(tensor, &proto));
 
-  tensorflow::Tensor result = DecompressTensorFromProto(proto);
+  ASSERT_OK_AND_ASSIGN(tensorflow::Tensor result,
+                       DecompressTensorFromProto(proto));
   test::ExpectTensorEqual<tensorflow::tstring>(tensor, result);
 }
 
@@ -80,9 +83,10 @@ TEST(TensorCompressionTest, NonStringTensor) {
   tensor.flat<int>().setRandom();
 
   tensorflow::TensorProto proto;
-  CompressTensorAsProto(tensor, &proto);
+  ASSERT_OK(CompressTensorAsProto(tensor, &proto));
 
-  tensorflow::Tensor result = DecompressTensorFromProto(proto);
+  ASSERT_OK_AND_ASSIGN(tensorflow::Tensor result,
+                       DecompressTensorFromProto(proto));
   test::ExpectTensorEqual<int>(tensor, result);
 }
 
@@ -92,9 +96,10 @@ TEST(TensorCompressionTest, NonStringTensorWithDeltaEncoding) {
   tensor.flat<int>().setRandom();
 
   tensorflow::TensorProto proto;
-  CompressTensorAsProto(DeltaEncode(tensor, true), &proto);
+  ASSERT_OK(CompressTensorAsProto(DeltaEncode(tensor, true), &proto));
 
-  tensorflow::Tensor result = DecompressTensorFromProto(proto);
+  ASSERT_OK_AND_ASSIGN(tensorflow::Tensor result,
+                       DecompressTensorFromProto(proto));
   test::ExpectTensorEqual<int>(tensor, DeltaEncode(result, false));
 }
 

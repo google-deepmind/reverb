@@ -14,8 +14,12 @@
 
 #include "reverb/cc/testing/proto_test_util.h"
 
+#include <cstdint>
+#include <string>
+#include <utility>
 #include <vector>
 
+#include "absl/log/check.h"
 #include "reverb/cc/platform/logging.h"
 #include "reverb/cc/schema.pb.h"
 #include "reverb/cc/tensor_compression.h"
@@ -41,7 +45,7 @@ ChunkData MakeChunkData(uint64_t key, SequenceRange range, int num_tensors) {
                        {range.end() - range.start() + 1, 10});
   t.flat<int32_t>().setConstant(1);
   for (int i = 0; i < num_tensors; i++) {
-    CompressTensorAsProto(t, chunk.mutable_data()->add_tensors());
+    CHECK_OK(CompressTensorAsProto(t, chunk.mutable_data()->add_tensors()));
   }
   *chunk.mutable_sequence_range() = std::move(range);
 

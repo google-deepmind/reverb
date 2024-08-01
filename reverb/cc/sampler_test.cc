@@ -14,8 +14,13 @@
 
 #include "reverb/cc/sampler.h"
 
+#include <algorithm>
+#include <cstdint>
+#include <functional>
 #include <list>
 #include <memory>
+#include <numeric>
+#include <utility>
 #include <vector>
 
 #include "grpcpp/client_context.h"
@@ -25,22 +30,31 @@
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "absl/base/thread_annotations.h"
+#include "absl/log/check.h"
+#include "absl/status/status.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
+#include "third_party/grpc/include/grpcpp/client_context.h"
+#include "third_party/grpc/include/grpcpp/impl/call_op_set.h"
+#include "third_party/grpc/include/grpcpp/support/sync_stream.h"
+#include "reverb/cc/chunk_store.h"
 #include "reverb/cc/platform/logging.h"
 #include "reverb/cc/platform/status_matchers.h"
+#include "reverb/cc/rate_limiter.h"
 #include "reverb/cc/reverb_service.pb.h"
 #include "reverb/cc/reverb_service_mock.grpc.pb.h"
 #include "reverb/cc/selectors/fifo.h"
-#include "reverb/cc/support/tf_util.h"
+#include "reverb/cc/table.h"
 #include "reverb/cc/tensor_compression.h"
 #include "reverb/cc/testing/proto_test_util.h"
 #include "reverb/cc/testing/tensor_testutil.h"
 #include "reverb/cc/testing/time_testutil.h"
 #include "tensorflow/core/framework/tensor_shape.h"
 #include "tensorflow/core/framework/tensor_util.h"
+#include "tensorflow/core/framework/types.h"
 #include "tensorflow/core/framework/types.pb.h"
+#include "tensorflow/core/platform/types.h"
 
 namespace deepmind {
 namespace reverb {
@@ -199,7 +213,8 @@ SampleStreamResponse MakeResponse(int item_length, bool delta_encode = false,
     chunk_data->set_delta_encoded(true);
   }
 
-  CompressTensorAsProto(tensor, chunk_data->mutable_data()->add_tensors());
+  CHECK_OK(
+      CompressTensorAsProto(tensor, chunk_data->mutable_data()->add_tensors()));
 
   chunk_data->mutable_sequence_range()->set_start(0);
   chunk_data->mutable_sequence_range()->set_end(data_length);
@@ -221,7 +236,7 @@ ChunkData MakeChunkData(uint64_t key, SequenceRange range) {
   ChunkData chunk;
   chunk.set_chunk_key(key);
   auto t = MakeTensor(range.end() - range.start() + 1);
-  CompressTensorAsProto(t, chunk.mutable_data()->add_tensors());
+  CHECK_OK(CompressTensorAsProto(t, chunk.mutable_data()->add_tensors()));
   *chunk.mutable_sequence_range() = std::move(range);
 
   return chunk;
@@ -688,8 +703,8 @@ TEST(GrpcSamplerTest, GetNextTimestepReturnsErrorIfNotDecomposible) {
   auto* entry = response.mutable_entries(0);
 
   // Add a column of length 10 to the existing one of length 5.
-  CompressTensorAsProto(MakeTensor(10),
-                        entry->add_data()->mutable_data()->add_tensors());
+  ASSERT_OK(CompressTensorAsProto(
+      MakeTensor(10), entry->add_data()->mutable_data()->add_tensors()));
   auto* slice = entry->mutable_info()
                     ->mutable_item()
                     ->mutable_flat_trajectory()

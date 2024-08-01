@@ -15,9 +15,9 @@
 #include "reverb/cc/chunker.h"
 
 #include <algorithm>
-#include <limits>
+#include <cstdint>
+#include <cstdlib>
 #include <memory>
-#include <numeric>
 #include <utility>
 #include <vector>
 
@@ -25,9 +25,12 @@
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
 #include "absl/synchronization/mutex.h"
+#include "absl/types/span.h"
+#include "reverb/cc/platform/hash_set.h"
 #include "reverb/cc/platform/logging.h"
 #include "reverb/cc/platform/status_macros.h"
 #include "reverb/cc/schema.pb.h"
+#include "reverb/cc/support/key_generators.h"
 #include "reverb/cc/support/signature.h"
 #include "reverb/cc/support/tf_util.h"
 #include "reverb/cc/support/trajectory_util.h"
@@ -35,6 +38,7 @@
 #include "tensorflow/core/framework/tensor.h"
 #include "tensorflow/core/framework/tensor_shape.h"
 #include "tensorflow/core/framework/tensor_util.h"
+#include "tensorflow/core/framework/types.h"
 
 namespace deepmind {
 namespace reverb {
@@ -179,7 +183,7 @@ absl::Status Chunker::AppendUncompressed(
     std::weak_ptr<CellRef>* ref) {
   absl::MutexLock lock(&mu_);
   // We validate that steps have to increase if they belong to the same episode.
-  // We dont' check that data belongs to different episodes because this is
+  // We don't check that data belongs to different episodes because this is
   // possible in the buffer of uncompressed data.
   if (!uncompressed_data_.empty() &&
       active_refs_.back()->episode_step() >= episode_info.step &&
@@ -263,7 +267,8 @@ absl::Status Chunker::FlushLocked() {
     chunk->set_delta_encoded(true);
   }
 
-  CompressTensorAsProto(batched, chunk->mutable_data()->add_tensors());
+  REVERB_RETURN_IF_ERROR(
+      CompressTensorAsProto(batched, chunk->mutable_data()->add_tensors()));
   chunk->set_data_tensors_len(chunk->data().tensors_size());
 
   // Set the sequence range of the chunk.
@@ -273,7 +278,7 @@ absl::Status Chunker::FlushLocked() {
     if (ref->chunk_key() != chunk->chunk_key()) continue;
 
     if (!chunk->has_sequence_range()) {
-      // On the first ref belonging to this chunk, set the the episode ID and
+      // On the first ref belonging to this chunk, set the episode ID and
       // set the episode length to 1 (i.e. start == end). The episode length
       // will be extended if we discover more refs belonging to this chunk.
       SequenceRange* range = chunk->mutable_sequence_range();

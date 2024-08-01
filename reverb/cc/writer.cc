@@ -16,6 +16,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <iterator>
 #include <memory>
 #include <string>
@@ -24,13 +25,21 @@
 
 #include "absl/base/thread_annotations.h"
 #include "absl/functional/bind_front.h"
+#include "absl/log/check.h"
+#include "absl/random/distributions.h"
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/str_join.h"
+#include "absl/strings/string_view.h"
 #include "absl/synchronization/mutex.h"
+#include "absl/types/optional.h"
+#include "third_party/grpc/include/grpcpp/client_context.h"
+#include "third_party/grpc/include/grpcpp/impl/call_op_set.h"
 #include "reverb/cc/platform/hash_set.h"
 #include "reverb/cc/platform/logging.h"
 #include "reverb/cc/platform/status_macros.h"
 #include "reverb/cc/platform/thread.h"
+#include "reverb/cc/reverb_service.grpc.pb.h"
 #include "reverb/cc/reverb_service.pb.h"
 #include "reverb/cc/schema.pb.h"
 #include "reverb/cc/support/grpc_util.h"
@@ -41,6 +50,7 @@
 #include "tensorflow/core/framework/tensor.h"
 #include "tensorflow/core/framework/tensor_shape.h"
 #include "tensorflow/core/framework/tensor_util.h"
+#include "tensorflow/core/framework/types.h"
 
 namespace deepmind {
 namespace reverb {
@@ -453,7 +463,8 @@ absl::Status Writer::Finish(bool retry_on_unavailable) {
 
   chunk_data.set_data_tensors_len(batched_tensors.size());
   for (const auto& tensor : batched_tensors) {
-    CompressTensorAsProto(tensor, chunk_data.mutable_data()->add_tensors());
+    REVERB_RETURN_IF_ERROR(CompressTensorAsProto(
+        tensor, chunk_data.mutable_data()->add_tensors()));
   }
 
   chunks_.emplace_back(std::move(chunk_data));

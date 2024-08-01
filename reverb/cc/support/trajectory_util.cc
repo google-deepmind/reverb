@@ -15,12 +15,17 @@
 #include "reverb/cc/support/trajectory_util.h"
 
 #include <algorithm>
+#include <cstdint>
 #include <functional>
+#include <memory>
+#include <utility>
 #include <vector>
 
 #include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/types/span.h"
+#include "reverb/cc/chunk_store.h"
 #include "reverb/cc/platform/hash_set.h"
 #include "reverb/cc/platform/logging.h"
 #include "reverb/cc/platform/status_macros.h"
@@ -150,7 +155,13 @@ absl::Status UnpackChunkColumn(const ChunkData& chunk_data, int column,
         " which has ", chunk_data.data().tensors_size(), " columns."));
   }
 
-  *out = DecompressTensorFromProto(chunk_data.data().tensors(column));
+  absl::StatusOr<tensorflow::Tensor> tensor =
+      DecompressTensorFromProto(chunk_data.data().tensors(column));
+  if (!tensor.ok()) {
+    return tensor.status();
+  }
+  *out = *std::move(tensor);
+
   if (chunk_data.delta_encoded()) {
     *out = DeltaEncode(*out, /*encode=*/false);
   }
