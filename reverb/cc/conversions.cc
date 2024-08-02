@@ -86,7 +86,7 @@ absl::Status PyObjectToString(PyObject *obj, const char **ptr, Py_ssize_t *len,
         absl::StrCat("Unsupported object type ", obj->ob_type->tp_name));
   }
 
-  return tensorflow::OkStatus();
+  return absl::OkStatus();
 }
 
 // Iterate over the string array 'array', extract the ptr and len of each string
@@ -110,7 +110,7 @@ absl::Status PyBytesArrayMap(PyArrayObject *array, F f) {
     Py_XDECREF(ptr_owner);
     PyArray_ITER_NEXT(iter.get());
   }
-  return tensorflow::OkStatus();
+  return absl::OkStatus();
 }
 
 absl::Status StringTensorToPyArray(const tensorflow::Tensor &tensor,
@@ -140,7 +140,7 @@ absl::Status StringTensorToPyArray(const tensorflow::Tensor &tensor,
     PyArray_ITER_NEXT(iter.get());
   }
 
-  return tensorflow::OkStatus();
+  return absl::OkStatus();
 }
 
 absl::Status GetPyDescrFromDataType(tensorflow::DataType dtype,
@@ -174,7 +174,7 @@ absl::Status GetPyDescrFromDataType(tensorflow::DataType dtype,
           "Unsupported tf type: ", tensorflow::DataType_Name(dtype)));
   }
 
-  return tensorflow::OkStatus();
+  return absl::OkStatus();
 }
 
 absl::Status GetPyDescrFromTensor(const tensorflow::Tensor &tensor,
@@ -223,7 +223,7 @@ absl::Status GetTensorDtypeFromPyArray(PyArrayObject *array,
       return absl::InternalError(absl::StrCat("Unsupported numpy type: ",
                                               NumpyTypeName(pyarray_type)));
   }
-  return tensorflow::OkStatus();
+  return absl::OkStatus();
 }
 
 inline absl::Status VerifyDtypeIsSupported(const tensorflow::DataType &dtype) {
@@ -233,7 +233,7 @@ inline absl::Status VerifyDtypeIsSupported(const tensorflow::DataType &dtype) {
         "ndarrays that maps to tensors with dtype ",
         tensorflow::DataType_Name(dtype), " are not yet supported"));
   }
-  return tensorflow::OkStatus();
+  return absl::OkStatus();
 }
 
 absl::Status NdArrayToTensor(PyObject *ndarray,
@@ -281,7 +281,7 @@ absl::Status NdArrayToTensor(PyObject *ndarray,
         absl::StrCat("Unexpected dtype: ", tensorflow::DataTypeString(dtype)));
   }
 
-  return tensorflow::OkStatus();
+  return absl::OkStatus();
 }
 
 absl::Status TensorToNdArray(const tensorflow::Tensor &tensor,
@@ -318,7 +318,7 @@ absl::Status TensorToNdArray(const tensorflow::Tensor &tensor,
   }
 
   *out_ndarray = safe_out_ndarray.release();
-  return tensorflow::OkStatus();
+  return absl::OkStatus();
 }
 
 }  // namespace pybind
