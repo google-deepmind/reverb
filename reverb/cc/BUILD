@@ -67,6 +67,7 @@ reverb_cc_test(
     deps = [
         ":tensor_compression",
         "//reverb/cc/testing:tensor_testutil",
+        "//third_party/absl/status",
     ] + reverb_tf_deps(),
 )
 

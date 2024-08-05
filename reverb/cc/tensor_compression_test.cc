@@ -18,6 +18,7 @@
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
+#include "absl/status/status.h"
 #include "reverb/cc/testing/tensor_testutil.h"
 #include "tensorflow/core/framework/register_types.h"
 #include "tensorflow/core/framework/tensor.h"
@@ -25,11 +26,15 @@
 #include "tensorflow/core/framework/tensor_shape.h"
 #include "tensorflow/core/framework/types.h"
 #include "tensorflow/core/framework/types.pb.h"
+#include "tensorflow/core/framework/variant.h"
 #include "tensorflow/core/platform/tstring.h"
 
 namespace deepmind {
 namespace reverb {
 namespace {
+
+using ::testing::HasSubstr;
+using ::testing::status::StatusIs;
 
 template <typename T>
 void EncodeMatchesDecodeT() {
@@ -101,6 +106,30 @@ TEST(TensorCompressionTest, NonStringTensorWithDeltaEncoding) {
   ASSERT_OK_AND_ASSIGN(tensorflow::Tensor result,
                        DecompressTensorFromProto(proto));
   test::ExpectTensorEqual<int>(tensor, DeltaEncode(result, false));
+}
+
+TEST(TensorCompressionTest, CompressingVariantNotSupported) {
+  tensorflow::Tensor tensor(tensorflow::DT_VARIANT,
+                            tensorflow::TensorShape({}));
+
+  tensorflow::Tensor internal(tensorflow::DT_FLOAT,
+                              tensorflow::TensorShape({2, 2}));
+  internal.flat<float>().setRandom();
+  tensor.flat<tensorflow::Variant>()(0) = internal;
+
+  tensorflow::TensorProto proto;
+  EXPECT_THAT(CompressTensorAsProto(DeltaEncode(tensor, true), &proto),
+              StatusIs(absl::StatusCode::kInvalidArgument,
+                       HasSubstr("variant is not supported")));
+}
+
+TEST(TensorCompressionTest, DecompressingVariantNotSupported) {
+  tensorflow::TensorProto proto;
+  proto.set_dtype(tensorflow::DT_VARIANT);
+
+  EXPECT_THAT(DecompressTensorFromProto(proto),
+              StatusIs(absl::StatusCode::kInvalidArgument,
+                       HasSubstr("variant is not supported")));
 }
 
 }  // namespace
