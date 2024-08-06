@@ -159,7 +159,7 @@ class ReverbPatternDatasetOp : public tensorflow::data::UnaryDatasetOpKernel {
         std::vector<const tensorflow::data::DatasetBase*>* inputs)
         const override {
       inputs->push_back(input_);
-      return tensorflow::OkStatus();
+      return absl::OkStatus();
     }
 
     tensorflow::Status CheckExternalState() const override {
@@ -223,7 +223,7 @@ class ReverbPatternDatasetOp : public tensorflow::data::UnaryDatasetOpKernel {
                         },
                         output));
 
-      return tensorflow::OkStatus();
+      return absl::OkStatus();
     }
 
    private:
@@ -298,7 +298,7 @@ class ReverbPatternDatasetOp : public tensorflow::data::UnaryDatasetOpKernel {
           *out_tensors = data_.front();
           data_.pop_front();
         }
-        return tensorflow::OkStatus();
+        return absl::OkStatus();
       }
 
      protected:
