@@ -274,7 +274,6 @@ reverb_cc_library(
     name = "streaming_trajectory_writer",
     srcs = ["streaming_trajectory_writer.cc"],
     hdrs = ["streaming_trajectory_writer.h"],
-    visibility = ["//reverb:__subpackages__"],
     deps = [
         ":chunker",
         ":reverb_service_cc_grpc_proto",
