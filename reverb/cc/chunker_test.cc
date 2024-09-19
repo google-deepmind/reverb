@@ -111,15 +111,15 @@ std::shared_ptr<Chunker> MakeChunker(internal::TensorSpec spec,
 
 class MockChunkerOptions : public ChunkerOptions {
  public:
-  MOCK_METHOD(int, GetMaxChunkLength, (), (const override));
-  MOCK_METHOD(int, GetNumKeepAliveRefs, (), (const override));
-  MOCK_METHOD(bool, GetDeltaEncode, (), (const override));
-  MOCK_METHOD(bool, GetCompressionDisabled, (), (const override));
+  MOCK_METHOD(int, GetMaxChunkLength, (), (const, override));
+  MOCK_METHOD(int, GetNumKeepAliveRefs, (), (const, override));
+  MOCK_METHOD(bool, GetDeltaEncode, (), (const, override));
+  MOCK_METHOD(bool, GetCompressionDisabled, (), (const, override));
   MOCK_METHOD(absl::Status, OnItemFinalized,
               (const PrioritizedItem& item,
                absl::Span<const std::shared_ptr<CellRef>> refs),
               (override));
-  MOCK_METHOD(std::shared_ptr<ChunkerOptions>, Clone, (), (const override));
+  MOCK_METHOD(std::shared_ptr<ChunkerOptions>, Clone, (), (const, override));
 };
 
 TEST(CellRef, IsReady) {
