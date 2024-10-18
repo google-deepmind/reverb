@@ -155,22 +155,22 @@ class ReverbPatternDatasetOp : public tensorflow::data::UnaryDatasetOpKernel {
       return tensorflow::data::kUnknownCardinality;
     }
 
-    tensorflow::Status InputDatasets(
+    absl::Status InputDatasets(
         std::vector<const tensorflow::data::DatasetBase*>* inputs)
         const override {
       inputs->push_back(input_);
       return absl::OkStatus();
     }
 
-    tensorflow::Status CheckExternalState() const override {
+    absl::Status CheckExternalState() const override {
       TF_RETURN_IF_ERROR(captured_func_->CheckExternalState());
       return input_->CheckExternalState();
     }
 
    protected:
-    tensorflow::Status AsGraphDefInternal(
-        tensorflow::data::SerializationContext* ctx, DatasetGraphDefBuilder* b,
-        tensorflow::Node** output) const override {
+    absl::Status AsGraphDefInternal(tensorflow::data::SerializationContext* ctx,
+                                    DatasetGraphDefBuilder* b,
+                                    tensorflow::Node** output) const override {
       tensorflow::AttrValue dtypes_attr;
       tensorflow::AttrValue shapes_attr;
       tensorflow::AttrValue configs_attr;
@@ -239,8 +239,7 @@ class ReverbPatternDatasetOp : public tensorflow::data::UnaryDatasetOpKernel {
             configs_(configs),
             clear_after_episode_(clear_after_episode) {}
 
-      tensorflow::Status Initialize(
-          tensorflow::data::IteratorContext* ctx) override {
+      absl::Status Initialize(tensorflow::data::IteratorContext* ctx) override {
         structured_writer_ = std::make_unique<StructuredWriter>(
             std::make_unique<QueueWriter>(required_keep_alive_, &data_),
             configs_);
@@ -250,10 +249,9 @@ class ReverbPatternDatasetOp : public tensorflow::data::UnaryDatasetOpKernel {
             ctx, &instantiated_captured_func_);
       }
 
-      tensorflow::Status GetNextInternal(
-          tensorflow::data::IteratorContext* ctx,
-          std::vector<tensorflow::Tensor>* out_tensors,
-          bool* end_of_sequence) override {
+      absl::Status GetNextInternal(tensorflow::data::IteratorContext* ctx,
+                                   std::vector<tensorflow::Tensor>* out_tensors,
+                                   bool* end_of_sequence) override {
         // This needs to be thread-safe.
         // We lock the full method because otherwise we would have several
         // threads getting data from the input dataset and inserting into the
@@ -302,14 +300,14 @@ class ReverbPatternDatasetOp : public tensorflow::data::UnaryDatasetOpKernel {
       }
 
      protected:
-      tensorflow::Status SaveInternal(
+      absl::Status SaveInternal(
           tensorflow::data::SerializationContext* ctx,
           tensorflow::data::IteratorStateWriter* writer) override {
         return tensorflow::errors::Unimplemented(
             "SaveInternal is currently not supported");
       }
 
-      tensorflow::Status RestoreInternal(
+      absl::Status RestoreInternal(
           tensorflow::data::IteratorContext* ctx,
           tensorflow::data::IteratorStateReader* reader) override {
         return tensorflow::errors::Unimplemented(

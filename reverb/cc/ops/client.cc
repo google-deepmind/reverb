@@ -65,7 +65,7 @@ class ClientHandleOp : public tensorflow::ResourceOpKernel<ClientResource> {
   }
 
  private:
-  tensorflow::Status CreateResource(ClientResource** ret) override {
+  absl::Status CreateResource(ClientResource** ret) override {
     *ret = new ClientResource(server_address_);
     return absl::OkStatus();
   }

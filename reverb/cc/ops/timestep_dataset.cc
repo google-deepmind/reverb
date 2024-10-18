@@ -113,20 +113,20 @@ class ReverbTimestepDatasetOp : public tensorflow::data::DatasetOpKernel {
       return "ReverbTimestepDatasetOp::Dataset";
     }
 
-    tensorflow::Status CheckExternalState() const override {
+    absl::Status CheckExternalState() const override {
       return FailedPrecondition(DebugString(), " depends on external state.");
     }
 
-    tensorflow::Status InputDatasets(
+    absl::Status InputDatasets(
         std::vector<const DatasetBase*>* inputs) const override {
       inputs->clear();
       return absl::OkStatus();
     }
 
    protected:
-    tensorflow::Status AsGraphDefInternal(
-        tensorflow::data::SerializationContext* ctx, DatasetGraphDefBuilder* b,
-        tensorflow::Node** output) const override {
+    absl::Status AsGraphDefInternal(tensorflow::data::SerializationContext* ctx,
+                                    DatasetGraphDefBuilder* b,
+                                    tensorflow::Node** output) const override {
       tensorflow::AttrValue max_in_flight_samples_per_worker_attr;
       tensorflow::AttrValue num_workers_attr;
       tensorflow::AttrValue max_samples_per_stream_attr;
@@ -189,8 +189,7 @@ class ReverbTimestepDatasetOp : public tensorflow::data::DatasetOpKernel {
             shapes_(shapes),
             rate_limited_(false) {}
 
-      tensorflow::Status Initialize(
-          tensorflow::data::IteratorContext* ctx) override {
+      absl::Status Initialize(tensorflow::data::IteratorContext* ctx) override {
         constexpr auto kValidationTimeout = absl::Seconds(30);
 
         // The shapes and dtypes contains metadata fields but the signature does
@@ -220,10 +219,9 @@ class ReverbTimestepDatasetOp : public tensorflow::data::DatasetOpKernel {
         return ToTensorflowStatus(status);
       }
 
-      tensorflow::Status GetNextInternal(
-          tensorflow::data::IteratorContext* ctx,
-          std::vector<tensorflow::Tensor>* out_tensors,
-          bool* end_of_sequence) override {
+      absl::Status GetNextInternal(tensorflow::data::IteratorContext* ctx,
+                                   std::vector<tensorflow::Tensor>* out_tensors,
+                                   bool* end_of_sequence) override {
         REVERB_CHECK(sampler_.get() != nullptr) << "Initialize was not called?";
 
         auto token = ctx->cancellation_manager()->get_cancellation_token();
@@ -265,13 +263,13 @@ class ReverbTimestepDatasetOp : public tensorflow::data::DatasetOpKernel {
       }
 
      protected:
-      tensorflow::Status SaveInternal(
+      absl::Status SaveInternal(
           tensorflow::data::SerializationContext* ctx,
           tensorflow::data::IteratorStateWriter* writer) override {
         return Unimplemented("SaveInternal is currently not supported");
       }
 
-      tensorflow::Status RestoreInternal(
+      absl::Status RestoreInternal(
           tensorflow::data::IteratorContext* ctx,
           tensorflow::data::IteratorStateReader* reader) override {
         return Unimplemented("RestoreInternal is currently not supported");
