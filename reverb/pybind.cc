@@ -135,7 +135,7 @@ struct type_caster<tensorflow::Tensor> {
   PYBIND11_TYPE_CASTER(tensorflow::Tensor, _("tensorflow::Tensor"));
 
   bool load(handle handle, bool) {
-    tensorflow::Status status =
+    absl::Status status =
         deepmind::reverb::pybind::NdArrayToTensor(handle.ptr(), &value);
 
     if (!status.ok()) {
@@ -156,8 +156,7 @@ struct type_caster<tensorflow::Tensor> {
   static handle cast(const tensorflow::Tensor &src, return_value_policy,
                      handle) {
     PyObject *ret;
-    tensorflow::Status status =
-        deepmind::reverb::pybind::TensorToNdArray(src, &ret);
+    absl::Status status = deepmind::reverb::pybind::TensorToNdArray(src, &ret);
     if (!status.ok()) {
       std::string message = status.ToString();
       PyErr_SetString(PyExc_ValueError, message.data());
