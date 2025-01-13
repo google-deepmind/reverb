@@ -381,6 +381,7 @@ reverb_cc_library(
         "//reverb/cc/support:grpc_util",
         "//reverb/cc/support:signature",
         "//reverb/cc/support:uint128",
+        "//third_party/grpc:grpc++",
     ] + reverb_grpc_deps() + reverb_absl_deps(),
 )
 

@@ -16,15 +16,17 @@
 
 #include <algorithm>
 #include <memory>
+#include <string>
+#include <utility>
 
 #include "grpcpp/support/channel_arguments.h"
-#include "absl/memory/memory.h"
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/string_view.h"
 #include "absl/time/time.h"
 #include "absl/types/optional.h"
+#include "third_party/grpc/include/grpcpp/security/credentials.h"
 #include "reverb/cc/chunker.h"
 #include "reverb/cc/patterns.pb.h"
 #include "reverb/cc/platform/grpc_utils.h"
@@ -59,9 +61,9 @@ Client::Client(std::shared_ptr</* grpc_gen:: */ReverbService::StubInterface> stu
 }
 
 Client::Client(absl::string_view server_address)
-    : stub_(/* grpc_gen:: */ReverbService::NewStub(
-          CreateCustomGrpcChannel(server_address, MakeChannelCredentials(),
-                                  CreateChannelArguments()))) {}
+    : stub_(/* grpc_gen:: */ReverbService::NewStub(grpc::CreateCustomChannel(
+          std::string(server_address), MakeChannelCredentials(),
+          CreateChannelArguments()))) {}
 
 absl::Status Client::MaybeUpdateServerInfoCache(
     absl::Duration timeout,
@@ -111,8 +113,7 @@ absl::Status Client::MaybeUpdateServerInfoCache(
 }
 
 absl::Status Client::NewWriter(int chunk_length, int max_timesteps,
-                               bool delta_encoded,
-                               int max_in_flight_items,
+                               bool delta_encoded, int max_in_flight_items,
                                std::unique_ptr<Writer>* writer) {
   // TODO(b/154928265): caching this request?  For example, if
   // it's been N seconds or minutes, it may be time to
@@ -154,10 +155,10 @@ absl::Status Client::MutatePriorities(
   return FromGrpcStatus(stub_->MutatePriorities(&context, request, &response));
 }
 
-absl::Status Client::NewSampler(
-    const std::string& table, const Sampler::Options& options,
-    internal::DtypesAndShapes dtypes_and_shapes,
-    std::unique_ptr<Sampler>* sampler) {
+absl::Status Client::NewSampler(const std::string& table,
+                                const Sampler::Options& options,
+                                internal::DtypesAndShapes dtypes_and_shapes,
+                                std::unique_ptr<Sampler>* sampler) {
   REVERB_RETURN_IF_ERROR(options.Validate());
 
   std::shared_ptr<Table> table_ptr;
@@ -248,7 +249,7 @@ absl::Status Client::NewSampler(
 
   internal::DtypesAndShapes dtypes_and_shapes;
   REVERB_RETURN_IF_ERROR(GetDtypesAndShapesForSampler(table, validation_timeout,
-                                               &dtypes_and_shapes));
+                                                      &dtypes_and_shapes));
   // Only perform check if the table had a signature associated with it.
   if (dtypes_and_shapes) {
     if (dtypes_and_shapes->size() != validation_shapes.size()) {

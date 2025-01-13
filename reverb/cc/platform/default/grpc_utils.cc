@@ -16,7 +16,6 @@
 
 #include <memory>
 
-#include "grpcpp/create_channel.h"
 #include "grpcpp/security/credentials.h"
 #include "grpcpp/security/server_credentials.h"
 #include "grpcpp/support/channel_arguments.h"
@@ -30,14 +29,6 @@ std::shared_ptr<grpc::ServerCredentials> MakeServerCredentials() {
 
 std::shared_ptr<grpc::ChannelCredentials> MakeChannelCredentials() {
   return grpc::InsecureChannelCredentials();
-}
-
-std::shared_ptr<grpc::ChannelInterface> CreateCustomGrpcChannel(
-    absl::string_view target,
-    const std::shared_ptr<grpc::ChannelCredentials>& credentials,
-    const grpc::ChannelArguments& channel_arguments) {
-  return grpc::CreateCustomChannel(
-      std::string(target), credentials, channel_arguments);
 }
 
 }  // namespace reverb
