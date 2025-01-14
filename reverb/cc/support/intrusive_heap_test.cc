@@ -30,7 +30,7 @@ static const int kNumElems = 100;
 class IntrusiveHeapTest : public testing::Test {
  protected:
   struct Elem {
-    int32_t  val;
+    int32_t val;
     int    iota;
     IntrusiveHeapLink heap;  // position in the heap
   };
