@@ -194,7 +194,7 @@ reverb_cc_library(
         "//third_party/absl/status",
         "//third_party/absl/status:statusor",
         "//third_party/absl/strings",
-        "//third_party/tensorflow/tsl/platform:status",
+        "//third_party/tensorflow/compiler/xla/tsl/platform:status",
     ] + reverb_tf_deps(),
 )
 
