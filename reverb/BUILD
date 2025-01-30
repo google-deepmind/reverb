@@ -21,7 +21,6 @@ exports_files(["LICENSE"])
 reverb_pytype_strict_library(
     name = "reverb",
     srcs = ["__init__.py"],
-    srcs_version = "PY3",
     deps = [
         ":client",
         ":errors",
@@ -43,7 +42,6 @@ reverb_pytype_strict_library(
 reverb_pytype_strict_library(
     name = "rate_limiters",
     srcs = ["rate_limiters.py"],
-    srcs_version = "PY3",
     deps = [
         ":pybind",
     ],
@@ -52,7 +50,6 @@ reverb_pytype_strict_library(
 reverb_pytype_library(
     name = "client",
     srcs = ["client.py"],
-    srcs_version = "PY3",
     strict_deps = True,
     deps = [
         ":errors",
@@ -67,7 +64,6 @@ reverb_pytype_library(
 reverb_pytype_library(
     name = "errors",
     srcs = ["errors.py"],
-    srcs_version = "PY3",
     strict_deps = True,
     deps = [],
 )
@@ -75,7 +71,6 @@ reverb_pytype_library(
 reverb_pytype_library(
     name = "server",
     srcs = ["server.py"],
-    srcs_version = "PY3",
     strict_deps = True,
     deps = [
         ":client",
@@ -90,7 +85,6 @@ reverb_pytype_library(
 reverb_pytype_library(
     name = "replay_sample",
     srcs = ["replay_sample.py"],
-    srcs_version = "PY3",
     strict_deps = True,
 )
 
@@ -99,7 +93,6 @@ reverb_pybind_extension(
     srcs = ["pybind.cc"],
     module_name = "libpybind",
     pytype_srcs = ["pybind.pyi"],
-    srcs_version = "PY3ONLY",
     visibility = [":__subpackages__"],
     deps = [
         "//reverb/cc:chunker",
@@ -129,7 +122,6 @@ reverb_pybind_extension(
 reverb_pytype_library(
     name = "tf_client",
     srcs = ["tf_client.py"],
-    srcs_version = "PY3",
     strict_deps = True,
     deps = [
         ":replay_sample",
@@ -140,7 +132,6 @@ reverb_pytype_library(
 reverb_pytype_library(
     name = "trajectory_dataset",
     srcs = ["trajectory_dataset.py"],
-    srcs_version = "PY3",
     strict_deps = True,
     visibility = [":__subpackages__"],
     deps = [
@@ -153,7 +144,6 @@ reverb_pytype_library(
 reverb_pytype_library(
     name = "timestep_dataset",
     srcs = ["timestep_dataset.py"],
-    srcs_version = "PY3",
     strict_deps = True,
     visibility = ["//visibility:private"],
     deps = [
@@ -166,7 +156,6 @@ reverb_pytype_library(
 reverb_pytype_library(
     name = "reverb_types",
     srcs = ["reverb_types.py"],
-    srcs_version = "PY3",
     strict_deps = True,
     deps = [
         ":pybind",
@@ -177,7 +166,6 @@ reverb_pytype_library(
 reverb_pytype_strict_library(
     name = "structured_writer",
     srcs = ["structured_writer.py"],
-    srcs_version = "PY3",
     deps = [
         ":errors",
         ":pybind",
@@ -189,14 +177,12 @@ reverb_pytype_strict_library(
 reverb_pytype_strict_library(
     name = "item_selectors",
     srcs = ["item_selectors.py"],
-    srcs_version = "PY3",
     deps = [":pybind"],
 )
 
 reverb_pytype_library(
     name = "trajectory_writer",
     srcs = ["trajectory_writer.py"],
-    srcs_version = "PY3",
     strict_deps = True,
     deps = [
         ":errors",
@@ -207,7 +193,6 @@ reverb_pytype_library(
 reverb_py_test(
     name = "client_test",
     srcs = ["client_test.py"],
-    python_version = "PY3",
     shard_count = 2,
     deps = [
         ":client",
@@ -221,7 +206,6 @@ reverb_py_test(
 reverb_py_test(
     name = "server_test",
     srcs = ["server_test.py"],
-    python_version = "PY3",
     deps = [
         ":client",
         ":item_selectors",
@@ -235,7 +219,6 @@ reverb_py_test(
     name = "tf_client_test",
     timeout = "short",
     srcs = ["tf_client_test.py"],
-    python_version = "PY3",
     deps = [
         ":client",
         ":item_selectors",
@@ -249,7 +232,6 @@ reverb_py_test(
 reverb_py_test(
     name = "timestep_dataset_test",
     srcs = ["timestep_dataset_test.py"],
-    python_version = "PY3",
     deps = [
         ":client",
         ":errors",
@@ -273,7 +255,6 @@ reverb_py_test(
 reverb_py_test(
     name = "trajectory_dataset_test",
     srcs = ["trajectory_dataset_test.py"],
-    python_version = "PY3",
     deps = [
         ":client",
         ":errors",
@@ -297,7 +278,6 @@ reverb_py_test(
 reverb_py_test(
     name = "rate_limiters_test",
     srcs = ["rate_limiters_test.py"],
-    python_version = "PY3",
     deps = [
         ":rate_limiters",
     ],
@@ -306,7 +286,6 @@ reverb_py_test(
 reverb_py_test(
     name = "pybind_test",
     srcs = ["pybind_test.py"],
-    python_version = "PY3",
     deps = [
         ":reverb",
     ],
@@ -315,7 +294,6 @@ reverb_py_test(
 reverb_py_test(
     name = "trajectory_writer_test",
     srcs = ["trajectory_writer_test.py"],
-    python_version = "PY3",
     deps = [
         ":client",
         ":errors",
@@ -328,7 +306,6 @@ reverb_py_test(
 reverb_py_test(
     name = "structured_writer_test",
     srcs = ["structured_writer_test.py"],
-    python_version = "PY3",
     deps = [
         ":client",
         ":server",
@@ -339,7 +316,6 @@ reverb_py_test(
 reverb_py_test(
     name = "replay_sample_test",
     srcs = ["replay_sample_test.py"],
-    python_version = "PY3",
     deps = [
         ":pybind",
         ":replay_sample",
@@ -349,7 +325,6 @@ reverb_py_test(
 reverb_pytype_library(
     name = "pattern_dataset",
     srcs = ["pattern_dataset.py"],
-    srcs_version = "PY3",
     strict_deps = False,
     tags = ["pytype_unchecked_annotations"],
     deps = [
