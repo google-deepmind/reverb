@@ -19,6 +19,7 @@ reverb_cc_library(
     hdrs = ["tfrecord_checkpointer.h"],
     visibility = ["//reverb:__subpackages__"],
     deps = [
+        ":checkpointing_utils",
         ":hash_map",
         ":hash_set",
         ":logging",
@@ -28,7 +29,6 @@ reverb_cc_library(
         "//reverb/cc:table",
         "//reverb/cc/checkpointing:checkpoint_cc_proto",
         "//reverb/cc/checkpointing:interface",
-        "//reverb/cc/platform:checkpointing_utils",
         "//reverb/cc/support:tf_util",
         "//reverb/cc/support:trajectory_util",
         "//reverb/cc/table_extensions:interface",
@@ -39,15 +39,16 @@ reverb_cc_test(
     name = "tfrecord_checkpointer_test",
     srcs = ["tfrecord_checkpointer_test.cc"],
     deps = [
+        ":status_matchers",
         ":tfrecord_checkpointer",
         "//reverb/cc:chunk_store",
         "//reverb/cc:table",
-        "//reverb/cc/platform:status_matchers",
         "//reverb/cc/selectors:fifo",
         "//reverb/cc/selectors:heap",
         "//reverb/cc/selectors:prioritized",
         "//reverb/cc/selectors:uniform",
         "//reverb/cc/support:tf_util",
+        "//reverb/cc/table_extensions:base",
         "//reverb/cc/testing:proto_test_util",
     ] + reverb_tf_deps(),
 )

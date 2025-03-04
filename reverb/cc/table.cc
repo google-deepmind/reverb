@@ -16,8 +16,11 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <cstdint>
 #include <initializer_list>
+#include <iterator>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -171,6 +174,35 @@ Table::Table(std::string name, std::shared_ptr<ItemSelector> sampler,
   auto executor =
       std::make_shared<TaskExecutor>(1, "TableCallbackExecutor_" + name_);
   EnableTableWorker(executor);
+}
+
+void Table::InitializeFromCheckpoint(
+    std::unique_ptr<ItemSelector> sampler,
+    std::unique_ptr<ItemSelector> remover, int64_t max_size,
+    int32_t max_times_sampled, std::shared_ptr<RateLimiter> rate_limiter,
+    std::optional<tensorflow::StructuredValue> signature,
+    int64_t num_deleted_episodes, int64_t num_unique_samples) {
+  rate_limiter_->UnregisterTable(&mu_, this);
+  {
+    absl::MutexLock lock(&mu_);
+    REVERB_CHECK(data_.empty() && num_deleted_episodes_ == 0 &&
+                 num_unique_samples_ == 0);
+    sampler_ = std::move(sampler);
+    remover_ = std::move(remover);
+    max_size_ = max_size;
+    max_enqueued_inserts_ =
+        std::max(1L, std::min<int64_t>(max_size * kMaxEnqueuedInsertsPerc,
+                                       kMaxEnqueuedInserts));
+    max_enqueued_extension_ops_ =
+        (std::max(1L, std::min<int64_t>(max_size * kMaxPendingExtensionOpsPerc,
+                                        kMaxPendingExtensionOps)));
+    max_times_sampled_ = max_times_sampled;
+    rate_limiter_ = std::move(rate_limiter);
+    REVERB_CHECK_OK(rate_limiter_->RegisterTable(this));
+    signature_ = std::move(signature);
+    num_deleted_episodes_ = num_deleted_episodes;
+    num_unique_samples_ = num_unique_samples;
+  }
 }
 
 Table::~Table() {
@@ -1043,21 +1075,19 @@ std::vector<std::shared_ptr<TableExtension>> Table::UnsafeClearExtensions() {
   return extensions;
 }
 
+std::vector<std::shared_ptr<TableExtension>> Table::GetExtensions() {
+  absl::MutexLock lock(&mu_);
+  absl::MutexLock extension_lock(&async_extensions_mu_);
+  REVERB_CHECK(data_.empty());
+  std::vector<std::shared_ptr<TableExtension>> extensions = sync_extensions_;
+  std::copy(async_extensions_.begin(), async_extensions_.end(),
+            std::back_inserter(extensions));
+  return extensions;
+}
+
 int64_t Table::num_deleted_episodes() const {
   absl::MutexLock lock(&mu_);
   return num_deleted_episodes_;
-}
-
-void Table::set_num_deleted_episodes_from_checkpoint(int64_t value) {
-  absl::MutexLock lock(&mu_);
-  REVERB_CHECK(data_.empty() && num_deleted_episodes_ == 0);
-  num_deleted_episodes_ = value;
-}
-
-void Table::set_num_unique_samples_from_checkpoint(int64_t value) {
-  absl::MutexLock lock(&mu_);
-  REVERB_CHECK(data_.empty() && num_unique_samples_ == 0);
-  num_unique_samples_ = value;
 }
 
 std::string Table::DebugString() const {

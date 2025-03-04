@@ -15,10 +15,9 @@
 #include "reverb/cc/reverb_service_impl.h"
 
 #include <cfloat>
-#include <cstddef>
-#include <list>
 #include <memory>
 #include <queue>
+#include <utility>
 #include <vector>
 
 #include "grpcpp/server_builder.h"
@@ -27,22 +26,25 @@
 #include "grpcpp/test/default_reactor_test_peer.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
-#include "absl/memory/memory.h"
 #include "absl/status/status.h"
 #include "absl/synchronization/blocking_counter.h"
 #include "absl/synchronization/notification.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "absl/types/optional.h"
+#include "reverb/cc/checkpointing/interface.h"
 #include "reverb/cc/platform/checkpointing.h"
 #include "reverb/cc/platform/status_macros.h"
 #include "reverb/cc/platform/status_matchers.h"
 #include "reverb/cc/platform/thread.h"
+#include "reverb/cc/rate_limiter.h"
 #include "reverb/cc/reverb_service.pb.h"
 #include "reverb/cc/schema.pb.h"
 #include "reverb/cc/selectors/fifo.h"
 #include "reverb/cc/selectors/interface.h"
 #include "reverb/cc/selectors/uniform.h"
+#include "reverb/cc/table.h"
+#include "reverb/cc/table_extensions/interface.h"
 #include "reverb/cc/task_worker.h"
 #include "reverb/cc/testing/proto_test_util.h"
 #include "tensorflow/core/framework/tensor_shape.h"
@@ -163,15 +165,17 @@ std::unique_ptr<RateLimiter> MakeLimiter() {
 std::unique_ptr<ReverbServiceImpl> MakeService(
     int max_size, std::unique_ptr<Checkpointer> checkpointer,
     std::vector<std::shared_ptr<Table>> tables = {}) {
-  tables.push_back(std::make_unique<Table>(
-      /*name=*/"dist",
-      /*sampler=*/std::make_unique<UniformSelector>(),
-      /*remover=*/std::make_unique<FifoSelector>(),
-      /*max_size=*/max_size,
-      /*max_times_sampled=*/0,
-      /*rate_limiter=*/MakeLimiter(),
-      /*extensions=*/std::vector<std::shared_ptr<TableExtension>>(),
-      /*signature=*/absl::make_optional(MakeSignature())));
+  if (tables.empty()) {
+    tables.push_back(std::make_unique<Table>(
+        /*name=*/"dist",
+        /*sampler=*/std::make_unique<UniformSelector>(),
+        /*remover=*/std::make_unique<FifoSelector>(),
+        /*max_size=*/max_size,
+        /*max_times_sampled=*/0,
+        /*rate_limiter=*/MakeLimiter(),
+        /*extensions=*/std::vector<std::shared_ptr<TableExtension>>(),
+        /*signature=*/absl::make_optional(MakeSignature())));
+  }
   std::unique_ptr<ReverbServiceImpl> service;
   REVERB_CHECK_OK(ReverbServiceImpl::Create(std::move(tables),
                                             std::move(checkpointer), &service));
@@ -621,8 +625,19 @@ TEST(ReverbServiceImplTest, CheckpointAndLoadFromCheckpoint) {
 
   // Create a new service from the checkpoint and check that it has the
   // correct number of items.
-  auto loaded_service = MakeService(10, CreateDefaultCheckpointer(path));
+  std::vector<std::shared_ptr<Table>> tables = {
+    std::make_shared<Table>(
+        "dist", std::make_shared<UniformSelector>(),
+        std::make_shared<FifoSelector>(), 10, 0,
+        std::make_shared<RateLimiter>(1.0, 1, -1, 1))
+  };
+  auto loaded_service =
+      MakeService(10, CreateDefaultCheckpointer(path), tables);
   EXPECT_EQ(loaded_service->tables()["dist"]->size(), 1);
+
+  // Loading the checkpoint should edit the existing Table instances.
+  EXPECT_EQ(tables[0]->size(), 1);
+  EXPECT_EQ(loaded_service->tables()["dist"].get(), tables[0].get());
 }
 
 TEST(ReverbServiceImplTest, InitializeConnectionSuccess) {

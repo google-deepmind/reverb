@@ -470,30 +470,23 @@ absl::Status LoadWithCompression(absl::string_view path,
     auto remover = MakeSelector(checkpoint.remover());
     auto rate_limiter =
         std::make_shared<RateLimiter>(checkpoint.rate_limiter());
-    auto extensions = server_table->UnsafeClearExtensions();
     auto signature =
         checkpoint.has_signature()
             ? absl::make_optional(std::move(checkpoint.signature()))
             : absl::nullopt;
 
-    std::copy(extensions.begin(), extensions.end(),
-              std::back_inserter(all_table_extensions));
+    std::vector<std::shared_ptr<TableExtension>> extensions =
+        server_table->GetExtensions();
+    // Append the extensions from this table to the list of all extensions.
+    all_table_extensions.insert(all_table_extensions.end(),
+                                std::make_move_iterator(extensions.begin()),
+                                std::make_move_iterator(extensions.end()));
 
-    auto loaded_table = std::make_shared<Table>(
-        /*name=*/checkpoint.table_name(),
-        /*sampler=*/std::move(sampler),
-        /*remover=*/std::move(remover),
-        /*max_size=*/checkpoint.max_size(),
-        /*max_times_sampled=*/checkpoint.max_times_sampled(),
-        /*rate_limiter=*/std::move(rate_limiter),
-        /*extensions=*/std::move(extensions),
-        /*signature=*/std::move(signature));
-    loaded_table->set_num_deleted_episodes_from_checkpoint(
-        checkpoint.num_deleted_episodes());
-    loaded_table->set_num_unique_samples_from_checkpoint(
+    server_table->InitializeFromCheckpoint(
+        std::move(sampler), std::move(remover), checkpoint.max_size(),
+        checkpoint.max_times_sampled(), std::move(rate_limiter),
+        std::move(signature), checkpoint.num_deleted_episodes(),
         checkpoint.num_unique_samples());
-
-    server_table.swap(loaded_table);
   }
 
   // Notify the extensions about the updated list of tables so they can update

@@ -17,6 +17,7 @@
 #include <atomic>
 #include <cfloat>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -771,50 +772,100 @@ TEST(TableTest, NumDeletedEpisodes) {
   // Should initially be zero.
   EXPECT_EQ(table->num_deleted_episodes(), 0);
 
-  // Manually setting the count can be done just after construction.
-  table->set_num_deleted_episodes_from_checkpoint(1);
-  EXPECT_EQ(table->num_deleted_episodes(), 1);
-
   // Add two items referencing the same episode and one item that reference a
   // second episode. This should not have any impact on the number of deleted
   // episodes.
   REVERB_EXPECT_OK(table->InsertOrAssign(MakeItem(1, 1, {ranges[0]})));
   REVERB_EXPECT_OK(table->InsertOrAssign(MakeItem(2, 1, {ranges[1]})));
   REVERB_EXPECT_OK(table->InsertOrAssign(MakeItem(3, 1, {ranges[2]})));
-  EXPECT_EQ(table->num_deleted_episodes(), 1);
+  EXPECT_EQ(table->num_deleted_episodes(), 0);
 
   // Removing one of the items that reference the episode shared by two items
   // should not impact the number of deleted episodes.
   REVERB_EXPECT_OK(table->MutateItems({}, {2}));
-  EXPECT_EQ(table->num_deleted_episodes(), 1);
+  EXPECT_EQ(table->num_deleted_episodes(), 0);
 
   // Removing the ONLY item that references the second episode should result
   // in the deleted items count being incremented.
   REVERB_EXPECT_OK(table->MutateItems({}, {3}));
-  EXPECT_EQ(table->num_deleted_episodes(), 2);
+  EXPECT_EQ(table->num_deleted_episodes(), 1);
 
   // Removing the second (and last) item referencing the first episode should
   // also result in the deleted episodes count being incremented.
   REVERB_EXPECT_OK(table->MutateItems({}, {1}));
-  EXPECT_EQ(table->num_deleted_episodes(), 3);
+  EXPECT_EQ(table->num_deleted_episodes(), 2);
 
   // Resetting the table should bring the count back to zero.
   REVERB_EXPECT_OK(table->Reset());
   EXPECT_EQ(table->num_deleted_episodes(), 0);
 }
 
-TEST(TableDeathTest, SetNumDeletedEpisodesFromCheckpointOnNonEmptyTable) {
+TEST(TableTest, InitializeFromCheckpoint) {
+  auto original_rate_limiter = MakeLimiter(1);
+  auto table = MakeTable("dist", std::make_shared<UniformSelector>(),
+                         std::make_shared<FifoSelector>(),
+                         /*max_size=*/5,
+                         /*max_times_sampled=*/2, original_rate_limiter);
+  table->InitializeFromCheckpoint(
+      std::make_unique<UniformSelector>(), std::make_unique<FifoSelector>(),
+      /*max_size=*/10,
+      /*max_times_sampled=*/1,
+      std::make_shared<RateLimiter>(
+          /*samples_per_insert=*/1.0,
+          /*min_size_to_sample=*/1,
+          /*min_diff=*/-1,
+          /*max_diff=*/5),
+      /*signature=*/std::nullopt,
+      /*num_deleted_episodes=*/5,
+      /*num_unique_samples=*/3);
+  EXPECT_EQ(table->num_deleted_episodes(), 5);
+}
+
+TEST(TableDeathTest, InitializeFromCheckpointOnNonEmptyTable) {
   ::testing::GTEST_FLAG(death_test_style) = "threadsafe";
   auto table = MakeUniformTable("dist");
   REVERB_EXPECT_OK(table->InsertOrAssign(MakeItem(1, 1)));
-  ASSERT_DEATH(table->set_num_deleted_episodes_from_checkpoint(1), "");
+  ASSERT_DEATH(table->InitializeFromCheckpoint(
+      std::make_unique<UniformSelector>(), std::make_unique<FifoSelector>(),
+      /*max_size=*/10,
+      /*max_times_sampled=*/1,
+      std::make_shared<RateLimiter>(
+          /*samples_per_insert=*/1.0,
+          /*min_size_to_sample=*/1,
+          /*min_diff=*/-1,
+          /*max_diff=*/5),
+      /*signature=*/std::nullopt,
+      /*num_deleted_episodes=*/5,
+      /*num_unique_samples=*/3), "");
 }
 
-TEST(TableDeathTest, SetNumDeletedEpisodesFromCheckpointCalledTwice) {
+TEST(TableDeathTest, InitializeFromCheckpointCalledTwice) {
   ::testing::GTEST_FLAG(death_test_style) = "threadsafe";
   auto table = MakeUniformTable("dist");
-  table->set_num_deleted_episodes_from_checkpoint(1);
-  ASSERT_DEATH(table->set_num_deleted_episodes_from_checkpoint(1), "");
+  table->InitializeFromCheckpoint(
+      std::make_unique<UniformSelector>(), std::make_unique<FifoSelector>(),
+      /*max_size=*/10,
+      /*max_times_sampled=*/1,
+      std::make_shared<RateLimiter>(
+          /*samples_per_insert=*/1.0,
+          /*min_size_to_sample=*/1,
+          /*min_diff=*/-1,
+          /*max_diff=*/5),
+      /*signature=*/std::nullopt,
+      /*num_deleted_episodes=*/5,
+      /*num_unique_samples=*/3);
+  ASSERT_DEATH(table->InitializeFromCheckpoint(
+      std::make_unique<UniformSelector>(), std::make_unique<FifoSelector>(),
+      /*max_size=*/10,
+      /*max_times_sampled=*/1,
+      std::make_shared<RateLimiter>(
+          /*samples_per_insert=*/1.0,
+          /*min_size_to_sample=*/1,
+          /*min_diff=*/-1,
+          /*max_diff=*/5),
+      /*signature=*/std::nullopt,
+      /*num_deleted_episodes=*/5,
+      /*num_unique_samples=*/3), "");
 }
 
 TEST(TableTest, Info) {
@@ -829,8 +880,6 @@ TEST(TableTest, Info) {
           /*min_size_to_sample=*/1,
           /*min_diff=*/-1,
           /*max_diff=*/5));
-  table->set_num_deleted_episodes_from_checkpoint(5);
-  table->set_num_unique_samples_from_checkpoint(2);
 
   // Insert two items (each with different episodes).
   REVERB_EXPECT_OK(table->InsertOrAssign(MakeItem(1, 1)));
@@ -863,8 +912,8 @@ TEST(TableTest, Info) {
                 }
                 current_size: 1
                 num_episodes: 1
-                num_deleted_episodes: 6
-                num_unique_samples: 3
+                num_deleted_episodes: 1
+                num_unique_samples: 1
               )pb"));
 }
 

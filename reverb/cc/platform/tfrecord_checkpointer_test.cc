@@ -31,6 +31,7 @@
 #include "reverb/cc/selectors/uniform.h"
 #include "reverb/cc/support/tf_util.h"
 #include "reverb/cc/table.h"
+#include "reverb/cc/table_extensions/base.h"
 #include "reverb/cc/testing/proto_test_util.h"
 #include "tensorflow/core/framework/tensor_shape.h"
 #include "tensorflow/core/framework/tensor_shape.pb.h"
@@ -49,6 +50,29 @@ std::string MakeRoot() {
   REVERB_CHECK(tensorflow::Env::Default()->LocalTempFilename(&name));
   return name;
 }
+
+class CountingExtension : public TableExtensionBase {
+ public:
+  void OnCheckpointLoaded(
+      const std::vector<std::shared_ptr<Table>>& tables) override {
+    on_checkpoint_loaded_count_++;
+  }
+
+  void ApplyOnDelete(const ExtensionItem& item) override {}
+  void ApplyOnInsert(const ExtensionItem& item) override { on_insert_count_++; }
+  void ApplyOnReset() override {}
+  void ApplyOnUpdate(const ExtensionItem& item) override {}
+  void ApplyOnSample(const ExtensionItem& item) override {}
+  bool CanRunAsync() const override { return false; }
+  std::string DebugString() const override { return "CountingExtension"; }
+
+  int on_checkpoint_loaded_count() const { return on_checkpoint_loaded_count_; }
+  int on_insert_count() const { return on_insert_count_; }
+
+ private:
+  int on_checkpoint_loaded_count_ = 0;
+  int on_insert_count_ = 0;
+};
 
 std::unique_ptr<Table> MakeUniformTable(const std::string& name) {
   return std::make_unique<Table>(
@@ -132,6 +156,11 @@ TEST(TFRecordCheckpointerTest, SaveAndLoad) {
   loaded_tables.push_back(MakePrioritizedTable("prioritized_a", 0.5));
   loaded_tables.push_back(MakePrioritizedTable("prioritized_b", 0.9));
   loaded_tables.push_back(MakeSignatureTable("signature"));
+
+  auto counting_extension = std::make_shared<CountingExtension>();
+  loaded_tables[0]->UnsafeAddExtension(counting_extension);
+
+  Table* original_ptr = loaded_tables[0].get();
   REVERB_ASSERT_OK(
       checkpointer.Load(path, &loaded_chunk_store, &loaded_tables));
 
@@ -165,6 +194,11 @@ TEST(TFRecordCheckpointerTest, SaveAndLoad) {
     }
     EXPECT_TRUE(item_found);
   }
+  EXPECT_EQ(loaded_tables[0].get(), original_ptr)
+      << "Table pointers shouldn't be modified.";
+
+  EXPECT_EQ(counting_extension->on_checkpoint_loaded_count(), 1);
+  EXPECT_EQ(counting_extension->on_insert_count(), 100);
 }
 
 TEST(TFRecordCheckpointerTest, SaveDeletesOldData) {

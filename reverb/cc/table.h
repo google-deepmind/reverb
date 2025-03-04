@@ -18,6 +18,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -236,6 +237,18 @@ class Table {
 
   ~Table();
 
+  // "Manually" set values that are normally set in the constructor.
+  // This is only intended to be called when reconstructing a Table
+  // from a checkpoint and will trigger death unless it is the very first
+  // interaction with the table.
+  void InitializeFromCheckpoint(
+      std::unique_ptr<ItemSelector> sampler,
+      std::unique_ptr<ItemSelector> remover, int64_t max_size,
+      int32_t max_times_sampled, std::shared_ptr<RateLimiter> rate_limiter,
+      std::optional<tensorflow::StructuredValue> signature,
+      int64_t num_deleted_episodes, int64_t num_unique_samples)
+      ABSL_LOCKS_EXCLUDED(mu_);
+
   // Copies at most `count` items that are currently in the table.
   // If `count` is `0` (default) then all items are copied.
   // If `count` is less than `size` then a subset is selected with in an
@@ -355,6 +368,11 @@ class Table {
   // sure that this method, nor any other method, is called concurrently.
   std::vector<std::shared_ptr<TableExtension>> UnsafeClearExtensions();
 
+  // Returns the list of extensions registered with the table, without removing
+  // them.
+  std::vector<std::shared_ptr<TableExtension>> GetExtensions()
+      ABSL_LOCKS_EXCLUDED(mu_, async_extensions_mu_);
+
   // Lookup a single item.
   absl::StatusOr<Item> Get(Key key) ABSL_LOCKS_EXCLUDED(mu_);
 
@@ -377,15 +395,6 @@ class Table {
   // Number of episodes that previously were in the table but has since been
   // deleted.
   int64_t num_deleted_episodes() const ABSL_LOCKS_EXCLUDED(mu_);
-
-  // "Manually" set the number of deleted episodes and unique samples. This is
-  // only intended to be called when reconstructing a Table from a checkpoint
-  // and will trigger death unless it is the very first interaction with the
-  // table.
-  void set_num_deleted_episodes_from_checkpoint(int64_t value)
-      ABSL_LOCKS_EXCLUDED(mu_);
-  void set_num_unique_samples_from_checkpoint(int64_t value)
-      ABSL_LOCKS_EXCLUDED(mu_);
 
   const std::string& name() const;
 
@@ -547,21 +556,21 @@ class Table {
 
   // Maximum number of items that this container can hold. InsertOrAssign()
   // respects this limit when inserting a new item.
-  const int64_t max_size_;
+  int64_t max_size_;
 
   // Number of queued inserts that are allowed on the table without slowing down
   // further inserts.
-  const int64_t max_enqueued_inserts_;
+  int64_t max_enqueued_inserts_;
 
   // Maximum number of allowed enqueued extension operations.
-  const int64_t max_enqueued_extension_ops_;
+  int64_t max_enqueued_extension_ops_;
 
   // Maximum number of times an item can be sampled before it is deleted.
   // A value <= 0 means there is no limit.
-  const int32_t max_times_sampled_;
+  int32_t max_times_sampled_;
 
   // Name of the table.
-  const std::string name_;
+  std::string name_;
 
   // Controls what operations can proceed. A shared_ptr is used to allow the
   // Python layer to interact with the object after it has been passed to the
@@ -569,7 +578,7 @@ class Table {
   std::shared_ptr<RateLimiter> rate_limiter_;
 
   // Optional signature for data in the table.
-  const absl::optional<tensorflow::StructuredValue> signature_;
+  absl::optional<tensorflow::StructuredValue> signature_;
 
   // Worker thread which processes asynchronous insert and sample requests.
   std::unique_ptr<internal::Thread> table_worker_;

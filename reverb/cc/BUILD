@@ -487,7 +487,9 @@ reverb_cc_test(
         ":reverb_service_cc_proto",
         ":reverb_service_impl",
         ":schema_cc_proto",
+        ":table",
         ":task_worker",
+        "//reverb/cc/checkpointing:interface",
         "//reverb/cc/platform:checkpointing",
         "//reverb/cc/platform:status_macros",
         "//reverb/cc/platform:status_matchers",
@@ -495,6 +497,7 @@ reverb_cc_test(
         "//reverb/cc/selectors:fifo",
         "//reverb/cc/selectors:interface",
         "//reverb/cc/selectors:uniform",
+        "//reverb/cc/table_extensions:interface",
         "//reverb/cc/testing:proto_test_util",
     ] + reverb_grpc_deps() + reverb_absl_deps() + reverb_tf_deps(),
 )
