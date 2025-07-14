@@ -1,5 +1,9 @@
 """Default versions of reverb build rule helpers."""
 
+load("//third_party/bazel_rules/rules_cc/cc:cc_binary.bzl", "cc_binary")
+load("//third_party/bazel_rules/rules_cc/cc:cc_library.bzl", "cc_library")
+load("//third_party/bazel_rules/rules_cc/cc:cc_test.bzl", "cc_test")
+
 def tf_copts():
     return ["-Wno-sign-compare"]
 
@@ -18,7 +22,7 @@ def reverb_cc_library(
         ]
     else:
         new_deps = []
-    native.cc_library(
+    cc_library(
         name = name,
         srcs = srcs,
         hdrs = hdrs,
@@ -105,8 +109,7 @@ def reverb_cc_proto_library(name, srcs = [], deps = [], **kwargs):
             " ".join(src_paths),
         ),
     )
-
-    native.cc_library(
+    cc_library(
         name = "{}_static".format(name),
         srcs = gen_srcs,
         hdrs = gen_hdrs,
@@ -114,13 +117,13 @@ def reverb_cc_proto_library(name, srcs = [], deps = [], **kwargs):
         alwayslink = 1,
         **kwargs
     )
-    native.cc_binary(
+    cc_binary(
         name = "lib{}.so".format(name),
         deps = ["{}_static".format(name)],
         linkshared = 1,
         **kwargs
     )
-    native.cc_library(
+    cc_library(
         name = name,
         hdrs = gen_hdrs,
         srcs = ["lib{}.so".format(name)],
@@ -245,8 +248,7 @@ def reverb_cc_grpc_library(
             " ".join(src_paths),
         ),
     )
-
-    native.cc_library(
+    cc_library(
         name = name,
         srcs = gen_srcs,
         hdrs = gen_hdrs + gen_mocks,
@@ -271,7 +273,7 @@ def reverb_cc_test(name, srcs, deps = [], **kwargs):
         "@com_google_googletest//:gtest_main",
     ]
     size = kwargs.pop("size", "small")
-    native.cc_test(
+    cc_test(
         name = name,
         size = size,
         copts = tf_copts(),
@@ -307,7 +309,7 @@ def reverb_gen_op_wrapper_py(name, out, kernel_lib, ops_lib = None, linkopts = [
         output_licenses = ["unencumbered"],
         visibility = ["//visibility:private"],
     )
-    native.cc_binary(
+    cc_binary(
         name = "{}.so".format(module_name),
         deps = [kernel_lib] + ([ops_lib] if ops_lib else []) + reverb_tf_deps() + [version_script_file],
         copts = tf_copts() + [
@@ -448,7 +450,7 @@ def reverb_pybind_extension(
         visibility = ["//visibility:private"],
         testonly = testonly,
     )
-    native.cc_binary(
+    cc_binary(
         name = so_file,
         srcs = srcs + hdrs,
         data = data,
