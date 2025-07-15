@@ -14,6 +14,8 @@
 
 #include "reverb/cc/trajectory_writer.h"
 
+#include <grpcpp/support/status.h>
+
 #include <cmath>
 #include <limits>
 #include <memory>
@@ -37,7 +39,6 @@
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "absl/types/optional.h"
-#include "third_party/grpc/include/grpcpp/support/status.h"
 #include "reverb/cc/chunker.h"
 #include "reverb/cc/platform/logging.h"
 #include "reverb/cc/platform/status_matchers.h"
