@@ -306,7 +306,6 @@ reverb_cc_test(
         "//reverb/cc/support:signature",
         "//reverb/cc/testing:proto_test_util",
         "//reverb/cc/testing:tensor_testutil",
-        "//third_party/grpc:grpc++_unsecure",
     ] + reverb_tf_deps() + reverb_grpc_deps() + reverb_absl_deps(),
 )
 
