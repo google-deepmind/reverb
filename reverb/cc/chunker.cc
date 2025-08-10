@@ -63,19 +63,19 @@ uint64_t CellRef::chunk_key() const { return chunk_key_; }
 int CellRef::offset() const { return offset_; }
 
 bool CellRef::IsReady() const {
-  absl::MutexLock lock(&mu_);
+  absl::MutexLock lock(mu_);
   return chunk_ != nullptr;
 }
 
 void CellRef::SetChunk(std::shared_ptr<ChunkDataContainer> chunk) {
-  absl::MutexLock lock(&mu_);
+  absl::MutexLock lock(mu_);
   chunk_ = std::move(chunk);
 }
 
 std::weak_ptr<Chunker> CellRef::chunker() const { return chunker_; }
 
 std::shared_ptr<ChunkDataContainer> CellRef::GetChunk() const {
-  absl::MutexLock lock(&mu_);
+  absl::MutexLock lock(mu_);
   return chunk_;
 }
 
@@ -133,7 +133,7 @@ absl::Status Chunker::Append(const tensorflow::Tensor& tensor,
     return AppendUncompressed(tensor, episode_info, ref);
   }
 
-  absl::MutexLock lock(&mu_);
+  absl::MutexLock lock(mu_);
 
   if (!buffer_.empty() &&
       active_refs_.back()->episode_id() != episode_info.episode_id) {
@@ -181,7 +181,7 @@ absl::Status Chunker::Append(const tensorflow::Tensor& tensor,
 absl::Status Chunker::AppendUncompressed(
     const tensorflow::Tensor& tensor, const CellRef::EpisodeInfo& episode_info,
     std::weak_ptr<CellRef>* ref) {
-  absl::MutexLock lock(&mu_);
+  absl::MutexLock lock(mu_);
   // We validate that steps have to increase if they belong to the same episode.
   // We don't check that data belongs to different episodes because this is
   // possible in the buffer of uncompressed data.
@@ -228,7 +228,7 @@ absl::Status Chunker::AppendUncompressed(
 }
 
 std::vector<uint64_t> Chunker::GetKeepKeys() const {
-  absl::MutexLock lock(&mu_);
+  absl::MutexLock lock(mu_);
   std::vector<uint64_t> keys;
   for (const std::shared_ptr<CellRef>& ref : active_refs_) {
     if (keys.empty() || keys.back() != ref->chunk_key()) {
@@ -239,7 +239,7 @@ std::vector<uint64_t> Chunker::GetKeepKeys() const {
 }
 
 absl::Status Chunker::Flush() {
-  absl::MutexLock lock(&mu_);
+  absl::MutexLock lock(mu_);
   return FlushLocked();
 }
 
@@ -331,7 +331,7 @@ absl::Status Chunker::FlushLocked() {
 }
 
 void Chunker::Reset() {
-  absl::MutexLock lock(&mu_);
+  absl::MutexLock lock(mu_);
   buffer_.clear();
   if (!options_->GetCompressionDisabled()){
     buffer_.reserve(options_->GetMaxChunkLength());
@@ -345,7 +345,7 @@ void Chunker::Reset() {
 const internal::TensorSpec& Chunker::spec() const { return spec_; }
 
 absl::Status Chunker::ApplyConfig(std::shared_ptr<ChunkerOptions> options) {
-  absl::MutexLock lock(&mu_);
+  absl::MutexLock lock(mu_);
 
   if (!buffer_.empty() || !uncompressed_data_.empty()) {
     return absl::FailedPreconditionError(
@@ -367,7 +367,7 @@ absl::Status Chunker::CopyDataForCell(const CellRef* ref,
   if (options_->GetCompressionDisabled()){
     return CopyUncompressedDataForCell(ref, out);
   }
-  absl::MutexLock lock(&mu_);
+  absl::MutexLock lock(mu_);
 
   // If the chunk has been finalized then we unpack it and slice out the data.
   if (ref->IsReady()) {
@@ -412,7 +412,7 @@ absl::Status Chunker::CopyUncompressedDataForCell(const CellRef* ref,
                                            tensorflow::Tensor* out) const{
   // When compression is disabled, the chunks are never constructed and we
   // always fetch the data from the queue of uncompressed data.
-  absl::MutexLock lock(&mu_);
+  absl::MutexLock lock(mu_);
 
   // We iterate backwards over the active references until we find `ref`
   // to determine which position in the queue holds the data.
@@ -505,7 +505,7 @@ AutoTunedChunkerOptions::AutoTunedChunkerOptions(int num_keep_alive_refs,
       prev_score_(Score{-1, -1}) {}
 
 int AutoTunedChunkerOptions::GetMaxChunkLength() const {
-  absl::MutexLock lock(&mu_);
+  absl::MutexLock lock(mu_);
   return max_chunk_length_;
 }
 
@@ -547,7 +547,7 @@ absl::Status AutoTunedChunkerOptions::OnItemFinalized(
         "AutoTunedChunkerOptions::OnItemFinalized: refs is empty");
   }
 
-  absl::MutexLock lock(&mu_);
+  absl::MutexLock lock(mu_);
 
   // Push items and chunks to history buffers.
   PushItem(refs);

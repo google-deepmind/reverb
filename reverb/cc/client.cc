@@ -70,7 +70,7 @@ absl::Status Client::MaybeUpdateServerInfoCache(
     std::shared_ptr<internal::FlatSignatureMap>* cached_flat_signatures) {
   {
     // Exit early if we have table info cached.
-    absl::ReaderMutexLock lock(&cached_table_mu_);
+    absl::ReaderMutexLock lock(cached_table_mu_);
     if (cached_flat_signatures_) {
       *cached_flat_signatures = cached_flat_signatures_;
       return absl::OkStatus();
@@ -106,7 +106,7 @@ absl::Status Client::MaybeUpdateServerInfoCache(
   struct ServerInfo info;
   REVERB_RETURN_IF_ERROR(GetServerInfo(timeout, &info));
 
-  absl::MutexLock lock(&cached_table_mu_);
+  absl::MutexLock lock(cached_table_mu_);
   REVERB_RETURN_IF_ERROR(LockedUpdateServerInfoCache(info));
   *cached_flat_signatures = cached_flat_signatures_;
   return absl::OkStatus();
@@ -327,7 +327,7 @@ absl::Status Client::ServerInfo(absl::Duration timeout,
   struct ServerInfo local_info;
   REVERB_RETURN_IF_ERROR(GetServerInfo(timeout, &local_info));
   {
-    absl::MutexLock lock(&cached_table_mu_);
+    absl::MutexLock lock(cached_table_mu_);
     REVERB_RETURN_IF_ERROR(LockedUpdateServerInfoCache(local_info));
   }
   std::swap(*info, local_info);

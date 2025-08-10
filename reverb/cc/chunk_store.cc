@@ -63,7 +63,7 @@ int ChunkStore::Chunk::num_columns() const {
 }
 
 std::shared_ptr<ChunkStore::Chunk> ChunkStore::Insert(ChunkData item) {
-  absl::WriterMutexLock lock(&mu_);
+  absl::WriterMutexLock lock(mu_);
   std::weak_ptr<Chunk>& wp = data_[item.chunk_key()];
   std::shared_ptr<Chunk> sp = wp.lock();
   if (sp == nullptr) {
@@ -74,7 +74,7 @@ std::shared_ptr<ChunkStore::Chunk> ChunkStore::Insert(ChunkData item) {
 
 absl::Status ChunkStore::Get(absl::Span<const ChunkStore::Key> keys,
                              std::vector<std::shared_ptr<Chunk>>* chunks) {
-  absl::ReaderMutexLock lock(&mu_);
+  absl::ReaderMutexLock lock(mu_);
   chunks->clear();
   chunks->reserve(keys.size());
   for (int i = 0; i < keys.size(); i++) {
