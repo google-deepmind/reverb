@@ -256,7 +256,7 @@ class ReverbPatternDatasetOp : public tensorflow::data::UnaryDatasetOpKernel {
         // We lock the full method because otherwise we would have several
         // threads getting data from the input dataset and inserting into the
         // queue.
-        absl::MutexLock lock(&mu_);
+        absl::MutexLock lock(mu_);
         while (data_.empty()) {
           std::vector<tensorflow::Tensor> out_steps;
           bool input_end_of_sequence = false;
