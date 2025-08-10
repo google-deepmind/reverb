@@ -184,7 +184,7 @@ void Table::InitializeFromCheckpoint(
     int64_t num_deleted_episodes, int64_t num_unique_samples) {
   rate_limiter_->UnregisterTable(&mu_, this);
   {
-    absl::MutexLock lock(&mu_);
+    absl::MutexLock lock(mu_);
     REVERB_CHECK(data_.empty() && num_deleted_episodes_ == 0 &&
                  num_unique_samples_ == 0);
     sampler_ = std::move(sampler);
@@ -208,7 +208,7 @@ void Table::InitializeFromCheckpoint(
 Table::~Table() {
   Close();
   {
-    absl::MutexLock lock(&mu_);
+    absl::MutexLock lock(mu_);
     stop_extension_worker_ = true;
     extension_buffer_available_cv_.SignalAll();
     extension_work_available_cv_.SignalAll();
@@ -247,12 +247,12 @@ absl::Status Table::TableWorkerLoop() {
   int64_t progress = 0;
   int64_t last_progress = 0;
   {
-    absl::MutexLock lock(&worker_mu_);
+    absl::MutexLock lock(worker_mu_);
     worker_stats.Enter(TableWorkerState::kRunning);
   }
   while (true) {
     {
-      absl::MutexLock lock(&mu_);
+      absl::MutexLock lock(mu_);
       // Tracks whether while loop below makes progress.
       int64_t prev_progress = progress - 1;
       while (prev_progress < progress) {
@@ -316,7 +316,7 @@ absl::Status Table::TableWorkerLoop() {
     // Sampling requests that exceeded deadline and should be terminated.
     std::vector<std::unique_ptr<Table::SampleRequest>> to_terminate;
     {
-      absl::MutexLock lock(&worker_mu_);
+      absl::MutexLock lock(worker_mu_);
       if (stop_worker_) {
         break;
       }
@@ -359,7 +359,7 @@ absl::Status Table::TableWorkerLoop() {
             // current sampling batch.
             worker_stats.Enter(TableWorkerState::kActivelySampling);
             {
-              absl::MutexLock table_lock(&mu_);
+              absl::MutexLock table_lock(mu_);
               FinalizeSampleRequest(std::move(current_sampling[sample_idx]),
                                     absl::OkStatus());
               sample_idx++;
@@ -380,7 +380,7 @@ absl::Status Table::TableWorkerLoop() {
     }
     if (!to_terminate.empty()) {
       // Notify sample requests which exceeded deadline.
-      absl::MutexLock lock(&mu_);
+      absl::MutexLock lock(mu_);
       for (auto& sample : to_terminate) {
         if (sample->samples.empty()) {
           FinalizeSampleRequest(std::move(sample),
@@ -396,7 +396,7 @@ absl::Status Table::TableWorkerLoop() {
   // Append all enqueued requests to the worker's local lists and terminate
   // all pending requests.
   {
-    absl::MutexLock lock(&worker_mu_);
+    absl::MutexLock lock(worker_mu_);
     current_inserts.insert(current_inserts.end(),
                            std::make_move_iterator(pending_inserts_.begin()),
                            std::make_move_iterator(pending_inserts_.end()));
@@ -406,7 +406,7 @@ absl::Status Table::TableWorkerLoop() {
   }
   auto status = absl::CancelledError("RateLimiter has been cancelled");
   {
-    absl::MutexLock lock(&mu_);
+    absl::MutexLock lock(mu_);
     for (auto& r : current_sampling) {
       FinalizeSampleRequest(std::move(r), status);
     }
@@ -422,12 +422,12 @@ absl::Status Table::ExtensionsWorkerLoop() {
   // clients (to not perform expensive operations inside the worker loop).
   std::vector<std::shared_ptr<Item>> deleted_items;
   {
-    absl::MutexLock lock(&mu_);
+    absl::MutexLock lock(mu_);
     extension_worker_sleeps_ = false;
   }
   while (true) {
     {
-      absl::MutexLock lock(&worker_mu_);
+      absl::MutexLock lock(worker_mu_);
       if (deleted_items_.empty() && !deleted_items.empty()) {
         // Deleted items are freed by the clients to spread the load.
         // Previous deletion batch has been processed, give clients a new batch.
@@ -435,7 +435,7 @@ absl::Status Table::ExtensionsWorkerLoop() {
       }
     }
     {
-      absl::MutexLock lock(&mu_);
+      absl::MutexLock lock(mu_);
       if (!extension_requests.empty()) {
         return absl::InvalidArgumentError(absl::StrCat(
             "ExtensionsWorkerLoop: extension_requests expected to be empty but "
@@ -460,7 +460,7 @@ absl::Status Table::ExtensionsWorkerLoop() {
       }
     }
     {
-      absl::MutexLock lock(&async_extensions_mu_);
+      absl::MutexLock lock(async_extensions_mu_);
       for (auto& request : extension_requests) {
         switch (request.call_type) {
           case ExtensionRequest::CallType::kInsert:
@@ -495,7 +495,7 @@ absl::Status Table::ExtensionsWorkerLoop() {
 }
 
 void Table::SetCallbackExecutor(std::shared_ptr<TaskExecutor> executor) {
-  absl::MutexLock lock(&mu_);
+  absl::MutexLock lock(mu_);
   callback_executor_ = executor;
 }
 
@@ -515,8 +515,8 @@ void Table::EnableTableWorker(std::shared_ptr<TaskExecutor> executor) {
   {
     // Move asynchrouns extensions to async_extensions_ collection. When table
     // worker is disabled all extensions are added to sync_extensions_.
-    absl::MutexLock table_lock(&mu_);
-    absl::MutexLock extension_lock(&async_extensions_mu_);
+    absl::MutexLock table_lock(mu_);
+    absl::MutexLock extension_lock(async_extensions_mu_);
     std::vector<std::shared_ptr<TableExtension>> extensions;
     std::swap(extensions, sync_extensions_);
     for (auto& extension : extensions) {
@@ -532,7 +532,7 @@ void Table::EnableTableWorker(std::shared_ptr<TaskExecutor> executor) {
 
 std::vector<Table::Item> Table::Copy(size_t count) const {
   std::vector<Item> items;
-  absl::MutexLock lock(&mu_);
+  absl::MutexLock lock(mu_);
   items.reserve(count == 0 ? data_.size() : count);
   for (auto it = data_.cbegin();
        it != data_.cend() && (count == 0 || items.size() < count); it++) {
@@ -568,7 +568,7 @@ absl::Status Table::InsertOrAssignAsync(
   // asynchrously.
   std::shared_ptr<Item> to_delete;
   {
-    absl::MutexLock lock(&worker_mu_);
+    absl::MutexLock lock(worker_mu_);
     if (stop_worker_) {
       return absl::CancelledError("RateLimiter has been cancelled");
     }
@@ -628,7 +628,7 @@ absl::Status Table::MutateItems(absl::Span<const KeyWithPriority> updates,
                                 absl::Span<const Key> deletes) {
   std::vector<std::shared_ptr<Item>> deleted_items(deletes.size());
   {
-    absl::MutexLock lock(&mu_);
+    absl::MutexLock lock(mu_);
     for (int i = 0; i < deletes.size(); i++) {
       REVERB_RETURN_IF_ERROR(DeleteItem(deletes[i], &deleted_items[i]));
     }
@@ -638,7 +638,7 @@ absl::Status Table::MutateItems(absl::Span<const KeyWithPriority> updates,
   }
   // Table worker doesn't listen on rate_limiter, so need to wake it up
   // explicitly.
-  absl::MutexLock lock(&worker_mu_);
+  absl::MutexLock lock(worker_mu_);
   wakeup_worker_.Signal();
   return absl::OkStatus();
 }
@@ -663,9 +663,9 @@ void Table::EnqueSampleRequest(int num_samples,
   // asynchrously.
   std::shared_ptr<Item> to_delete;
   {
-    absl::MutexLock lock(&worker_mu_);
+    absl::MutexLock lock(worker_mu_);
     if (stop_worker_) {
-      absl::MutexLock table_lock(&mu_);
+      absl::MutexLock table_lock(mu_);
       FinalizeSampleRequest(
           std::move(request),
           absl::CancelledError(
@@ -741,7 +741,7 @@ absl::Status Table::SampleInternal(bool rate_limited, SampledItem* result) {
 }
 
 int64_t Table::size() const {
-  absl::MutexLock lock(&mu_);
+  absl::MutexLock lock(mu_);
   return data_.size();
 }
 
@@ -759,7 +759,7 @@ TableInfo Table::info() const {
   }
 
   {
-    absl::MutexLock lock(&mu_);
+    absl::MutexLock lock(mu_);
     *info.mutable_rate_limiter_info() = rate_limiter_->Info(&mu_);
     *info.mutable_sampler_options() = sampler_->options();
     *info.mutable_remover_options() = remover_->options();
@@ -769,7 +769,7 @@ TableInfo Table::info() const {
     info.set_num_unique_samples(num_unique_samples_);
   }
   {
-    absl::MutexLock lock(&worker_mu_);
+    absl::MutexLock lock(worker_mu_);
     auto* worker_time = info.mutable_table_worker_time();
     worker_time->set_running_ms(absl::ToInt64Milliseconds(
         worker_time_distribution_.GetTotalTimeIn(TableWorkerState::kRunning)));
@@ -794,11 +794,11 @@ TableInfo Table::info() const {
 
 void Table::Close() {
   {
-    absl::MutexLock lock(&mu_);
+    absl::MutexLock lock(mu_);
     closed_ = true;
   }
   {
-    absl::MutexLock lock(&worker_mu_);
+    absl::MutexLock lock(worker_mu_);
     stop_worker_ = true;
     wakeup_worker_.Signal();
   }
@@ -900,7 +900,7 @@ absl::Status Table::UpdateItem(Key key, double priority) {
 
 absl::Status Table::Reset() {
   {
-    absl::MutexLock table_lock(&mu_);
+    absl::MutexLock table_lock(mu_);
     if (extension_worker_) {
       // Make sure extension worker has no more work to do.
       auto extension_worker_done = [this]() ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_) {
@@ -909,7 +909,7 @@ absl::Status Table::Reset() {
       mu_.Await(absl::Condition(&extension_worker_done));
     }
     {
-      absl::MutexLock extension_lock(&async_extensions_mu_);
+      absl::MutexLock extension_lock(async_extensions_mu_);
       for (auto& extension : sync_extensions_) {
         extension->OnReset(&mu_);
       }
@@ -929,7 +929,7 @@ absl::Status Table::Reset() {
     rate_limiter_->Reset(&mu_);
   }
   {
-    absl::MutexLock worker_lock(&worker_mu_);
+    absl::MutexLock worker_lock(worker_mu_);
     // Delete all items waiting for deletion.
     deleted_items_.clear();
     // Wakeup worker in case it has pending inserts which couldn't make progress
@@ -949,7 +949,7 @@ Table::CheckpointAndChunks Table::Checkpoint() {
     *checkpoint.mutable_signature() = signature_.value();
   }
 
-  absl::MutexLock lock(&mu_);
+  absl::MutexLock lock(mu_);
 
   checkpoint.set_num_deleted_episodes(num_deleted_episodes_);
   checkpoint.set_num_unique_samples(num_unique_samples_);
@@ -977,7 +977,7 @@ Table::CheckpointAndChunks Table::Checkpoint() {
 }
 
 absl::Status Table::InsertCheckpointItem(Table::Item&& item) {
-  absl::MutexLock lock(&mu_);
+  absl::MutexLock lock(mu_);
   if (data_.size() + 1 > max_size_) {
     return absl::FailedPreconditionError(absl::StrCat(
         "InsertCheckpointItem called on already full Table. table size: ",
@@ -1004,7 +1004,7 @@ absl::Status Table::InsertCheckpointItem(Table::Item&& item) {
 }
 
 absl::StatusOr<Table::Item> Table::Get(Table::Key key) {
-  absl::MutexLock lock(&mu_);
+  absl::MutexLock lock(mu_);
   auto it = data_.find(key);
   if (it != data_.end()) {
     return *it->second;
@@ -1020,10 +1020,10 @@ Table::RawLookup() {
 
 void Table::UnsafeAddExtension(std::shared_ptr<TableExtension> extension) {
   REVERB_CHECK_OK(extension->RegisterTable(&mu_, this));
-  absl::MutexLock lock(&mu_);
+  absl::MutexLock lock(mu_);
   REVERB_CHECK(data_.empty());
   if (extension->CanRunAsync() && extension_worker_) {
-    absl::MutexLock lock(&async_extensions_mu_);
+    absl::MutexLock lock(async_extensions_mu_);
     async_extensions_.push_back(std::move(extension));
     has_async_extensions_ = true;
   } else {
@@ -1036,17 +1036,17 @@ const absl::optional<tensorflow::StructuredValue>& Table::signature() const {
 }
 
 bool Table::CanSample(int num_samples) const {
-  absl::MutexLock lock(&mu_);
+  absl::MutexLock lock(mu_);
   return rate_limiter_->CanSample(&mu_, num_samples);
 }
 
 bool Table::CanInsert(int num_inserts) const {
-  absl::MutexLock lock(&mu_);
+  absl::MutexLock lock(mu_);
   return rate_limiter_->CanInsert(&mu_, num_inserts);
 }
 
 int64_t Table::num_episodes() const {
-  absl::MutexLock lock(&mu_);
+  absl::MutexLock lock(mu_);
   return episode_refs_.size();
 }
 
@@ -1058,8 +1058,8 @@ absl::Status Table::UnsafeUpdateItem(Key key, double priority) {
 std::vector<std::shared_ptr<TableExtension>> Table::UnsafeClearExtensions() {
   std::vector<std::shared_ptr<TableExtension>> extensions;
   {
-    absl::MutexLock lock(&mu_);
-    absl::MutexLock extension_lock(&async_extensions_mu_);
+    absl::MutexLock lock(mu_);
+    absl::MutexLock extension_lock(async_extensions_mu_);
     REVERB_CHECK(data_.empty());
     extensions.swap(sync_extensions_);
     for (auto& extension : async_extensions_) {
@@ -1076,8 +1076,8 @@ std::vector<std::shared_ptr<TableExtension>> Table::UnsafeClearExtensions() {
 }
 
 std::vector<std::shared_ptr<TableExtension>> Table::GetExtensions() {
-  absl::MutexLock lock(&mu_);
-  absl::MutexLock extension_lock(&async_extensions_mu_);
+  absl::MutexLock lock(mu_);
+  absl::MutexLock extension_lock(async_extensions_mu_);
   REVERB_CHECK(data_.empty());
   std::vector<std::shared_ptr<TableExtension>> extensions = sync_extensions_;
   std::copy(async_extensions_.begin(), async_extensions_.end(),
@@ -1086,12 +1086,12 @@ std::vector<std::shared_ptr<TableExtension>> Table::GetExtensions() {
 }
 
 int64_t Table::num_deleted_episodes() const {
-  absl::MutexLock lock(&mu_);
+  absl::MutexLock lock(mu_);
   return num_deleted_episodes_;
 }
 
 std::string Table::DebugString() const {
-  absl::MutexLock lock(&mu_);
+  absl::MutexLock lock(mu_);
   std::string str = absl::StrCat(
       "Table(sampler=", sampler_->DebugString(),
       ", remover=", remover_->DebugString(), ", max_size=", max_size_,
@@ -1100,7 +1100,7 @@ std::string Table::DebugString() const {
       (signature_.has_value() ? signature_.value().DebugString() : "nullptr"));
 
   {
-    absl::MutexLock lock(&async_extensions_mu_);
+    absl::MutexLock lock(async_extensions_mu_);
 
     if (!sync_extensions_.empty() || !async_extensions_.empty()) {
       absl::StrAppend(&str, ", extensions=[");
@@ -1124,18 +1124,18 @@ std::string Table::DebugString() const {
 }
 
 bool Table::worker_is_sleeping() const {
-  absl::MutexLock lock(&worker_mu_);
+  absl::MutexLock lock(worker_mu_);
   return worker_time_distribution_.CurrentState() >=
          TableWorkerState::kSleeping;
 }
 
 int Table::num_pending_async_sample_requests() const {
-  absl::MutexLock lock(&worker_mu_);
+  absl::MutexLock lock(worker_mu_);
   return pending_sampling_.size();
 }
 
 bool Table::all_extensions_are_up_to_date() const {
-  absl::MutexLock lock(&mu_);
+  absl::MutexLock lock(mu_);
   return extension_requests_.empty() && extension_worker_sleeps_;
 }
 
