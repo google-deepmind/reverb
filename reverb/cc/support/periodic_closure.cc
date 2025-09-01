@@ -39,7 +39,7 @@ PeriodicClosure::PeriodicClosure(std::function<void()> fn,
 }
 
 absl::Status PeriodicClosure::Start() {
-  absl::WriterMutexLock lock(&mu_);
+  absl::WriterMutexLock lock(mu_);
   if (stopped_) {
     return absl::InvalidArgumentError(
         "PeriodicClosure: Start called after Close");
@@ -51,10 +51,10 @@ absl::Status PeriodicClosure::Start() {
   worker_ = StartThread(name_prefix_, [this] {
     for (auto next_run = absl::Now() + period_; true;) {
       if (mu_.LockWhenWithDeadline(absl::Condition(&stopped_), next_run)) {
-        mu_.Unlock();
+        mu_.unlock();
         return;
       }
-      mu_.Unlock();
+      mu_.unlock();
       next_run = absl::Now() + period_;
 
       fn_();
@@ -65,7 +65,7 @@ absl::Status PeriodicClosure::Start() {
 
 absl::Status PeriodicClosure::Stop() {
   {
-    absl::MutexLock l(&mu_);
+    absl::MutexLock l(mu_);
     if (stopped_) {
       return absl::InvalidArgumentError(
           "PeriodicClosure: Stop called multiple times");
