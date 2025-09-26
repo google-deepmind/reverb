@@ -23,7 +23,7 @@ namespace deepmind {
 namespace reverb {
 
 absl::Status TableExtensionBase::RegisterTable(absl::Mutex* mu, Table* table) {
-  absl::MutexLock lock(&table_mu_);
+  absl::MutexLock lock(table_mu_);
   if (table_) {
     return absl::FailedPreconditionError(absl::StrCat(
         "Attempting to registering a table ", absl::Hex(table),
@@ -37,7 +37,7 @@ absl::Status TableExtensionBase::RegisterTable(absl::Mutex* mu, Table* table) {
 }
 
 void TableExtensionBase::UnregisterTable(absl::Mutex* mu, Table* table) {
-  absl::MutexLock lock(&table_mu_);
+  absl::MutexLock lock(table_mu_);
   REVERB_CHECK_EQ(table, table_)
       << "The wrong Table attempted to unregister this extension.";
   BeforeUnregisterTable(*table_);
