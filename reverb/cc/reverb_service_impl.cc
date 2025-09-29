@@ -179,7 +179,7 @@ ReverbServiceImpl::InsertStream(grpc::CallbackServerContext* context) {
           server_(server),
           insert_completed_(
               std::make_shared<Table::InsertCallback>([&](uint64_t key) {
-                absl::MutexLock lock(&mu_);
+                absl::MutexLock lock(mu_);
                 MaybeStartRead();
                 if (!is_finished_) {
                   // The first element is the one in flight, modify not yet
@@ -193,7 +193,7 @@ ReverbServiceImpl::InsertStream(grpc::CallbackServerContext* context) {
                   }
                 }
               })) {
-      absl::MutexLock lock(&mu_);
+      absl::MutexLock lock(mu_);
       MaybeStartRead();
     }
 
@@ -505,7 +505,7 @@ ReverbServiceImpl::SampleStream(grpc::CallbackServerContext* context) {
           server_(server),
           sampling_done_(std::make_shared<SamplingCallback>(
               [&](Table::SampleRequest* sample) {
-                absl::MutexLock lock(&mu_);
+                absl::MutexLock lock(mu_);
                 waiting_for_enqueued_sample_ = false;
                 if (!sample->status.ok()) {
                   if (!is_finished_) {
@@ -532,7 +532,7 @@ ReverbServiceImpl::SampleStream(grpc::CallbackServerContext* context) {
               })),
           waiting_for_enqueued_sample_(false) {
       task_info_.last_batch_size = kInitialGrpcSampleBatchSize;
-      absl::MutexLock lock(&mu_);
+      absl::MutexLock lock(mu_);
       MaybeStartRead();
     }
 
@@ -548,7 +548,7 @@ ReverbServiceImpl::SampleStream(grpc::CallbackServerContext* context) {
 
     void OnWriteDone(bool ok) override {
       ReverbServerReactor::OnWriteDone(ok);
-      absl::MutexLock lock(&mu_);
+      absl::MutexLock lock(mu_);
       MaybeStartSampling();
     }
 

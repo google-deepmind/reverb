@@ -110,7 +110,7 @@ class FakeStub : public /* grpc_gen:: */MockReverbServiceStub {
  public:
   grpc::ClientReaderWriterInterface<SampleStreamRequest, SampleStreamResponse>*
   SampleStreamRaw(grpc::ClientContext* context) override {
-    absl::WriterMutexLock lock(&mu_);
+    absl::WriterMutexLock lock(mu_);
     if (!streams_.empty()) {
       FakeStream* stream = streams_.front().release();
       streams_.pop_front();
@@ -119,7 +119,7 @@ class FakeStub : public /* grpc_gen:: */MockReverbServiceStub {
 
     return new FakeStream(
         [this](const SampleStreamRequest& request) {
-          absl::WriterMutexLock lock(&mu_);
+          absl::WriterMutexLock lock(mu_);
           requests_.push_back(request);
         },
         {}, grpc::Status::OK);
@@ -127,17 +127,17 @@ class FakeStub : public /* grpc_gen:: */MockReverbServiceStub {
 
   void AddStream(std::vector<SampleStreamResponse> responses,
                  grpc::Status status = grpc::Status::OK) {
-    absl::WriterMutexLock lock(&mu_);
+    absl::WriterMutexLock lock(mu_);
     streams_.push_back(std::make_unique<FakeStream>(
         [this](const SampleStreamRequest& request) {
-          absl::WriterMutexLock lock(&mu_);
+          absl::WriterMutexLock lock(mu_);
           requests_.push_back(request);
         },
         std::move(responses), std::move(status)));
   }
 
   std::vector<SampleStreamRequest> requests() const {
-    absl::ReaderMutexLock lock(&mu_);
+    absl::ReaderMutexLock lock(mu_);
     return requests_;
   }
 

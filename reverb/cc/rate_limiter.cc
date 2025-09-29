@@ -85,7 +85,7 @@ absl::Status RateLimiter::RegisterTable(Table* table) {
 void RateLimiter::UnregisterTable(absl::Mutex* mu, Table* table) {
   REVERB_CHECK_EQ(table, table_)
       << "The wrong Table attempted to unregister this rate limiter.";
-  absl::MutexLock lock(mu);
+  absl::MutexLock lock(*mu);
   Reset(mu);
   table_ = nullptr;
 }

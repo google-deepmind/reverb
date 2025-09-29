@@ -165,14 +165,14 @@ bool TrajectoryWriter::WriteIfNotEmpty(
     request->AddKeepChunkKeys(keep_key);
   }
   {
-    absl::MutexLock lock(&mu_);
+    absl::MutexLock lock(mu_);
     write_inflight_ = true;
   }
   grpc::WriteOptions options;
   options.set_no_compression();
   StartWrite(&request->Request(), options);
   {
-    absl::MutexLock lock(&mu_);
+    absl::MutexLock lock(mu_);
     auto trigger = [&]() ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_) {
       return !write_inflight_ || closed_ || !stream_ok_;
     };
@@ -291,7 +291,7 @@ TrajectoryWriter::TrajectoryWriter(
               absl::Time start_time = absl::Now();
               absl::Status status = RunStreamWorker();
 
-              absl::MutexLock lock(&mu_);
+              absl::MutexLock lock(mu_);
 
               if (closed_) {
                 unrecoverable_status_ = absl::CancelledError(
@@ -331,7 +331,7 @@ TrajectoryWriter::TrajectoryWriter(
 
 TrajectoryWriter::~TrajectoryWriter() {
   {
-    absl::MutexLock lock(&mu_);
+    absl::MutexLock lock(mu_);
     if (closed_) return;
 
     absl::Status status = FlushLocked(/*ignore_last_num_items=*/0,
@@ -363,7 +363,7 @@ absl::Status TrajectoryWriter::AppendInternal(
     std::vector<absl::optional<std::weak_ptr<CellRef>>>* refs) {
   CellRef::EpisodeInfo episode_info;
   {
-    absl::MutexLock lock(&mu_);
+    absl::MutexLock lock(mu_);
     REVERB_RETURN_IF_ERROR(unrecoverable_status_);
     episode_info = {episode_id_, episode_step_};
   }
@@ -405,7 +405,7 @@ absl::Status TrajectoryWriter::AppendInternal(
     refs->push_back(std::move(ref));
   }
 
-  absl::MutexLock lock(&mu_);
+  absl::MutexLock lock(mu_);
 
   // Sanity check that `Append`, `AppendPartial` or `EndEpisode` wasn't called
   // concurrently.
@@ -436,7 +436,7 @@ absl::Status TrajectoryWriter::CreateItem(
   }
 
   {
-    absl::MutexLock lock(&mu_);
+    absl::MutexLock lock(mu_);
     REVERB_RETURN_IF_ERROR(unrecoverable_status_);
   }
 
@@ -467,7 +467,7 @@ absl::Status TrajectoryWriter::CreateItem(
   REVERB_RETURN_IF_ERROR(item_and_refs->Validate(options_));
 
   {
-    absl::MutexLock lock(&mu_);
+    absl::MutexLock lock(mu_);
     write_queue_.push_back(std::move(item_and_refs));
   }
 
@@ -476,7 +476,7 @@ absl::Status TrajectoryWriter::CreateItem(
 
 void TrajectoryWriter::Close() {
   {
-    absl::MutexLock lock(&mu_);
+    absl::MutexLock lock(mu_);
     if (closed_) return;
 
     // This will unblock the worker if it is waiting for new items to be sent.
@@ -499,7 +499,7 @@ void TrajectoryWriter::Close() {
 }
 
 void TrajectoryWriter::OnReadDone(bool ok) {
-  absl::MutexLock lock(&mu_);
+  absl::MutexLock lock(mu_);
   data_cv_.Signal();
   if (!ok) {
     stream_ok_ = false;
@@ -512,7 +512,7 @@ void TrajectoryWriter::OnReadDone(bool ok) {
 }
 
 void TrajectoryWriter::OnWriteDone(bool ok) {
-  absl::MutexLock lock(&mu_);
+  absl::MutexLock lock(mu_);
   if (ok) {
     write_inflight_ = false;
   } else {
@@ -521,14 +521,14 @@ void TrajectoryWriter::OnWriteDone(bool ok) {
 }
 
 void TrajectoryWriter::OnDone(const ::grpc::Status& s) {
-  absl::MutexLock lock(&mu_);
+  absl::MutexLock lock(mu_);
   stream_ok_ = false;
   stream_done_ = true;
   stream_status_ = FromGrpcStatus(s);
 }
 
 absl::Status TrajectoryWriter::Finish() {
-  absl::MutexLock lock(&mu_);
+  absl::MutexLock lock(mu_);
   // Release a hold from SetContextAndCreateStream.
   RemoveHold();
   auto trigger = [&]() ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_) {
@@ -539,7 +539,7 @@ absl::Status TrajectoryWriter::Finish() {
 }
 
 absl::Status TrajectoryWriter::SetContextAndCreateStream() {
-  absl::MutexLock lock(&mu_);
+  absl::MutexLock lock(mu_);
   REVERB_RETURN_IF_ERROR(unrecoverable_status_);
   if (closed_) {
     return absl::CancelledError("TrajectoryWriter::Close has been called.");
@@ -605,7 +605,7 @@ absl::Status TrajectoryWriter::RunStreamWorker() {
   while (true) {
     ItemAndRefs* item_and_refs;
     {
-      absl::WriterMutexLock lock(&mu_);
+      absl::WriterMutexLock lock(mu_);
       if (!WaitForPendingItems()) {
         break;
       }
@@ -630,7 +630,7 @@ absl::Status TrajectoryWriter::RunStreamWorker() {
       if (!WriteIfNotEmpty(streamed_chunk_keys, &request)) {
         return Finish();
       }
-      absl::WriterMutexLock lock(&mu_);
+      absl::WriterMutexLock lock(mu_);
       // Do a final check that the chunks didn't change since the lock was
       // last held. If the item still references incomplete chunks then we
       // sleep until the chunks changed. If all the chunks are now completed
@@ -641,7 +641,7 @@ absl::Status TrajectoryWriter::RunStreamWorker() {
       continue;
     }
     {
-      absl::WriterMutexLock lock(&mu_);
+      absl::WriterMutexLock lock(mu_);
       // Item is about to be written - move from write_queue_ to
       // in_flight_items_.
       in_flight_items_[item_and_refs->item.key()] =
@@ -701,7 +701,7 @@ absl::Status TrajectoryWriter::RunStreamWorker() {
 
 absl::Status TrajectoryWriter::Flush(int ignore_last_num_items,
                                      absl::Duration timeout) {
-  absl::MutexLock lock(&mu_);
+  absl::MutexLock lock(mu_);
   return FlushLocked(ignore_last_num_items, timeout);
 }
 
@@ -751,7 +751,7 @@ absl::Status TrajectoryWriter::FlushLocked(int ignore_last_num_items,
 
 absl::Status TrajectoryWriter::EndEpisode(bool clear_buffers,
                                           absl::Duration timeout) {
-  absl::MutexLock lock(&mu_);
+  absl::MutexLock lock(mu_);
   REVERB_RETURN_IF_ERROR(unrecoverable_status_);
 
   REVERB_RETURN_IF_ERROR(FlushLocked(0, timeout));
@@ -773,7 +773,7 @@ absl::Status TrajectoryWriter::EndEpisode(bool clear_buffers,
 }
 
 int TrajectoryWriter::episode_steps() const {
-  absl::MutexLock lock(&mu_);
+  absl::MutexLock lock(mu_);
   return episode_step_;
 }
 

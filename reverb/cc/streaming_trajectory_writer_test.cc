@@ -158,7 +158,7 @@ class FakeStream : public MockStream {
 
   bool Write(const InsertStreamRequest& msg,
              grpc::WriteOptions options) override {
-    absl::MutexLock lock(&mu_);
+    absl::MutexLock lock(mu_);
     requests_->push_back(msg);
     for (auto& item : msg.items()) {
       REVERB_CHECK(pending_confirmation_.Reserve(1));
@@ -184,19 +184,19 @@ class FakeStream : public MockStream {
   }
 
   bool WritesDone() override {
-    absl::MutexLock lock(&mu_);
+    absl::MutexLock lock(mu_);
     pending_confirmation_.Close();
     return true;
   }
 
   grpc::Status Finish() override {
-    absl::MutexLock lock(&mu_);
+    absl::MutexLock lock(mu_);
     pending_confirmation_.Close();
     return grpc::Status::OK;
   }
 
   void BlockUntilNumRequestsIs(int size) const {
-    absl::MutexLock lock(&mu_);
+    absl::MutexLock lock(mu_);
     auto trigger = [size, this]() ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_) {
       return requests_->size() == size;
     };
@@ -204,12 +204,12 @@ class FakeStream : public MockStream {
   }
 
   const std::vector<InsertStreamRequest>& requests() const {
-    absl::MutexLock lock(&mu_);
+    absl::MutexLock lock(mu_);
     return *requests_;
   }
 
   std::shared_ptr<std::vector<InsertStreamRequest>> requests_ptr() const {
-    absl::MutexLock lock(&mu_);
+    absl::MutexLock lock(mu_);
     return requests_;
   }
 

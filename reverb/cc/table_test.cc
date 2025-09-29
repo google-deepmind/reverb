@@ -1009,7 +1009,7 @@ TEST(TableTest, SampleFromClosedTable) {
   absl::Mutex mu;
   auto callback = std::make_shared<Table::SamplingCallback>(
       [&](Table::SampleRequest* sample) {
-        absl::MutexLock lock(&mu);
+        absl::MutexLock lock(mu);
         EXPECT_EQ(sample->status.code(), absl::StatusCode::kCancelled);
         EXPECT_THAT(
             std::string(sample->status.message()),
@@ -1022,7 +1022,7 @@ TEST(TableTest, SampleFromClosedTable) {
   {
     // Make sure that callback is not executed on the same thread to avoid
     // hangs.
-    absl::MutexLock lock(&mu);
+    absl::MutexLock lock(mu);
     table->EnqueSampleRequest(100, callback);
   }
   notification.WaitForNotification();

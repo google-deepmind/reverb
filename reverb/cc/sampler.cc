@@ -183,7 +183,7 @@ class GrpcSamplerWorker : public SamplerWorker {
   // Cancels the stream and marks the worker as closed. Active and future
   // calls to `OpenStreamAndFetch` will return status `CANCELLED`.
   void Cancel() override {
-    absl::MutexLock lock(&mu_);
+    absl::MutexLock lock(mu_);
     closed_ = true;
     if (context_ != nullptr) context_->TryCancel();
   }
@@ -202,7 +202,7 @@ class GrpcSamplerWorker : public SamplerWorker {
                                                       SampleStreamResponse>>
         stream;
     {
-      absl::MutexLock lock(&mu_);
+      absl::MutexLock lock(mu_);
       if (closed_) {
         return {0, absl::CancelledError("`Close` called on Sampler.")};
       }
@@ -334,7 +334,7 @@ class LocalSamplerWorker : public SamplerWorker {
   }
 
   void Cancel() override {
-    absl::MutexLock lock(&mu_);
+    absl::MutexLock lock(mu_);
     closed_ = true;
   }
 
@@ -350,7 +350,7 @@ class LocalSamplerWorker : public SamplerWorker {
     std::vector<std::unique_ptr<Sample>> samples;
     while (num_samples_returned < num_samples) {
       {
-        absl::MutexLock lock(&mu_);
+        absl::MutexLock lock(mu_);
         if (closed_) {
           return {0, absl::CancelledError("`Close` called on Sampler.")};
         }
@@ -550,7 +550,7 @@ absl::Status Sampler::GetNextTimestep(std::vector<tensorflow::Tensor>* data,
   }
 
   if (active_sample_->is_end_of_sample()) {
-    absl::WriterMutexLock lock(&mu_);
+    absl::WriterMutexLock lock(mu_);
     if (++returned_ == max_samples_) samples_.Close();
   }
 
@@ -569,7 +569,7 @@ absl::Status Sampler::GetNextTrajectory(
     *info = sample->info();
   }
 
-  absl::WriterMutexLock lock(&mu_);
+  absl::WriterMutexLock lock(mu_);
   if (++returned_ == max_samples_) samples_.Close();
   return absl::OkStatus();
 }
@@ -614,7 +614,7 @@ bool Sampler::should_stop_workers() const {
 
 void Sampler::Close() {
   {
-    absl::WriterMutexLock lock(&mu_);
+    absl::WriterMutexLock lock(mu_);
     if (closed_) return;
     closed_ = true;
   }
@@ -638,7 +638,7 @@ absl::Status Sampler::MaybeSampleNext() {
 absl::Status Sampler::PopNextSample(std::unique_ptr<Sample>* sample) {
   if (samples_.Pop(sample)) return absl::OkStatus();
 
-  absl::ReaderMutexLock lock(&mu_);
+  absl::ReaderMutexLock lock(mu_);
   if (returned_ == max_samples_) {
     return absl::OutOfRangeError("`max_samples` already returned.");
   }
@@ -658,7 +658,7 @@ void Sampler::RunWorker(SamplerWorker* worker) {
   while (true) {
     absl::Time start_time = absl::Now();
     {
-      absl::WriterMutexLock lock(&mu_);
+      absl::WriterMutexLock lock(mu_);
       mu_.Await(absl::Condition(&progress_trigger));
 
       if (should_stop_workers()) {
@@ -672,7 +672,7 @@ void Sampler::RunWorker(SamplerWorker* worker) {
     auto result = worker->FetchSamples(&samples_, samples_to_stream,
                                        rate_limiter_timeout_);
     {
-      absl::WriterMutexLock lock(&mu_);
+      absl::WriterMutexLock lock(mu_);
 
       // If the stream was closed prematurely then we need to reduce the number
       // of requested samples by the difference of the expected number and the

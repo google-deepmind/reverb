@@ -333,7 +333,7 @@ std::string Writer::DebugString() const {
 }
 
 absl::Status Writer::StopItemConfirmationWorker() {
-  absl::MutexLock lock(&mu_);
+  absl::MutexLock lock(mu_);
   item_confirmation_worker_stop_requested_ = true;
 
   mu_.Await(absl::Condition(
@@ -355,7 +355,7 @@ absl::Status Writer::StopItemConfirmationWorker() {
 }
 
 void Writer::StartItemConfirmationWorker() {
-  absl::MutexLock lock(&mu_);
+  absl::MutexLock lock(mu_);
 
   // Sanity check the state of the writer. None of these should ever trigger in
   // the absence of fatal bugs.
@@ -567,7 +567,7 @@ bool Writer::WritePendingData() {
       streamed_chunk_keys_.insert(chunk.chunk_key());
     }
     pending_items_.pop_front();
-    absl::MutexLock lock(&mu_);
+    absl::MutexLock lock(mu_);
     ++num_items_in_flight_;
   }
 
@@ -579,7 +579,7 @@ uint64_t Writer::NewID() {
 }
 
 bool Writer::ConfirmItems(int limit) {
-  absl::ReaderMutexLock lock(&mu_);
+  absl::ReaderMutexLock lock(mu_);
   auto done = [limit, this]() ABSL_SHARED_LOCKS_REQUIRED(mu_) {
     return num_items_in_flight_ <= limit || !item_confirmation_worker_running_;
   };
@@ -616,7 +616,7 @@ void Writer::ItemConfirmationWorker() {
   InsertStreamResponse response;
   while (true) {
     {
-      absl::MutexLock lock(&mu_);
+      absl::MutexLock lock(mu_);
 
       // Setting this will unblock `StartItemConfirmationWorker` when Await is
       // called.
@@ -633,10 +633,10 @@ void Writer::ItemConfirmationWorker() {
       if (item_confirmation_worker_stop_requested_) break;
     }
     if (!stream_->Read(&response)) break;
-    absl::WriterMutexLock lock(&mu_);
+    absl::WriterMutexLock lock(mu_);
     num_items_in_flight_ -= response.keys_size();
   }
-  absl::WriterMutexLock lock(&mu_);
+  absl::WriterMutexLock lock(mu_);
   item_confirmation_worker_running_ = false;
 }
 

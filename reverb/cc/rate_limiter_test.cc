@@ -53,7 +53,7 @@ TEST(RateLimiterTest, BlocksSamplesUntilMinInsertsReached) {
                                     /*max_diff=*/1.0);
   auto table = MakeTable("table", limiter);
   absl::Mutex mu;
-  absl::WriterMutexLock lock(&mu);
+  absl::WriterMutexLock lock(mu);
   EXPECT_FALSE(limiter->MaybeCommitSample(&mu));
   // 1 insert is not enough so the sample should still be blocked.
   EXPECT_TRUE(limiter->CanInsert(&mu, 1));
@@ -76,7 +76,7 @@ TEST(RateLimiterTest, OperationsWithinTheBufferAreNotBlocked) {
 
   // First insert is always fine because min_size_to_sample is not yet
   // reached. The "diff" is now 1.5.
-  absl::WriterMutexLock lock(&mu);
+  absl::WriterMutexLock lock(mu);
   EXPECT_TRUE(limiter->CanInsert(&mu, 1));
   limiter->Insert(&mu);
 
@@ -101,7 +101,7 @@ TEST(RateLimiterTest, BlocksCallsThatExceedsTheMinMaxLimits) {
                                     /*max_diff=*/3.0);
   auto table = MakeTable("table", limiter);
   absl::Mutex mu;
-  absl::WriterMutexLock lock(&mu);
+  absl::WriterMutexLock lock(mu);
   EXPECT_FALSE(limiter->MaybeCommitSample(&mu));
 
   // 1 insert is not enough so the sample should still be blocked.
@@ -133,7 +133,7 @@ TEST(RateLimiterTest, CanSample) {
                                     /*max_diff=*/1.0);
   auto table = MakeTable("table", limiter);
   absl::Mutex mu;
-  absl::WriterMutexLock lock(&mu);
+  absl::WriterMutexLock lock(mu);
 
   // Min size should not have been reached so no samples should be allowed.
   EXPECT_FALSE(limiter->CanSample(&mu, 1));
@@ -155,7 +155,7 @@ TEST(RateLimiterTest, MaybeCommitSample) {
                                     /*max_diff=*/1.0);
   auto table = MakeTable("table", limiter);
   absl::Mutex mu;
-  absl::WriterMutexLock lock(&mu);
+  absl::WriterMutexLock lock(mu);
 
   // Min size should not have been reached so no samples should be allowed.
   EXPECT_FALSE(limiter->MaybeCommitSample(&mu));
@@ -177,7 +177,7 @@ TEST(RateLimiterTest, CanInsert) {
                                     /*max_diff=*/5.0);
   auto table = MakeTable("table", limiter);
   absl::Mutex mu;
-  absl::WriterMutexLock lock(&mu);
+  absl::WriterMutexLock lock(mu);
 
   // The min size allows for the first two inserts and the error buffer allows
   // for one additional insert.
@@ -213,7 +213,7 @@ TEST(RateLimiterTest, CheckpointSetsBasicOptions) {
                                     /*max_diff=*/5.0);
   auto table = MakeTable("table", limiter);
   absl::Mutex mu;
-  absl::WriterMutexLock lock(&mu);
+  absl::WriterMutexLock lock(mu);
   EXPECT_THAT(limiter->CheckpointReader(&mu),
               testing::EqualsProto("samples_per_insert: 1.5 min_diff: 0 "
                                    "max_diff: 5 min_size_to_sample: 2"));
@@ -226,7 +226,7 @@ TEST(RateLimiterTest, CheckpointSetsInsertAndDeleteAndSampleCount) {
                                     /*max_diff=*/5.0);
   auto table = MakeTable("table", limiter);
   absl::Mutex mu;
-  absl::WriterMutexLock lock(&mu);
+  absl::WriterMutexLock lock(mu);
 
   EXPECT_THAT(
       limiter->CheckpointReader(&mu),
@@ -251,7 +251,7 @@ TEST(RateLimiterTest, CanBeRestoredFromCheckpoint) {
                                     /*max_diff=*/5.0);
   auto table = MakeTable("table", limiter);
   absl::Mutex mu;
-  absl::WriterMutexLock lock(&mu);
+  absl::WriterMutexLock lock(mu);
 
   EXPECT_TRUE(limiter->CanInsert(&mu, 1));
   limiter->Insert(&mu);
@@ -297,7 +297,7 @@ TEST(RateLimiterTest, UnblocksInsertsIfDeletedItemsBringsSizeBelowMinSize) {
                                     /*max_diff=*/5.0);
   auto table = MakeTable("table", limiter);
   absl::Mutex mu;
-  absl::WriterMutexLock lock(&mu);
+  absl::WriterMutexLock lock(mu);
   EXPECT_TRUE(limiter->CanInsert(&mu, 1));
   limiter->Insert(&mu);
   EXPECT_TRUE(limiter->CanInsert(&mu, 1));
@@ -324,7 +324,7 @@ TEST(RateLimiterTest, BlocksSamplesIfDeleteBringsSizeBelowMinSize) {
                                     /*max_diff=*/5.0);
   auto table = MakeTable("table", limiter);
   absl::Mutex mu;
-    absl::WriterMutexLock lock(&mu);
+  absl::WriterMutexLock lock(mu);
 
   EXPECT_TRUE(limiter->CanInsert(&mu, 1));
   limiter->Insert(&mu);
@@ -350,7 +350,7 @@ TEST(RateLimiterTest, BlocksSamplesIfDeleteBringsSizeBelowMinSize) {
 
 TEST(RateLimiterTest, Info) {
   absl::Mutex mu;
-  absl::ReaderMutexLock lock(&mu);
+  absl::ReaderMutexLock lock(mu);
 
   EXPECT_THAT(RateLimiter(1, 1, 0, 5).Info(&mu),
               EqualsProto("samples_per_insert: 1 "

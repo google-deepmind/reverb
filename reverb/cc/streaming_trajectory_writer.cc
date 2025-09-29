@@ -267,7 +267,7 @@ absl::Status StreamingTrajectoryWriter::EndEpisode(bool clear_buffers,
 
 absl::Status StreamingTrajectoryWriter::Flush(int ignore_last_num_items,
                                               absl::Duration timeout) {
-  absl::MutexLock lock(&mutex_);
+  absl::MutexLock lock(mutex_);
 
   // We assume that confirmations arrive in order of insertion. This means if
   // in_flight_items_.size() is less than or equal to N, all but the last N
@@ -364,7 +364,7 @@ absl::Status StreamingTrajectoryWriter::WriteStream(
 
   // If this request contains items, mark them as "in-flight".
   if (request.items_size() > 0) {
-    absl::MutexLock lock(&mutex_);
+    absl::MutexLock lock(mutex_);
     for (auto& item : request.items()) {
       in_flight_items_.insert(item.key());
     }
@@ -373,7 +373,7 @@ absl::Status StreamingTrajectoryWriter::WriteStream(
   if (!stream_->Write(request, options)) {
     // We won't get a confirmation these items.
     if (request.items_size() > 0) {
-      absl::MutexLock lock(&mutex_);
+      absl::MutexLock lock(mutex_);
       for (auto& item : request.items()) {
         in_flight_items_.erase(item.key());
       }
@@ -403,7 +403,7 @@ absl::Status StreamingTrajectoryWriter::WriteStream(
 void StreamingTrajectoryWriter::ProcessItemConfirmations() {
   InsertStreamResponse response;
   while (stream_->Read(&response)) {
-    absl::MutexLock lock(&mutex_);
+    absl::MutexLock lock(mutex_);
     for (uint64_t key : response.keys()) {
       in_flight_items_.erase(key);
     }

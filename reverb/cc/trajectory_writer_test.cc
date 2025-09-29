@@ -165,7 +165,7 @@ class FakeStream : public ::grpc::ClientCallbackReaderWriter<
   MOCK_METHOD(void, WritesDone, ());
   MOCK_METHOD(void, AddHold, (int holds));
   void Read(::deepmind::reverb::InsertStreamResponse* resp) {
-    absl::MutexLock lock(&mu_);
+    absl::MutexLock lock(mu_);
     REVERB_CHECK(response_ == nullptr);
     response_ = resp;
   }
@@ -180,7 +180,7 @@ class FakeStream : public ::grpc::ClientCallbackReaderWriter<
              grpc::WriteOptions options) override {
     int confirm_cnt = 0;
     {
-      absl::MutexLock lock(&mu_);
+      absl::MutexLock lock(mu_);
       requests_->push_back(*msg);
       for (auto& item : msg->items()) {
         pending_confirmation_.push(item.key());
@@ -199,7 +199,7 @@ class FakeStream : public ::grpc::ClientCallbackReaderWriter<
   }
 
   void BlockUntilNumRequestsIs(int size) const {
-    absl::MutexLock lock(&mu_);
+    absl::MutexLock lock(mu_);
     auto trigger = [size, this]() ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_) {
       return requests_->size() == size;
     };
@@ -208,7 +208,7 @@ class FakeStream : public ::grpc::ClientCallbackReaderWriter<
 
   void ConfirmItems(int count) {
     {
-      absl::MutexLock lock(&mu_);
+      absl::MutexLock lock(mu_);
       for (int x = 0; x < count; x++) {
         response_->add_keys(pending_confirmation_.front());
         pending_confirmation_.pop();
@@ -219,22 +219,22 @@ class FakeStream : public ::grpc::ClientCallbackReaderWriter<
   }
 
   const std::vector<InsertStreamRequest>& requests() const {
-    absl::MutexLock lock(&mu_);
+    absl::MutexLock lock(mu_);
     return *requests_;
   }
 
   const int requests_size() const {
-    absl::MutexLock lock(&mu_);
+    absl::MutexLock lock(mu_);
     return requests_->size();
   }
 
   InsertStreamRequest request(int idx) const {
-    absl::MutexLock lock(&mu_);
+    absl::MutexLock lock(mu_);
     return (*requests_)[idx];
   }
 
   std::shared_ptr<std::vector<InsertStreamRequest>> requests_ptr() const {
-    absl::MutexLock lock(&mu_);
+    absl::MutexLock lock(mu_);
     return requests_;
   }
 
