@@ -227,7 +227,6 @@ reverb_cc_library(
     name = "writer",
     srcs = ["writer.cc"],
     hdrs = ["writer.h"],
-    visibility = ["//reverb:__subpackages__"],
     deps = [
         ":reverb_service_cc_grpc_proto",
         ":reverb_service_cc_proto",
