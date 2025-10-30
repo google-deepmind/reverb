@@ -167,7 +167,7 @@ tensorflow::Tensor MakeTensor(int length) {
   tensorflow::TensorShape shape({length, 2});
   tensorflow::Tensor tensor(tensorflow::DT_UINT64, shape);
   for (int i = 0; i < tensor.NumElements(); i++) {
-    tensor.flat<tensorflow::uint64>().data()[i] = i;
+    tensor.flat<uint64_t>().data()[i] = i;
   }
   return tensor;
 }
@@ -391,13 +391,13 @@ TEST(GrpcSamplerTest, GetNextTrajectorySqueezesColumnsIfSet) {
   std::vector<tensorflow::Tensor> squeezed;
   REVERB_EXPECT_OK(sampler.GetNextTrajectory(&squeezed));
   ASSERT_THAT(squeezed, SizeIs(1));
-  ExpectTensorEqual<tensorflow::uint64>(
+  ExpectTensorEqual<uint64_t>(
       squeezed[0], tensorflow::tensor::DeepCopy(MakeTensor(4).SubSlice(1)));
 
   std::vector<tensorflow::Tensor> not_squeezed;
   REVERB_EXPECT_OK(sampler.GetNextTrajectory(&not_squeezed));
   ASSERT_THAT(not_squeezed, SizeIs(1));
-  ExpectTensorEqual<tensorflow::uint64>(
+  ExpectTensorEqual<uint64_t>(
       not_squeezed[0], tensorflow::tensor::DeepCopy(MakeTensor(4).Slice(1, 2)));
 }
 
@@ -426,13 +426,13 @@ TEST(LocalSamplerTest, GetNextTrajectorySqueezesColumnsIfSet) {
   std::vector<tensorflow::Tensor> squeezed;
   REVERB_EXPECT_OK(sampler.GetNextTrajectory(&squeezed));
   ASSERT_THAT(squeezed, SizeIs(1));
-  ExpectTensorEqual<tensorflow::uint64>(
+  ExpectTensorEqual<uint64_t>(
       squeezed[0], tensorflow::tensor::DeepCopy(MakeTensor(4).SubSlice(2)));
 
   std::vector<tensorflow::Tensor> not_squeezed;
   REVERB_EXPECT_OK(sampler.GetNextTrajectory(&not_squeezed));
   ASSERT_THAT(not_squeezed, SizeIs(1));
-  ExpectTensorEqual<tensorflow::uint64>(
+  ExpectTensorEqual<uint64_t>(
       not_squeezed[0], tensorflow::tensor::DeepCopy(MakeTensor(4).Slice(2, 3)));
 }
 
@@ -552,7 +552,7 @@ TEST(GrpcSamplerTest, UnpacksDeltaEncodedTensors) {
   ASSERT_EQ(not_encoded.size(), encoded.size());
   EXPECT_EQ(encoded[0].dtype(), tensorflow::DT_UINT64);
   for (int i = 4; i < encoded.size(); i++) {
-    ExpectTensorEqual<tensorflow::uint64>(encoded[i], not_encoded[i]);
+    ExpectTensorEqual<uint64_t>(encoded[i], not_encoded[i]);
   }
 }
 

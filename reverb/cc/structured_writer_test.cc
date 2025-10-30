@@ -52,11 +52,11 @@ inline StructuredWriterConfig MakeConfig(const std::string& text_proto) {
 }
 
 inline int Get(const Tensor& tensor, int index) {
-  return tensor.flat<tensorflow::int32>().data()[index];
+  return tensor.flat<int32_t>().data()[index];
 }
 
-inline void Set(Tensor& tensor, int index, tensorflow::int32 value) {
-  tensor.flat<tensorflow::int32>().data()[index] = value;
+inline void Set(Tensor& tensor, int index, int32_t value) {
+  tensor.flat<int32_t>().data()[index] = value;
 }
 
 class FakeWriter : public ColumnWriter {
@@ -180,9 +180,7 @@ Tensor MakeTensor(std::vector<int> values) {
   return tensor;
 }
 
-Tensor MakeTensor(int value) {
-  return Tensor(static_cast<tensorflow::int32>(value));
-}
+Tensor MakeTensor(int value) { return Tensor(static_cast<int32_t>(value)); }
 
 std::vector<absl::optional<Tensor>> MakeStep(
     std::vector<absl::optional<int>> values) {
@@ -201,7 +199,7 @@ void ExpectTrajectoryEqual(const std::vector<Tensor>& got,
                            const std::vector<Tensor>& want) {
   ASSERT_EQ(want.size(), got.size()) << "Wrong number of columns";
   for (int i = 0; i < want.size(); i++) {
-    test::ExpectTensorEqual<tensorflow::int32>(got[i], want[i]);
+    test::ExpectTensorEqual<int32_t>(got[i], want[i]);
   }
 }
 
