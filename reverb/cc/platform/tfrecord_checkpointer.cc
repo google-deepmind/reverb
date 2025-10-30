@@ -317,8 +317,8 @@ absl::Status LoadWithCompression(absl::string_view path,
       if (!table_status.ok()) break;
 
       PriorityTableCheckpoint checkpoint;
-      if (!checkpoint.ParseFromArray(table_record.data(),
-                                     table_record.size())) {
+      if (!checkpoint.ParseFromString(
+              absl::string_view(table_record.data(), table_record.size()))) {
         return absl::DataLossError(
             absl::StrCat("Could not parse TFRecord as Checkpoint: '",
                          absl::string_view(table_record), "'"));
@@ -375,7 +375,8 @@ absl::Status LoadWithCompression(absl::string_view path,
       item_status = FromTensorflowStatus(
           item_reader->ReadRecord(&item_offset, &item_record));
       if (!item_status.ok()) break;
-      if (!item.ParseFromArray(item_record.data(), item_record.size())) {
+      if (!item.ParseFromString(
+              absl::string_view(item_record.data(), item_record.size()))) {
         return absl::DataLossError(
             absl::StrCat("Could not parse TFRecord as PrioritizedItem: '",
                          absl::string_view(item_record), "'"));
@@ -426,8 +427,8 @@ absl::Status LoadWithCompression(absl::string_view path,
       chunk_status = FromTensorflowStatus(
           chunk_reader->ReadRecord(&chunk_offset, &chunk_record));
       if (!chunk_status.ok()) break;
-      if (!chunk_data.ParseFromArray(chunk_record.data(),
-                                     chunk_record.size())) {
+      if (!chunk_data.ParseFromString(
+              absl::string_view(chunk_record.data(), chunk_record.size()))) {
         return absl::DataLossError(
             absl::StrCat("Could not parse TFRecord as ChunkData: '",
                          absl::string_view(chunk_record), "'"));
