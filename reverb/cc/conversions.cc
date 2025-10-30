@@ -257,8 +257,8 @@ absl::Status NdArrayToTensor(PyObject *ndarray,
   TF_RETURN_IF_ERROR(GetTensorDtypeFromPyArray(py_array, &dtype));
   TF_RETURN_IF_ERROR(VerifyDtypeIsSupported(dtype));
 
-  absl::InlinedVector<tensorflow::int64, 4> dims(PyArray_NDIM(py_array));
-  tensorflow::int64 nelems = 1;
+  absl::InlinedVector<int64_t, 4> dims(PyArray_NDIM(py_array));
+  int64_t nelems = 1;
   for (int i = 0; i < PyArray_NDIM(py_array); ++i) {
     dims[i] = PyArray_SHAPE(py_array)[i];
     nelems *= dims[i];

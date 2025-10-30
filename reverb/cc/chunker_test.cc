@@ -152,7 +152,7 @@ TEST(CellRef, GetDataFromChunkerBuffer) {
 
   tensorflow::Tensor got;
   REVERB_ASSERT_OK(ref.lock()->GetData(&got));
-  test::ExpectTensorEqual<tensorflow::int32>(got, want);
+  test::ExpectTensorEqual<int32_t>(got, want);
 }
 
 
@@ -174,7 +174,7 @@ TEST(CellRef, GetDataFromUncompressdChunkerBuffer) {
   tensorflow::Tensor got;
   REVERB_ASSERT_OK(ref.lock()->GetData(&got));
 
-  test::ExpectTensorEqual<tensorflow::int32>(got, AddBatchDimension(want));
+  test::ExpectTensorEqual<int32_t>(got, AddBatchDimension(want));
 }
 
 TEST(CellRef, GetDataFromChunk) {
