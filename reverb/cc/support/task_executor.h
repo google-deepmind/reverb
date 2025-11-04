@@ -15,9 +15,12 @@
 #ifndef REVERB_CC_TASK_EXECUTOR_H_
 #define REVERB_CC_TASK_EXECUTOR_H_
 
+#include <cstddef>
+#include <functional>
+#include <memory>
 #include <string>
+#include <vector>
 
-#include "reverb/cc/platform/status_macros.h"
 #include "reverb/cc/platform/thread.h"
 #include "reverb/cc/support/unbounded_queue.h"
 

@@ -14,6 +14,14 @@
 
 #include "reverb/cc/support/task_executor.h"
 
+#include <cstddef>
+#include <functional>
+#include <string>
+#include <utility>
+
+#include "absl/strings/str_cat.h"
+#include "reverb/cc/platform/thread.h"
+
 namespace deepmind {
 namespace reverb {
 

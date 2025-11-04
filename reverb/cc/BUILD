@@ -175,6 +175,7 @@ reverb_cc_library(
         "//reverb/cc/platform:hash_set",
         "//reverb/cc/platform:logging",
         "//reverb/cc/platform:status_macros",
+        "//reverb/cc/platform:thread",
         "//reverb/cc/selectors:interface",
         "//reverb/cc/support:state_statistics",
         "//reverb/cc/support:task_executor",

@@ -17,7 +17,6 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
-#include <initializer_list>
 #include <iterator>
 #include <memory>
 #include <optional>
@@ -26,14 +25,16 @@
 #include <vector>
 
 #include "google/protobuf/timestamp.pb.h"
-#include "absl/memory/memory.h"
+#include "absl/base/thread_annotations.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/synchronization/notification.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
+#include "absl/types/optional.h"
 #include "absl/types/span.h"
 #include "reverb/cc/checkpointing/checkpoint.pb.h"
 #include "reverb/cc/chunk_store.h"
@@ -42,9 +43,11 @@
 #include "reverb/cc/platform/hash_set.h"
 #include "reverb/cc/platform/logging.h"
 #include "reverb/cc/platform/status_macros.h"
+#include "reverb/cc/platform/thread.h"
 #include "reverb/cc/rate_limiter.h"
 #include "reverb/cc/schema.pb.h"
 #include "reverb/cc/selectors/interface.h"
+#include "reverb/cc/support/task_executor.h"
 #include "reverb/cc/support/trajectory_util.h"
 #include "reverb/cc/table_extensions/interface.h"
 
@@ -657,7 +660,7 @@ void Table::EnqueSampleRequest(int num_samples,
   request->on_batch_done = std::move(callback);
   request->deadline = absl::Now() + timeout;
   // Reserved size is used to communicate sampling batch size (it eliminates the
-  // need of alocating memory inside the table worker).
+  // need of allocating memory inside the table worker).
   request->samples.reserve(num_samples);
   // Table worker doesn't release memory of removed items, clients do that
   // asynchrously.

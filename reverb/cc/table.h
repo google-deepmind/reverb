@@ -17,6 +17,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -28,12 +29,14 @@
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "absl/synchronization/mutex.h"
+#include "absl/time/time.h"
 #include "absl/types/optional.h"
 #include "absl/types/span.h"
 #include "reverb/cc/checkpointing/checkpoint.pb.h"
 #include "reverb/cc/chunk_store.h"
 #include "reverb/cc/platform/hash_map.h"
 #include "reverb/cc/platform/hash_set.h"
+#include "reverb/cc/platform/thread.h"
 #include "reverb/cc/rate_limiter.h"
 #include "reverb/cc/schema.pb.h"
 #include "reverb/cc/selectors/interface.h"
