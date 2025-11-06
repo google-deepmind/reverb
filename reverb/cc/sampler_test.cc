@@ -24,9 +24,11 @@
 #include <vector>
 
 #include "grpcpp/client_context.h"
+#include "grpcpp/impl/call_op_set.h"
 #include "grpcpp/impl/codegen/call_op_set.h"
 #include "grpcpp/impl/codegen/status.h"
 #include "grpcpp/support/status.h"
+#include "grpcpp/support/sync_stream.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "absl/base/thread_annotations.h"
@@ -35,9 +37,6 @@
 #include "absl/synchronization/mutex.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
-#include "third_party/grpc/include/grpcpp/client_context.h"
-#include "third_party/grpc/include/grpcpp/impl/call_op_set.h"
-#include "third_party/grpc/include/grpcpp/support/sync_stream.h"
 #include "reverb/cc/chunk_store.h"
 #include "reverb/cc/platform/logging.h"
 #include "reverb/cc/platform/status_matchers.h"

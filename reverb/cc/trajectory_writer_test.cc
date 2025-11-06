@@ -21,6 +21,7 @@
 
 #include "grpcpp/impl/codegen/status.h"
 #include "grpcpp/impl/codegen/sync_stream.h"
+#include "grpcpp/support/status.h"
 #include "grpcpp/test/mock_stream.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
@@ -37,7 +38,6 @@
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "absl/types/optional.h"
-#include "third_party/grpc/include/grpcpp/support/status.h"
 #include "reverb/cc/chunker.h"
 #include "reverb/cc/platform/logging.h"
 #include "reverb/cc/platform/status_matchers.h"

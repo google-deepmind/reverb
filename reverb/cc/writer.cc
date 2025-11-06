@@ -23,6 +23,8 @@
 #include <utility>
 #include <vector>
 
+#include "grpcpp/client_context.h"
+#include "grpcpp/impl/call_op_set.h"
 #include "absl/base/thread_annotations.h"
 #include "absl/functional/bind_front.h"
 #include "absl/log/check.h"
@@ -33,8 +35,6 @@
 #include "absl/strings/string_view.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/types/optional.h"
-#include "third_party/grpc/include/grpcpp/client_context.h"
-#include "third_party/grpc/include/grpcpp/impl/call_op_set.h"
 #include "reverb/cc/platform/hash_set.h"
 #include "reverb/cc/platform/logging.h"
 #include "reverb/cc/platform/status_macros.h"

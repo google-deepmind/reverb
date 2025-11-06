@@ -19,6 +19,7 @@
 #include <string>
 #include <utility>
 
+#include "grpcpp/security/credentials.h"
 #include "grpcpp/support/channel_arguments.h"
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
@@ -26,7 +27,6 @@
 #include "absl/strings/string_view.h"
 #include "absl/time/time.h"
 #include "absl/types/optional.h"
-#include "third_party/grpc/include/grpcpp/security/credentials.h"
 #include "reverb/cc/chunker.h"
 #include "reverb/cc/patterns.pb.h"
 #include "reverb/cc/platform/grpc_utils.h"
