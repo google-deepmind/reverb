@@ -19,6 +19,8 @@
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "absl/status/status.h"
+#include "absl/status/status_matchers.h"
+#include "reverb/cc/platform/status_matchers.h"
 #include "reverb/cc/testing/tensor_testutil.h"
 #include "tensorflow/core/framework/register_types.h"
 #include "tensorflow/core/framework/tensor.h"
@@ -34,7 +36,7 @@ namespace reverb {
 namespace {
 
 using ::testing::HasSubstr;
-using ::testing::status::StatusIs;
+using ::absl_testing::StatusIs;
 
 template <typename T>
 void EncodeMatchesDecodeT() {
@@ -75,9 +77,9 @@ TEST(TensorCompressionTest, StringTensor) {
   tensor.flat<tensorflow::tstring>()(1) = "world";
 
   tensorflow::TensorProto proto;
-  ASSERT_OK(CompressTensorAsProto(tensor, &proto));
+  REVERB_ASSERT_OK(CompressTensorAsProto(tensor, &proto));
 
-  ASSERT_OK_AND_ASSIGN(tensorflow::Tensor result,
+  REVERB_ASSERT_OK_AND_ASSIGN(tensorflow::Tensor result,
                        DecompressTensorFromProto(proto));
   test::ExpectTensorEqual<tensorflow::tstring>(tensor, result);
 }
@@ -88,9 +90,9 @@ TEST(TensorCompressionTest, NonStringTensor) {
   tensor.flat<int>().setRandom();
 
   tensorflow::TensorProto proto;
-  ASSERT_OK(CompressTensorAsProto(tensor, &proto));
+  REVERB_ASSERT_OK(CompressTensorAsProto(tensor, &proto));
 
-  ASSERT_OK_AND_ASSIGN(tensorflow::Tensor result,
+  REVERB_ASSERT_OK_AND_ASSIGN(tensorflow::Tensor result,
                        DecompressTensorFromProto(proto));
   test::ExpectTensorEqual<int>(tensor, result);
 }
@@ -101,9 +103,8 @@ TEST(TensorCompressionTest, NonStringTensorWithDeltaEncoding) {
   tensor.flat<int>().setRandom();
 
   tensorflow::TensorProto proto;
-  ASSERT_OK(CompressTensorAsProto(DeltaEncode(tensor, true), &proto));
-
-  ASSERT_OK_AND_ASSIGN(tensorflow::Tensor result,
+  REVERB_ASSERT_OK(CompressTensorAsProto(DeltaEncode(tensor, true), &proto));
+  REVERB_ASSERT_OK_AND_ASSIGN(tensorflow::Tensor result,
                        DecompressTensorFromProto(proto));
   test::ExpectTensorEqual<int>(tensor, DeltaEncode(result, false));
 }

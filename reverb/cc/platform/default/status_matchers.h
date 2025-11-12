@@ -62,4 +62,18 @@ inline IsOkMatcher IsOk() { return IsOkMatcher(); }
 #define REVERB_ASSERT_OK(expression) \
   ASSERT_THAT(expression, deepmind::reverb::internal::IsOk())
 
+#define REVERB_ASSERT_OK_AND_ASSIGN(lhs, rexpr)                             \
+  REVERB_ASSERT_OK_AND_ASSIGN_IMPL(                                         \
+      REVERB_STATUS_MACROS_CONCAT_NAME(_status_or_value, __COUNTER__), lhs, \
+      rexpr);
+
+#define REVERB_ASSERT_OK_AND_ASSIGN_IMPL(statusor, lhs, rexpr) \
+  auto statusor = (rexpr);                                 \
+  ASSERT_TRUE(statusor.status().ok())                      \
+      << ADD_SOURCE_LOCATION(statusor.status());           \
+  lhs = std::move(statusor).value()
+
+#define REVERB_STATUS_MACROS_CONCAT_NAME(x, y) REVERB_STATUS_MACROS_CONCAT_IMPL(x, y)  // NOLINT(whitespace/line_length)
+#define REVERB_STATUS_MACROS_CONCAT_IMPL(x, y) x##y
+
 #endif  // REVERB_CC_PLATFORM_DEFAULT_STATUS_MATCHERS_H_

@@ -194,7 +194,8 @@ SampleStreamResponse MakeResponse(int item_length, bool delta_encode = false,
   REVERB_CHECK_LE(item_length + offset, data_length);
 
   SampleStreamResponse response;
-  auto* column = response.add_entries()->mutable_info()
+  auto* column = response.add_entries()
+                     ->mutable_info()
                      ->mutable_item()
                      ->mutable_flat_trajectory()
                      ->add_columns();
@@ -624,8 +625,9 @@ TEST(LocalSamplerTest, GetNextTimestepForwardsFatalServerError) {
   sampler.Close();
 }
 
-class ParameterizedGrpcSamplerTest : public ::testing::Test,
-                public ::testing::WithParamInterface<grpc::StatusCode> {};
+class ParameterizedGrpcSamplerTest
+    : public ::testing::Test,
+      public ::testing::WithParamInterface<grpc::StatusCode> {};
 
 TEST_P(ParameterizedGrpcSamplerTest, GetNextTimestepRetriesTransientErrors) {
   const int kNumWorkers = 2;
@@ -702,7 +704,7 @@ TEST(GrpcSamplerTest, GetNextTimestepReturnsErrorIfNotDecomposible) {
   auto* entry = response.mutable_entries(0);
 
   // Add a column of length 10 to the existing one of length 5.
-  ASSERT_OK(CompressTensorAsProto(
+  REVERB_ASSERT_OK(CompressTensorAsProto(
       MakeTensor(10), entry->add_data()->mutable_data()->add_tensors()));
   auto* slice = entry->mutable_info()
                     ->mutable_item()

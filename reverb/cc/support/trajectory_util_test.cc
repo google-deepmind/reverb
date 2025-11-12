@@ -14,6 +14,7 @@
 
 #include "reverb/cc/support/trajectory_util.h"
 
+#include <cstdint>
 #include <memory>
 
 #include "gmock/gmock.h"
@@ -25,7 +26,6 @@
 #include "reverb/cc/testing/proto_test_util.h"
 #include "reverb/cc/testing/tensor_testutil.h"
 #include "tensorflow/core/framework/tensor.h"
-#include "tensorflow/core/lib/core/status_test_util.h"
 
 namespace deepmind {
 namespace reverb {
@@ -246,9 +246,9 @@ TEST(UnpackChunkColumn, SelectsCorrectColumn) {
   tensorflow::Tensor second_col_tensor(static_cast<int32_t>(9000));
 
   ChunkData data;
-  ASSERT_OK(CompressTensorAsProto(first_col_tensor,
+  REVERB_ASSERT_OK(CompressTensorAsProto(first_col_tensor,
                                   data.mutable_data()->add_tensors()));
-  ASSERT_OK(CompressTensorAsProto(second_col_tensor,
+  REVERB_ASSERT_OK(CompressTensorAsProto(second_col_tensor,
                                   data.mutable_data()->add_tensors()));
   data.set_data_tensors_len(2);
 

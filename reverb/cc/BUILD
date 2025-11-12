@@ -66,8 +66,10 @@ reverb_cc_test(
     srcs = ["tensor_compression_test.cc"],
     deps = [
         ":tensor_compression",
+        "//reverb/cc/platform:status_matchers",
         "//reverb/cc/testing:tensor_testutil",
         "//third_party/absl/status",
+        "//third_party/absl/status:status_matchers",
     ] + reverb_tf_deps(),
 )
 
