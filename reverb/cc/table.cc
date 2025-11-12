@@ -160,11 +160,13 @@ Table::Table(std::string name, std::shared_ptr<ItemSelector> sampler,
       num_unique_samples_(0),
       max_size_(max_size),
       max_enqueued_inserts_(
-          std::max(1L, std::min<int64_t>(max_size * kMaxEnqueuedInsertsPerc,
-                                         kMaxEnqueuedInserts))),
+          std::max(static_cast<int64_t>(1L),
+                   std::min<int64_t>(max_size * kMaxEnqueuedInsertsPerc,
+                                     kMaxEnqueuedInserts))),
       max_enqueued_extension_ops_(
-          std::max(1L, std::min<int64_t>(max_size * kMaxPendingExtensionOpsPerc,
-                                         kMaxPendingExtensionOps))),
+          std::max(static_cast<int64_t>(1L),
+                   std::min<int64_t>(max_size * kMaxPendingExtensionOpsPerc,
+                                     kMaxPendingExtensionOps))),
       max_times_sampled_(max_times_sampled),
       name_(std::move(name)),
       rate_limiter_(std::move(rate_limiter)),
@@ -194,11 +196,13 @@ void Table::InitializeFromCheckpoint(
     remover_ = std::move(remover);
     max_size_ = max_size;
     max_enqueued_inserts_ =
-        std::max(1L, std::min<int64_t>(max_size * kMaxEnqueuedInsertsPerc,
-                                       kMaxEnqueuedInserts));
+        std::max(static_cast<int64_t>(1L),
+                 std::min<int64_t>(max_size * kMaxEnqueuedInsertsPerc,
+                                   kMaxEnqueuedInserts));
     max_enqueued_extension_ops_ =
-        (std::max(1L, std::min<int64_t>(max_size * kMaxPendingExtensionOpsPerc,
-                                        kMaxPendingExtensionOps)));
+        (std::max(static_cast<int64_t>(1L),
+                  std::min<int64_t>(max_size * kMaxPendingExtensionOpsPerc,
+                                    kMaxPendingExtensionOps)));
     max_times_sampled_ = max_times_sampled;
     rate_limiter_ = std::move(rate_limiter);
     REVERB_CHECK_OK(rate_limiter_->RegisterTable(this));
