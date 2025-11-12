@@ -15,6 +15,7 @@
 #ifndef REVERB_CC_TESTING_PROTO_TEST_UTIL_H_
 #define REVERB_CC_TESTING_PROTO_TEST_UTIL_H_
 
+#include <cstdint>
 #include <vector>
 
 #include "google/protobuf/text_format.h"

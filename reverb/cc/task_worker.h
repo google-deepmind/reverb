@@ -15,6 +15,7 @@
 #ifndef REVERB_CC_TASK_WORKER_H_
 #define REVERB_CC_TASK_WORKER_H_
 
+#include <cstdint>
 #include <memory>
 #include <string>
 

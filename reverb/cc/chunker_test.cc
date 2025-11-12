@@ -14,6 +14,7 @@
 
 #include "reverb/cc/chunker.h"
 
+#include <cstdint>
 #include <deque>
 #include <memory>
 #include <string>
@@ -585,7 +586,7 @@ TEST(Chunker, NonSparseEpisodeRange) {
 
   // Append five consecutive steps.
   std::weak_ptr<CellRef> step;
-  for (int i = 0; i < 5; i++) {
+  for (int32_t i = 0; i < 5; i++) {
     REVERB_ASSERT_OK(
         chunker->Append(MakeConstantTensor<tensorflow::DT_INT32>({1}, 0),
                         {/*episode_id=*/1, /*step=*/i}, &step));
@@ -604,7 +605,7 @@ TEST(Chunker, SparseEpisodeRange) {
 
   // Append five steps with a stride of 2.
   std::weak_ptr<CellRef> step;
-  for (int i = 0; i < 5; i++) {
+  for (int32_t i = 0; i < 5; i++) {
     REVERB_ASSERT_OK(
         chunker->Append(MakeZeroTensor<tensorflow::DT_INT32>(kIntSpec),
                         {/*episode_id=*/33, /*step=*/i * 2}, &step));
@@ -844,7 +845,7 @@ TEST(AutoTunedChunkerOptions, SingleStepItemsAndRandomData) {
 
   // If the data is random and items only take single step then we expect
   // the chunk length to be 1 eventually.
-  for (int i = 0; i < 1000; i++) {
+  for (int32_t i = 0; i < 1000; i++) {
     std::weak_ptr<CellRef> ref;
     REVERB_EXPECT_OK(
         chunker->Append(MakeRandomTensor<tensorflow::DT_FLOAT>(shape, 0, 1),
@@ -871,7 +872,7 @@ TEST(AutoTunedChunkerOptions, MultiOverlapStepItemsAndRandomData) {
   // the final value will circle between 1 and 3.
   std::deque<std::shared_ptr<CellRef>> last_10_refs;
 
-  for (int i = 0; i < 1000; i++) {
+  for (int32_t i = 0; i < 1000; i++) {
     std::weak_ptr<CellRef> ref;
     REVERB_EXPECT_OK(
         chunker->Append(MakeRandomTensor<tensorflow::DT_FLOAT>(shape, 0, 1),
@@ -903,7 +904,7 @@ TEST(AutoTunedChunkerOptions, ConstantNonOverlappingItems) {
   // should therefore grow to the max value.
   std::deque<std::shared_ptr<CellRef>> last_10_refs;
 
-  for (int i = 0; i < 1000; i++) {
+  for (int32_t i = 0; i < 1000; i++) {
     std::weak_ptr<CellRef> ref;
     REVERB_EXPECT_OK(
         chunker->Append(MakeConstantTensor<tensorflow::DT_FLOAT>(shape, 33),

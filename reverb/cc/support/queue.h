@@ -15,6 +15,7 @@
 #ifndef REVERB_CC_SUPPORT_QUEUE_H_
 #define REVERB_CC_SUPPORT_QUEUE_H_
 
+#include <cstdint>
 #include <vector>
 
 #include "absl/base/thread_annotations.h"

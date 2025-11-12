@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <cstdint>
 #include <memory>
 
 #include "absl/status/status.h"
@@ -48,7 +49,7 @@ class ReverbTrajectoryDatasetOp : public tensorflow::data::DatasetOpKernel {
                                      &sampler_options_.num_workers));
     OP_REQUIRES_OK(ctx, ctx->GetAttr("max_samples_per_stream",
                                      &sampler_options_.max_samples_per_stream));
-    tensorflow::int64 rate_limiter_timeout_ms;
+    int64_t rate_limiter_timeout_ms;
     OP_REQUIRES_OK(
         ctx, ctx->GetAttr("rate_limiter_timeout_ms", &rate_limiter_timeout_ms));
     OP_REQUIRES_OK(ctx,
@@ -147,7 +148,7 @@ class ReverbTrajectoryDatasetOp : public tensorflow::data::DatasetOpKernel {
       b->BuildAttrValue(sampler_options_.max_samples_per_stream,
                         &max_samples_per_stream_attr);
       b->BuildAttrValue(
-          static_cast<tensorflow::int64>(NonnegativeDurationToInt64Millis(
+          static_cast<int64_t>(NonnegativeDurationToInt64Millis(
               sampler_options_.rate_limiter_timeout)),
           &rate_limiter_timeout_ms_attr);
       b->BuildAttrValue(sampler_options_.max_samples, &max_samples_attr);

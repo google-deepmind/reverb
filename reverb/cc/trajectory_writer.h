@@ -15,6 +15,7 @@
 #ifndef REVERB_CC_TRAJECTORY_WRITER_H_
 #define REVERB_CC_TRAJECTORY_WRITER_H_
 
+#include <cstdint>
 #include <deque>
 #include <memory>
 #include <optional>

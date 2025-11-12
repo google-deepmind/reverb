@@ -15,6 +15,7 @@
 #ifndef REVERB_CC_CHUNKER_H_
 #define REVERB_CC_CHUNKER_H_
 
+#include <cstdint>
 #include <deque>
 #include <memory>
 #include <vector>

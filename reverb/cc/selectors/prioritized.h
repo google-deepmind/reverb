@@ -15,6 +15,7 @@
 #ifndef REVERB_CC_SELECTORS_PRIORITIZED_H_
 #define REVERB_CC_SELECTORS_PRIORITIZED_H_
 
+#include <cstdint>
 #include <random>
 #include <vector>
 
@@ -41,6 +42,7 @@ namespace reverb {
 class PrioritizedSelector : public ItemSelector {
  public:
   PrioritizedSelector(double priority_exponent,
+                      // NOLINTNEXTLINE(runtime/random_device)
                       uint64_t seed = std::random_device()());
 
   // O(log n) time.
