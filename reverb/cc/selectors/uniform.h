@@ -15,6 +15,8 @@
 #ifndef REVERB_CC_SELECTORS_UNIFORM_H_
 #define REVERB_CC_SELECTORS_UNIFORM_H_
 
+#include <cstddef>
+#include <string>
 #include <vector>
 
 #include "absl/random/random.h"

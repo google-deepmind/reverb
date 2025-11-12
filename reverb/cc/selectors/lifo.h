@@ -16,6 +16,7 @@
 #define REVERB_CC_SELECTORS_LIFO_H_
 
 #include <list>
+#include <string>
 
 #include "absl/status/status.h"
 #include "reverb/cc/checkpointing/checkpoint.pb.h"

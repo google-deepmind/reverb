@@ -16,14 +16,15 @@
 
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "absl/strings/str_format.h"
 #include "absl/strings/string_view.h"
-#include "absl/synchronization/mutex.h"
 #include "absl/time/time.h"
 #include "reverb/cc/platform/logging.h"
 #include "reverb/cc/schema.pb.h"
+#include "reverb/cc/table.h"
 
 namespace deepmind::reverb {
 

@@ -16,8 +16,10 @@
 #define REVERB_CC_TABLE_EXTENSIONS_INSERT_ON_SAMPLE_H_
 
 #include <memory>
+#include <string>
 #include <vector>
 
+#include "absl/time/time.h"
 #include "reverb/cc/table.h"
 #include "reverb/cc/table_extensions/base.h"
 

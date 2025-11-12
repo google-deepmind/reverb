@@ -16,8 +16,9 @@
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
-#include "reverb/cc/schema.pb.h"
+#include "absl/status/status.h"
 #include "reverb/cc/platform/status_matchers.h"
+#include "reverb/cc/schema.pb.h"
 #include "reverb/cc/selectors/interface.h"
 #include "reverb/cc/testing/proto_test_util.h"
 

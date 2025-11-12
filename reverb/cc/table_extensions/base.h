@@ -16,6 +16,7 @@
 #define REVERB_CC_TABLE_EXTENSIONS_BASE_H_
 
 #include "absl/base/thread_annotations.h"
+#include "absl/status/status.h"
 #include "absl/synchronization/mutex.h"
 #include "reverb/cc/table.h"
 #include "reverb/cc/table_extensions/interface.h"

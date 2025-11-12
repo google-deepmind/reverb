@@ -14,6 +14,9 @@
 
 #include "reverb/cc/selectors/fifo.h"
 
+#include <string>
+
+#include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 #include "reverb/cc/checkpointing/checkpoint.pb.h"
 #include "reverb/cc/platform/logging.h"

@@ -15,11 +15,12 @@
 #ifndef REVERB_CC_SELECTORS_PRIORITIZED_H_
 #define REVERB_CC_SELECTORS_PRIORITIZED_H_
 
+#include <cstddef>
 #include <cstdint>
 #include <random>
+#include <string>
 #include <vector>
 
-#include "absl/random/random.h"
 #include "absl/status/status.h"
 #include "reverb/cc/checkpointing/checkpoint.pb.h"
 #include "reverb/cc/platform/hash_map.h"

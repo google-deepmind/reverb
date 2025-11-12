@@ -16,7 +16,9 @@
 #define REVERB_CC_SELECTORS_FIFO_H_
 
 #include <list>
+#include <string>
 
+#include "absl/status/status.h"
 #include "reverb/cc/checkpointing/checkpoint.pb.h"
 #include "reverb/cc/platform/hash_map.h"
 #include "reverb/cc/selectors/interface.h"

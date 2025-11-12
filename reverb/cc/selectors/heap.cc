@@ -15,9 +15,12 @@
 #include "reverb/cc/selectors/heap.h"
 
 #include <memory>
+#include <string>
 
+#include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 #include "reverb/cc/checkpointing/checkpoint.pb.h"
+#include "reverb/cc/platform/logging.h"
 #include "reverb/cc/schema.pb.h"
 #include "reverb/cc/selectors/interface.h"
 

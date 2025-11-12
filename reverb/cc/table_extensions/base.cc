@@ -16,6 +16,7 @@
 
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
+#include "absl/synchronization/mutex.h"
 #include "reverb/cc/platform/logging.h"
 #include "reverb/cc/table.h"
 

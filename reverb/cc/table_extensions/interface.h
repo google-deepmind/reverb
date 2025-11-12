@@ -16,6 +16,7 @@
 #define REVERB_CC_TABLE_EXTENSIONS_INTERFACE_H_
 
 #include <memory>
+#include <string>
 #include <vector>
 
 #include "absl/base/thread_annotations.h"

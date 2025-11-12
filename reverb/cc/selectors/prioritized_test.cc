@@ -15,15 +15,18 @@
 #include "reverb/cc/selectors/prioritized.h"
 
 #include <cmath>
+#include <cstdint>
 #include <vector>
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "absl/random/distributions.h"
 #include "absl/random/random.h"
+#include "absl/status/status.h"
 #include "reverb/cc/platform/hash_map.h"
 #include "reverb/cc/platform/status_matchers.h"
 #include "reverb/cc/schema.pb.h"
+#include "reverb/cc/selectors/interface.h"
 #include "reverb/cc/testing/proto_test_util.h"
 
 namespace deepmind {

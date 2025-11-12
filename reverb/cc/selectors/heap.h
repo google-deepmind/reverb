@@ -15,6 +15,11 @@
 #ifndef REVERB_CC_SELECTORS_HEAP_H_
 #define REVERB_CC_SELECTORS_HEAP_H_
 
+#include <cstdint>
+#include <memory>
+#include <string>
+
+#include "absl/status/status.h"
 #include "reverb/cc/platform/hash_map.h"
 #include "reverb/cc/selectors/interface.h"
 #include "reverb/cc/support/intrusive_heap.h"

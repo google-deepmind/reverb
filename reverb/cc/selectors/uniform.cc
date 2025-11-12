@@ -14,11 +14,16 @@
 
 #include "reverb/cc/selectors/uniform.h"
 
+#include <cstddef>
+#include <string>
+
+#include "absl/random/distributions.h"
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 #include "reverb/cc/checkpointing/checkpoint.pb.h"
 #include "reverb/cc/platform/logging.h"
 #include "reverb/cc/schema.pb.h"
+#include "reverb/cc/selectors/interface.h"
 
 namespace deepmind {
 namespace reverb {
