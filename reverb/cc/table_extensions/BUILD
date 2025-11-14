@@ -2,7 +2,6 @@ load(
     "//reverb/cc/platform:build_rules.bzl",
     "reverb_absl_deps",
     "reverb_cc_library",
-    "reverb_tf_deps",
 )
 
 package(default_visibility = ["//reverb:__subpackages__"])
@@ -14,7 +13,7 @@ reverb_cc_library(
     hdrs = ["interface.h"],
     deps = [
         "//reverb/cc:schema_cc_proto",
-    ] + reverb_absl_deps() + reverb_tf_deps(),
+    ] + reverb_absl_deps(),
 )
 
 reverb_cc_library(

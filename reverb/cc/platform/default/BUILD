@@ -19,7 +19,7 @@ reverb_cc_library(
     deps = [
         "//reverb/cc/platform:snappy_hdr",
         "@com_google_absl//absl/strings",
-    ] + reverb_tf_deps(),
+    ],
     alwayslink = 1,
 )
 
@@ -106,7 +106,6 @@ reverb_cc_library(
     name = "logging",
     srcs = ["logging.cc"],
     hdrs = ["logging.h"],
-    deps = reverb_tf_deps(),
 )
 
 reverb_cc_library(

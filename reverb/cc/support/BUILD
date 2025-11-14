@@ -30,7 +30,7 @@ reverb_cc_library(
     hdrs = ["queue.h"],
     deps = [
         "//reverb/cc/platform:logging",
-    ] + reverb_absl_deps() + reverb_tf_deps(),
+    ] + reverb_absl_deps(),
 )
 
 reverb_cc_library(

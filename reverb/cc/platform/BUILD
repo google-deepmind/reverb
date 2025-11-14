@@ -134,7 +134,7 @@ reverb_cc_test(
         ":server",
         "//reverb/cc/platform:net",
         "//reverb/cc/platform:status_matchers",
-    ] + reverb_tf_deps() + reverb_grpc_deps() + reverb_absl_deps(),
+    ] + reverb_grpc_deps() + reverb_absl_deps(),
 )
 
 reverb_cc_library(
