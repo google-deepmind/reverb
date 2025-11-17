@@ -68,8 +68,8 @@ reverb_cc_test(
         ":tensor_compression",
         "//reverb/cc/platform:status_matchers",
         "//reverb/cc/testing:tensor_testutil",
-        "//third_party/absl/status",
-        "//third_party/absl/status:status_matchers",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_matchers",
     ] + reverb_tf_deps(),
 )
 
@@ -90,8 +90,8 @@ reverb_cc_test(
         "//reverb/cc/testing:proto_test_util",
         "//reverb/cc/testing:tensor_testutil",
         "//reverb/cc/testing:time_testutil",
-        "//third_party/absl/log:check",
-        "//third_party/grpc:grpc++",
+        "@com_github_grpc_grpc//:grpc++",
+        "@com_google_absl//absl/log:check",
     ] + reverb_tf_deps() + reverb_grpc_deps() + reverb_absl_deps(),
 )
 
@@ -144,7 +144,7 @@ reverb_cc_library(
     name = "conversions",
     srcs = ["conversions.cc"],
     hdrs = ["conversions.h"],
-    deps = reverb_pybind_deps() + reverb_absl_deps(),
+    deps = reverb_tf_deps() + reverb_pybind_deps() + reverb_absl_deps(),
 )
 
 reverb_cc_library(
@@ -194,10 +194,10 @@ reverb_cc_library(
     deps = [
         "//reverb/cc/platform:logging",
         "//reverb/cc/platform:snappy",
-        "//third_party/absl/status",
-        "//third_party/absl/status:statusor",
-        "//third_party/absl/strings",
-        "//third_party/tensorflow/compiler/xla/tsl/platform:status",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
+        "@local_xla//xla/tsl/platform:status",
     ] + reverb_tf_deps(),
 )
 
@@ -243,8 +243,8 @@ reverb_cc_library(
         "//reverb/cc/support:signature",
         "//reverb/cc/support:tf_util",
         "//reverb/cc/support:trajectory_util",
-        "//third_party/absl/log:check",
-        "//third_party/grpc:grpc++",
+        "@com_github_grpc_grpc//:grpc++",
+        "@com_google_absl//absl/log:check",
     ] + reverb_tf_deps() + reverb_grpc_deps() + reverb_absl_deps(),
 )
 
@@ -308,7 +308,7 @@ reverb_cc_test(
         "//reverb/cc/support:signature",
         "//reverb/cc/testing:proto_test_util",
         "//reverb/cc/testing:tensor_testutil",
-        "//third_party/grpc:grpc++_unsecure",
+        "@com_github_grpc_grpc//:grpc++_unsecure",
     ] + reverb_tf_deps() + reverb_grpc_deps() + reverb_absl_deps(),
 )
 
@@ -384,7 +384,7 @@ reverb_cc_library(
         "//reverb/cc/support:grpc_util",
         "//reverb/cc/support:signature",
         "//reverb/cc/support:uint128",
-        "//third_party/grpc:grpc++",
+        "@com_github_grpc_grpc//:grpc++",
     ] + reverb_grpc_deps() + reverb_absl_deps(),
 )
 

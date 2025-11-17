@@ -1,8 +1,11 @@
 """Default versions of reverb build rule helpers."""
 
-load("//third_party/bazel_rules/rules_cc/cc:cc_binary.bzl", "cc_binary")
-load("//third_party/bazel_rules/rules_cc/cc:cc_library.bzl", "cc_library")
-load("//third_party/bazel_rules/rules_cc/cc:cc_test.bzl", "cc_test")
+load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
+load("@rules_python//python:py_binary.bzl", "py_binary")
+load("@rules_python//python:py_library.bzl", "py_library")
+load("@rules_python//python:py_test.bzl", "py_test")
 
 def tf_copts():
     return ["-Wno-sign-compare"]
@@ -17,9 +20,7 @@ def reverb_cc_library(
     if testonly:
         new_deps = [
             "@com_google_googletest//:gtest",
-            "@tensorflow_includes//:includes",
-            "@tensorflow_solib//:framework_lib",
-        ]
+        ] + reverb_tf_deps()
     else:
         new_deps = []
     cc_library(
@@ -49,13 +50,7 @@ def _removesuffix(x, txt):
     return x
 
 def _normalize_proto(x):
-    if x.endswith("_proto"):
-        x = _removesuffix(x, "_proto")
-    if x.endswith("_cc"):
-        x = _removesuffix(x, "_cc")
-    if x.endswith("_pb2"):
-        x = _removesuffix(x, "_pb2")
-    return x
+    return x.removesuffix("_proto").removesuffix("_cc") + "_proto"
 
 def _filegroup_name(x):
     return _normalize_proto(x) + "_filegroup"
@@ -94,39 +89,28 @@ def reverb_cc_proto_library(name, srcs = [], deps = [], **kwargs):
     )
     native.genrule(
         name = name + "_gen",
-        srcs = srcs,
+        srcs = srcs + dep_srcs + [
+            "@com_google_protobuf//:well_known_type_protos",
+            "@org_tensorflow//tensorflow/core:protos_srcs",
+        ],
         outs = gen_srcs + gen_hdrs,
-        tools = dep_srcs + [
-            "@protobuf_protoc//:protoc_bin",
-            "@tensorflow_includes//:protos",
+        tools = [
+            "@com_google_protobuf//:protoc",
         ],
         cmd = """
         OUTDIR=$$(echo $(RULEDIR) | sed -E -e 's#reverb(/.*|$$)##')
-        $(location @protobuf_protoc//:protoc_bin) \
-          --proto_path=external/tensorflow_includes/tensorflow_includes/ \
+        $(location @com_google_protobuf//:protoc) \
+          --proto_path=external/org_tensorflow/ \
+          --proto_path=external/com_google_protobuf/src \
           --proto_path=. \
           --cpp_out=$$OUTDIR {}""".format(
             " ".join(src_paths),
         ),
     )
     cc_library(
-        name = "{}_static".format(name),
+        name = "{}".format(name),
         srcs = gen_srcs,
         hdrs = gen_hdrs,
-        deps = depset(deps + reverb_tf_deps()),
-        alwayslink = 1,
-        **kwargs
-    )
-    cc_binary(
-        name = "lib{}.so".format(name),
-        deps = ["{}_static".format(name)],
-        linkshared = 1,
-        **kwargs
-    )
-    cc_library(
-        name = name,
-        hdrs = gen_hdrs,
-        srcs = ["lib{}.so".format(name)],
         deps = depset(deps + reverb_tf_deps()),
         alwayslink = 1,
         **kwargs
@@ -168,22 +152,25 @@ def reverb_py_proto_library(name, srcs = [], deps = [], **kwargs):
     )
     native.genrule(
         name = name + "_gen",
-        srcs = srcs,
+        srcs = srcs + proto_deps + [
+            "@com_google_protobuf//:well_known_type_protos",
+            "@org_tensorflow//tensorflow/core:protos_srcs",
+        ],
         outs = gen_srcs,
-        tools = proto_deps + [
-            "@protobuf_protoc//:protoc_bin",
-            "@tensorflow_includes//:protos",
+        tools = [
+            "@com_google_protobuf//:protoc",
         ],
         cmd = """
         OUTDIR=$$(echo $(RULEDIR) | sed -E -e 's#reverb(/.*|$$)##')
-        $(location @protobuf_protoc//:protoc_bin) \
-          --proto_path=external/tensorflow_includes/tensorflow_includes/ \
+        $(location @com_google_protobuf//:protoc) \
+          --proto_path=external/org_tensorflow \
+          --proto_path=external/com_google_protobuf/src \
           --proto_path=. \
           --python_out=$$OUTDIR {}""".format(
             " ".join(src_paths),
         ),
     )
-    native.py_library(
+    py_library(
         name = name,
         srcs = gen_srcs,
         deps = py_deps,
@@ -230,18 +217,21 @@ def reverb_cc_grpc_library(
 
     native.genrule(
         name = name + "_gen",
-        srcs = srcs,
+        srcs = srcs + proto_src_deps + [
+            "@com_google_protobuf//:well_known_type_protos",
+            "@org_tensorflow//tensorflow/core:protos_srcs",
+        ],
         outs = gen_srcs + gen_hdrs + gen_mocks,
-        tools = proto_src_deps + [
-            "@protobuf_protoc//:protoc_bin",
-            "@tensorflow_includes//:protos",
+        tools = [
+            "@com_google_protobuf//:protoc",
             "@com_github_grpc_grpc//src/compiler:grpc_cpp_plugin",
         ],
         cmd = """
         OUTDIR=$$(echo $(RULEDIR) | sed -e 's#reverb/.*##')
-        $(location @protobuf_protoc//:protoc_bin) \
+        $(location @com_google_protobuf//:protoc) \
           --plugin=protoc-gen-grpc=$(location @com_github_grpc_grpc//src/compiler:grpc_cpp_plugin) \
-          --proto_path=external/tensorflow_includes/tensorflow_includes/ \
+          --proto_path=external/org_tensorflow/ \
+          --proto_path=external/com_google_protobuf/src \
           --proto_path=. \
           --grpc_out={} {}""".format(
             "generate_mock_code=true:$$OUTDIR" if generate_mocks else "$$OUTDIR",
@@ -268,17 +258,16 @@ def reverb_cc_test(name, srcs, deps = [], **kwargs):
     new_deps = [
         "@com_github_grpc_grpc//:grpc++_test",
         "@com_google_googletest//:gtest",
-        "@tensorflow_includes//:includes",
-        "@tensorflow_solib//:framework_lib",
         "@com_google_googletest//:gtest_main",
-    ]
+        "@com_google_absl//absl/status:status_matchers",
+    ] + reverb_tf_deps()
     size = kwargs.pop("size", "small")
     cc_test(
         name = name,
         size = size,
         copts = tf_copts(),
         srcs = srcs,
-        deps = depset(deps + new_deps),
+        deps = depset(deps + new_deps).to_list(),
         **kwargs
     )
 
@@ -301,26 +290,44 @@ def reverb_gen_op_wrapper_py(name, out, kernel_lib, ops_lib = None, linkopts = [
         fail("Argument out must end with '.py', but saw: {}".format(out))
 
     module_name = "lib{}_gen_op".format(name)
+    exported_symbols_file = "%s-exported-symbols.lds" % module_name
+
+    # gen_client_ops -> reverb_client
+    symbol = "reverb_{}".format(name.split("_")[1])
+    native.genrule(
+        name = module_name + "_exported_symbols",
+        outs = [exported_symbols_file],
+        cmd = "echo '*%s*' >$@" % symbol,
+        output_licenses = ["unencumbered"],
+        visibility = ["//visibility:private"],
+    )
     version_script_file = "%s-version-script.lds" % module_name
     native.genrule(
         name = module_name + "_version_script",
         outs = [version_script_file],
-        cmd = "echo '{global:\n *tensorflow*;\n *deepmind*;\n local: *;};' >$@",
+        cmd = "echo '{global:\n *%s*;\n local: *;};' >$@" % symbol,
         output_licenses = ["unencumbered"],
         visibility = ["//visibility:private"],
     )
     cc_binary(
         name = "{}.so".format(module_name),
-        deps = [kernel_lib] + ([ops_lib] if ops_lib else []) + reverb_tf_deps() + [version_script_file],
+        deps = [kernel_lib] + [
+            exported_symbols_file,
+            version_script_file,
+        ] + [ops_lib] if ops_lib else [],
         copts = tf_copts() + [
             "-fno-strict-aliasing",  # allow a wider range of code [aliasing] to compile.
             "-fvisibility=hidden",  # avoid symbol clashes between DSOs.
         ],
         linkshared = 1,
-        linkopts = linkopts + _rpath_linkopts(module_name) + [
-            "-Wl,--version-script",
-            "$(location %s)" % version_script_file,
-        ],
+        linkopts = linkopts + _rpath_linkopts(module_name) + select({
+            "@platforms//os:macos": [
+                "-Wl,-exported_symbols_list,$(location %s)" % exported_symbols_file,
+            ],
+            "//conditions:default": [
+                "-Wl,--version-script,$(location %s)" % version_script_file,
+            ],
+        }),
         **kwargs
     )
     native.genrule(
@@ -349,14 +356,28 @@ del _locals' > $@""".format(name),
         **kwargs
     )
 
-def reverb_pytype_library(**kwargs):
+def reverb_py_proto_deps():
+    return []
+
+def reverb_pytype_library(deps = [], **kwargs):
     if "strict_deps" in kwargs:
         kwargs.pop("strict_deps")
-    native.py_library(**kwargs)
+    py_library(
+        deps = deps + reverb_py_standard_imports() + reverb_py_proto_deps(),
+        **kwargs
+    )
 
-reverb_pytype_strict_library = native.py_library
+reverb_pytype_strict_library = reverb_pytype_library
 
-reverb_pytype_strict_binary = native.py_binary
+def reverb_pytype_binary(deps = [], **kwargs):
+    if "strict_deps" in kwargs:
+        kwargs.pop("strict_deps")
+    py_binary(
+        deps = deps + reverb_py_standard_imports() + reverb_py_proto_deps(),
+        **kwargs
+    )
+
+reverb_pytype_strict_binary = reverb_pytype_binary
 
 def _make_search_paths(prefix, levels_to_root):
     return ",".join(
@@ -375,7 +396,14 @@ def _rpath_linkopts(name):
     # ops) are picked up as long as they are in either the same or a parent
     # directory in the tensorflow/ tree.
     levels_to_root = native.package_name().count("/") + name.count("/")
-    return ["-Wl,%s" % (_make_search_paths("$$ORIGIN", levels_to_root),)]
+    return select({
+        "@platforms//os:macos": [
+            "-Wl,%s" % (_make_search_paths("@loader_path", levels_to_root),),
+        ],
+        "//conditions:default": [
+            "-Wl,%s" % (_make_search_paths("$$ORIGIN", levels_to_root),),
+        ],
+    })
 
 def reverb_pybind_extension(
         name,
@@ -437,7 +465,7 @@ def reverb_pybind_extension(
     native.genrule(
         name = module_name + "_exported_symbols",
         outs = [exported_symbols_file],
-        cmd = "echo '_%s\n_%s\n_%s' >$@" % (symbol, symbol2, symbol3),
+        cmd = "echo '_%s\n' >$@" % (symbol3),
         output_licenses = ["unencumbered"],
         visibility = ["//visibility:private"],
         testonly = testonly,
@@ -445,7 +473,7 @@ def reverb_pybind_extension(
     native.genrule(
         name = module_name + "_version_script",
         outs = [version_script_file],
-        cmd = "echo '{global:\n %s;\n %s;\n %s;\n local: *;};' >$@" % (symbol, symbol2, symbol3),
+        cmd = "echo '{global:\n %s;\n local: *;};' >$@" % (symbol3),
         output_licenses = ["unencumbered"],
         visibility = ["//visibility:private"],
         testonly = testonly,
@@ -459,10 +487,14 @@ def reverb_pybind_extension(
             "-fexceptions",  # pybind relies on exceptions, required to compile.
             "-fvisibility=hidden",  # avoid pybind symbol clashes between DSOs.
         ],
-        linkopts = linkopts + _rpath_linkopts(module_name) + [
-            "-Wl,--version-script",
-            "$(location %s)" % version_script_file,
-        ],
+        linkopts = linkopts + _rpath_linkopts(module_name) + select({
+            "@platforms//os:macos": [
+                "-Wl,-exported_symbols_list,$(location %s)" % exported_symbols_file,
+            ],
+            "//conditions:default": [
+                "-Wl,--version-script,$(location %s)" % version_script_file,
+            ],
+        }),
         deps = depset(deps + [
             exported_symbols_file,
             version_script_file,
@@ -502,7 +534,7 @@ del _tf' >$@""" % module_name,
         visibility = visibility,
         testonly = testonly,
     )
-    native.py_library(
+    py_library(
         name = name,
         data = [so_file],
         deps = ["//reverb/platform/default:load_op_library"],
@@ -517,7 +549,14 @@ del _tf' >$@""" % module_name,
     )
 
 def reverb_py_standard_imports():
-    return []
+    return [
+        "@pypi//absl_py",
+        "@pypi//tf_nightly",
+        "@pypi//dm_tree",
+        "@pypi//portpicker",
+        "@pypi//numpy",
+        "@pypi//six",
+    ]
 
 def reverb_py_test(
         name,
@@ -529,11 +568,11 @@ def reverb_py_test(
     size = kwargs.pop("size", "small")
     if "enable_dashboard" in kwargs:
         kwargs.pop("enable_dashboard")
-    native.py_test(
+    py_test(
         name = name,
         size = size,
         srcs = srcs,
-        deps = deps,
+        deps = deps + reverb_py_standard_imports() + reverb_py_proto_deps(),
         python_version = python_version,
         **kwargs
     )
@@ -542,7 +581,8 @@ def reverb_py_test(
 def reverb_pybind_deps():
     return [
         "@pybind11",
-    ] + reverb_tf_deps()
+        "@pypi//numpy:numpy_headers",
+    ]
 
 def reverb_tf_ops_visibility():
     return [
@@ -550,14 +590,10 @@ def reverb_tf_ops_visibility():
     ]
 
 def reverb_tf_deps():
-    # tensorflow_includes doesn't include absl headers, so we bring in
-    # ours. Note that our absl deps' version must match that of TF
-    # and we need to include all the absl headers that tensorflow
-    # includes rely on.
     return [
-        "@tensorflow_includes//:includes",
-        "@tensorflow_solib//:framework_lib",
-    ] + reverb_absl_deps()
+        "@pypi//tf_nightly:headers_lib",
+        "@pypi//tf_nightly:framework_lib",
+    ]
 
 def reverb_grpc_deps():
     return ["@com_github_grpc_grpc//:grpc++"]
@@ -582,7 +618,6 @@ def reverb_absl_deps():
         "@com_google_absl//absl/time",
         "@com_google_absl//absl/types:optional",
         "@com_google_absl//absl/types:span",
-        "@com_google_absl//absl/flags:flag",
         # This is not used within Reverb directly but tensorflow/tsl/platform/env.h introduced this
         # dependency on 2023-04-25 in
         # https://github.com/tensorflow/tensorflow/commit/134a9f87c22ffb111080f9d6626f202ad0cce2a4.

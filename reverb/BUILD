@@ -8,6 +8,7 @@ load(
     "reverb_pybind_extension",
     "reverb_pytype_library",
     "reverb_pytype_strict_library",
+    "reverb_tf_deps",
 )
 
 package(
@@ -116,7 +117,7 @@ reverb_pybind_extension(
         "//reverb/cc/selectors:uniform",
         "//reverb/cc/support:tf_util",
         "//reverb/cc/table_extensions:interface",
-    ] + reverb_pybind_deps() + reverb_absl_deps(),
+    ] + reverb_tf_deps() + reverb_pybind_deps() + reverb_absl_deps(),
 )
 
 reverb_pytype_library(

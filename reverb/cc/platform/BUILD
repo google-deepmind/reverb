@@ -140,7 +140,7 @@ reverb_cc_test(
 reverb_cc_library(
     name = "snappy_hdr",
     hdrs = ["snappy.h"],
-    deps = reverb_absl_deps(),
+    deps = reverb_absl_deps() + ["@snappy"],
 )
 
 reverb_cc_library(

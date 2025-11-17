@@ -1,32 +1,69 @@
-# gRPC using libcares in opensource has some issues.
-build --define=grpc_no_ares=true
+common --experimental_repo_remote_exec
+
+# Disable bzlmod
+common --noenable_bzlmod
 
 # Suppress all warning messages.
 build:short_logs --output_filter=DONT_MATCH_ANYTHING
 
-# Force python3
-build --action_env=PYTHON_BIN_PATH=python3
-build --repo_env=PYTHON_BIN_PATH=python3
-build --python_path=python3
+common --repo_env=USE_PYWRAP_RULES=True
+common --copt=-DGRPC_BAZEL_BUILD
+common --host_copt=-DGRPC_BAZEL_BUILD
+common --action_env=GRPC_BAZEL_RUNTIME=1
+common --repo_env=PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=upb
+common --action_env=PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=upb
+# gRPC using libcares in opensource has some issues.
+build --define=grpc_no_ares=true
 
-build:manylinux2014 --crosstool_top=//third_party/toolchains/preconfig/ubuntu16.04/gcc7_manylinux2014:toolchain
+common --define framework_shared_object=true
+common --define tsl_protobuf_header_only=true
 
-build -c opt
-build --cxxopt="-std=c++17"
-build --host_cxxopt="-std=c++17"
+common --incompatible_default_to_explicit_init_py
+common --enable_platform_specific_config
+
+common --incompatible_enable_cc_toolchain_resolution
+common --@rules_ml_toolchain//common:enable_hermetic_cc=True
+common --repo_env USE_HERMETIC_CC_TOOLCHAIN=1
+
+# Print a stacktrace when a test is killed
+test --test_env="GTEST_INSTALL_FAILURE_SIGNAL_HANDLER=1"
+test --test_output=errors
+
+common -c opt
+common --cxxopt="-std=c++17"
+common --host_cxxopt="-std=c++17"
+common --copt "-Wno-deprecated-declarations
+
 # We can remove this flag (we keep it explicit for now)
-build --cxxopt="-D_GLIBCXX_USE_CXX11_ABI=1"
-build --host_cxxopt="-D_GLIBCXX_USE_CXX11_ABI=1"
 build --auto_output_filter=subpackages
-build --copt="-Wall" --copt="-Wno-sign-compare"
-build --linkopt="-lrt -lm"
-# We build with AVX and eigen byte alignment to match tensorflow's (and Eigen)
-# pip package byte alignment.  See b/186669968 for more details.
-build --copt=-mavx --copt=-DEIGEN_MAX_ALIGN_BYTES=64
+common --copt="-Wno-sign-compare"
+build --copt="-DEIGEN_MAX_ALIGN_BYTES=64"
+
+test --test_env="GTEST_INSTALL_FAILURE_SIGNAL_HANDLER=1"
 
 # TF isn't built in dbg mode, so our dbg builds will segfault due to inconsistency
 # of defines when using tf's headers.  In particular in refcount.h.
-build --cxxopt="-DNDEBUG"
+# common --cxxopt="-DNDEBUG"
+
+common:clang_local --noincompatible_enable_cc_toolchain_resolution
+common:clang_local --noincompatible_enable_android_toolchain_resolution
+common:clang_local --@rules_ml_toolchain//common:enable_hermetic_cc=False
+common:clang_local --repo_env USE_HERMETIC_CC_TOOLCHAIN=0
+
+common:apple-toolchain --apple_crosstool_top=@local_config_apple_cc//:toolchain
+common:apple-toolchain --crosstool_top=@local_config_apple_cc//:toolchain
+common:apple-toolchain --host_crosstool_top=@local_config_apple_cc//:toolchain
+
+common:linux --linkopt="-lrt -lm"
+
+common:macos --linkopt="-Wl,-undefined,dynamic_lookup"
+common:macos --config=clang_local
+common:macos --config=apple-toolchain
+common:macos --repo_env=MACOS_DEPLOYMENT_TARGET=12.0
+
+# We build with AVX and eigen byte alignment to match tensorflow's (and Eigen)
+# pip package byte alignment.  See b/186669968 for more details.
+build:linux --copt=-mavx --copt=-DEIGEN_MAX_ALIGN_BYTES=64
 
 # Options from ./configure
 try-import %workspace%/.reverb.bazelrc

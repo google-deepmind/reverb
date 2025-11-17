@@ -21,7 +21,7 @@
 #include "absl/strings/str_cat.h"
 #include "reverb/cc/platform/logging.h"
 #include "reverb/cc/platform/snappy.h"
-#include "tensorflow/compiler/xla/tsl/platform/status.h"
+#include "xla/tsl/platform/status.h"
 #include "tensorflow/core/framework/register_types.h"
 #include "tensorflow/core/framework/tensor_shape.h"
 #include "tensorflow/core/framework/types.h"

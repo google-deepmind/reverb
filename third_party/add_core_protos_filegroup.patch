@@ -1,0 +1,47 @@
+diff --git a/tensorflow/core/BUILD b/tensorflow/core/BUILD
+index dd8da3665c5..b1e029de3d4 100644
+--- a/tensorflow/core/BUILD
++++ b/tensorflow/core/BUILD
+@@ -193,6 +193,42 @@ tf_proto_library(
+     visibility = ["//visibility:public"],
+ )
+ 
++filegroup(
++    name = "protos_srcs",
++    srcs = [
++        "//tensorflow/core/framework:api_def.proto",
++        "//tensorflow/core/framework:attr_value.proto",
++        "//tensorflow/core/framework:cost_graph.proto",
++        "//tensorflow/core/framework:cpp_shape_inference.proto",
++        "//tensorflow/core/framework:dataset_metadata.proto",
++        "//tensorflow/core/framework:dataset_options.proto",
++        "//tensorflow/core/framework:device_attributes.proto",
++        "//tensorflow/core/framework:full_type.proto",
++        "//tensorflow/core/framework:function.proto",
++        "//tensorflow/core/framework:graph.proto",
++        "//tensorflow/core/framework:graph_debug_info.proto",
++        "//tensorflow/core/framework:graph_transfer_info.proto",
++        "//tensorflow/core/framework:kernel_def.proto",
++        "//tensorflow/core/framework:log_memory.proto",
++        "//tensorflow/core/framework:model.proto",
++        "//tensorflow/core/framework:node_def.proto",
++        "//tensorflow/core/framework:op_def.proto",
++        "//tensorflow/core/framework:reader_base.proto",
++        "//tensorflow/core/framework:resource_handle.proto",
++        "//tensorflow/core/framework:step_stats.proto",
++        "//tensorflow/core/framework:summary.proto",
++        "//tensorflow/core/framework:tensor.proto",
++        "//tensorflow/core/framework:tensor_description.proto",
++        "//tensorflow/core/framework:tensor_shape.proto",
++        "//tensorflow/core/framework:tensor_slice.proto",
++        "//tensorflow/core/framework:types.proto",
++        "//tensorflow/core/framework:variable.proto",
++        "//tensorflow/core/framework:versions.proto",
++        "//tensorflow/core/protobuf:struct.proto",
++    ],
++    visibility = ["//visibility:public"],
++)
++
+ tf_jspb_proto_library(
+     name = "protos_all_jspb_proto",
+     visibility = ["//visibility:public"],

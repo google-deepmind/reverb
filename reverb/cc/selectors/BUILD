@@ -143,6 +143,6 @@ reverb_cc_test(
         "//reverb/cc:schema_cc_proto",
         "//reverb/cc/platform:status_matchers",
         "//reverb/cc/testing:proto_test_util",
-        "//third_party/absl/status",
+        "@com_google_absl//absl/status",
     ],
 )

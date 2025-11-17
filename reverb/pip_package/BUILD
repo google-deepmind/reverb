@@ -1,3 +1,6 @@
+load("@python_version_repo//:py_version.bzl", "REQUIREMENTS")
+load("@rules_python//python:pip.bzl", "compile_pip_requirements")
+
 licenses(["notice"])  # Apache 2.0
 
 filegroup(
@@ -7,20 +10,21 @@ filegroup(
     ],
 )
 
-py_library(
-    name = "reverb_version",
-    srcs = ["reverb_version.py"],
+compile_pip_requirements(
+    name = "requirements",
+    srcs = [
+        "requirements.in",
+    ],
+    extra_args = [
+        "--allow-unsafe",
+        "--build-isolation",
+        "--rebuild",
+    ],
+    generate_hashes = True,
+    requirements_txt = REQUIREMENTS,
+    tags = ["manual"],
 )
 
-sh_binary(
-    name = "build_pip_package",
-    srcs = ["build_pip_package.sh"],
-    data = [
-        "MANIFEST.in",
-        "setup.py",
-        ":licenses",
-        ":reverb_version",
-        "//reverb",
-        "//reverb/server_executable:server_main",
-    ],
+exports_files(
+    glob(["requirements*.txt"]),
 )
