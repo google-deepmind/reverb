@@ -29,7 +29,7 @@ namespace reverb {
 
 class Table;
 class TableItem;
-class ExtensionItem;
+struct ExtensionItem;
 
 // A `TableExtension` is passed to a single `Table` and executed
 // as part of the atomic operations of the parent table. All "hooks" are
