@@ -13,9 +13,7 @@
 # limitations under the License.
 
 """Helpers for loading dynamic library files."""
-import sys
 
-import six
 import tensorflow as tf
 
 UNDEFINED_SYMBOL_ERROR_MESSAGE = """
@@ -40,8 +38,7 @@ def reraise_wrapped_error(error: Exception):
     ImportError: Typically if there is a version mismatch.
   """
   if 'undefined symbol' in str(error).lower():
-    six.reraise(ImportError,
-                ImportError('%s\nOrignal error:\n%s' % (
-                    UNDEFINED_SYMBOL_ERROR_MESSAGE, error)),
-                sys.exc_info()[2])
+    raise ImportError(
+        '%s\nOrignal error:\n%s' % (UNDEFINED_SYMBOL_ERROR_MESSAGE, error)
+    ) from error
   raise error
