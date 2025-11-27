@@ -57,7 +57,11 @@ load("@local_xla//third_party/py:python_init_repositories.bzl", "python_init_rep
 python_init_repositories(
     default_python_version = "3.11",
     requirements = {
+        "3.9": "//reverb/pip_package:requirements_lock_3_9.txt",
+        "3.10": "//reverb/pip_package:requirements_lock_3_10.txt",
         "3.11": "//reverb/pip_package:requirements_lock_3_11.txt",
+        "3.12": "//reverb/pip_package:requirements_lock_3_12.txt",
+        "3.13": "//reverb/pip_package:requirements_lock_3_13.txt",
     },
 )
 
