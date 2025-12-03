@@ -1,2 +1,0 @@
-recursive-include * *.py
-recursive-include * *.so

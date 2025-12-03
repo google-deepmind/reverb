@@ -1,12 +1,17 @@
+> [!NOTE]
+> This documentation is outdated. We are currently updating the process
+> for building reverb from source.
+> Check out oss_build.sh for the current set-up on how to build reverb.
+
 # How to develop and build Reverb with the Docker containers
 
 ## Overview
 
 This document covers a couple scenarios:
 
- *  <a href='#Release'>Create a Reverb release</a>
- *  <a href='#Develop'>Develop Reverb inside a Docker container</a>
- *  <a href='#builds-tips-and-hints'>Build tips and hints</a>
+ *  [Create a Reverb release](#release)
+ *  [Develop Reverb inside a Docker container][#develop]
+ *  [Build tips and hints](#builds-tips-and-hints)
 
 While there is overlap in the above scenarios, treating them separately seems
 the most clear at the moment. Before you get started, setup a local variable
@@ -16,8 +21,7 @@ pointing to your local Reverb GitHub repo.
 $ export REVERB_DIR=/path/to/reverb/github/repo
 ```
 
-<a id='Release'></a>
-## Create a stable Reverb release
+## Create a stable Reverb release {#release}
 
 There are two steps for building the Reverb package.
 
@@ -82,8 +86,7 @@ $ docker run --rm --mount "type=bind,src=$REVERB_DIR,dst=/tmp/reverb" \
 
 ```
 
-<a id='Develop'></a>
-## Develop Reverb inside a Docker container
+## Develop Reverb inside a Docker container {#develop}
 
 1. Build the Docker container. By default the container is setup for python 3.9.
    Use the `python_version` arg to configure the container with 3.10 or 3.11.
@@ -128,9 +131,7 @@ $ docker run --rm --mount "type=bind,src=$REVERB_DIR,dst=/tmp/reverb" \
   $ $PYTHON_BIN_PATH -mpip install --upgrade /tmp/reverb_build/dist/*.whl
   ```
 
-<a id='#builds-tips-and-hints'></a>
-
-## Builds Tips and Hints
+## Builds Tips and Hints {#builds-tips-and-hints}
 
 ### protoc / protobuf version mismatch
 

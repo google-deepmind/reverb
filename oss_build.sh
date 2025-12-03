@@ -14,11 +14,7 @@
 # limitations under the License.
 # ==============================================================================
 
-# Designed to work with ./docker/release.dockerfile to build reverb for multiple
-# Python versions. It can work locally but is not tested for that use case.
-#
 # Example usage after building release docker:
-#   docker run --rm -it -v ${REVERB_DIR}:/tmp/reverb tensorflow:reverb_release \
 #   bash oss_build.sh --python 3.9
 
 # Exit if any process returns non-zero status.
@@ -26,27 +22,24 @@ set -e
 set -o pipefail
 
 # Flags
-PYTHON_VERSIONS=3.9 # Options 3.9 (default), 3.10 or 3.11.
-CLEAN=false # Set to true to run bazel clean.
-CLEAR_CACHE=false # Set to true to delete Bazel cache folder. b/279235134
-OUTPUT_DIR=/tmp/reverb/dist/
+PYTHON_VERSIONS=3.11 # Options 3.9 (default), 3.10 or 3.11.
+OUTPUT_DIR=wheelhouse
 PYTHON_TESTS=true
-DEBUG_BUILD=false
-
-ABI=cp36
-PIP_PKG_EXTRA_ARGS="" # Extra args passed to `build_pip_package`.
+WHEEL_NAME=dm_reverb_nightly
+WHEEL_TYPE=nightly
+BUILD_DATE=`date '+%Y%m%d'`
+export ML_WHEEL_NAME=$WHEEL_NAME
+BAZEL_ARGS="--repo_env=WHEEL_NAME=$WHEEL_NAME --repo_env=ML_WHEEL_TYPE=$WHEEL_TYPE --repo_env=ML_WHEEL_BUILD_DATE=$BUILD_DATE"
+BAZEL_BIN="${BAZEL_BIN:-bazel}"
 
 if [[ $# -lt 1 ]] ; then
   echo "Usage:"
   echo "--release [Indicates this is a release build. Otherwise nightly.]"
   echo "--python [3.9(default)|3.10|3.11]"
-  echo "--clean  [true to run bazel clean]"
   echo "--clear_bazel_cache  [true to delete Bazel cache folder]"
   echo "--tf_dep_override  [Required tensorflow version to pass to setup.py."
   echo "                    Examples: tensorflow==2.3.0rc0  or tensorflow>=2.3.0]"
-  echo "--python_tests  [true (default) to run python tests.]"
   echo "--output_dir  [location to copy .whl file.]"
-  echo "--debug_build  [true to build a debug binary.]"
   exit 1
 fi
 
@@ -54,18 +47,11 @@ while [[ $# -gt -0 ]]; do
   key="$1"
   case $key in
       --release)
-      PIP_PKG_EXTRA_ARGS="${PIP_PKG_EXTRA_ARGS} --release" # Indicates this is a release build.
+      export WHEEL_NAME=dm_reverb
+      BAZEL_ARGS="--repo_env=WHEEL_NAME=$WHEEL_NAME --repo_env=ML_WHEEL_TYPE=release"
       ;;
       --python)
       PYTHON_VERSIONS="$2" # Python versions to build against.
-      shift
-      ;;
-      --clean)
-      CLEAN="$2" # `true` to run bazel clean. False otherwise.
-      shift
-      ;;
-      --clear_bazel_cache)
-      CLEAR_CACHE="$2"
       shift
       ;;
       --python_tests)
@@ -76,15 +62,6 @@ while [[ $# -gt -0 ]]; do
       OUTPUT_DIR="$2"
       shift
       ;;
-      --debug_build)
-      DEBUG_BUILD="$2"
-      shift
-      ;;
-      --tf_dep_override)
-      # Setup.py is told this is the tensorflow dependency.
-      PIP_PKG_EXTRA_ARGS="${PIP_PKG_EXTRA_ARGS} --tf-version ${2}"
-      shift
-      ;;
     *)
       echo "Unknown flag: $key"
       exit 1
@@ -93,58 +70,44 @@ while [[ $# -gt -0 ]]; do
   shift # past argument or value
 done
 
+echo BAZEL_ARGS=$BAZEL_ARGS
+
 for python_version in $PYTHON_VERSIONS; do
 
-  # Cleans the environment.
-  if [ "$CLEAN" = "true" ]; then
-    if [ "$CLEAR_CACHE" = "true" ]; then
-      rm -rf $HOME/.cache/bazel
-    fi
-    bazel clean
-  fi
+  $BAZEL_BIN test -c opt --repo_env=HERMETIC_PYTHON_VERSION=$python_version $BAZEL_ARGS //reverb/...
 
-  if [ "$python_version" = "3.9" ]; then
-    export PYTHON_BIN_PATH=/usr/bin/python3.9 && export PYTHON_LIB_PATH=/usr/local/lib/python3.9/dist-packages
-    ABI=cp39
-  elif [ "$python_version" = "3.10" ]; then
-    export PYTHON_BIN_PATH=/usr/bin/python3.10 && export PYTHON_LIB_PATH=/usr/local/lib/python3.10/dist-packages
-    ABI=cp310
-  elif [ "$python_version" = "3.11" ]; then
-    export PYTHON_BIN_PATH=/usr/bin/python3.11 && export PYTHON_LIB_PATH=/usr/local/lib/python3.11/dist-packages
-    ABI=cp311
-  else
-    echo "Error unknown --python. Only [3.9|3.10|3.11]"
-    exit 1
-  fi
-
-  # Configures Bazel environment for selected Python version.
-  $PYTHON_BIN_PATH configure.py
-
-  # Runs bazel tests for cc.
-  # Only run cc tests because `bazel test` seems to ignore bazelrc and only uses
-  # /usr/bin/python3. A solution is to swap symbolic links for each version of
-  # python to be tested. This works well in docker but would make a mess of
-  # someone's system unexpectedly. We are executing the python tests after
-  # installing the final package making this approach satisfactory.
-  # TODO(b/157223742): Execute Python tests as well.
-  bazel test -c opt --copt=-mavx --config=manylinux2014 --test_output=errors //reverb/cc/...
-
-  EXTRA_OPT=""
-  if [ "$DEBUG_BUILD" = "true" ]; then
-     EXTRA_OPT="--copt=-g2"
-  fi
   # Builds Reverb and creates the wheel package.
-  bazel build --sandbox_debug --verbose_failures -c opt --copt=-mavx $EXTRA_OPT --config=manylinux2014 reverb/pip_package:build_pip_package
-  ./bazel-bin/reverb/pip_package/build_pip_package --dst $OUTPUT_DIR $PIP_PKG_EXTRA_ARGS
+  output_wheel=$($BAZEL_BIN cquery --repo_env=HERMETIC_PYTHON_VERSION=$python_version $BAZEL_ARGS --output=files //reverb/pip_package:wheel 2> /dev/null)
+  $BAZEL_BIN build -c opt --repo_env=HERMETIC_PYTHON_VERSION=$python_version $BAZEL_ARGS //reverb/pip_package:wheel
+  echo "Created $output_wheel"
+
+  mkdir -p $OUTPUT_DIR/
+
+  if [ "$(uname -s)" == "Darwin" ]; then
+    install_wheel=$OUTPUT_DIR/$(basename $output_wheel)
+    cp $output_wheel $OUTPUT_DIR/$(basename $output_wheel)
+  else
+    platform=linux_x86_64
+    target_platform=manylinux_2_27_x86_64
+    uvx auditwheel repair \
+      --plat $target_platform \
+      --exclude libtensorflow_framework.so.2 \
+      --wheel-dir $OUTPUT_DIR \
+      $output_wheel
+
+    install_wheel=$OUTPUT_DIR/"$(basename $output_wheel | sed "s/$platform/$target_platform/")"
+  fi
 
   # Installs pip package.
-  $PYTHON_BIN_PATH -mpip install ${OUTPUT_DIR}*${ABI}*.whl
+  uv venv --clear --python $python_version --seed ./venvs/py$python_version
+  export PYTHON_BIN_PATH="./venvs/py$python_version/bin/python3"
+  $PYTHON_BIN_PATH -mpip install "$WHEEL_NAME[tensorflow] @ file:$install_wheel"
 
   if [ "$PYTHON_TESTS" = "true" ]; then
     echo "Run Python tests..."
     set +e
 
-    bash run_python_tests.sh |& tee ./unittest_log.txt
+    bash run_python_tests.sh 2>&1 | tee ./unittest_log.txt
     UNIT_TEST_ERROR_CODE=$?
     set -e
     if [[ $UNIT_TEST_ERROR_CODE != 0 ]]; then

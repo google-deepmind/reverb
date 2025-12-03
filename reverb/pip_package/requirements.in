@@ -4,3 +4,5 @@ numpy
 portpicker
 six
 tf_nightly
+packaging
+build

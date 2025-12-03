@@ -1,0 +1,60 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "dm_reverb"
+description = "Reverb is an efficient and easy-to-use data storage and transport system designed for machine learning research."
+readme = "README.md"
+license = "Apache-2.0"
+authors = [{ name = 'DeepMind', email = 'no-reply@google.com' }]
+license-files = ["LICENSE"]
+requires-python = ">=3.9"
+dependencies = [
+    'dataclasses; python_version < "3.7.0"', # Back-port for Python 3.6.
+    "absl-py",
+    'dm-tree',
+    'portpicker',
+    'numpy',
+    'six',
+]
+dynamic = ["version", "optional-dependencies"]
+classifiers = [
+    'Development Status :: 3 - Alpha',
+    'Intended Audience :: Developers',
+    'Intended Audience :: Education',
+    'Intended Audience :: Science/Research',
+    'License :: OSI Approved :: Apache Software License',
+    'Programming Language :: Python :: 3.9',
+    'Programming Language :: Python :: 3.10',
+    'Programming Language :: Python :: 3.11',
+    'Programming Language :: Python :: 3.12',
+    'Programming Language :: Python :: 3.13',
+    'Topic :: Scientific/Engineering',
+    'Topic :: Scientific/Engineering :: Mathematics',
+    'Topic :: Scientific/Engineering :: Artificial Intelligence',
+    'Topic :: Software Development',
+    'Topic :: Software Development :: Libraries',
+    'Topic :: Software Development :: Libraries :: Python Modules',
+]
+keywords = [
+    'tensorflow',
+    'deepmind',
+    'reinforcement',
+    'machine',
+    'learning',
+    'replay',
+    'jax',
+]
+
+[project.urls]
+homepage = "https://github.com/google-deepmind/reverb"
+
+[project.scripts]
+reverb_server = "reverb.server_executable.server_main:app_run_main"
+
+[tool.hatch.build.targets.wheel]
+include = ["/reverb"]
+
+[tool.hatch.build.hooks.custom]
+[tool.hatch.metadata.hooks.custom]

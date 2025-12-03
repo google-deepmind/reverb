@@ -1,0 +1,136 @@
+# Copyright 2023 The TensorFlow Authors. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+"""Rule to build custom wheel.
+
+It parses prvoided inputs and then calls `build_pip_package_py` binary with following args:
+1) `--project-name` - name to be passed to setup.py file. It will define name of the wheel.
+Should be set via --repo_env=WHEEL_NAME=dm_reverb.
+3) `--version` - reverb version.
+4) `--headers` - paths to header file.
+5) `--srcs` - paths to source files
+6) `--dests` - json file with source to destination mappings for files whose original
+location does not match its destination in packaged wheel; if the destination is an
+empty string the source file will be ignored.
+"""
+
+load(
+    "@python_version_repo//:py_version.bzl",
+    "HERMETIC_PYTHON_VERSION",
+    "MACOSX_DEPLOYMENT_TARGET",
+    "WHEEL_NAME",
+)
+load("//reverb/pip_package:reverb_version.bzl", "REVERB_TENSORFLOW_VERSION", "REVERB_VERSION", "REVERB_VERSION_SUFFIX")
+
+def _get_wheel_platform_name(platform_name, platform_tag):
+    macos_platform_version = "{}_".format(MACOSX_DEPLOYMENT_TARGET.replace(".", "_")) if MACOSX_DEPLOYMENT_TARGET else ""
+    tag = platform_tag
+    if platform_tag == "x86_64" and platform_name == "win":
+        tag = "amd64"
+    if platform_tag == "arm64" and platform_name == "linux":
+        tag = "aarch64"
+    return "{platform_name}_{platform_version}{platform_tag}".format(
+        platform_name = platform_name,
+        platform_tag = tag,
+        platform_version = macos_platform_version,
+    )
+
+def _get_full_wheel_name(
+        platform_name,
+        platform_tag,
+        wheel_version):
+    python_version = HERMETIC_PYTHON_VERSION.replace(".", "")
+    return "{wheel_name}-{wheel_version}-cp{python_version}-cp{python_version}-{wheel_platform_tag}.whl".format(
+        wheel_name = WHEEL_NAME,
+        wheel_version = wheel_version,
+        python_version = python_version,
+        wheel_platform_tag = _get_wheel_platform_name(
+            platform_name,
+            platform_tag,
+        ),
+    )
+
+def _is_dest_file(basename, dest_files_suffixes):
+    for suffix in dest_files_suffixes:
+        if basename.endswith(suffix):
+            return True
+    return False
+
+def _reverb_wheel_impl(ctx):
+    executable = ctx.executable.wheel_binary
+
+    full_wheel_version = (REVERB_VERSION + REVERB_VERSION_SUFFIX)
+    full_wheel_name = _get_full_wheel_name(
+        platform_name = ctx.attr.platform_name,
+        platform_tag = ctx.attr.platform_tag,
+        wheel_version = full_wheel_version,
+    )
+    wheel_dir_name = "wheel_house"
+    output_file = ctx.actions.declare_file("{wheel_dir}/{wheel_name}".format(
+        wheel_dir = wheel_dir_name,
+        wheel_name = full_wheel_name,
+    ))
+    wheel_dir = output_file.path[:output_file.path.rfind("/")]
+    args = ctx.actions.args()
+    args.add("--project-name", WHEEL_NAME)
+    args.add("--platform", _get_wheel_platform_name(
+        ctx.attr.platform_name,
+        ctx.attr.platform_tag,
+    ))
+    args.add("--output-name", wheel_dir)
+    args.add("--version", full_wheel_version)
+    if "nightly" in WHEEL_NAME:
+        args.add("--tf-version", "tf-nightly")
+    else:
+        args.add("--tf-version", REVERB_TENSORFLOW_VERSION)
+
+    headers = ctx.files.headers[:]
+    for f in headers:
+        args.add("--headers=%s" % (f.path))
+
+    srcs = []
+    for src in ctx.attr.source_files:
+        for f in src.files.to_list():
+            srcs.append(f)
+            if _is_dest_file(f.basename, ctx.attr.dest_files_suffixes):
+                args.add("--dests=%s" % (f.path))
+            else:
+                args.add("--srcs=%s" % (f.path))
+
+    args.set_param_file_format("flag_per_line")
+    args.use_param_file("@%s", use_always = False)
+    ctx.actions.run(
+        arguments = [args],
+        inputs = srcs + headers,
+        outputs = [output_file],
+        executable = executable,
+        use_default_shell_env = True,
+        mnemonic = "BuildWheel",
+    )
+    return [DefaultInfo(files = depset(direct = [output_file]))]
+
+reverb_wheel = rule(
+    attrs = {
+        "source_files": attr.label_list(allow_files = True),
+        "dest_files_suffixes": attr.string_list(default = ["_wheel_locations.json"]),
+        "headers": attr.label_list(allow_files = True),
+        "wheel_binary": attr.label(
+            default = Label("//reverb/pip_package:build_wheel"),
+            executable = True,
+            cfg = "exec",
+        ),
+        "platform_tag": attr.string(mandatory = True),
+        "platform_name": attr.string(mandatory = True),
+    },
+    implementation = _reverb_wheel_impl,
+)
