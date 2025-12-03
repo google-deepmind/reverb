@@ -555,7 +555,7 @@ def reverb_py_standard_imports():
         "@pypi//dm_tree",
         "@pypi//portpicker",
         "@pypi//numpy",
-        "@pypi//six",
+        "@pypi//packaging",
     ]
 
 def reverb_py_test(

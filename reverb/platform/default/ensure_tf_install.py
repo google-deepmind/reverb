@@ -18,7 +18,7 @@
  function call needs to come before the *actual* imports that populate the
  reverb namespace. Hence, we disable this lint check throughout the file.
 """
-import distutils.version
+import packaging.version
 
 # pylint: disable=g-import-not-at-top
 
@@ -50,12 +50,12 @@ def ensure_tf_version():
   required_tensorflow_version = '2.3.0'
 
   version = tf.version.VERSION
-  if (distutils.version.LooseVersion(version) <
-      distutils.version.LooseVersion(required_tensorflow_version)):
+  if packaging.version.parse(version) < packaging.version.parse(
+      required_tensorflow_version
+  ):
     raise ImportError(
         'This version of Reverb requires TensorFlow '
         'version >= {required}; Detected an installation of version {present}. '
         'Please upgrade TensorFlow to proceed.'.format(
             required=required_tensorflow_version,
             present=version))
-

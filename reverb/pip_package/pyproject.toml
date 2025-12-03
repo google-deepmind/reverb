@@ -16,7 +16,7 @@ dependencies = [
     'dm-tree',
     'portpicker',
     'numpy',
-    'six',
+    'packaging',
 ]
 dynamic = ["version", "optional-dependencies"]
 classifiers = [
