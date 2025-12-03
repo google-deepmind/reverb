@@ -15,6 +15,12 @@ common --action_env=PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=upb
 # gRPC using libcares in opensource has some issues.
 build --define=grpc_no_ares=true
 
+# Configures the wheel name
+common --repo_env WHEEL_NAME=dm_reverb_nightly  # dm_reverb or dm_reverb_nightly
+# Configures the version suffix for the built wheels. See
+# https://github.com/openxla/xla/blob/main/third_party/py/python_wheel.bzl
+common --repo_env ML_WHEEL_TYPE=snapshot
+
 common --define framework_shared_object=true
 common --define tsl_protobuf_header_only=true
 
@@ -59,7 +65,7 @@ common:linux --linkopt="-lrt -lm"
 common:macos --linkopt="-Wl,-undefined,dynamic_lookup"
 common:macos --config=clang_local
 common:macos --config=apple-toolchain
-common:macos --repo_env=MACOS_DEPLOYMENT_TARGET=12.0
+common:macos --action_env=MACOSX_DEPLOYMENT_TARGET=12.0
 
 # We build with AVX and eigen byte alignment to match tensorflow's (and Eigen)
 # pip package byte alignment.  See b/186669968 for more details.
