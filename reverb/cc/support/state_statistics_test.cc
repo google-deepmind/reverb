@@ -13,6 +13,8 @@
 // limitations under the License.
 
 #include "reverb/cc/support/state_statistics.h"
+#include "absl/time/clock.h"
+#include "absl/time/time.h"
 
 #include "gtest/gtest.h"
 
@@ -33,18 +35,26 @@ TEST(StateStatisticsTest, StateStatistics) {
   EXPECT_EQ(absl::Seconds(0), stats.GetTotalTimeIn(States::kState2));
   EXPECT_EQ(absl::Seconds(0), stats.GetTotalTimeIn(States::kState3));
   stats.Enter(States::kState1);
+  // absl::SleepFor is needed ensure that the time elapsed is positive.
+  // Otherwise this test is found to be flaky on MacOS
+  // because the clock is not monotonic.
+  // Same for the other sleeps in this test.
+  absl::SleepFor(absl::Seconds(1));
   EXPECT_EQ(stats.CurrentState(), States::kState1);
   EXPECT_LT(absl::Seconds(0), stats.GetTotalTimeIn(States::kState1));
   EXPECT_EQ(absl::Seconds(0), stats.GetTotalTimeIn(States::kState2));
   EXPECT_EQ(absl::Seconds(0), stats.GetTotalTimeIn(States::kState3));
   stats.Enter(States::kState2);
+  absl::SleepFor(absl::Seconds(1));
   EXPECT_EQ(stats.CurrentState(), States::kState2);
   auto state1_time = stats.GetTotalTimeIn(States::kState1);
+  absl::SleepFor(absl::Seconds(1));
   auto state2_time = stats.GetTotalTimeIn(States::kState2);
   EXPECT_LT(absl::Seconds(0), state1_time);
   EXPECT_LT(absl::Seconds(0), state2_time);
   EXPECT_EQ(absl::Seconds(0), stats.GetTotalTimeIn(States::kState3));
   stats.Enter(States::kState3);
+  absl::SleepFor(absl::Seconds(1));
   EXPECT_EQ(stats.CurrentState(), States::kState3);
   EXPECT_EQ(state1_time, stats.GetTotalTimeIn(States::kState1));
   EXPECT_LT(state2_time, stats.GetTotalTimeIn(States::kState2));
