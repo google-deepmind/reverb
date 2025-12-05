@@ -53,6 +53,7 @@ TEST(StateStatisticsTest, StateStatistics) {
   EXPECT_LT(absl::Seconds(0), state1_time);
   EXPECT_LT(absl::Seconds(0), state2_time);
   EXPECT_EQ(absl::Seconds(0), stats.GetTotalTimeIn(States::kState3));
+  absl::SleepFor(absl::Seconds(1));
   stats.Enter(States::kState3);
   absl::SleepFor(absl::Seconds(1));
   EXPECT_EQ(stats.CurrentState(), States::kState3);
