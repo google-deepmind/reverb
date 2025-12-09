@@ -32,6 +32,7 @@ class CustomBuildHook(BuildHookInterface):
   def initialize(self, version: str, build_data: dict[str, Any]):
     build_data['infer_tag'] = True
     build_data['platform'] = os.environ['plat_name']
+    build_data['pure_python'] = False
 
 
 class MetaDataHook(MetadataHookInterface):

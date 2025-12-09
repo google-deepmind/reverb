@@ -2,7 +2,6 @@ absl_py
 dm_tree
 numpy
 portpicker
-six
-tf_nightly
+tf_nightly~=2.21.0.dev
 packaging
 build

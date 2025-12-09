@@ -30,7 +30,13 @@ load(
     "MACOSX_DEPLOYMENT_TARGET",
     "WHEEL_NAME",
 )
-load("//reverb/pip_package:reverb_version.bzl", "REVERB_TENSORFLOW_VERSION", "REVERB_VERSION", "REVERB_VERSION_SUFFIX")
+load(
+    "//reverb/pip_package:reverb_version.bzl",
+    "REVERB_TENSORFLOW_NIGHTLY_VERSION",
+    "REVERB_TENSORFLOW_RELEASE_VERSION",
+    "REVERB_VERSION",
+    "REVERB_VERSION_SUFFIX",
+)
 
 def _get_wheel_platform_name(platform_name, platform_tag):
     macos_platform_version = "{}_".format(MACOSX_DEPLOYMENT_TARGET.replace(".", "_")) if MACOSX_DEPLOYMENT_TARGET else ""
@@ -90,9 +96,9 @@ def _reverb_wheel_impl(ctx):
     args.add("--output-name", wheel_dir)
     args.add("--version", full_wheel_version)
     if "nightly" in WHEEL_NAME:
-        args.add("--tf-version", "tf-nightly")
+        args.add("--tf-version", REVERB_TENSORFLOW_NIGHTLY_VERSION)
     else:
-        args.add("--tf-version", REVERB_TENSORFLOW_VERSION)
+        args.add("--tf-version", REVERB_TENSORFLOW_RELEASE_VERSION)
 
     headers = ctx.files.headers[:]
     for f in headers:

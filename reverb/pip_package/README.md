@@ -1,157 +1,123 @@
-> [!NOTE]
-> This documentation is outdated. We are currently updating the process
-> for building reverb from source.
-> Check out oss_build.sh for the current set-up on how to build reverb.
+# Building reverb from source
 
-# How to develop and build Reverb with the Docker containers
+This document describes how to build Reverb wheels from source.
 
-## Overview
+## System requirements
 
-This document covers a couple scenarios:
+Reverb supports building on Linux x86_64 and macOS Apple Silicon (ARM). You may
+be able to build Reverb on other platforms and architectures but they are not
+tested.
 
- *  [Create a Reverb release](#release)
- *  [Develop Reverb inside a Docker container][#develop]
- *  [Build tips and hints](#builds-tips-and-hints)
+## Install dependencies
 
-While there is overlap in the above scenarios, treating them separately seems
-the most clear at the moment. Before you get started, setup a local variable
-pointing to your local Reverb GitHub repo.
+Building Reverb Python wheels requires the following dependencies to be
+installed on your system:
 
-```shell
-$ export REVERB_DIR=/path/to/reverb/github/repo
-```
+*   **Bazel**. Reverb uses bazel as the build system for Python extensions. The
+    bazel version used in CI can be found in `.bazelversion`. You may want to
+    install [bazelisk](https://github.com/bazelbuild/bazelisk) as the bazel
+    binary which automatically ensures that you use the correct version of
+    bazel.
 
-## Create a stable Reverb release {#release}
+*   **uv**. Reverb uses [uv](https://docs.astral.sh/uv/) for managing Python
+    virtual environments and several tools used for creating wheels. Follow the
+    [installation instruction](https://docs.astral.sh/uv/getting-started/installation/)
+    to set up uv on your system.
 
-There are two steps for building the Reverb package.
+## Build wheels with oss_build.sh
 
-  * Build the Docker container with the version of TensorFlow to build Reverb
-    against.
-  * Execute the build and declare any specific TensorFlow dependency for the
-    pip install. The dependency is only enforced if the user uses
-    `pip install reverb[tensorflow]`.
+> [!NOTE] As of 2025-12-05, Reverb's release build targets TensorFlow 2.21.*. If
+> this version is not yet available on PyPI, the dependency installation will
+> fail, and you will be unable to build release wheels.
 
-Execute from the root of the git repository. The end result will end up in
-`$REVERB_DIR/dist`.
+You can build Reverb either as the release package `dm_reverb` or the nightly
+package `dm_reverb_nightly`. We provide a shell script `oss_build.sh` that
+automates building and testing Reverb wheels.
 
-> :warning: Bazel is caching the first version of files or a config of the first
-   version of Python used. If building reverb consecutively for different
-   versions of Python `--clear_bazel_cache true` is needed and included in
-   the commands below. Running the docker once for each python version also
-   works. This issue may resolve itself in the future.
+To build the wheel, run the following command from the root of the repository:
 
 ```shell
-
-##################################
-# Creates the Docker container.
-##################################
-# Builds the container with Python 3.9, 3.10, and 3.11. Set the
-# `build-arg tensorflow_pip` to the version of TensorFlow to build against.
-# If building against an RC, use == rather than ~= for `tensorflow_pip`.
-$ docker build --pull --no-cache \
-  --tag tensorflow:reverb_release \
-  --build-arg tensorflow_pip=tensorflow~=2.14.0 \
-  --build-arg python_version="python3.9 python3.10 python3.11" \
-  - < "$REVERB_DIR/docker/release.dockerfile"
-
-#################################################
-# Builds Reverb against TensorFlow stable or rc.
-#################################################
-
-# Builds Reverb against most recent stable release of TensorFlow and
-# requires `tensorflow~=2.14.0` if using `pip install reverb[tensorflow]`.
-# Packages for Python 3.9, 3.10, and 3.11 are created.
-$ docker run --rm --mount "type=bind,src=$REVERB_DIR,dst=/tmp/reverb" \
-  tensorflow:reverb_release bash oss_build.sh --clean true \
-  --clear_bazel_cache true --tf_dep_override "tensorflow~=2.14.0" \
-  --release --python "3.9 3.10 3.11"
-
-# Builds Reverb against an RC of TensorFlow. `>=` and `~=` are not effective
-# because pip does not recognize 2.4.0rc0 as greater than 2.3.0. RC builds need
-# to have a strict dependency on the RC of TensorFlow used.
-$ docker run --rm --mount "type=bind,src=$REVERB_DIR,dst=/tmp/reverb" \
-  tensorflow:reverb_release bash oss_build.sh --clean true \
-  --clear_bazel_cache true --tf_dep_override "tensorflow==2.14.0rc0" \
-  --release --python "3.9 3.10 3.11"
-
-# Builds a debug version of Reverb. The debug version is not labeled as debug
-# as that can result in a user installing both the debug and regular packages
-# making it unclear which is installed as they both have the same package
-# namespace. The command below puts the .whl files in ./dist/debug/**.
-# Debug builds are ~90M compared to normal builds that are closer to 7M.
-$ docker run --rm --mount "type=bind,src=$REVERB_DIR,dst=/tmp/reverb" \
-  tensorflow:reverb_release bash oss_build.sh --clean true --debug_build true \
-  --clear_bazel_cache true --output_dir /tmp/reverb/dist/debug/ \
-  --tf_dep_override "tensorflow~=2.14.0" --release --python "3.9 3.10 3.11"
-
+bash oss_build.sh --python '3.11'
 ```
 
-## Develop Reverb inside a Docker container {#develop}
+The script supports the following flags:
 
-1. Build the Docker container. By default the container is setup for python 3.9.
-   Use the `python_version` arg to configure the container with 3.10 or 3.11.
+*   `--python`. The Python version to build the wheel for. You can specify
+    multiple Python versions with `--python '3.11 3.12'`.
+*   `--release`. Whether to build the nightly or release package. This
+    determines:
+    -   the name of the wheel (`dm_reverb` or `dm_reverb_nightly`).
+    -   the TensorFlow package and version used in the `[tensorflow]` optional
+        dependency (`tensorflow` or `tf_nightly`).
+*   `--python_tests`. Whether to run the Python tests by installing Reverb in a
+    virtual environment. Use `--python_tests true` for running the test and
+    `--python_tests false` for skipping the tests.
+*   `--output_dir`. Location to store the wheels. Defaults to `dist`.
 
-  ```shell
-  $ docker build --tag tensorflow:reverb - < "$REVERB_DIR/docker/release.dockerfile"
+You can then install the wheel with:
 
-  # Alternatively you can build the container with Python 3.10 support.
-  $ docker build --tag tensorflow:reverb \
-      --build-arg python_version=python3.10 \
-      - < "$REVERB_DIR/docker/release.dockerfile"
-  ```
+```shell
+python3 -m pip install '<path to .whl file>[tensorflow]'
+```
 
-1. Run and enter the Docker container.
+## Build with bazel
 
-  ```shell
-  $ docker run --rm -it \
-    --mount "type=bind,src=$REVERB_DIR,dst=/tmp/reverb" \
-    --mount "type=bind,src=$HOME/.gitconfig,dst=/etc/gitconfig,ro" \
-    --name reverb tensorflow:reverb bash
-  ```
+You can also build the wheels with Bazel:
 
-1. Compile Reverb.
+```shell
+# Build release wheel
+bazel build \
+  --repo_env=HERMETIC_PYTHON_VERSION=3.12 \
+  --repo_env=WHEEL_NAME=dm_reverb \
+  --repo_env=ML_WHEEL_TYPE=release \
+  //reverb/pip_package:wheel
 
-  ```shell
-  $ python3.9 configure.py
-  $ bazel build -c opt //reverb/pip_package:build_pip_package
-  ```
+# Build nightly wheel
+bazel build \
+  --repo_env=HERMETIC_PYTHON_VERSION=3.12 \
+  --repo_env=WHEEL_NAME=dm_reverb_nightly \
+  --repo_env=ML_WHEEL_TYPE=nightly \
+  --repo_env=ML_WHEEL_BUILD_DATE=`date '+%Y%m%d'` \
+  //reverb/pip_package:wheel
+```
 
-1. Build the .whl file and output it to `/tmp/reverb_build/dist/`.
+The `--repo_env=HERMETIC_PYTHON_VERSION=3.12` controls the hermetic Python
+version used for building the wheel. This should be set to the Python version
+that you intend to use the wheel for.
 
-  ```shell
-  $ ./bazel-bin/reverb/pip_package/build_pip_package \
-    --dst /tmp/reverb_build/dist/
-  ```
+## Update PyPI requirements
 
-1. Install the .whl file.
+The bazel build is set up to use pre-built Python packages specified in
+`reverb/pip_package/requirements_lock*.txt`.
 
-  ```shell
-  # If multiple versions were built, pass the exact wheel to install rather than
-  # *.whl.
-  $ $PYTHON_BIN_PATH -mpip install --upgrade /tmp/reverb_build/dist/*.whl
-  ```
+You can update the requirements by modifying
+`reverb/pip_package/requirements.in` and running:
 
-## Builds Tips and Hints {#builds-tips-and-hints}
+```shell
+bazel run --repo_env=HERMETIC_PYTHON_VERSION=3.12 //reverb/pip_package:requirements.update
+```
 
-### protoc / protobuf version mismatch
+which will update the locked requirements for Python 3.12.
 
-There is a
-[check in the Reverb build process](https://github.com/deepmind/reverb/blob/master/third_party/protobuf.BUILD)
-that checks if the protoc library in Tensorflow matches what Reverb is using. It
-throws this error if there is a mismatch: "Please update the PROTOC_VERSION in
-your WORKSPACE". Here for search reasons :-).
+## Notes on TensorFlow dependency
 
-Tensorflow sets its version of Protobuf in this
-[WORKSPACE](https://github.com/tensorflow/tensorflow/blob/master/tensorflow/workspace2.bzl)
-file. Reverb sets its version of protoc in this
-[WORKSPACE](https://github.com/deepmind/reverb/blob/master/WORKSPACE) file. The
-twist is the protobuf people release protoc as 21.9 and the protobuf library as
-3.21.0 as seen
-[here](https://github.com/protocolbuffers/protobuf/releases/tag/v21.12).
+Reverb depends on TensorFlow for building the C++ extensions. The wheels are
+*only compatible* with the minor TensorFlow release they are built against. For
+example, a wheel built against tensorflow 2.20.* can not be used with tensorflow
+2.21.*.
 
-Until Feb-2023, Tensorflow was using a version of Protobuf that was ~2 years
-old. In Feb 2023, TF jumped to the latest protobuf 3.21.9.
+This also means that dependencies used by Reverb (e.g., abseil-cpp, grpc and
+protobuf) should match those used by TensorFlow.
 
-Note: While I am pretty sure Tensorflow was on 21.9 as of Feb-2023, The checker
-in Reverb saw it as 21.0. 21.0 worked so I (tobyboyd) did not look into it any
-farther.
+TensorFlow is pulled in via both the PyPI packages (via
+`reverb/pip_package/requirements_lock*.txt`) and from the GitHub repository (via
+`WORKSPACE`). To build Reverb against a different version of TensorFlow, you
+will need to
+
+1.  Update the tensorflow version in `requirements.in` to the desired version,
+    then update the lock files.
+2.  Update `WORKSPACE` to use a different TensorFlow commit/release. You may
+    also need to fix the Bazel build setup to ensure the build continues to
+    work.
+3.  Update `reverb/pip_package/reverb_version.bzl` to ensure that the TensorFlow
+    version used in the wheel metadata is correct.
