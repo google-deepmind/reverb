@@ -39,7 +39,6 @@
 #include "reverb/cc/platform/status_macros.h"
 #include "reverb/cc/rate_limiter.h"
 #include "reverb/cc/schema.pb.h"
-#include "reverb/cc/support/tf_util.h"
 #include "reverb/cc/support/trajectory_util.h"
 #include "reverb/cc/table.h"
 #include "reverb/cc/table_extensions/interface.h"
@@ -69,8 +68,8 @@ using RecordReaderUniquePtr =
 absl::Status OpenWriter(const std::string& path,
                         RecordWriterUniquePtr* writer) {
   std::unique_ptr<tensorflow::WritableFile> file;
-  REVERB_RETURN_IF_ERROR(FromTensorflowStatus(
-      tensorflow::Env::Default()->NewWritableFile(path, &file)));
+  REVERB_RETURN_IF_ERROR(
+      tensorflow::Env::Default()->NewWritableFile(path, &file));
   auto* file_ptr = file.release();
   *writer = RecordWriterUniquePtr(
       new tensorflow::io::RecordWriter(
@@ -87,8 +86,8 @@ absl::Status OpenWriter(const std::string& path,
 absl::Status OpenReader(const std::string& path, RecordReaderUniquePtr* reader,
                         const std::string& compression_type) {
   std::unique_ptr<tensorflow::RandomAccessFile> file;
-  REVERB_RETURN_IF_ERROR(FromTensorflowStatus(
-      tensorflow::Env::Default()->NewRandomAccessFile(path, &file)));
+  REVERB_RETURN_IF_ERROR(
+      tensorflow::Env::Default()->NewRandomAccessFile(path, &file));
   auto* file_ptr = file.release();
   *reader = RecordReaderUniquePtr(
       new tensorflow::io::RecordReader(
@@ -104,10 +103,9 @@ absl::Status OpenReader(const std::string& path, RecordReaderUniquePtr* reader,
 
 inline absl::Status WriteDone(const std::string& path) {
   std::unique_ptr<tensorflow::WritableFile> file;
-  REVERB_RETURN_IF_ERROR(
-      FromTensorflowStatus(tensorflow::Env::Default()->NewWritableFile(
-          tensorflow::io::JoinPath(path, kDoneFileName), &file)));
-  return FromTensorflowStatus(file->Close());
+  REVERB_RETURN_IF_ERROR(tensorflow::Env::Default()->NewWritableFile(
+      tensorflow::io::JoinPath(path, kDoneFileName), &file));
+  return file->Close();
 }
 
 inline bool HasDone(const std::string& path) {
@@ -181,8 +179,8 @@ absl::Status TFRecordCheckpointer::Save(std::vector<Table*> tables,
 
   std::string dir_path =
       tensorflow::io::JoinPath(root_dir_, absl::FormatTime(absl::Now()));
-  REVERB_RETURN_IF_ERROR(FromTensorflowStatus(
-      tensorflow::Env::Default()->RecursivelyCreateDir(dir_path)));
+  REVERB_RETURN_IF_ERROR(
+      tensorflow::Env::Default()->RecursivelyCreateDir(dir_path));
 
   internal::flat_hash_set<std::shared_ptr<ChunkStore::Chunk>> chunks;
   std::vector<PrioritizedItem> items;
@@ -206,11 +204,10 @@ absl::Status TFRecordCheckpointer::Save(std::vector<Table*> tables,
             "' and proto size: ", checkpoint.checkpoint.ByteSizeLong(),
             " bytes. Perhaps the proto is >2GB?  Please check your logs."));
       }
-      REVERB_RETURN_IF_ERROR(
-          FromTensorflowStatus(table_writer->WriteRecord(serialized)));
+      REVERB_RETURN_IF_ERROR(table_writer->WriteRecord(serialized));
     }
 
-    REVERB_RETURN_IF_ERROR(FromTensorflowStatus(table_writer->Close()));
+    REVERB_RETURN_IF_ERROR(table_writer->Close());
   }
 
   {
@@ -226,10 +223,9 @@ absl::Status TFRecordCheckpointer::Save(std::vector<Table*> tables,
                          "' and proto size: ", item.ByteSizeLong(),
                          " bytes.  Please check your logs."));
       }
-      REVERB_RETURN_IF_ERROR(
-          FromTensorflowStatus(item_writer->WriteRecord(serialized)));
+      REVERB_RETURN_IF_ERROR(item_writer->WriteRecord(serialized));
     }
-    REVERB_RETURN_IF_ERROR(FromTensorflowStatus(item_writer->Close()));
+    REVERB_RETURN_IF_ERROR(item_writer->Close());
   }
 
   {
@@ -246,10 +242,9 @@ absl::Status TFRecordCheckpointer::Save(std::vector<Table*> tables,
             " bytes.  Perhaps the proto is >2GB?  Please also check your "
             "logs."));
       }
-      REVERB_RETURN_IF_ERROR(
-          FromTensorflowStatus(chunk_writer->WriteRecord(serialized)));
+      REVERB_RETURN_IF_ERROR(chunk_writer->WriteRecord(serialized));
     }
-    REVERB_RETURN_IF_ERROR(FromTensorflowStatus(chunk_writer->Close()));
+    REVERB_RETURN_IF_ERROR(chunk_writer->Close());
   }
 
   // Both chunks and table checkpoint has now been written so we can proceed to
@@ -258,18 +253,16 @@ absl::Status TFRecordCheckpointer::Save(std::vector<Table*> tables,
 
   // Delete the older checkpoints.
   std::vector<std::string> filenames;
-  REVERB_RETURN_IF_ERROR(
-      FromTensorflowStatus(tensorflow::Env::Default()->GetMatchingPaths(
-          tensorflow::io::JoinPath(root_dir_, "*"), &filenames)));
+  REVERB_RETURN_IF_ERROR(tensorflow::Env::Default()->GetMatchingPaths(
+      tensorflow::io::JoinPath(root_dir_, "*"), &filenames));
   std::sort(filenames.begin(), filenames.end());
   int history_counter = 0;
   for (auto it = filenames.rbegin(); it != filenames.rend(); it++) {
     if (++history_counter > keep_latest) {
       int64_t undeleted_files;
       int64_t undeleted_dirs;
-      REVERB_RETURN_IF_ERROR(
-          FromTensorflowStatus(tensorflow::Env::Default()->DeleteRecursively(
-              *it, &undeleted_files, &undeleted_dirs)));
+      REVERB_RETURN_IF_ERROR(tensorflow::Env::Default()->DeleteRecursively(
+          *it, &undeleted_files, &undeleted_dirs));
     }
   }
 
@@ -312,8 +305,7 @@ absl::Status LoadWithCompression(absl::string_view path,
     uint64_t table_offset = 0;
     tensorflow::tstring table_record;
     do {
-      table_status = FromTensorflowStatus(
-          table_reader->ReadRecord(&table_offset, &table_record));
+      table_status = table_reader->ReadRecord(&table_offset, &table_record);
       if (!table_status.ok()) break;
 
       PriorityTableCheckpoint checkpoint;
@@ -372,8 +364,7 @@ absl::Status LoadWithCompression(absl::string_view path,
     tensorflow::tstring item_record;
     std::vector<PrioritizedItem>* items = nullptr;
     do {
-      item_status = FromTensorflowStatus(
-          item_reader->ReadRecord(&item_offset, &item_record));
+      item_status = item_reader->ReadRecord(&item_offset, &item_record);
       if (!item_status.ok()) break;
       if (!item.ParseFromString(
               absl::string_view(item_record.data(), item_record.size()))) {
@@ -424,8 +415,7 @@ absl::Status LoadWithCompression(absl::string_view path,
     uint64_t chunk_offset = 0;
     tensorflow::tstring chunk_record;
     do {
-      chunk_status = FromTensorflowStatus(
-          chunk_reader->ReadRecord(&chunk_offset, &chunk_record));
+      chunk_status = chunk_reader->ReadRecord(&chunk_offset, &chunk_record);
       if (!chunk_status.ok()) break;
       if (!chunk_data.ParseFromString(
               absl::string_view(chunk_record.data(), chunk_record.size()))) {
@@ -558,9 +548,8 @@ absl::Status TFRecordCheckpointer::LoadLatest(
   ChunkStore chunk_store;
   REVERB_LOG(REVERB_INFO) << "Loading latest checkpoint from " << root_dir_;
   std::vector<std::string> filenames;
-  REVERB_RETURN_IF_ERROR(
-      FromTensorflowStatus(tensorflow::Env::Default()->GetMatchingPaths(
-          tensorflow::io::JoinPath(root_dir_, "*"), &filenames)));
+  REVERB_RETURN_IF_ERROR(tensorflow::Env::Default()->GetMatchingPaths(
+      tensorflow::io::JoinPath(root_dir_, "*"), &filenames));
   std::sort(filenames.begin(), filenames.end());
   for (auto it = filenames.rbegin(); it != filenames.rend(); it++) {
     if (HasDone(*it)) {

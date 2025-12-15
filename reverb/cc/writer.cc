@@ -44,7 +44,6 @@
 #include "reverb/cc/schema.pb.h"
 #include "reverb/cc/support/grpc_util.h"
 #include "reverb/cc/support/signature.h"
-#include "reverb/cc/support/tf_util.h"
 #include "reverb/cc/support/trajectory_util.h"
 #include "reverb/cc/tensor_compression.h"
 #include "tensorflow/core/framework/tensor.h"
@@ -438,8 +437,8 @@ absl::Status Writer::Finish(bool retry_on_unavailable) {
       REVERB_CHECK(tensors[j].CopyFrom(item, shape));
     }
     batched_tensors.emplace_back();
-    REVERB_RETURN_IF_ERROR(FromTensorflowStatus(
-        tensorflow::tensor::Concat(tensors, &batched_tensors.back())));
+    REVERB_RETURN_IF_ERROR(
+        tensorflow::tensor::Concat(tensors, &batched_tensors.back()));
   }
 
   ChunkData chunk_data;

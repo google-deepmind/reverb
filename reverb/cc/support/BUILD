@@ -151,13 +151,6 @@ reverb_cc_library(
 )
 
 reverb_cc_library(
-    name = "tf_util",
-    hdrs = ["tf_util.h"],
-    deps = [
-    ] + reverb_absl_deps() + reverb_tf_deps(),
-)
-
-reverb_cc_library(
     name = "unbounded_queue",
     hdrs = ["unbounded_queue.h"],
     deps = reverb_absl_deps(),

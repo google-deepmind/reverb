@@ -24,7 +24,6 @@
 #include "reverb/cc/chunker.h"
 #include "reverb/cc/platform/logging.h"
 #include "reverb/cc/platform/status_macros.h"
-#include "reverb/cc/support/tf_util.h"
 #include "reverb/cc/support/trajectory_util.h"
 #include "tensorflow/core/framework/tensor.h"
 #include "tensorflow/core/framework/tensor_util.h"
@@ -138,8 +137,8 @@ absl::Status QueueWriter::CreateItem(
         REVERB_RETURN_IF_ERROR(
             refs[ref_idx]->GetData(&column_tensors[ref_idx]));
       }
-      REVERB_RETURN_IF_ERROR(FromTensorflowStatus(
-          tensorflow::tensor::Concat(column_tensors, &out[col_idx])));
+      REVERB_RETURN_IF_ERROR(
+          tensorflow::tensor::Concat(column_tensors, &out[col_idx]));
     }
 
     if (!out[col_idx].IsAligned()) {

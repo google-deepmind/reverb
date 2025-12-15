@@ -32,7 +32,6 @@
 #include "reverb/cc/schema.pb.h"
 #include "reverb/cc/support/key_generators.h"
 #include "reverb/cc/support/signature.h"
-#include "reverb/cc/support/tf_util.h"
 #include "reverb/cc/support/trajectory_util.h"
 #include "reverb/cc/tensor_compression.h"
 #include "tensorflow/core/framework/tensor.h"
@@ -256,8 +255,7 @@ absl::Status Chunker::FlushLocked() {
   chunk->set_chunk_key(next_chunk_key_);
 
   tensorflow::Tensor batched;
-  REVERB_RETURN_IF_ERROR(
-      FromTensorflowStatus(tensorflow::tensor::Concat(buffer_, &batched)));
+  REVERB_RETURN_IF_ERROR(tensorflow::tensor::Concat(buffer_, &batched));
 
   // Save the size of the tensor before compression is applied.
   chunk->set_data_uncompressed_size(batched.TotalBytes());

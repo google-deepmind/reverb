@@ -86,7 +86,6 @@ reverb_cc_test(
         "//reverb/cc/platform:logging",
         "//reverb/cc/platform:status_matchers",
         "//reverb/cc/selectors:fifo",
-        "//reverb/cc/support:tf_util",
         "//reverb/cc/testing:proto_test_util",
         "//reverb/cc/testing:tensor_testutil",
         "//reverb/cc/testing:time_testutil",
@@ -108,7 +107,6 @@ reverb_cc_test(
         "//reverb/cc/platform:thread",
         "//reverb/cc/support:grpc_util",
         "//reverb/cc/support:queue",
-        "//reverb/cc/support:tf_util",
         "//reverb/cc/support:trajectory_util",
         "//reverb/cc/support:uint128",
         "//reverb/cc/testing:proto_test_util",
@@ -221,7 +219,6 @@ reverb_cc_library(
         "//reverb/cc/support:grpc_util",
         "//reverb/cc/support:queue",
         "//reverb/cc/support:signature",
-        "//reverb/cc/support:tf_util",
         "//reverb/cc/support:trajectory_util",
     ] + reverb_tf_deps() + reverb_grpc_deps() + reverb_absl_deps(),
 )
@@ -241,7 +238,6 @@ reverb_cc_library(
         "//reverb/cc/platform:thread",
         "//reverb/cc/support:grpc_util",
         "//reverb/cc/support:signature",
-        "//reverb/cc/support:tf_util",
         "//reverb/cc/support:trajectory_util",
         "@com_github_grpc_grpc//:grpc++",
         "@com_google_absl//absl/log:check",
@@ -267,7 +263,6 @@ reverb_cc_library(
         "//reverb/cc/support:grpc_util",
         "//reverb/cc/support:key_generators",
         "//reverb/cc/support:signature",
-        "//reverb/cc/support:tf_util",
         "//reverb/cc/support:trajectory_util",
     ] + reverb_tf_deps() + reverb_absl_deps() + reverb_grpc_deps(),
 )
@@ -343,7 +338,6 @@ reverb_cc_library(
         "//reverb/cc/platform:status_macros",
         "//reverb/cc/support:key_generators",
         "//reverb/cc/support:signature",
-        "//reverb/cc/support:tf_util",
         "//reverb/cc/support:trajectory_util",
     ] + reverb_tf_deps() + reverb_absl_deps(),
 )

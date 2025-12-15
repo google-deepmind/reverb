@@ -42,7 +42,6 @@
 #include "reverb/cc/selectors/prioritized.h"
 #include "reverb/cc/selectors/uniform.h"
 #include "reverb/cc/structured_writer.h"
-#include "reverb/cc/support/tf_util.h"
 #include "reverb/cc/table.h"
 #include "reverb/cc/table_extensions/interface.h"
 #include "reverb/cc/trajectory_writer.h"
@@ -600,8 +599,7 @@ PYBIND11_MODULE(libpybind, m) {
 
               if (status.ok()) {
                 PyArray_Descr *descr = nullptr;
-                status = FromTensorflowStatus(
-                    pybind::GetPyDescrFromDataType(spec.dtype, &descr));
+                status = pybind::GetPyDescrFromDataType(spec.dtype, &descr);
                 if (status.ok()) {
                   dtype = py::reinterpret_steal<py::dtype>(
                       reinterpret_cast<PyObject *>(descr));

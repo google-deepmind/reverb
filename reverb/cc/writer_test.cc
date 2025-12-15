@@ -37,7 +37,6 @@
 #include "reverb/cc/reverb_service_mock.grpc.pb.h"
 #include "reverb/cc/support/grpc_util.h"
 #include "reverb/cc/support/queue.h"
-#include "reverb/cc/support/tf_util.h"
 #include "reverb/cc/support/trajectory_util.h"
 #include "reverb/cc/support/uint128.h"
 #include "reverb/cc/testing/proto_test_util.h"
@@ -1081,8 +1080,7 @@ TEST(WriterTest, AppendSequenceBehavesLikeMutlipleAppendCalls) {
     std::vector<tensorflow::Tensor> column(kBatchSize);
     std::transform(steps.begin(), steps.end(), column.begin(),
                    [i](const auto& step) { return step[i]; });
-    REVERB_ASSERT_OK(
-        FromTensorflowStatus(tensorflow::tensor::Concat(column, &batch[i])));
+    REVERB_ASSERT_OK(tensorflow::tensor::Concat(column, &batch[i]));
   }
 
   std::vector<InsertStreamRequest> simple_requests;

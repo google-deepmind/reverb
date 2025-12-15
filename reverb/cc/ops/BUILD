@@ -42,7 +42,6 @@ reverb_kernel_library(
         "//reverb/cc:schema_cc_proto",
         "//reverb/cc:structured_writer",
         "//reverb/cc/platform:logging",
-        "//reverb/cc/support:tf_util",
     ] + reverb_absl_deps(),
 )
 
@@ -65,7 +64,6 @@ reverb_cc_library(
         "//reverb/cc/platform:status_macros",
         "//reverb/cc/support:cleanup",
         "//reverb/cc/support:key_generators",
-        "//reverb/cc/support:tf_util",
         "//reverb/cc/support:trajectory_util",
     ] + reverb_tf_deps() + reverb_absl_deps(),
 )

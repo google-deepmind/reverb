@@ -115,7 +115,6 @@ reverb_pybind_extension(
         "//reverb/cc/selectors:lifo",
         "//reverb/cc/selectors:prioritized",
         "//reverb/cc/selectors:uniform",
-        "//reverb/cc/support:tf_util",
         "//reverb/cc/table_extensions:interface",
     ] + reverb_tf_deps() + reverb_pybind_deps() + reverb_absl_deps(),
 )

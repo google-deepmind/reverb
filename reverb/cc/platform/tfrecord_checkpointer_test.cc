@@ -29,7 +29,6 @@
 #include "reverb/cc/selectors/heap.h"
 #include "reverb/cc/selectors/prioritized.h"
 #include "reverb/cc/selectors/uniform.h"
-#include "reverb/cc/support/tf_util.h"
 #include "reverb/cc/table.h"
 #include "reverb/cc/table_extensions/base.h"
 #include "reverb/cc/testing/proto_test_util.h"
@@ -111,7 +110,7 @@ TEST(TFRecordCheckpointerTest, CreatesDirectoryInRoot) {
   auto* env = tensorflow::Env::Default();
   REVERB_ASSERT_OK(checkpointer.Save(std::vector<Table*>{}, 1, &path));
   ASSERT_EQ(tensorflow::io::Dirname(path), root);
-  REVERB_EXPECT_OK(FromTensorflowStatus(env->FileExists(path)));
+  REVERB_EXPECT_OK(env->FileExists(path));
 }
 
 TEST(TFRecordCheckpointerTest, SaveAndLoad) {
@@ -240,9 +239,8 @@ TEST(TFRecordCheckpointerTest, SaveDeletesOldData) {
                             keep_latest, &path));
 
       std::vector<std::string> filenames;
-      REVERB_ASSERT_OK(
-          FromTensorflowStatus(tensorflow::Env::Default()->GetMatchingPaths(
-              tensorflow::io::JoinPath(root, "*"), &filenames)));
+      REVERB_ASSERT_OK(tensorflow::Env::Default()->GetMatchingPaths(
+          tensorflow::io::JoinPath(root, "*"), &filenames));
       ASSERT_EQ(filenames.size(), std::min(keep_latest, i + 1));
     }
   };

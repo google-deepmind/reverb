@@ -28,7 +28,6 @@
 #include "reverb/cc/patterns.pb.h"
 #include "reverb/cc/platform/logging.h"
 #include "reverb/cc/structured_writer.h"
-#include "reverb/cc/support/tf_util.h"
 #include "tensorflow/core/data/captured_function.h"
 #include "tensorflow/core/framework/attr_value.pb.h"
 #include "tensorflow/core/framework/common_shape_fns.h"
@@ -282,11 +281,10 @@ class ReverbPatternDatasetOp : public tensorflow::data::UnaryDatasetOpKernel {
           for (auto step : out_steps) {
             optional_out_steps.push_back(std::move(step));
           }
-          TF_RETURN_IF_ERROR(ToTensorflowStatus(
-              structured_writer_->Append(optional_out_steps)));
+          TF_RETURN_IF_ERROR(structured_writer_->Append(optional_out_steps));
           if (end_episode) {
-            TF_RETURN_IF_ERROR(ToTensorflowStatus(
-                structured_writer_->EndEpisode(clear_after_episode_)));
+            TF_RETURN_IF_ERROR(
+                structured_writer_->EndEpisode(clear_after_episode_));
           }
         }
         if (data_.empty()) {

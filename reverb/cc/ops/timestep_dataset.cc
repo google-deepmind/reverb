@@ -21,7 +21,6 @@
 #include "reverb/cc/errors.h"
 #include "reverb/cc/platform/logging.h"
 #include "reverb/cc/sampler.h"
-#include "reverb/cc/support/tf_util.h"
 #include "tensorflow/core/framework/common_shape_fns.h"
 #include "tensorflow/core/framework/dataset.h"
 #include "tensorflow/core/framework/op.h"
@@ -60,7 +59,7 @@ class ReverbTimestepDatasetOp : public tensorflow::data::DatasetOpKernel {
     sampler_options_.rate_limiter_timeout =
         Int64MillisToNonnegativeDuration(rate_limiter_timeout_ms);
 
-    OP_REQUIRES_OK(ctx, ToTensorflowStatus(sampler_options_.Validate()));
+    OP_REQUIRES_OK(ctx, sampler_options_.Validate());
   }
 
   void MakeDataset(tensorflow::OpKernelContext* ctx,
@@ -213,11 +212,11 @@ class ReverbTimestepDatasetOp : public tensorflow::data::DatasetOpKernel {
                  "and shapes.";
           // Ask for a NewSampler with negative validation_timeout Duration,
           // which causes it to skip the validation and return an OK status.
-          return ToTensorflowStatus(client_->NewSampler(
+          return client_->NewSampler(
               table_, sampler_options_,
-              /*validation_timeout=*/-absl::InfiniteDuration(), &sampler_));
+              /*validation_timeout=*/-absl::InfiniteDuration(), &sampler_);
         }
-        return ToTensorflowStatus(status);
+        return status;
       }
 
       absl::Status GetNextInternal(tensorflow::data::IteratorContext* ctx,
@@ -259,7 +258,7 @@ class ReverbTimestepDatasetOp : public tensorflow::data::DatasetOpKernel {
           *end_of_sequence = true;
           return absl::OkStatus();
         } else {
-          return ToTensorflowStatus(status);
+          return status;
         }
       }
 

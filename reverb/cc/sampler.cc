@@ -39,7 +39,6 @@
 #include "reverb/cc/reverb_service.pb.h"
 #include "reverb/cc/schema.pb.h"
 #include "reverb/cc/support/grpc_util.h"
-#include "reverb/cc/support/tf_util.h"
 #include "reverb/cc/support/trajectory_util.h"
 #include "reverb/cc/table.h"
 #include "reverb/cc/tensor_compression.h"
@@ -803,8 +802,8 @@ absl::Status Sample::AsTrajectory(std::vector<tensorflow::Tensor>* data) {
         column_tensors.push_back(std::move(slice.tensor));
       }
 
-      REVERB_RETURN_IF_ERROR(FromTensorflowStatus(
-          tensorflow::tensor::Concat(column_tensors, &sequences[i])));
+      REVERB_RETURN_IF_ERROR(
+          tensorflow::tensor::Concat(column_tensors, &sequences[i]));
     }
   }
 

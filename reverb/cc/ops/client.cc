@@ -21,7 +21,6 @@
 
 #include "absl/strings/str_cat.h"
 #include "reverb/cc/sampler.h"
-#include "reverb/cc/support/tf_util.h"
 #include "tensorflow/core/framework/op.h"
 #include "tensorflow/core/framework/op_kernel.h"
 #include "tensorflow/core/framework/resource_op_kernel.h"
@@ -97,14 +96,13 @@ class SampleOp : public tensorflow::OpKernel {
 
     constexpr auto kValidationTimeout = absl::Seconds(30);
     OP_REQUIRES_OK(
-        context, ToTensorflowStatus(resource->client()->NewSampler(
+        context, resource->client()->NewSampler(
                      table, options, /*validation_timeout=*/kValidationTimeout,
-                     &sampler)));
+                     &sampler));
 
     std::vector<tensorflow::Tensor> data;
     std::shared_ptr<const SampleInfo> info;
-    OP_REQUIRES_OK(context, ToTensorflowStatus(sampler->GetNextTimestep(
-                                &data, nullptr, &info)));
+    OP_REQUIRES_OK(context, sampler->GetNextTimestep(&data, nullptr, &info));
     OP_REQUIRES(
         context,
         data.size() + Sampler::kNumInfoTensors == context->num_outputs(),
@@ -170,7 +168,7 @@ class UpdatePrioritiesOp : public tensorflow::OpKernel {
     do {
       status = resource->client()->MutatePriorities(table_str, updates, {});
     } while (absl::IsUnavailable(status) || absl::IsDeadlineExceeded(status));
-    OP_REQUIRES_OK(context, ToTensorflowStatus(status));
+    OP_REQUIRES_OK(context, status);
   }
 
   TF_DISALLOW_COPY_AND_ASSIGN(UpdatePrioritiesOp);
@@ -208,21 +206,20 @@ class InsertOp : public tensorflow::OpKernel {
     }
 
     std::unique_ptr<Writer> writer;
-    OP_REQUIRES_OK(context, ToTensorflowStatus(resource->client()->NewWriter(
-                                1, 1, false, &writer)));
     OP_REQUIRES_OK(context,
-                   ToTensorflowStatus(writer->Append(std::move(tensors))));
+                   resource->client()->NewWriter(1, 1, false, &writer));
+    OP_REQUIRES_OK(context, writer->Append(std::move(tensors)));
 
     auto tables_t = tables->flat<tstring>();
     auto priorities_t = priorities->flat<double>();
     for (int i = 0; i < tables->dim_size(0); i++) {
-      OP_REQUIRES_OK(context, ToTensorflowStatus(writer->CreateItem(
-                                  tables_t(i), 1, priorities_t(i))));
+      OP_REQUIRES_OK(context,
+                     writer->CreateItem(tables_t(i), 1, priorities_t(i)));
     }
 
-    OP_REQUIRES_OK(context, ToTensorflowStatus(writer->Flush()));
+    OP_REQUIRES_OK(context, writer->Flush());
 
-    OP_REQUIRES_OK(context, ToTensorflowStatus(writer->Close()));
+    OP_REQUIRES_OK(context, writer->Close());
   }
 
   TF_DISALLOW_COPY_AND_ASSIGN(InsertOp);
