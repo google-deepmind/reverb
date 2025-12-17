@@ -109,6 +109,9 @@ cc_library(
 
 cc_library(
     name = "framework_lib",
+    # Ensure that reverb uses the same kSeed as tensorflow. See
+    # https://github.com/abseil/abseil-cpp/blob/4ab53949759ddf3f26336eae7130ac6445376b53/absl/hash/hash.h#L43-L46
+    deps = ["@com_google_absl//absl/hash"],
     srcs = select({
         "@platforms//os:linux": ["site-packages/tensorflow/libtensorflow_framework.so.2"],
         "@platforms//os:macos": ["site-packages/tensorflow/libtensorflow_framework.2.dylib"]

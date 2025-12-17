@@ -1,6 +1,5 @@
 load(
     "//reverb/cc/platform:build_rules.bzl",
-    "reverb_absl_deps",
     "reverb_cc_library",
     "reverb_cc_test",
     "reverb_grpc_deps",
@@ -16,13 +15,17 @@ reverb_cc_library(
     hdrs = ["uint128.h"],
     deps = [
         "//reverb/cc:schema_cc_proto",
-    ] + reverb_absl_deps(),
+    ],
 )
 
 reverb_cc_library(
     name = "grpc_util",
     hdrs = ["grpc_util.h"],
-    deps = reverb_grpc_deps() + reverb_absl_deps(),
+    deps = reverb_grpc_deps() + [
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:string_view",
+    ],
 )
 
 reverb_cc_library(
@@ -30,13 +33,21 @@ reverb_cc_library(
     hdrs = ["queue.h"],
     deps = [
         "//reverb/cc/platform:logging",
-    ] + reverb_absl_deps(),
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/synchronization",
+        "@com_google_absl//absl/time",
+    ],
 )
 
 reverb_cc_library(
     name = "cleanup",
     hdrs = ["cleanup.h"],
-    deps = reverb_absl_deps(),
+    deps = [
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/memory",
+    ],
 )
 
 reverb_cc_test(
@@ -61,7 +72,8 @@ reverb_cc_test(
     srcs = ["intrusive_heap_test.cc"],
     deps = [
         ":intrusive_heap",
-    ] + reverb_absl_deps(),
+        "@com_google_absl//absl/random",
+    ],
 )
 
 reverb_cc_library(
@@ -71,7 +83,11 @@ reverb_cc_library(
     deps = [
         "//reverb/cc/platform:logging",
         "//reverb/cc/platform:thread",
-    ] + reverb_absl_deps() + reverb_tf_deps(),
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/synchronization",
+        "@com_google_absl//absl/time",
+    ] + reverb_tf_deps(),
 )
 
 reverb_cc_test(
@@ -82,7 +98,10 @@ reverb_cc_test(
         "//reverb/cc/platform:logging",
         "//reverb/cc/platform:status_matchers",
         "//reverb/cc/platform:thread",
-    ] + reverb_absl_deps(),
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/synchronization",
+        "@com_google_absl//absl/time",
+    ],
 )
 
 reverb_cc_test(
@@ -92,7 +111,8 @@ reverb_cc_test(
         ":periodic_closure",
         "//reverb/cc/platform:status_matchers",
         "//reverb/cc/testing:time_testutil",
-    ] + reverb_absl_deps() + reverb_tf_deps(),
+        "@com_google_absl//absl/time",
+    ] + reverb_tf_deps(),
 )
 
 reverb_cc_library(
@@ -107,7 +127,11 @@ reverb_cc_library(
         "//reverb/cc/platform:hash_set",
         "//reverb/cc/platform:logging",
         "//reverb/cc/platform:status_macros",
-    ] + reverb_tf_deps() + reverb_absl_deps(),
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:string_view",
+        "@com_google_absl//absl/types:optional",
+    ] + reverb_tf_deps(),
 )
 
 reverb_cc_test(
@@ -117,7 +141,8 @@ reverb_cc_test(
         ":signature",
         "//reverb/cc/platform:status_matchers",
         "//reverb/cc/testing:proto_test_util",
-    ] + reverb_tf_deps() + reverb_absl_deps(),
+        "@com_google_absl//absl/strings:string_view",
+    ] + reverb_tf_deps(),
 )
 
 reverb_cc_library(
@@ -127,7 +152,8 @@ reverb_cc_library(
     ],
     deps = [
         "//reverb/cc/platform:hash_map",
-    ] + reverb_absl_deps() + reverb_tf_deps(),
+        "@com_google_absl//absl/time",
+    ] + reverb_tf_deps(),
 )
 
 reverb_cc_test(
@@ -135,7 +161,8 @@ reverb_cc_test(
     srcs = ["state_statistics_test.cc"],
     deps = [
         ":state_statistics",
-    ] + reverb_tf_deps() + reverb_absl_deps(),
+        "@com_google_absl//absl/time",
+    ] + reverb_tf_deps(),
 )
 
 reverb_cc_library(
@@ -143,17 +170,19 @@ reverb_cc_library(
     srcs = ["task_executor.cc"],
     hdrs = ["task_executor.h"],
     deps = [
-        "//reverb/cc/platform:status_macros",
+        ":unbounded_queue",
         "//reverb/cc/platform:thread",
-        "//reverb/cc/support:periodic_closure",
-        "//reverb/cc/support:unbounded_queue",
-    ] + reverb_absl_deps(),
+        "@com_google_absl//absl/strings",
+    ],
 )
 
 reverb_cc_library(
     name = "unbounded_queue",
     hdrs = ["unbounded_queue.h"],
-    deps = reverb_absl_deps(),
+    deps = [
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/synchronization",
+    ],
 )
 
 reverb_cc_test(
@@ -163,7 +192,8 @@ reverb_cc_test(
         ":unbounded_queue",
         "//reverb/cc/platform:logging",
         "//reverb/cc/platform:thread",
-    ] + reverb_absl_deps() + reverb_tf_deps(),
+        "@com_google_absl//absl/synchronization",
+    ] + reverb_tf_deps(),
 )
 
 reverb_cc_library(
@@ -177,7 +207,11 @@ reverb_cc_library(
         "//reverb/cc/platform:hash_set",
         "//reverb/cc/platform:logging",
         "//reverb/cc/platform:status_macros",
-    ] + reverb_tf_deps() + reverb_absl_deps(),
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/types:span",
+    ] + reverb_tf_deps(),
 )
 
 reverb_cc_test(
@@ -197,5 +231,5 @@ reverb_cc_test(
 reverb_cc_library(
     name = "key_generators",
     hdrs = ["key_generators.h"],
-    deps = reverb_absl_deps(),
+    deps = ["@com_google_absl//absl/random"],
 )

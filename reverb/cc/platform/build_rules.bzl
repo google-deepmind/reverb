@@ -2,7 +2,6 @@
 
 load(
     "//reverb/cc/platform/default:build_rules.bzl",
-    _reverb_absl_deps = "reverb_absl_deps",
     _reverb_cc_grpc_library = "reverb_cc_grpc_library",
     _reverb_cc_library = "reverb_cc_library",
     _reverb_cc_proto_library = "reverb_cc_proto_library",
@@ -22,7 +21,6 @@ load(
     _reverb_tf_ops_visibility = "reverb_tf_ops_visibility",
 )
 
-reverb_absl_deps = _reverb_absl_deps
 reverb_cc_library = _reverb_cc_library
 reverb_cc_test = _reverb_cc_test
 reverb_cc_grpc_library = _reverb_cc_grpc_library

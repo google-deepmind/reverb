@@ -597,29 +597,3 @@ def reverb_tf_deps():
 
 def reverb_grpc_deps():
     return ["@com_github_grpc_grpc//:grpc++"]
-
-def reverb_absl_deps():
-    return [
-        # We purposefully don't include absl::flat_hash_{map,set} so that users
-        # are forced to use platform:hash_{map,set}, which uses a safer hasher.
-        "@com_google_absl//absl/base",
-        "@com_google_absl//absl/base:core_headers",
-        "@com_google_absl//absl/functional:bind_front",
-        "@com_google_absl//absl/memory",
-        "@com_google_absl//absl/numeric:int128",
-        "@com_google_absl//absl/random",
-        "@com_google_absl//absl/random:distributions",
-        "@com_google_absl//absl/status",
-        "@com_google_absl//absl/status:statusor",
-        "@com_google_absl//absl/strings",
-        "@com_google_absl//absl/strings:cord",
-        "@com_google_absl//absl/strings:str_format",
-        "@com_google_absl//absl/synchronization",
-        "@com_google_absl//absl/time",
-        "@com_google_absl//absl/types:optional",
-        "@com_google_absl//absl/types:span",
-        # This is not used within Reverb directly but tensorflow/tsl/platform/env.h introduced this
-        # dependency on 2023-04-25 in
-        # https://github.com/tensorflow/tensorflow/commit/134a9f87c22ffb111080f9d6626f202ad0cce2a4.
-        "@com_google_absl//absl/functional:any_invocable",
-    ]

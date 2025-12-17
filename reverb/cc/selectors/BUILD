@@ -1,6 +1,5 @@
 load(
     "//reverb/cc/platform:build_rules.bzl",
-    "reverb_absl_deps",
     "reverb_cc_library",
     "reverb_cc_test",
     "reverb_tf_deps",
@@ -15,7 +14,8 @@ reverb_cc_library(
     hdrs = ["interface.h"],
     deps = [
         "//reverb/cc/checkpointing:checkpoint_cc_proto",
-    ] + reverb_tf_deps() + reverb_absl_deps(),
+        "@com_google_absl//absl/status",
+    ] + reverb_tf_deps(),
 )
 
 reverb_cc_library(
@@ -28,7 +28,11 @@ reverb_cc_library(
         "//reverb/cc/checkpointing:checkpoint_cc_proto",
         "//reverb/cc/platform:hash_map",
         "//reverb/cc/platform:logging",
-    ] + reverb_tf_deps() + reverb_absl_deps(),
+        "@com_google_absl//absl/random",
+        "@com_google_absl//absl/random:distributions",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/strings",
+    ] + reverb_tf_deps(),
 )
 
 reverb_cc_library(
@@ -41,7 +45,9 @@ reverb_cc_library(
         "//reverb/cc/checkpointing:checkpoint_cc_proto",
         "//reverb/cc/platform:hash_map",
         "//reverb/cc/platform:logging",
-    ] + reverb_tf_deps() + reverb_absl_deps(),
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/strings",
+    ] + reverb_tf_deps(),
 )
 
 reverb_cc_library(
@@ -54,7 +60,9 @@ reverb_cc_library(
         "//reverb/cc/checkpointing:checkpoint_cc_proto",
         "//reverb/cc/platform:hash_map",
         "//reverb/cc/platform:logging",
-    ] + reverb_tf_deps() + reverb_absl_deps(),
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/strings",
+    ] + reverb_tf_deps(),
 )
 
 reverb_cc_library(
@@ -68,7 +76,9 @@ reverb_cc_library(
         "//reverb/cc/platform:hash_map",
         "//reverb/cc/platform:logging",
         "//reverb/cc/platform:status_macros",
-    ] + reverb_tf_deps() + reverb_absl_deps(),
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/strings",
+    ] + reverb_tf_deps(),
 )
 
 reverb_cc_library(
@@ -82,7 +92,9 @@ reverb_cc_library(
         "//reverb/cc/platform:hash_map",
         "//reverb/cc/platform:logging",
         "//reverb/cc/support:intrusive_heap",
-    ] + reverb_tf_deps() + reverb_absl_deps(),
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/strings",
+    ] + reverb_tf_deps(),
 )
 
 reverb_cc_test(
@@ -94,7 +106,8 @@ reverb_cc_test(
         "//reverb/cc:schema_cc_proto",
         "//reverb/cc/platform:status_matchers",
         "//reverb/cc/testing:proto_test_util",
-    ] + reverb_absl_deps(),
+        "@com_google_absl//absl/status",
+    ],
 )
 
 reverb_cc_test(
@@ -106,7 +119,8 @@ reverb_cc_test(
         "//reverb/cc:schema_cc_proto",
         "//reverb/cc/platform:status_matchers",
         "//reverb/cc/testing:proto_test_util",
-    ] + reverb_absl_deps(),
+        "@com_google_absl//absl/status",
+    ],
 )
 
 reverb_cc_test(
@@ -118,7 +132,8 @@ reverb_cc_test(
         "//reverb/cc:schema_cc_proto",
         "//reverb/cc/platform:status_matchers",
         "//reverb/cc/testing:proto_test_util",
-    ] + reverb_absl_deps(),
+        "@com_google_absl//absl/status",
+    ],
 )
 
 reverb_cc_test(
@@ -131,7 +146,10 @@ reverb_cc_test(
         "//reverb/cc/platform:hash_map",
         "//reverb/cc/platform:status_matchers",
         "//reverb/cc/testing:proto_test_util",
-    ] + reverb_absl_deps(),
+        "@com_google_absl//absl/random",
+        "@com_google_absl//absl/random:distributions",
+        "@com_google_absl//absl/status",
+    ],
 )
 
 reverb_cc_test(

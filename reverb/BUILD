@@ -2,7 +2,6 @@
 
 load(
     "//reverb/cc/platform:build_rules.bzl",
-    "reverb_absl_deps",
     "reverb_py_test",
     "reverb_pybind_deps",
     "reverb_pybind_extension",
@@ -116,7 +115,12 @@ reverb_pybind_extension(
         "//reverb/cc/selectors:prioritized",
         "//reverb/cc/selectors:uniform",
         "//reverb/cc/table_extensions:interface",
-    ] + reverb_tf_deps() + reverb_pybind_deps() + reverb_absl_deps(),
+        "@com_google_absl//absl/container:inlined_vector",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/time",
+        "@com_google_absl//absl/types:optional",
+    ] + reverb_tf_deps() + reverb_pybind_deps(),
 )
 
 reverb_pytype_library(

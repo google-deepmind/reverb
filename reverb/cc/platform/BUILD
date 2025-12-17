@@ -2,7 +2,6 @@
 
 load(
     "//reverb/cc/platform:build_rules.bzl",
-    "reverb_absl_deps",
     "reverb_cc_library",
     "reverb_cc_test",
     "reverb_grpc_deps",
@@ -31,7 +30,14 @@ reverb_cc_library(
         "//reverb/cc/checkpointing:interface",
         "//reverb/cc/support:trajectory_util",
         "//reverb/cc/table_extensions:interface",
-    ] + reverb_tf_deps() + reverb_absl_deps(),
+        "@com_google_absl//absl/memory",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:string_view",
+        "@com_google_absl//absl/time",
+        "@com_google_absl//absl/types:optional",
+    ] + reverb_tf_deps(),
 )
 
 reverb_cc_test(
@@ -56,7 +62,9 @@ reverb_cc_library(
     hdrs = ["checkpointing.h"],
     deps = [
         "//reverb/cc/checkpointing:interface",
-    ] + reverb_absl_deps(),
+        "@com_google_absl//absl/strings:string_view",
+        "@com_google_absl//absl/types:optional",
+    ],
 )
 
 reverb_cc_library(
@@ -66,7 +74,9 @@ reverb_cc_library(
     deps = [
         "//reverb/cc/checkpointing:interface",
         "//reverb/cc/platform/default:checkpointer",
-    ] + reverb_absl_deps(),
+        "@com_google_absl//absl/strings:string_view",
+        "@com_google_absl//absl/types:optional",
+    ],
 )
 
 reverb_cc_library(
@@ -75,7 +85,7 @@ reverb_cc_library(
     visibility = ["//reverb:__subpackages__"],
     deps = [
         "//reverb/cc/selectors:interface",
-    ] + reverb_absl_deps(),
+    ],
 )
 
 reverb_cc_library(
@@ -85,13 +95,13 @@ reverb_cc_library(
     deps = [
         "//reverb/cc/platform/default:checkpointing_utils",
         "//reverb/cc/selectors:interface",
-    ] + reverb_absl_deps(),
+    ],
 )
 
 reverb_cc_library(
     name = "grpc_utils_hdr",
     hdrs = ["grpc_utils.h"],
-    deps = reverb_grpc_deps() + reverb_absl_deps(),
+    deps = reverb_grpc_deps() + ["@com_google_absl//absl/strings:string_view"],
 )
 
 reverb_cc_library(
@@ -100,7 +110,8 @@ reverb_cc_library(
     visibility = ["//reverb:__subpackages__"],
     deps = [
         "//reverb/cc/platform/default:grpc_utils",
-    ] + reverb_grpc_deps() + reverb_absl_deps(),
+        "@com_google_absl//absl/strings:string_view",
+    ] + reverb_grpc_deps(),
 )
 
 reverb_cc_library(
@@ -110,7 +121,8 @@ reverb_cc_library(
         "//reverb/cc:client",
         "//reverb/cc:table",
         "//reverb/cc/checkpointing:interface",
-    ] + reverb_absl_deps(),
+        "@com_google_absl//absl/status",
+    ],
 )
 
 reverb_cc_library(
@@ -122,23 +134,28 @@ reverb_cc_library(
         "//reverb/cc:table",
         "//reverb/cc/checkpointing:interface",
         "//reverb/cc/platform/default:server",
-    ] + reverb_grpc_deps() + reverb_absl_deps(),
+        "@com_google_absl//absl/status",
+    ] + reverb_grpc_deps(),
 )
 
 reverb_cc_test(
     name = "server_test",
     srcs = ["server_test.cc"],
     deps = [
+        ":net",
         ":server",
-        "//reverb/cc/platform:net",
-        "//reverb/cc/platform:status_matchers",
-    ] + reverb_grpc_deps() + reverb_absl_deps(),
+        ":status_matchers",
+        "@com_google_absl//absl/status",
+    ] + reverb_grpc_deps(),
 )
 
 reverb_cc_library(
     name = "snappy_hdr",
     hdrs = ["snappy.h"],
-    deps = reverb_absl_deps() + ["@snappy"],
+    deps = [
+        "@com_google_absl//absl/strings:string_view",
+        "@snappy",
+    ],
 )
 
 reverb_cc_library(
@@ -147,7 +164,8 @@ reverb_cc_library(
     visibility = ["//reverb:__subpackages__"],
     deps = [
         "//reverb/cc/platform/default:snappy",
-    ] + reverb_absl_deps(),
+        "@com_google_absl//absl/strings:string_view",
+    ],
 )
 
 reverb_cc_library(
@@ -167,7 +185,7 @@ reverb_cc_library(
 reverb_cc_library(
     name = "thread_hdr",
     hdrs = ["thread.h"],
-    deps = reverb_absl_deps(),
+    deps = ["@com_google_absl//absl/strings:string_view"],
 )
 
 reverb_cc_library(
@@ -176,7 +194,8 @@ reverb_cc_library(
     visibility = ["//reverb:__subpackages__"],
     deps = [
         "//reverb/cc/platform/default:thread",
-    ] + reverb_absl_deps(),
+        "@com_google_absl//absl/strings:string_view",
+    ],
 )
 
 reverb_cc_test(
@@ -184,7 +203,8 @@ reverb_cc_test(
     srcs = ["thread_test.cc"],
     deps = [
         ":thread",
-    ] + reverb_absl_deps(),
+        "@com_google_absl//absl/synchronization",
+    ],
 )
 
 reverb_cc_library(

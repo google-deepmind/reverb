@@ -1,6 +1,5 @@
 load(
     "//reverb/cc/platform:build_rules.bzl",
-    "reverb_absl_deps",
     "reverb_cc_library",
 )
 
@@ -13,7 +12,10 @@ reverb_cc_library(
     hdrs = ["interface.h"],
     deps = [
         "//reverb/cc:schema_cc_proto",
-    ] + reverb_absl_deps(),
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/synchronization",
+    ],
 )
 
 reverb_cc_library(
@@ -22,8 +24,11 @@ reverb_cc_library(
     hdrs = ["base.h"],
     deps = [
         ":interface",
-        "//reverb/cc:schema_cc_proto",
         "//reverb/cc:table",
         "//reverb/cc/platform:logging",
-    ] + reverb_absl_deps(),
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/synchronization",
+    ],
 )

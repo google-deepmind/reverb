@@ -2,7 +2,6 @@
 
 load(
     "//reverb/cc/platform:build_rules.bzl",
-    "reverb_absl_deps",
     "reverb_cc_grpc_library",
     "reverb_cc_library",
     "reverb_cc_proto_library",
@@ -28,7 +27,8 @@ reverb_cc_test(
         "//reverb/cc/platform:status_matchers",
         "//reverb/cc/platform:thread",
         "//reverb/cc/testing:proto_test_util",
-    ] + reverb_absl_deps(),
+        "@com_google_absl//absl/status",
+    ],
 )
 
 reverb_cc_test(
@@ -40,7 +40,9 @@ reverb_cc_test(
         "//reverb/cc/platform:thread",
         "//reverb/cc/selectors:uniform",
         "//reverb/cc/testing:proto_test_util",
-    ] + reverb_absl_deps(),
+        "@com_google_absl//absl/synchronization",
+        "@com_google_absl//absl/time",
+    ],
 )
 
 reverb_cc_test(
@@ -58,7 +60,12 @@ reverb_cc_test(
         "//reverb/cc/support:task_executor",
         "//reverb/cc/table_extensions:interface",
         "//reverb/cc/testing:proto_test_util",
-    ] + reverb_tf_deps() + reverb_absl_deps(),
+        "@com_google_absl//absl/flags:flag",
+        "@com_google_absl//absl/memory",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/synchronization",
+        "@com_google_absl//absl/time",
+    ] + reverb_tf_deps(),
 )
 
 reverb_cc_test(
@@ -90,8 +97,12 @@ reverb_cc_test(
         "//reverb/cc/testing:tensor_testutil",
         "//reverb/cc/testing:time_testutil",
         "@com_github_grpc_grpc//:grpc++",
+        "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/log:check",
-    ] + reverb_tf_deps() + reverb_grpc_deps() + reverb_absl_deps(),
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/synchronization",
+        "@com_google_absl//absl/time",
+    ] + reverb_tf_deps() + reverb_grpc_deps(),
 )
 
 reverb_cc_test(
@@ -110,7 +121,10 @@ reverb_cc_test(
         "//reverb/cc/support:trajectory_util",
         "//reverb/cc/support:uint128",
         "//reverb/cc/testing:proto_test_util",
-    ] + reverb_tf_deps() + reverb_grpc_deps() + reverb_absl_deps(),
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/synchronization",
+        "@com_google_absl//absl/time",
+    ] + reverb_tf_deps() + reverb_grpc_deps(),
 )
 
 reverb_cc_test(
@@ -135,14 +149,20 @@ reverb_cc_library(
     visibility = [
         "//reverb:__subpackages__",
     ],
-    deps = reverb_absl_deps(),
+    deps = [
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/strings",
+    ],
 )
 
 reverb_cc_library(
     name = "conversions",
     srcs = ["conversions.cc"],
     hdrs = ["conversions.h"],
-    deps = reverb_tf_deps() + reverb_pybind_deps() + reverb_absl_deps(),
+    deps = reverb_tf_deps() + reverb_pybind_deps() + [
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/strings",
+    ],
 )
 
 reverb_cc_library(
@@ -152,7 +172,13 @@ reverb_cc_library(
     deps = [
         ":schema_cc_proto",
         "//reverb/cc/platform:hash_map",
-    ] + reverb_absl_deps(),
+        "@com_google_absl//absl/base",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/synchronization",
+        "@com_google_absl//absl/types:span",
+    ],
 )
 
 reverb_cc_library(
@@ -181,7 +207,17 @@ reverb_cc_library(
         "//reverb/cc/support:task_executor",
         "//reverb/cc/support:trajectory_util",
         "//reverb/cc/table_extensions:interface",
-    ] + reverb_absl_deps() + reverb_tf_deps(),
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/container:fixed_array",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:string_view",
+        "@com_google_absl//absl/synchronization",
+        "@com_google_absl//absl/time",
+        "@com_google_absl//absl/types:optional",
+        "@com_google_absl//absl/types:span",
+    ] + reverb_tf_deps(),
 )
 
 reverb_cc_library(
@@ -220,7 +256,13 @@ reverb_cc_library(
         "//reverb/cc/support:queue",
         "//reverb/cc/support:signature",
         "//reverb/cc/support:trajectory_util",
-    ] + reverb_tf_deps() + reverb_grpc_deps() + reverb_absl_deps(),
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/memory",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/synchronization",
+        "@com_google_absl//absl/time",
+    ] + reverb_tf_deps() + reverb_grpc_deps(),
 )
 
 reverb_cc_library(
@@ -240,8 +282,17 @@ reverb_cc_library(
         "//reverb/cc/support:signature",
         "//reverb/cc/support:trajectory_util",
         "@com_github_grpc_grpc//:grpc++",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/functional:bind_front",
         "@com_google_absl//absl/log:check",
-    ] + reverb_tf_deps() + reverb_grpc_deps() + reverb_absl_deps(),
+        "@com_google_absl//absl/random",
+        "@com_google_absl//absl/random:distributions",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:string_view",
+        "@com_google_absl//absl/synchronization",
+        "@com_google_absl//absl/types:optional",
+    ] + reverb_tf_deps() + reverb_grpc_deps(),
 )
 
 reverb_cc_library(
@@ -264,7 +315,15 @@ reverb_cc_library(
         "//reverb/cc/support:key_generators",
         "//reverb/cc/support:signature",
         "//reverb/cc/support:trajectory_util",
-    ] + reverb_tf_deps() + reverb_absl_deps() + reverb_grpc_deps(),
+        "@com_google_absl//absl/algorithm:container",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:str_format",
+        "@com_google_absl//absl/synchronization",
+        "@com_google_absl//absl/time",
+        "@com_google_absl//absl/types:span",
+    ] + reverb_tf_deps() + reverb_grpc_deps(),
 )
 
 reverb_cc_library(
@@ -284,7 +343,14 @@ reverb_cc_library(
         "//reverb/cc/support:grpc_util",
         "//reverb/cc/support:key_generators",
         "//reverb/cc/support:signature",
-    ] + reverb_tf_deps() + reverb_absl_deps() + reverb_grpc_deps(),
+        "@com_google_absl//absl/algorithm:container",
+        "@com_google_absl//absl/memory",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:string_view",
+        "@com_google_absl//absl/types:optional",
+        "@com_google_absl//absl/types:span",
+    ] + reverb_tf_deps() + reverb_grpc_deps(),
 )
 
 reverb_cc_test(
@@ -304,7 +370,17 @@ reverb_cc_test(
         "//reverb/cc/testing:proto_test_util",
         "//reverb/cc/testing:tensor_testutil",
         "@com_github_grpc_grpc//:grpc++_unsecure",
-    ] + reverb_tf_deps() + reverb_grpc_deps() + reverb_absl_deps(),
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/memory",
+        "@com_google_absl//absl/random",
+        "@com_google_absl//absl/random:distributions",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:str_format",
+        "@com_google_absl//absl/synchronization",
+        "@com_google_absl//absl/time",
+        "@com_google_absl//absl/types:optional",
+    ] + reverb_tf_deps() + reverb_grpc_deps(),
 )
 
 reverb_cc_test(
@@ -321,7 +397,17 @@ reverb_cc_test(
         "//reverb/cc/support:signature",
         "//reverb/cc/testing:proto_test_util",
         "//reverb/cc/testing:tensor_testutil",
-    ] + reverb_tf_deps() + reverb_grpc_deps() + reverb_absl_deps(),
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/memory",
+        "@com_google_absl//absl/random",
+        "@com_google_absl//absl/random:distributions",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:str_format",
+        "@com_google_absl//absl/synchronization",
+        "@com_google_absl//absl/time",
+        "@com_google_absl//absl/types:optional",
+    ] + reverb_tf_deps() + reverb_grpc_deps(),
 )
 
 reverb_cc_library(
@@ -339,7 +425,14 @@ reverb_cc_library(
         "//reverb/cc/support:key_generators",
         "//reverb/cc/support:signature",
         "//reverb/cc/support:trajectory_util",
-    ] + reverb_tf_deps() + reverb_absl_deps(),
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:str_format",
+        "@com_google_absl//absl/synchronization",
+        "@com_google_absl//absl/types:optional",
+        "@com_google_absl//absl/types:span",
+    ] + reverb_tf_deps(),
 )
 
 reverb_cc_test(
@@ -353,7 +446,10 @@ reverb_cc_test(
         "//reverb/cc/support:signature",
         "//reverb/cc/testing:proto_test_util",
         "//reverb/cc/testing:tensor_testutil",
-    ] + reverb_tf_deps() + reverb_absl_deps(),
+        "@com_google_absl//absl/random",
+        "@com_google_absl//absl/random:distributions",
+        "@com_google_absl//absl/types:span",
+    ] + reverb_tf_deps(),
 )
 
 reverb_cc_library(
@@ -379,7 +475,16 @@ reverb_cc_library(
         "//reverb/cc/support:signature",
         "//reverb/cc/support:uint128",
         "@com_github_grpc_grpc//:grpc++",
-    ] + reverb_grpc_deps() + reverb_absl_deps(),
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/numeric:int128",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:str_format",
+        "@com_google_absl//absl/strings:string_view",
+        "@com_google_absl//absl/synchronization",
+        "@com_google_absl//absl/time",
+        "@com_google_absl//absl/types:optional",
+    ] + reverb_grpc_deps(),
 )
 
 reverb_cc_proto_library(
@@ -441,7 +546,17 @@ reverb_cc_library(
         "//reverb/cc/support:grpc_util",
         "//reverb/cc/support:trajectory_util",
         "//reverb/cc/support:uint128",
-    ] + reverb_grpc_deps() + reverb_absl_deps(),
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/flags:flag",
+        "@com_google_absl//absl/numeric:int128",
+        "@com_google_absl//absl/random",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:str_format",
+        "@com_google_absl//absl/strings:string_view",
+        "@com_google_absl//absl/synchronization",
+        "@com_google_absl//absl/time",
+    ] + reverb_grpc_deps(),
     alwayslink = 1,
 )
 
@@ -449,14 +564,16 @@ reverb_cc_library(
     name = "task_worker",
     hdrs = ["task_worker.h"],
     deps = [
+        ":table",
         ":thread_stats",
-        "//reverb/cc:table",
         "//reverb/cc/platform:logging",
         "//reverb/cc/platform:status_macros",
         "//reverb/cc/platform:thread",
         "//reverb/cc/support:periodic_closure",
         "//reverb/cc/support:unbounded_queue",
-    ] + reverb_absl_deps(),
+        "@com_google_absl//absl/strings:str_format",
+        "@com_google_absl//absl/time",
+    ],
 )
 
 reverb_cc_library(
@@ -467,14 +584,20 @@ reverb_cc_library(
         "//reverb/cc/platform:logging",
         "//reverb/cc/platform:status_macros",
         "//reverb/cc/support:grpc_util",
-    ] + reverb_grpc_deps() + reverb_absl_deps(),
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/synchronization",
+    ] + reverb_grpc_deps(),
 )
 
 reverb_cc_library(
     name = "thread_stats",
     srcs = ["thread_stats.cc"],
     hdrs = ["thread_stats.h"],
-    deps = reverb_absl_deps(),
+    deps = [
+        "@com_google_absl//absl/strings:str_format",
+        "@com_google_absl//absl/time",
+    ],
 )
 
 reverb_cc_test(
@@ -496,7 +619,11 @@ reverb_cc_test(
         "//reverb/cc/selectors:uniform",
         "//reverb/cc/table_extensions:interface",
         "//reverb/cc/testing:proto_test_util",
-    ] + reverb_grpc_deps() + reverb_absl_deps() + reverb_tf_deps(),
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/synchronization",
+        "@com_google_absl//absl/time",
+        "@com_google_absl//absl/types:optional",
+    ] + reverb_grpc_deps() + reverb_tf_deps(),
 )
 
 reverb_cc_test(
@@ -504,7 +631,8 @@ reverb_cc_test(
     srcs = ["thread_stats_test.cc"],
     deps = [
         ":thread_stats",
-    ] + reverb_absl_deps(),
+        "@com_google_absl//absl/time",
+    ],
 )
 
 reverb_cc_test(
@@ -520,7 +648,10 @@ reverb_cc_test(
         "//reverb/cc/support:signature",
         "//reverb/cc/testing:proto_test_util",
         "//reverb/cc/testing:tensor_testutil",
-    ] + reverb_absl_deps() + reverb_tf_deps(),
+        "@com_google_absl//absl/memory",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/types:optional",
+    ] + reverb_tf_deps(),
 )
 
 reverb_cc_library(
@@ -535,5 +666,11 @@ reverb_cc_library(
         "//reverb/cc/platform:hash_map",
         "//reverb/cc/platform:logging",
         "//reverb/cc/platform:status_macros",
-    ] + reverb_absl_deps() + reverb_tf_deps(),
+        "@com_google_absl//absl/memory",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings:str_format",
+        "@com_google_absl//absl/time",
+        "@com_google_absl//absl/types:optional",
+    ] + reverb_tf_deps(),
 )

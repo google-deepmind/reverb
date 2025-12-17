@@ -1,6 +1,5 @@
 load(
     "//reverb/cc/platform:build_rules.bzl",
-    "reverb_absl_deps",
     "reverb_cc_library",
     "reverb_cc_test",
     "reverb_gen_op_wrapper_py",
@@ -42,7 +41,10 @@ reverb_kernel_library(
         "//reverb/cc:schema_cc_proto",
         "//reverb/cc:structured_writer",
         "//reverb/cc/platform:logging",
-    ] + reverb_absl_deps(),
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/synchronization",
+    ],
 )
 
 reverb_gen_op_wrapper_py(
@@ -65,7 +67,9 @@ reverb_cc_library(
         "//reverb/cc/support:cleanup",
         "//reverb/cc/support:key_generators",
         "//reverb/cc/support:trajectory_util",
-    ] + reverb_tf_deps() + reverb_absl_deps(),
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+    ] + reverb_tf_deps(),
 )
 
 reverb_cc_test(
@@ -81,5 +85,5 @@ reverb_cc_test(
         "//reverb/cc/support:queue",
         "//reverb/cc/testing:proto_test_util",
         "//reverb/cc/testing:tensor_testutil",
-    ] + reverb_tf_deps() + reverb_absl_deps(),
+    ] + reverb_tf_deps(),
 )

@@ -1,6 +1,5 @@
 load(
     "//reverb/cc/platform:build_rules.bzl",
-    "reverb_absl_deps",
     "reverb_cc_library",
     "reverb_tf_deps",
 )
@@ -35,5 +34,5 @@ reverb_cc_library(
     name = "time_testutil",
     testonly = 1,
     hdrs = ["time_testutil.h"],
-    deps = reverb_absl_deps(),
+    deps = ["@com_google_absl//absl/time"],
 )
