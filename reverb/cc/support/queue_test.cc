@@ -14,7 +14,6 @@
 
 #include "reverb/cc/support/queue.h"
 
-#include <memory>
 #include <vector>
 
 #include "gmock/gmock.h"

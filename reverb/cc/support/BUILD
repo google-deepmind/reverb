@@ -15,6 +15,7 @@ reverb_cc_library(
     hdrs = ["uint128.h"],
     deps = [
         "//reverb/cc:schema_cc_proto",
+        "@com_google_absl//absl/numeric:int128",
     ],
 )
 
@@ -46,7 +47,6 @@ reverb_cc_library(
     hdrs = ["cleanup.h"],
     deps = [
         "@com_google_absl//absl/base:core_headers",
-        "@com_google_absl//absl/memory",
     ],
 )
 
@@ -111,6 +111,8 @@ reverb_cc_test(
         ":periodic_closure",
         "//reverb/cc/platform:status_matchers",
         "//reverb/cc/testing:time_testutil",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_matchers",
         "@com_google_absl//absl/time",
     ] + reverb_tf_deps(),
 )

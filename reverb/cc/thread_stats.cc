@@ -14,6 +14,9 @@
 
 #include "reverb/cc/thread_stats.h"
 
+#include <string>
+#include <vector>
+
 #include "absl/strings/str_format.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"

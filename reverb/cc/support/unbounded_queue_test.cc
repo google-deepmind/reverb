@@ -14,7 +14,6 @@
 
 #include "reverb/cc/support/unbounded_queue.h"
 
-#include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "absl/synchronization/notification.h"
 #include "reverb/cc/platform/thread.h"

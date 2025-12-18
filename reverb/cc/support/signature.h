@@ -19,16 +19,12 @@
 #include <vector>
 
 #include "absl/status/status.h"
-#include "absl/strings/string_view.h"
 #include "absl/types/optional.h"
 #include "reverb/cc/platform/hash_map.h"
-#include "reverb/cc/platform/hash_set.h"
 #include "reverb/cc/schema.pb.h"
 #include "reverb/cc/table.h"
 #include "tensorflow/core/framework/tensor.h"
 #include "tensorflow/core/framework/tensor_shape.h"
-#include "tensorflow/core/framework/types.h"
-#include "tensorflow/core/lib/hash/hash.h"
 #include "tensorflow/core/protobuf/struct.pb.h"
 
 namespace deepmind {

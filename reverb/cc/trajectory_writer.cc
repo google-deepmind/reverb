@@ -14,33 +14,42 @@
 
 #include "reverb/cc/trajectory_writer.h"
 
+#include <algorithm>
 #include <cmath>
-#include <limits>
+#include <cstdint>
 #include <memory>
+#include <string>
+#include <utility>
 #include <vector>
 
+#include "grpcpp/client_context.h"
 #include "grpcpp/impl/codegen/sync_stream.h"
+#include "grpcpp/support/status.h"
 #include "absl/algorithm/container.h"
 #include "absl/base/thread_annotations.h"
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
+#include "absl/strings/string_view.h"
 #include "absl/synchronization/mutex.h"
-#include "absl/synchronization/notification.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
+#include "absl/types/optional.h"
 #include "absl/types/span.h"
 #include "reverb/cc/chunker.h"
+#include "reverb/cc/platform/hash_map.h"
 #include "reverb/cc/platform/hash_set.h"
 #include "reverb/cc/platform/logging.h"
 #include "reverb/cc/platform/status_macros.h"
+#include "reverb/cc/platform/thread.h"
 #include "reverb/cc/reverb_service.grpc.pb.h"
 #include "reverb/cc/reverb_service.pb.h"
 #include "reverb/cc/schema.pb.h"
-#include "reverb/cc/support/cleanup.h"
 #include "reverb/cc/support/grpc_util.h"
 #include "reverb/cc/support/key_generators.h"
+#include "reverb/cc/support/signature.h"
 #include "reverb/cc/support/trajectory_util.h"
+#include "tensorflow/core/framework/tensor.h"
 #include "tensorflow/core/framework/types.h"
 
 namespace deepmind {
@@ -65,9 +74,7 @@ class ArenaOwnedRequest {
     r_.clear_keep_chunk_keys();
     request_size_bytes_ = 0;
   }
-  inline const InsertStreamRequest& Request() {
-    return r_;
-  }
+  inline const InsertStreamRequest& Request() { return r_; }
   inline void AddAllocatedChunks(ChunkData* data) {
     r_.mutable_chunks()->UnsafeArenaAddAllocated(data);
     request_size_bytes_ += data->ByteSizeLong();
@@ -79,7 +86,7 @@ class ArenaOwnedRequest {
   }
   inline void AddItem(const PrioritizedItem& item) {
     r_.mutable_items()->UnsafeArenaAddAllocated(
-      const_cast<PrioritizedItem*>(&item));
+        const_cast<PrioritizedItem*>(&item));
     request_size_bytes_ += item.ByteSizeLong();
     request_size_bytes_ -= r_.keep_chunk_keys_size() * sizeof(uint64_t);
     r_.clear_keep_chunk_keys();
@@ -114,7 +121,6 @@ std::vector<FlatTrajectory::ChunkSlice> MergeAdjacent(
   return slices;
 }
 
-
 // Returns true if all references `refs` are ready.
 bool AllReady(absl::Span<const std::shared_ptr<CellRef>> refs) {
   return absl::c_all_of(refs, [](const auto& ref) { return ref->IsReady(); });
@@ -123,9 +129,8 @@ bool AllReady(absl::Span<const std::shared_ptr<CellRef>> refs) {
 // Returns true if `set` contains all chunk keys references by `refs`.
 bool ContainsAll(const internal::flat_hash_set<uint64_t>& set,
                  absl::Span<const std::shared_ptr<CellRef>> refs) {
-  return absl::c_all_of(refs, [&set](const auto& ref) {
-    return set.contains(ref->chunk_key());
-  });
+  return absl::c_all_of(
+      refs, [&set](const auto& ref) { return set.contains(ref->chunk_key()); });
 }
 
 std::vector<internal::TensorSpec> FlatSignatureFromTrajectory(

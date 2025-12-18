@@ -15,12 +15,13 @@
 #ifndef REVERB_CC_SUPPORT_TRAJECTORY_UTIL_H_
 #define REVERB_CC_SUPPORT_TRAJECTORY_UTIL_H_
 
+#include <cstdint>
+#include <memory>
 #include <vector>
 
 #include "absl/status/status.h"
 #include "absl/types/span.h"
 #include "reverb/cc/chunk_store.h"
-#include "reverb/cc/platform/hash_set.h"
 #include "reverb/cc/schema.pb.h"
 #include "tensorflow/core/framework/tensor.h"
 

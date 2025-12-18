@@ -16,6 +16,7 @@
 #define REVERB_CC_SUPPORT_PERIODIC_CLOSURE_H_
 
 #include <functional>
+#include <memory>
 #include <string>
 
 #include "absl/base/thread_annotations.h"

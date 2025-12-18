@@ -17,16 +17,22 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
+#include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
+#include "absl/time/time.h"
 #include "reverb/cc/sampler.h"
-#include "tensorflow/core/framework/op.h"
+#include "xla/tsl/platform/macros.h"
 #include "tensorflow/core/framework/op_kernel.h"
+#include "tensorflow/core/framework/op_requires.h"
+#include "tensorflow/core/framework/resource_mgr.h"
 #include "tensorflow/core/framework/resource_op_kernel.h"
 #include "tensorflow/core/framework/tensor.h"
 #include "tensorflow/core/framework/tensor_shape.h"
-#include "tensorflow/core/lib/core/status.h"
+#include "tensorflow/core/framework/types.h"
+#include "tensorflow/core/platform/tstring.h"
 
 namespace deepmind {
 namespace reverb {

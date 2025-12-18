@@ -12,11 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <string>
+#include <utility>
+#include <vector>
 
 #include "numpy/arrayobject.h"
-#include "absl/container/inlined_vector.h"
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 #include "absl/time/time.h"
@@ -32,6 +35,7 @@
 #include "reverb/cc/patterns.pb.h"
 #include "reverb/cc/platform/checkpointing.h"
 #include "reverb/cc/platform/checkpointing_utils.h"
+#include "reverb/cc/platform/logging.h"
 #include "reverb/cc/platform/server.h"
 #include "reverb/cc/rate_limiter.h"
 #include "reverb/cc/sampler.h"
@@ -42,19 +46,19 @@
 #include "reverb/cc/selectors/prioritized.h"
 #include "reverb/cc/selectors/uniform.h"
 #include "reverb/cc/structured_writer.h"
+#include "reverb/cc/support/signature.h"
 #include "reverb/cc/table.h"
 #include "reverb/cc/table_extensions/interface.h"
 #include "reverb/cc/trajectory_writer.h"
 #include "reverb/cc/writer.h"
 #include "tensorflow/core/framework/tensor.h"
 #include "tensorflow/core/framework/tensor_shape.h"
-#include "tensorflow/core/framework/types.h"
 
 namespace {
 
 // Converts non OK statuses to Python exceptions and throws. Does nothing for
 // OK statuses.
-inline void MaybeRaiseFromStatus(const absl::Status &status) {
+inline void MaybeRaiseFromStatus(const absl::Status& status) {
   if (status.ok()) return;
 
   // TODO(b/152982733): Add tests that validates that casting behaviour is
@@ -80,7 +84,6 @@ inline void MaybeRaiseFromStatus(const absl::Status &status) {
 
   throw pybind11::error_already_set();
 }
-
 
 // This wrapper exists for the sole purpose of allowing the weak_ptr to be
 // handled in Python. Pybind supports shared_ptr and unique_ptr out of the box
@@ -342,7 +345,7 @@ PYBIND11_MODULE(libpybind, m) {
       .def(py::init<std::string>(), py::arg("server_name"))
       .def(
           "NewWriter",
-          [](Client *client, int chunk_length, int max_timesteps,
+          [](Client* client, int chunk_length, int max_timesteps,
              bool delta_encoded, int max_in_flight_items) {
             std::unique_ptr<Writer> writer;
             // Release the GIL only when waiting for the call to complete. If
@@ -362,7 +365,7 @@ PYBIND11_MODULE(libpybind, m) {
           py::arg("chunk_length"), py::arg("max_timesteps"),
           py::arg("delta_encoded") = false, py::arg("max_in_flight_items"))
       .def("NewSampler",
-           [](Client *client, const std::string &table, int64_t max_samples,
+           [](Client* client, const std::string& table, int64_t max_samples,
               size_t buffer_size) {
              std::unique_ptr<Sampler> sampler;
              Sampler::Options options;
@@ -382,7 +385,7 @@ PYBIND11_MODULE(libpybind, m) {
              return sampler;
            })
       .def("NewTrajectoryWriter",
-           [](Client *client, std::shared_ptr<ChunkerOptions> chunker_options,
+           [](Client* client, std::shared_ptr<ChunkerOptions> chunker_options,
               bool validate_items) {
              std::unique_ptr<TrajectoryWriter> writer;
 
@@ -409,8 +412,8 @@ PYBIND11_MODULE(libpybind, m) {
              return writer.release();
            })
       .def("NewStructuredWriter",
-           [](Client *client, std::vector<std::string> serialized_configs)
-               -> StructuredWriter * {
+           [](Client* client, std::vector<std::string> serialized_configs)
+               -> StructuredWriter* {
              std::vector<StructuredWriterConfig> configs;
              for (const auto &serialised_config : serialized_configs) {
                configs.emplace_back();
@@ -447,9 +450,9 @@ PYBIND11_MODULE(libpybind, m) {
            })
       .def(
           "MutatePriorities",
-          [](Client *client, const std::string &table,
-             const std::vector<std::pair<uint64_t, double>> &updates,
-             const std::vector<uint64_t> &deletes) {
+          [](Client* client, const std::string& table,
+             const std::vector<std::pair<uint64_t, double>>& updates,
+             const std::vector<uint64_t>& deletes) {
             std::vector<KeyWithPriority> update_protos;
             for (const auto &update : updates) {
               update_protos.emplace_back();
@@ -461,8 +464,8 @@ PYBIND11_MODULE(libpybind, m) {
           py::call_guard<py::gil_scoped_release>())
       .def("Reset", &Client::Reset, py::call_guard<py::gil_scoped_release>())
       .def("ServerInfo",
-           [](Client *client, int timeout_sec) {
-             // Wait indefinetely for server to startup when timeout not
+           [](Client* client, int timeout_sec) {
+             // Wait indefinitely for server to startup when timeout not
              // provided.
              auto timeout = timeout_sec > 0 ? absl::Seconds(timeout_sec)
                                             : absl::InfiniteDuration();
@@ -489,7 +492,7 @@ PYBIND11_MODULE(libpybind, m) {
              }
              return serialized_table_info;
            })
-      .def("Checkpoint", [](Client *client) {
+      .def("Checkpoint", [](Client* client) {
         std::string path;
         absl::Status status;
         {

@@ -19,18 +19,21 @@
 #include <deque>
 #include <memory>
 #include <optional>
-#include <string_view>
 #include <vector>
 
 #include "grpcpp/impl/codegen/client_context.h"
+#include "absl/base/attributes.h"
 #include "absl/base/thread_annotations.h"
 #include "absl/status/status.h"
+#include "absl/strings/string_view.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/time/time.h"
+#include "absl/types/optional.h"
 #include "absl/types/span.h"
 #include "reverb/cc/chunker.h"
 #include "reverb/cc/platform/hash_map.h"
 #include "reverb/cc/platform/hash_set.h"
+#include "reverb/cc/platform/thread.h"
 #include "reverb/cc/reverb_service.grpc.pb.h"
 #include "reverb/cc/reverb_service.pb.h"
 #include "reverb/cc/schema.pb.h"
@@ -430,8 +433,8 @@ class TrajectoryWriter : public ColumnWriter,
   // has yet been received from the server. Note that we have to keep the item
   // alive until the confirmation has been received so that we are able to
   // retry the request if the server becomes unavailable.
-  internal::flat_hash_map<uint64_t, std::unique_ptr<ItemAndRefs>> in_flight_items_
-      ABSL_GUARDED_BY(mu_);
+  internal::flat_hash_map<uint64_t, std::unique_ptr<ItemAndRefs>>
+      in_flight_items_ ABSL_GUARDED_BY(mu_);
 
   // We signal when a chunk is flushed in case the stream worker backed off due
   // to the front item of `write_queue_` referencing incomplete chunks.
@@ -477,7 +480,7 @@ class TrajectoryColumn {
   //
   absl::Status Validate() const;
 
-  // Locks and pushes all referenses to `locked_refs`.
+  // Locks and pushes all references to `locked_refs`.
   ABSL_MUST_USE_RESULT bool LockReferences(
       std::vector<std::shared_ptr<CellRef>>* locked_refs) const;
 

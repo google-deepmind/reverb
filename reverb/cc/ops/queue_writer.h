@@ -18,12 +18,18 @@
 #include <cstdint>
 #include <deque>
 #include <memory>
-#include <optional>
 #include <vector>
 
 #include "absl/status/status.h"
+#include "absl/strings/string_view.h"
+#include "absl/time/time.h"
+#include "absl/types/optional.h"
+#include "absl/types/span.h"
+#include "reverb/cc/chunker.h"
+#include "reverb/cc/platform/hash_map.h"
 #include "reverb/cc/schema.pb.h"
 #include "reverb/cc/trajectory_writer.h"
+#include "tensorflow/core/framework/tensor.h"
 
 // TODO(sabela): Add more documentation.
 

@@ -177,6 +177,7 @@ reverb_cc_library(
 
 reverb_cc_library(
     name = "status_matchers",
+    testonly = True,
     hdrs = ["status_matchers.h"],
     visibility = ["//reverb:__subpackages__"],
     deps = ["//reverb/cc/platform/default:status_matchers"],

@@ -15,12 +15,14 @@
 #include "reverb/cc/support/periodic_closure.h"
 
 #include <atomic>
+#include <functional>
 
 #include "gtest/gtest.h"
+#include "absl/status/status.h"
 #include "absl/time/clock.h"
+#include "absl/time/time.h"
 #include "reverb/cc/platform/status_matchers.h"
 #include "reverb/cc/testing/time_testutil.h"
-#include "tensorflow/core/lib/core/status_test_util.h"
 
 namespace deepmind {
 namespace reverb {

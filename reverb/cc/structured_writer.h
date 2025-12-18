@@ -16,12 +16,16 @@
 #define REVERB_CC_STRUCTURED_WRITER_H_
 
 #include <deque>
+#include <memory>
 #include <vector>
 
 #include "absl/status/status.h"
+#include "absl/time/time.h"
+#include "absl/types/optional.h"
 #include "reverb/cc/chunker.h"
 #include "reverb/cc/patterns.pb.h"
 #include "reverb/cc/trajectory_writer.h"
+#include "tensorflow/core/framework/tensor.h"
 
 namespace deepmind::reverb {
 

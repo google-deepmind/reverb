@@ -226,7 +226,7 @@ absl::Status Writer::CreateItem(const std::string& table, int num_timesteps,
         // In order to make the writer compatible with tables with signatures
         // defined for the entire trajectory (rather than for a single step)
         // we consider the shape valid if either a single step matches the
-        // signature or if the entire trajectory matche the stignature.
+        // signature or if the entire trajectory matches the signature.
         const bool timestep_shape_compatible =
             signature_dtype_and_shape.shape.IsCompatibleWith(
                 seen_dtype_and_shape.shape);

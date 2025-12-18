@@ -15,16 +15,23 @@
 #include "reverb/cc/ops/queue_writer.h"
 
 #include <algorithm>
-#include <iterator>
+#include <deque>
 #include <memory>
+#include <string>
+#include <utility>
 #include <vector>
 
 #include "absl/status/status.h"
-#include "absl/status/statusor.h"
+#include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
+#include "absl/time/time.h"
+#include "absl/types/optional.h"
+#include "absl/types/span.h"
 #include "reverb/cc/chunker.h"
 #include "reverb/cc/platform/logging.h"
 #include "reverb/cc/platform/status_macros.h"
-#include "reverb/cc/support/trajectory_util.h"
+#include "reverb/cc/support/signature.h"
+#include "reverb/cc/trajectory_writer.h"
 #include "tensorflow/core/framework/tensor.h"
 #include "tensorflow/core/framework/tensor_util.h"
 

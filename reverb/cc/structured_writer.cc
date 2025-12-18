@@ -15,11 +15,14 @@
 #include "reverb/cc/structured_writer.h"
 
 #include <algorithm>
-#include <functional>
+#include <cstdlib>
+#include <deque>
 #include <iterator>
+#include <limits>
 #include <memory>
+#include <utility>
+#include <vector>
 
-#include "absl/memory/memory.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_format.h"
@@ -27,11 +30,12 @@
 #include "absl/types/optional.h"
 #include "reverb/cc/chunker.h"
 #include "reverb/cc/patterns.pb.h"
-#include "reverb/cc/platform/hash_map.h"
 #include "reverb/cc/platform/logging.h"
 #include "reverb/cc/platform/status_macros.h"
 #include "reverb/cc/trajectory_writer.h"
 #include "tensorflow/core/framework/register_types.h"
+#include "tensorflow/core/framework/tensor.h"
+#include "tensorflow/core/framework/types.h"
 
 namespace deepmind::reverb {
 namespace {
@@ -390,9 +394,9 @@ absl::Status ValidateStructuredWriterConfig(
     REVERB_RETURN_IF_ERROR(ValidateCondition(condition));
   }
 
-  // In order to avoid segfault it is neccessary for every pattern to include a
+  // In order to avoid segfault it is necessary for every pattern to include a
   // condition that checks that the buffer contains enough steps to build the
-  // speficied trajectory.
+  // specified trajectory.
   const int max_age = MaxAge(*std::max_element(
       config.flat().begin(), config.flat().end(),
       [](const auto& a, const auto& b) { return MaxAge(a) < MaxAge(b); }));
@@ -496,7 +500,7 @@ absl::Status StructuredWriter::AppendInternal(
     }
   }
 
-  // Mark the active step iff `AppendPartial` was called.
+  // Mark the active step if and only if `AppendPartial` was called.
   step_is_open_ = !finalize_step;
 
   return ApplyConfigs(/*is_end_of_episode=*/false);

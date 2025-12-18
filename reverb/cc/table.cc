@@ -47,6 +47,7 @@
 #include "reverb/cc/rate_limiter.h"
 #include "reverb/cc/schema.pb.h"
 #include "reverb/cc/selectors/interface.h"
+#include "reverb/cc/support/state_statistics.h"
 #include "reverb/cc/support/task_executor.h"
 #include "reverb/cc/support/trajectory_util.h"
 #include "reverb/cc/table_extensions/interface.h"
@@ -520,7 +521,7 @@ void Table::EnableTableWorker(std::shared_ptr<TaskExecutor> executor) {
         << "Table worker encountered a fatal error: " << status;
   });
   {
-    // Move asynchrouns extensions to async_extensions_ collection. When table
+    // Move asynchronous extensions to async_extensions_ collection. When table
     // worker is disabled all extensions are added to sync_extensions_.
     absl::MutexLock table_lock(mu_);
     absl::MutexLock extension_lock(async_extensions_mu_);
@@ -572,7 +573,7 @@ absl::Status Table::InsertOrAssignAsync(
   InsertRequest request{std::make_shared<Item>(std::move(item)),
                         std::move(insert_completed)};
   // Table worker doesn't release memory of removed items, clients do that
-  // asynchrously.
+  // asynchronously.
   std::shared_ptr<Item> to_delete;
   {
     absl::MutexLock lock(worker_mu_);
@@ -667,7 +668,7 @@ void Table::EnqueSampleRequest(int num_samples,
   // need of allocating memory inside the table worker).
   request->samples.reserve(num_samples);
   // Table worker doesn't release memory of removed items, clients do that
-  // asynchrously.
+  // asynchronously.
   std::shared_ptr<Item> to_delete;
   {
     absl::MutexLock lock(worker_mu_);

@@ -33,7 +33,6 @@ reverb_kernel_library(
     deps = [
         ":ops_metadata",
         ":queue_writer",
-        "//reverb/cc:chunker",
         "//reverb/cc:client",
         "//reverb/cc:errors",
         "//reverb/cc:patterns_cc_proto",
@@ -44,6 +43,8 @@ reverb_kernel_library(
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/synchronization",
+        "@com_google_absl//absl/time",
+        "@com_google_absl//absl/types:optional",
     ],
 )
 
@@ -62,13 +63,20 @@ reverb_cc_library(
         "//reverb/cc:chunker",
         "//reverb/cc:schema_cc_proto",
         "//reverb/cc:trajectory_writer",
+        "//reverb/cc/platform:hash_map",
         "//reverb/cc/platform:logging",
         "//reverb/cc/platform:status_macros",
         "//reverb/cc/support:cleanup",
         "//reverb/cc/support:key_generators",
+        "//reverb/cc/support:signature",
         "//reverb/cc/support:trajectory_util",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:string_view",
+        "@com_google_absl//absl/time",
+        "@com_google_absl//absl/types:optional",
+        "@com_google_absl//absl/types:span",
     ] + reverb_tf_deps(),
 )
 
@@ -83,7 +91,14 @@ reverb_cc_test(
         "//reverb/cc/platform:status_matchers",
         "//reverb/cc/platform:thread",
         "//reverb/cc/support:queue",
+        "//reverb/cc/support:signature",
         "//reverb/cc/testing:proto_test_util",
         "//reverb/cc/testing:tensor_testutil",
+        "@com_google_absl//absl/random",
+        "@com_google_absl//absl/random:distributions",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/time",
+        "@com_google_absl//absl/types:optional",
     ] + reverb_tf_deps(),
 )

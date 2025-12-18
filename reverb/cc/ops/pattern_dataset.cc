@@ -12,31 +12,34 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include <deque>
 #include <algorithm>
-#include <functional>
+#include <cstdint>
+#include <cstdlib>
+#include <deque>
 #include <memory>
-#include <queue>
-#include <vector>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "absl/status/status.h"
+#include "absl/strings/str_cat.h"
 #include "absl/synchronization/mutex.h"
-#include "reverb/cc/chunker.h"
+#include "absl/types/optional.h"
 #include "reverb/cc/ops/queue_writer.h"
 #include "reverb/cc/patterns.pb.h"
-#include "reverb/cc/platform/logging.h"
 #include "reverb/cc/structured_writer.h"
+#include "xla/tsl/platform/errors.h"
+#include "xla/tsl/platform/macros.h"
 #include "tensorflow/core/data/captured_function.h"
 #include "tensorflow/core/framework/attr_value.pb.h"
-#include "tensorflow/core/framework/common_shape_fns.h"
 #include "tensorflow/core/framework/dataset.h"
-#include "tensorflow/core/framework/op.h"
+#include "tensorflow/core/framework/op_kernel.h"
 #include "tensorflow/core/framework/op_requires.h"
 #include "tensorflow/core/framework/tensor.h"
+#include "tensorflow/core/framework/tensor_shape.h"
+#include "tensorflow/core/framework/types.h"
+#include "tensorflow/core/platform/errors.h"
 #include "tensorflow/core/platform/tstring.h"
-#include "tensorflow/core/platform/status.h"
 
 namespace deepmind {
 namespace reverb {

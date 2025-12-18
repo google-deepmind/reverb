@@ -15,9 +15,11 @@
 #ifndef REVERB_CC_SUPPORT_QUEUE_H_
 #define REVERB_CC_SUPPORT_QUEUE_H_
 
+#include <algorithm>
 #include <cstdint>
 #include <vector>
 
+#include "absl/base/optimization.h"
 #include "absl/base/thread_annotations.h"
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
@@ -232,7 +234,7 @@ class Queue {
   // Number of slots reserved for the future pushes.
   int64_t reserved_ ABSL_GUARDED_BY(mu_);
 
-  // Total number of poped elements.
+  // Total number of popped elements.
   int64_t pops_ ABSL_GUARDED_BY(mu_);
 
   // Whether `Close()` was called.

@@ -16,7 +16,6 @@
 
 #include <algorithm>
 #include <cstdint>
-#include <functional>
 #include <memory>
 #include <utility>
 #include <vector>
@@ -33,7 +32,6 @@
 #include "reverb/cc/tensor_compression.h"
 #include "tensorflow/core/framework/tensor.h"
 #include "tensorflow/core/framework/tensor_util.h"
-#include "tensorflow/core/platform/errors.h"
 
 namespace deepmind {
 namespace reverb {

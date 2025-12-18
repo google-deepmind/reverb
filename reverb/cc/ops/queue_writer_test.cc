@@ -14,15 +14,30 @@
 
 #include "reverb/cc/ops/queue_writer.h"
 
+#include <cstdint>
+#include <deque>
+#include <limits>
 #include <memory>
 #include <string>
+#include <utility>
+#include <vector>
+
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
+#include "absl/random/distributions.h"
+#include "absl/random/random.h"
+#include "absl/status/status.h"
+#include "absl/strings/str_cat.h"
+#include "absl/time/time.h"
+#include "absl/types/optional.h"
 #include "reverb/cc/chunker.h"
+#include "reverb/cc/platform/logging.h"
 #include "reverb/cc/platform/status_matchers.h"
+#include "reverb/cc/support/signature.h"
+#include "reverb/cc/trajectory_writer.h"
 #include "tensorflow/core/framework/tensor.h"
-
-
+#include "tensorflow/core/framework/tensor_shape.h"
+#include "tensorflow/core/framework/types.h"
 
 namespace deepmind {
 namespace reverb {

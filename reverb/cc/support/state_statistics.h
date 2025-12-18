@@ -15,6 +15,7 @@
 #ifndef REVERB_CC_TIME_MONITOR_H_
 #define REVERB_CC_TIME_MONITOR_H_
 
+#include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "reverb/cc/platform/hash_map.h"
 

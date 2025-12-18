@@ -30,7 +30,6 @@
 #include <stddef.h>
 
 #include <memory>
-#include <ostream>  // NOLINT
 #include <vector>
 
 #include "reverb/cc/platform/logging.h"

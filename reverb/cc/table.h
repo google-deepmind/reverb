@@ -334,13 +334,13 @@ class Table {
   //
   // Note that the timeout is ONLY used when waiting for the first sample
   // operation to be "approved" by the rate limiter. The remaining items of the
-  // batch will only be added if these can proceeed without releasing the lock
+  // batch will only be added if these can proceed without releasing the lock
   // and awaiting state changes in the rate limiter.
   absl::Status SampleFlexibleBatch(std::vector<SampledItem>* items,
                                    int batch_size,
                                    absl::Duration timeout = kDefaultTimeout);
 
-  // Returns true iff the current state would allow for `num_samples` to be
+  // Returns true iff. the current state would allow for `num_samples` to be
   // sampled. Dies if `num_samples` is < 1.
   //
   // TODO(b/153258711): This currently ignores max_size and
@@ -348,7 +348,7 @@ class Table {
   // there are 2 items in the table, max_times_sampled=1, and num_samples=3.
   bool CanSample(int num_samples) const;
 
-  // Returns true iff the current state would allow for `num_inserts` to be
+  // Returns true iff. the current state would allow for `num_inserts` to be
   // inserted. Dies if `num_inserts` is < 1.
   //
   // TODO(b/153258711): This currently ignores max_size and max_times_sampled
@@ -594,7 +594,7 @@ class Table {
       ABSL_GUARDED_BY(worker_mu_);
 
   // Items collected by the worker for asynchronous deletion by the clients.
-  // This way we avoid expensive memory dealocation inside the worker.
+  // This way we avoid expensive memory deallocation inside the worker.
   std::vector<std::shared_ptr<Item>> deleted_items_ ABSL_GUARDED_BY(worker_mu_);
 
   // Table worker execution time stats. It is updated periodically as table

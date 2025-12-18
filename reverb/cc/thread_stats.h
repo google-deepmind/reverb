@@ -15,6 +15,7 @@
 #ifndef REVERB_CC_THREAD_STATS_H_
 #define REVERB_CC_THREAD_STATS_H_
 
+#include <string>
 #include <vector>
 
 #include "absl/time/time.h"

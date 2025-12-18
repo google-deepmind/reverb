@@ -18,7 +18,6 @@
 #include <memory>
 
 #include "absl/base/attributes.h"
-#include "absl/memory/memory.h"
 
 namespace deepmind {
 namespace reverb {

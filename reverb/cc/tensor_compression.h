@@ -15,10 +15,14 @@
 #ifndef LEARNING_DEEPMIND_REPLAY_REVERB_TENSOR_COMPRESSION_H_
 #define LEARNING_DEEPMIND_REPLAY_REVERB_TENSOR_COMPRESSION_H_
 
+#include <vector>
+
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "tensorflow/core/framework/tensor.h"
 #include "tensorflow/core/framework/tensor.pb.h"
+#include "tensorflow/core/framework/types.h"
+#include "tensorflow/core/platform/types.h"
 
 namespace deepmind {
 namespace reverb {

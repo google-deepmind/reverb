@@ -14,9 +14,10 @@
 
 #include "reverb/cc/support/signature.h"
 
+#include <string>
+
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
-#include "absl/strings/string_view.h"
 #include "reverb/cc/platform/status_matchers.h"
 #include "reverb/cc/testing/proto_test_util.h"
 #include "tensorflow/core/framework/tensor_shape.h"
@@ -28,7 +29,6 @@ namespace reverb {
 namespace internal {
 namespace {
 
-using ::deepmind::reverb::testing::CreateProto;
 using ::deepmind::reverb::testing::EqualsProto;
 
 tensorflow::StructuredValue MakeLeaf(
