@@ -2,7 +2,6 @@ load(
     "//reverb/cc/platform:build_rules.bzl",
     "reverb_cc_library",
     "reverb_cc_test",
-    "reverb_tf_deps",
 )
 
 package(default_visibility = ["//reverb:__subpackages__"])
@@ -15,7 +14,7 @@ reverb_cc_library(
     deps = [
         "//reverb/cc/checkpointing:checkpoint_cc_proto",
         "@com_google_absl//absl/status",
-    ] + reverb_tf_deps(),
+    ],
 )
 
 reverb_cc_library(
@@ -32,7 +31,7 @@ reverb_cc_library(
         "@com_google_absl//absl/random:distributions",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings",
-    ] + reverb_tf_deps(),
+    ],
 )
 
 reverb_cc_library(
@@ -47,7 +46,7 @@ reverb_cc_library(
         "//reverb/cc/platform:logging",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings",
-    ] + reverb_tf_deps(),
+    ],
 )
 
 reverb_cc_library(
@@ -62,7 +61,7 @@ reverb_cc_library(
         "//reverb/cc/platform:logging",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings",
-    ] + reverb_tf_deps(),
+    ],
 )
 
 reverb_cc_library(
@@ -78,7 +77,7 @@ reverb_cc_library(
         "//reverb/cc/platform:status_macros",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings",
-    ] + reverb_tf_deps(),
+    ],
 )
 
 reverb_cc_library(
@@ -94,7 +93,7 @@ reverb_cc_library(
         "//reverb/cc/support:intrusive_heap",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings",
-    ] + reverb_tf_deps(),
+    ],
 )
 
 reverb_cc_test(

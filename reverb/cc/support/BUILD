@@ -87,7 +87,7 @@ reverb_cc_library(
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/synchronization",
         "@com_google_absl//absl/time",
-    ] + reverb_tf_deps(),
+    ],
 )
 
 reverb_cc_test(
@@ -114,7 +114,7 @@ reverb_cc_test(
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:status_matchers",
         "@com_google_absl//absl/time",
-    ] + reverb_tf_deps(),
+    ],
 )
 
 reverb_cc_library(
@@ -155,7 +155,7 @@ reverb_cc_library(
     deps = [
         "//reverb/cc/platform:hash_map",
         "@com_google_absl//absl/time",
-    ] + reverb_tf_deps(),
+    ],
 )
 
 reverb_cc_test(
@@ -164,7 +164,7 @@ reverb_cc_test(
     deps = [
         ":state_statistics",
         "@com_google_absl//absl/time",
-    ] + reverb_tf_deps(),
+    ],
 )
 
 reverb_cc_library(
@@ -195,7 +195,7 @@ reverb_cc_test(
         "//reverb/cc/platform:logging",
         "//reverb/cc/platform:thread",
         "@com_google_absl//absl/synchronization",
-    ] + reverb_tf_deps(),
+    ],
 )
 
 reverb_cc_library(
