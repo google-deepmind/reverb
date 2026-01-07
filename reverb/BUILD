@@ -2,6 +2,7 @@
 
 load(
     "//reverb/cc/platform:build_rules.bzl",
+    "reverb_cc_shared_library",
     "reverb_py_test",
     "reverb_pybind_deps",
     "reverb_pybind_extension",
@@ -86,6 +87,64 @@ reverb_pytype_library(
     name = "replay_sample",
     srcs = ["replay_sample.py"],
     strict_deps = True,
+)
+
+reverb_cc_shared_library(
+    name = "libreverb",
+    additional_linker_inputs = [
+        ":reverb_exported_symbols.lds",
+        ":reverb_version_script.lds",
+    ],
+    exports_filter = [
+        "//reverb/cc:__subpackages__",
+        "@com_google_absl//absl:__subpackages__",
+    ],
+    shared_lib_name = select(
+        {
+            "@platforms//os:macos": "libreverb.dylib",
+            "@platforms//os:linux": "libreverb.so",
+        },
+    ),
+    user_link_flags = select({
+        "@platforms//os:macos": [
+            "-Wl,-exported_symbols_list,$(location :reverb_exported_symbols.lds)",
+            "-Wl,-install_name,@rpath/libreverb.dylib",
+        ],
+        "@platforms//os:linux": [
+            "-Wl,--version-script,$(location :reverb_version_script.lds)",
+        ],
+        "//conditions:default": [],
+    }),
+    deps = [
+        "//reverb/cc:chunker",
+        "//reverb/cc:client",
+        "//reverb/cc:conversions",
+        "//reverb/cc:errors",
+        "//reverb/cc:patterns_cc_proto",
+        "//reverb/cc:sampler",
+        "//reverb/cc:schema_cc_proto",
+        "//reverb/cc:structured_writer",
+        "//reverb/cc:table",
+        "//reverb/cc:trajectory_writer",
+        "//reverb/cc:writer",
+        "//reverb/cc/checkpointing:interface",
+        "//reverb/cc/platform:checkpointing",
+        "//reverb/cc/platform:checkpointing_utils",
+        "//reverb/cc/platform:logging",
+        "//reverb/cc/platform:server",
+        "//reverb/cc/platform:status_macros",
+        "//reverb/cc/selectors:fifo",
+        "//reverb/cc/selectors:heap",
+        "//reverb/cc/selectors:interface",
+        "//reverb/cc/selectors:lifo",
+        "//reverb/cc/selectors:prioritized",
+        "//reverb/cc/selectors:uniform",
+        "//reverb/cc/support:cleanup",
+        "//reverb/cc/support:key_generators",
+        "//reverb/cc/support:signature",
+        "//reverb/cc/support:trajectory_util",
+        "//reverb/cc/table_extensions:interface",
+    ],
 )
 
 reverb_pybind_extension(

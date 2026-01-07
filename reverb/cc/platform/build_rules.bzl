@@ -5,6 +5,7 @@ load(
     _reverb_cc_grpc_library = "reverb_cc_grpc_library",
     _reverb_cc_library = "reverb_cc_library",
     _reverb_cc_proto_library = "reverb_cc_proto_library",
+    _reverb_cc_shared_library = "reverb_cc_shared_library",
     _reverb_cc_test = "reverb_cc_test",
     _reverb_gen_op_wrapper_py = "reverb_gen_op_wrapper_py",
     _reverb_grpc_deps = "reverb_grpc_deps",
@@ -38,3 +39,4 @@ reverb_pytype_strict_library = _reverb_pytype_strict_library
 reverb_pytype_strict_binary = _reverb_pytype_strict_binary
 reverb_tf_ops_visibility = _reverb_tf_ops_visibility
 reverb_tf_deps = _reverb_tf_deps
+reverb_cc_shared_library = _reverb_cc_shared_library

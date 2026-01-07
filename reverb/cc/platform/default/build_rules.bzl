@@ -2,6 +2,7 @@
 
 load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc//cc:cc_shared_library.bzl", "cc_shared_library")
 load("@rules_cc//cc:cc_test.bzl", "cc_test")
 load("@rules_python//python:py_binary.bzl", "py_binary")
 load("@rules_python//python:py_library.bzl", "py_library")
@@ -42,6 +43,8 @@ def reverb_kernel_library(name, srcs = [], deps = [], **kwargs):
         alwayslink = 1,
         **kwargs
     )
+
+reverb_cc_shared_library = cc_shared_library
 
 def _removesuffix(x, txt):
     """Backport of x._removesuffix(txt) for Python version earlier than 3.9."""
@@ -111,7 +114,7 @@ def reverb_cc_proto_library(name, srcs = [], deps = [], **kwargs):
         name = "{}".format(name),
         srcs = gen_srcs,
         hdrs = gen_hdrs,
-        deps = depset(deps + reverb_tf_deps()),
+        deps = deps + reverb_tf_deps(),
         alwayslink = 1,
         **kwargs
     )
@@ -311,14 +314,16 @@ def reverb_gen_op_wrapper_py(name, out, kernel_lib, ops_lib = None, linkopts = [
     )
     cc_binary(
         name = "{}.so".format(module_name),
-        deps = [kernel_lib] + [
-            exported_symbols_file,
-            version_script_file,
-        ] + [ops_lib] if ops_lib else [],
+        deps = [kernel_lib] + [ops_lib] if ops_lib else [],
         copts = tf_copts() + [
             "-fno-strict-aliasing",  # allow a wider range of code [aliasing] to compile.
             "-fvisibility=hidden",  # avoid symbol clashes between DSOs.
         ],
+        additional_linker_inputs = [
+            exported_symbols_file,
+            version_script_file,
+        ],
+        dynamic_deps = ["//reverb:libreverb"],
         linkshared = 1,
         linkopts = linkopts + _rpath_linkopts(module_name) + select({
             "@platforms//os:macos": [
@@ -495,10 +500,12 @@ def reverb_pybind_extension(
                 "-Wl,--version-script,$(location %s)" % version_script_file,
             ],
         }),
-        deps = depset(deps + [
+        deps = deps,
+        additional_linker_inputs = [
             exported_symbols_file,
             version_script_file,
-        ]),
+        ],
+        dynamic_deps = ["//reverb:libreverb"],
         defines = defines,
         features = features + ["-use_header_modules"],
         linkshared = 1,
@@ -536,7 +543,7 @@ del _tf' >$@""" % module_name,
     )
     py_library(
         name = name,
-        data = [so_file],
+        data = [so_file, "//reverb:libreverb"],
         deps = ["//reverb/platform/default:load_op_library"],
         srcs = [py_file],
         srcs_version = srcs_version,

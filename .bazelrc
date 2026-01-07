@@ -38,7 +38,8 @@ test --test_output=errors
 common -c opt
 common --cxxopt="-std=c++17"
 common --host_cxxopt="-std=c++17"
-common --copt "-Wno-deprecated-declarations
+common --copt "-Wno-deprecated-declarations"
+common --copt "-Wno-unused-command-line-argument"
 
 # We can remove this flag (we keep it explicit for now)
 build --auto_output_filter=subpackages
