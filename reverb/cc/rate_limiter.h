@@ -84,6 +84,17 @@ class RateLimiter {
   // Returns a summary string description.
   std::string DebugString() const;
 
+  // Public setters for the rate limiter parameters to adjust rate limiting
+  // during the replay's lifetime.
+  void set_samples_per_insert(double samples_per_insert) {
+    samples_per_insert_ = samples_per_insert;
+  }
+  void set_min_size_to_sample(int64_t min_size_to_sample) {
+    min_size_to_sample_ = min_size_to_sample;
+  }
+  void set_min_diff(double min_diff) { min_diff_ = min_diff; }
+  void set_max_diff(double max_diff) { max_diff_ = max_diff; }
+
  private:
   friend class Table;
   // `Table` calls these methods on construction and destruction.
@@ -98,18 +109,18 @@ class RateLimiter {
   // The desired ratio between sample ops and insert operations. This can be
   // interpreted as the average number of times each item is sampled during
   // its total lifetime.
-  const double samples_per_insert_;
+  double samples_per_insert_;
 
   // The minimum and maximum values the cursor is allowed to reach. The cursor
   // value is calculated as `insert_count_ * samples_per_insert_ -
   // sample_count_`. If the value would go beyond these limits then the call is
   // blocked until it can proceed without violating the constraints.
-  const double min_diff_;
-  const double max_diff_;
+  double min_diff_;
+  double max_diff_;
 
   // The minimum number of items that must exist in the distribution for samples
   // to be allowed.
-  const int64_t min_size_to_sample_;
+  int64_t min_size_to_sample_;
 
   // Total number of items inserted into table.
   int64_t inserts_;
