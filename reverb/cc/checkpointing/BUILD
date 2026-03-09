@@ -29,6 +29,10 @@ reverb_cc_library(
 reverb_py_proto_library(
     name = "checkpoint_py_pb2",
     srcs = ["checkpoint.proto"],
+    visibility = [
+        "//reverb:__subpackages__",
+        "//visibility:public",
+    ],
     deps = [
         ":checkpoint_cc_proto",
         "//reverb/cc:schema_cc_proto",
