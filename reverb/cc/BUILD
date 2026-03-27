@@ -14,6 +14,8 @@ load(
 
 package(default_visibility = ["//reverb:__subpackages__"])
 
+license(name = "license")
+
 licenses(["notice"])
 
 exports_files(["LICENSE"])
