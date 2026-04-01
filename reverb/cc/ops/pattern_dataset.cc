@@ -54,7 +54,7 @@ class ReverbPatternDatasetOp : public tensorflow::data::UnaryDatasetOpKernel {
                  ctx, "is_end_of_episode", /*params=*/{}, &func_metadata_));
     OP_REQUIRES(
         ctx, func_metadata_->short_circuit_info().indices.size() <= 1,
-        tensorflow::errors::InvalidArgument(
+        absl::InvalidArgumentError(
             "is_end_of_episode function has more than one return value."));
     OP_REQUIRES_OK(ctx,
                    ctx->GetAttr("clear_after_episode", &clear_after_episode_));
@@ -68,10 +68,10 @@ class ReverbPatternDatasetOp : public tensorflow::data::UnaryDatasetOpKernel {
     for (const auto& c : serialized_configs) {
       StructuredWriterConfig proto;
       OP_REQUIRES(ctx, proto.ParseFromString(c),
-                  tensorflow::errors::InvalidArgument(
+                  absl::InvalidArgumentError(absl::StrCat(
                       "`serialized_configs` could not be parsed as "
                       "`StructuredWriterConfig`. The first invalid config is: ",
-                      c));
+                      c)));
 
       // Find the history length required by this config.
       int history_length = 0;
@@ -275,7 +275,7 @@ class ReverbPatternDatasetOp : public tensorflow::data::UnaryDatasetOpKernel {
 
           if (result.size() != 1 || result[0].dtype() != tensorflow::DT_BOOL ||
               result[0].NumElements() != 1) {
-            return tensorflow::errors::InvalidArgument(
+            return absl::InvalidArgumentError(
                 "Function `is_end_of_episode` must return a scalar bool.");
           }
           bool end_episode = result[0].scalar<bool>()();
@@ -304,14 +304,14 @@ class ReverbPatternDatasetOp : public tensorflow::data::UnaryDatasetOpKernel {
       absl::Status SaveInternal(
           tensorflow::data::SerializationContext* ctx,
           tensorflow::data::IteratorStateWriter* writer) override {
-        return tensorflow::errors::Unimplemented(
+        return absl::UnimplementedError(
             "SaveInternal is currently not supported");
       }
 
       absl::Status RestoreInternal(
           tensorflow::data::IteratorContext* ctx,
           tensorflow::data::IteratorStateReader* reader) override {
-        return tensorflow::errors::Unimplemented(
+        return absl::UnimplementedError(
             "RestoreInternal is currently not supported");
       }
 

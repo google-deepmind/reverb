@@ -112,11 +112,11 @@ class SampleOp : public tensorflow::OpKernel {
     OP_REQUIRES(
         context,
         data.size() + Sampler::kNumInfoTensors == context->num_outputs(),
-        InvalidArgument(
+        absl::InvalidArgumentError(absl::StrCat(
             "Number of tensors in the replay sample did not match the "
             "expected count. Got ",
             data.size() + Sampler::kNumInfoTensors, " but wanted ",
-            context->num_outputs()));
+            context->num_outputs())));
 
     auto flat_sample = Sampler::WithInfoTensors(*info, std::move(data));
     for (int i = 0; i < flat_sample.size(); i++) {
@@ -147,14 +147,14 @@ class UpdatePrioritiesOp : public tensorflow::OpKernel {
     const tensorflow::Tensor* priorities;
     OP_REQUIRES_OK(context, context->input("priorities", &priorities));
 
-    OP_REQUIRES(
-        context, keys->dims() == 1,
-        InvalidArgument("Tensors `keys` and `priorities` must be of rank 1."));
+    OP_REQUIRES(context, keys->dims() == 1,
+                absl::InvalidArgumentError(
+                    "Tensors `keys` and `priorities` must be of rank 1."));
     OP_REQUIRES(context, keys->shape() == priorities->shape(),
-                InvalidArgument(
+                absl::InvalidArgumentError(absl::StrCat(
                     "Tensors `keys` and `priorities` do not match in shape (",
                     keys->shape().DebugString(), " vs. ",
-                    priorities->shape().DebugString(), ")"));
+                    priorities->shape().DebugString(), ")")));
 
     std::string table_str = table->scalar<tstring>()();
     std::vector<KeyWithPriority> updates;
@@ -196,11 +196,11 @@ class InsertOp : public tensorflow::OpKernel {
     OP_REQUIRES_OK(context, context->input("priorities", &priorities));
 
     OP_REQUIRES(context, tables->dims() == 1 && priorities->dims() == 1,
-                InvalidArgument(
+                absl::InvalidArgumentError(
                     "Tensors `tables` and `priorities` must be of rank 1."));
     OP_REQUIRES(
         context, tables->shape() == priorities->shape(),
-        InvalidArgument(
+        absl::InvalidArgumentError(
             "Tensors `tables` and `priorities` do not match in shape."));
 
     tensorflow::OpInputList data;

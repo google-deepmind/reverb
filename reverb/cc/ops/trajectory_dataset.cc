@@ -120,7 +120,8 @@ class ReverbTrajectoryDatasetOp : public tensorflow::data::DatasetOpKernel {
     }
 
     absl::Status CheckExternalState() const override {
-      return FailedPrecondition(DebugString(), " depends on external state.");
+      return absl::FailedPreconditionError(
+          absl::StrCat(DebugString(), " depends on external state."));
     }
 
     absl::Status InputDatasets(
@@ -243,7 +244,7 @@ class ReverbTrajectoryDatasetOp : public tensorflow::data::DatasetOpKernel {
 
         if (registered &&
             !ctx->cancellation_manager()->DeregisterCallback(token)) {
-          return Cancelled("Iterator context was cancelled");
+          return absl::CancelledError("Iterator context was cancelled");
         }
 
         if (status.ok()) {
@@ -270,13 +271,15 @@ class ReverbTrajectoryDatasetOp : public tensorflow::data::DatasetOpKernel {
       absl::Status SaveInternal(
           tensorflow::data::SerializationContext* ctx,
           tensorflow::data::IteratorStateWriter* writer) override {
-        return Unimplemented("SaveInternal is currently not supported");
+        return absl::UnimplementedError(
+            "SaveInternal is currently not supported");
       }
 
       absl::Status RestoreInternal(
           tensorflow::data::IteratorContext* ctx,
           tensorflow::data::IteratorStateReader* reader) override {
-        return Unimplemented("RestoreInternal is currently not supported");
+        return absl::UnimplementedError(
+            "RestoreInternal is currently not supported");
       }
 
       tensorflow::data::TraceMeMetadata GetTraceMeMetadata() const override {
