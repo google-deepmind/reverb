@@ -8,7 +8,10 @@ load(
     "reverb_tf_ops_visibility",
 )
 
-package(default_visibility = reverb_tf_ops_visibility())
+package(
+    default_applicable_licenses = ["//third_party/reverb:license"],
+    default_visibility = reverb_tf_ops_visibility(),
+)
 
 licenses(["notice"])
 
