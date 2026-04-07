@@ -4,7 +4,10 @@ load(
     "reverb_tf_deps",
 )
 
-package(default_visibility = ["//reverb:__subpackages__"])
+package(
+    default_applicable_licenses = ["//third_party/reverb:license"],
+    default_visibility = ["//reverb:__subpackages__"],
+)
 
 licenses(["notice"])
 
