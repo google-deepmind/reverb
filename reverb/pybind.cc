@@ -246,16 +246,16 @@ PYBIND11_MODULE(libpybind, m) {
 
   py::class_<Table, std::shared_ptr<Table>>(m, "Table")
       .def(py::init(
-               [](const std::string &name,
-                  const std::shared_ptr<ItemSelector> &sampler,
-                  const std::shared_ptr<ItemSelector> &remover, int max_size,
+               [](const std::string& name,
+                  const std::shared_ptr<ItemSelector>& sampler,
+                  const std::shared_ptr<ItemSelector>& remover, int max_size,
                   int max_times_sampled,
-                  const std::shared_ptr<RateLimiter> &rate_limiter,
-                  const std::vector<std::shared_ptr<TableExtension>>
-                      &extensions,
-                  const absl::optional<std::string> &serialized_signature =
-                      absl::nullopt) -> Table * {
-                 absl::optional<tensorflow::StructuredValue> signature =
+                  const std::shared_ptr<RateLimiter>& rate_limiter,
+                  const std::vector<std::shared_ptr<TableExtension>>&
+                      extensions,
+                  const std::optional<std::string>& serialized_signature =
+                      absl::nullopt) -> Table* {
+                 std::optional<tensorflow::StructuredValue> signature =
                      absl::nullopt;
                  if (serialized_signature) {
                    signature.emplace();
@@ -280,17 +280,16 @@ PYBIND11_MODULE(libpybind, m) {
            py::call_guard<py::gil_scoped_release>())
       .def("can_insert", &Table::CanInsert,
            py::call_guard<py::gil_scoped_release>())
-      .def(
-          "info",
-          [](Table *table) -> py::bytes {
-            // Return a serialized TableInfo proto bytes string.
-            std::string table_info;
-            {
-              py::gil_scoped_release g;
-              table_info = table->info().SerializeAsString();
-            }
-            return py::bytes(table_info);
-          })
+      .def("info",
+           [](Table* table) -> py::bytes {
+             // Return a serialized TableInfo proto bytes string.
+             std::string table_info;
+             {
+               py::gil_scoped_release g;
+               table_info = table->info().SerializeAsString();
+             }
+             return py::bytes(table_info);
+           })
       .def("__repr__", &Table::DebugString,
            py::call_guard<py::gil_scoped_release>());
 
@@ -509,8 +508,8 @@ PYBIND11_MODULE(libpybind, m) {
 
   m.def(
       "create_default_checkpointer",
-      [](const std::string &name, const std::string &group,
-         absl::optional<std::string> fallback_checkpoint_path) {
+      [](const std::string& name, const std::string& group,
+         std::optional<std::string> fallback_checkpoint_path) {
         auto checkpointer = CreateDefaultCheckpointer(
             name, group, std::move(fallback_checkpoint_path));
         return std::shared_ptr<Checkpointer>(checkpointer.release());
@@ -537,7 +536,7 @@ PYBIND11_MODULE(libpybind, m) {
   py::class_<WeakCellRef, std::shared_ptr<WeakCellRef>>(m, "WeakCellRef")
       .def_property_readonly("expired", &WeakCellRef::expired)
       .def("numpy",
-           [](WeakCellRef *ref) -> tensorflow::Tensor {
+           [](WeakCellRef* ref) -> tensorflow::Tensor {
              tensorflow::Tensor tensor;
 
              auto sp = ref->ref().lock();
@@ -558,8 +557,8 @@ PYBIND11_MODULE(libpybind, m) {
            })
       .def_property_readonly(
           "shape",
-          [](WeakCellRef *ref) -> std::vector<absl::optional<int>> {
-            std::vector<absl::optional<int>> out_shape;
+          [](WeakCellRef* ref) -> std::vector<std::optional<int>> {
+            std::vector<std::optional<int>> out_shape;
 
             auto sp = ref->ref().lock();
             if (!sp) {
@@ -578,7 +577,7 @@ PYBIND11_MODULE(libpybind, m) {
                 // Replace -1 with absl::nullopt because the Python API uses
                 // None instead of -1 to represent unknown dimensions.
                 out_shape.push_back(dim == -1 ? absl::nullopt
-                                              : absl::make_optional(dim));
+                                              : std::make_optional(dim));
               }
             }
             MaybeRaiseFromStatus(status);
@@ -586,7 +585,7 @@ PYBIND11_MODULE(libpybind, m) {
             return out_shape;
           })
       .def_property_readonly(
-          "dtype", [](WeakCellRef *ref) -> py::dtype {
+          "dtype", [](WeakCellRef* ref) -> py::dtype {
             auto sp = ref->ref().lock();
             if (!sp) {
               MaybeRaiseFromStatus(absl::FailedPreconditionError(
@@ -641,9 +640,9 @@ PYBIND11_MODULE(libpybind, m) {
       m, "TrajectoryWriter")
       .def(
           "Append",
-          [](TrajectoryWriter *writer,
-             std::vector<absl::optional<tensorflow::Tensor>> data) {
-            std::vector<absl::optional<std::weak_ptr<CellRef>>> refs;
+          [](TrajectoryWriter* writer,
+             std::vector<std::optional<tensorflow::Tensor>> data) {
+            std::vector<std::optional<std::weak_ptr<CellRef>>> refs;
             MaybeRaiseFromStatus(writer->Append(std::move(data), &refs));
 
             std::vector<absl::optional<std::shared_ptr<WeakCellRef>>> weak_refs(
@@ -661,9 +660,9 @@ PYBIND11_MODULE(libpybind, m) {
           })
       .def(
           "AppendPartial",
-          [](TrajectoryWriter *writer,
-             std::vector<absl::optional<tensorflow::Tensor>> data) {
-            std::vector<absl::optional<std::weak_ptr<CellRef>>> refs;
+          [](TrajectoryWriter* writer,
+             std::vector<std::optional<tensorflow::Tensor>> data) {
+            std::vector<std::optional<std::weak_ptr<CellRef>>> refs;
             MaybeRaiseFromStatus(writer->AppendPartial(std::move(data), &refs));
 
             std::vector<absl::optional<std::shared_ptr<WeakCellRef>>> weak_refs(
@@ -681,7 +680,7 @@ PYBIND11_MODULE(libpybind, m) {
           })
       .def(
           "CreateItem",
-          [](TrajectoryWriter *writer, const std::string &table,
+          [](TrajectoryWriter* writer, const std::string& table,
              double priority,
              std::vector<std::vector<std::shared_ptr<WeakCellRef>>>
                  py_trajectory,
@@ -708,7 +707,7 @@ PYBIND11_MODULE(libpybind, m) {
                 writer->CreateItem(table, priority, trajectory));
           })
       .def("Flush",
-           [](TrajectoryWriter *writer, int ignore_last_num_items,
+           [](TrajectoryWriter* writer, int ignore_last_num_items,
               int timeout_ms) {
              absl::Status status;
              auto timeout = timeout_ms > 0 ? absl::Milliseconds(timeout_ms)
@@ -720,8 +719,8 @@ PYBIND11_MODULE(libpybind, m) {
              MaybeRaiseFromStatus(status);
            })
       .def("EndEpisode",
-           [](TrajectoryWriter *writer, bool clear_buffers,
-              absl::optional<int> timeout_ms) {
+           [](TrajectoryWriter* writer, bool clear_buffers,
+              std::optional<int> timeout_ms) {
              absl::Status status;
              {
                py::gil_scoped_release g;
@@ -748,8 +747,8 @@ PYBIND11_MODULE(libpybind, m) {
       .def("AppendPartial", &StructuredWriter::AppendPartial,
            py::call_guard<py::gil_scoped_release>())
       .def("Flush",
-           [](StructuredWriter *writer, int ignore_last_num_items,
-              absl::optional<int> timeout_ms) {
+           [](StructuredWriter* writer, int ignore_last_num_items,
+              std::optional<int> timeout_ms) {
              absl::Status status;
              {
                py::gil_scoped_release g;
@@ -762,8 +761,8 @@ PYBIND11_MODULE(libpybind, m) {
              MaybeRaiseFromStatus(status);
            })
       .def("EndEpisode",
-           [](StructuredWriter *writer, bool clear_buffers,
-              absl::optional<int> timeout_ms) {
+           [](StructuredWriter* writer, bool clear_buffers,
+              std::optional<int> timeout_ms) {
              absl::Status status;
              {
                py::gil_scoped_release g;
