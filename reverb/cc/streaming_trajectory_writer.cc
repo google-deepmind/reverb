@@ -101,22 +101,22 @@ StreamingTrajectoryWriter::~StreamingTrajectoryWriter() {
 }
 
 absl::Status StreamingTrajectoryWriter::Append(
-    std::vector<absl::optional<tensorflow::Tensor>> data,
-    std::vector<absl::optional<std::weak_ptr<CellRef>>>* refs) {
+    std::vector<std::optional<tensorflow::Tensor>> data,
+    std::vector<std::optional<std::weak_ptr<CellRef>>>* refs) {
   return AppendInternal(std::move(data), /*increment_episode_step=*/true, refs);
 }
 
 absl::Status StreamingTrajectoryWriter::AppendPartial(
-    std::vector<absl::optional<tensorflow::Tensor>> data,
-    std::vector<absl::optional<std::weak_ptr<CellRef>>>* refs) {
+    std::vector<std::optional<tensorflow::Tensor>> data,
+    std::vector<std::optional<std::weak_ptr<CellRef>>>* refs) {
   return AppendInternal(std::move(data), /*increment_episode_step=*/false,
                         refs);
 }
 
 absl::Status StreamingTrajectoryWriter::AppendInternal(
-    std::vector<absl::optional<tensorflow::Tensor>> data,
+    std::vector<std::optional<tensorflow::Tensor>> data,
     bool increment_episode_step,
-    std::vector<absl::optional<std::weak_ptr<CellRef>>>* refs) {
+    std::vector<std::optional<std::weak_ptr<CellRef>>>* refs) {
   REVERB_CHECK(refs != nullptr);
   ClearVectorOnExit<decltype(refs)> clear(refs);
   REVERB_RETURN_IF_ERROR(unrecoverable_error_);

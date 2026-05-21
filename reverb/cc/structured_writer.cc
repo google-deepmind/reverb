@@ -428,17 +428,17 @@ StructuredWriter::StructuredWriter(std::unique_ptr<ColumnWriter> writer,
 }
 
 absl::Status StructuredWriter::Append(
-    std::vector<absl::optional<tensorflow::Tensor>> data) {
+    std::vector<std::optional<tensorflow::Tensor>> data) {
   return AppendInternal(std::move(data), true);
 }
 
 absl::Status StructuredWriter::AppendPartial(
-    std::vector<absl::optional<tensorflow::Tensor>> data) {
+    std::vector<std::optional<tensorflow::Tensor>> data) {
   return AppendInternal(std::move(data), false);
 }
 
 absl::Status StructuredWriter::AppendInternal(
-    std::vector<absl::optional<tensorflow::Tensor>> data, bool finalize_step) {
+    std::vector<std::optional<tensorflow::Tensor>> data, bool finalize_step) {
   // There is no point in appending data to the writer that will never be used
   // so we filter out all the unused columns from the data. This will save us
   // all the work that would otherwise go into chunking and compressing the
@@ -453,7 +453,7 @@ absl::Status StructuredWriter::AppendInternal(
   // Forward the data to the writer. Note that the writer is response for
   // checking that the same column is not populated multiple during the same
   // step.
-  std::vector<absl::optional<std::weak_ptr<CellRef>>> refs;
+  std::vector<std::optional<std::weak_ptr<CellRef>>> refs;
   if (finalize_step) {
     REVERB_RETURN_IF_ERROR(writer_->Append(std::move(data), &refs));
   } else {

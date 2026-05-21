@@ -66,8 +66,8 @@ using ::testing::Return;
 using ::testing::ReturnNew;
 using ::testing::UnorderedElementsAre;
 
-using Step = ::std::vector<::absl::optional<::tensorflow::Tensor>>;
-using StepRef = ::std::vector<::absl::optional<::std::weak_ptr<CellRef>>>;
+using Step = ::std::vector<std::optional<tensorflow::Tensor>>;
+using StepRef = ::std::vector<std::optional<std::weak_ptr<CellRef>>>;
 
 const auto kIntSpec = internal::TensorSpec{"0", tensorflow::DT_INT32, {1}};
 const auto kFloatSpec = internal::TensorSpec{"0", tensorflow::DT_FLOAT, {1}};
@@ -132,7 +132,7 @@ inline tensorflow::Tensor MakeRandomTensor(const internal::TensorSpec& spec) {
 }
 
 std::vector<TrajectoryColumn> MakeTrajectory(
-    std::vector<std::vector<absl::optional<std::weak_ptr<CellRef>>>>
+    std::vector<std::vector<std::optional<std::weak_ptr<CellRef>>>>
         trajectory) {
   std::vector<TrajectoryColumn> columns;
   for (const auto& optional_refs : trajectory) {

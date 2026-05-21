@@ -154,7 +154,7 @@ Table::Table(std::string name, std::shared_ptr<ItemSelector> sampler,
              std::shared_ptr<ItemSelector> remover, int64_t max_size,
              int32_t max_times_sampled,
              std::shared_ptr<RateLimiter> rate_limiter, Extensions extensions,
-             absl::optional<tensorflow::StructuredValue> signature)
+             std::optional<tensorflow::StructuredValue> signature)
     : sampler_(std::move(sampler)),
       remover_(std::move(remover)),
       num_deleted_episodes_(0),
@@ -1039,7 +1039,7 @@ void Table::UnsafeAddExtension(std::shared_ptr<TableExtension> extension) {
   }
 }
 
-const absl::optional<tensorflow::StructuredValue>& Table::signature() const {
+const std::optional<tensorflow::StructuredValue>& Table::signature() const {
   return signature_;
 }
 

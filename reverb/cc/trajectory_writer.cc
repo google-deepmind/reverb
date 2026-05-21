@@ -350,22 +350,22 @@ TrajectoryWriter::~TrajectoryWriter() {
 }
 
 absl::Status TrajectoryWriter::Append(
-    std::vector<absl::optional<tensorflow::Tensor>> data,
-    std::vector<absl::optional<std::weak_ptr<CellRef>>>* refs) {
+    std::vector<std::optional<tensorflow::Tensor>> data,
+    std::vector<std::optional<std::weak_ptr<CellRef>>>* refs) {
   return AppendInternal(std::move(data), /*increment_episode_step=*/true, refs);
 }
 
 absl::Status TrajectoryWriter::AppendPartial(
-    std::vector<absl::optional<tensorflow::Tensor>> data,
-    std::vector<absl::optional<std::weak_ptr<CellRef>>>* refs) {
+    std::vector<std::optional<tensorflow::Tensor>> data,
+    std::vector<std::optional<std::weak_ptr<CellRef>>>* refs) {
   return AppendInternal(std::move(data), /*increment_episode_step=*/false,
                         refs);
 }
 
 absl::Status TrajectoryWriter::AppendInternal(
-    std::vector<absl::optional<tensorflow::Tensor>> data,
+    std::vector<std::optional<tensorflow::Tensor>> data,
     bool increment_episode_step,
-    std::vector<absl::optional<std::weak_ptr<CellRef>>>* refs) {
+    std::vector<std::optional<std::weak_ptr<CellRef>>>* refs) {
   CellRef::EpisodeInfo episode_info;
   {
     absl::MutexLock lock(mu_);

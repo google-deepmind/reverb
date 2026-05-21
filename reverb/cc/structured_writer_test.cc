@@ -71,8 +71,8 @@ class FakeWriter : public ColumnWriter {
   }
 
   absl::Status Append(
-      std::vector<absl::optional<Tensor>> data,
-      std::vector<absl::optional<std::weak_ptr<CellRef>>>* refs) override {
+      std::vector<std::optional<Tensor>> data,
+      std::vector<std::optional<std::weak_ptr<CellRef>>>* refs) override {
     AppendInternal(std::move(data), refs);
     current_step_.step++;
     steps_.emplace_back(chunkers_.size(), absl::nullopt);
@@ -80,8 +80,8 @@ class FakeWriter : public ColumnWriter {
   }
 
   absl::Status AppendPartial(
-      std::vector<absl::optional<Tensor>> data,
-      std::vector<absl::optional<std::weak_ptr<CellRef>>>* refs) override {
+      std::vector<std::optional<Tensor>> data,
+      std::vector<std::optional<std::weak_ptr<CellRef>>>* refs) override {
     AppendInternal(std::move(data), refs);
     return absl::OkStatus();
   }
@@ -138,10 +138,10 @@ class FakeWriter : public ColumnWriter {
 
   const std::vector<double>& priorities() const { return priorities_; }
 
-  std::vector<std::vector<absl::optional<Tensor>>> steps() const {
+  std::vector<std::vector<std::optional<Tensor>>> steps() const {
     if (std::all_of(steps_.back().begin(), steps_.back().end(),
                     [](const auto& c) { return c == absl::nullopt; })) {
-      return std::vector<std::vector<absl::optional<Tensor>>>(
+      return std::vector<std::vector<std::optional<Tensor>>>(
           steps_.begin(), steps_.begin() + steps_.size() - 1);
     }
     return steps_;
@@ -149,8 +149,8 @@ class FakeWriter : public ColumnWriter {
 
  private:
   void AppendInternal(
-      std::vector<absl::optional<Tensor>> data,
-      std::vector<absl::optional<std::weak_ptr<CellRef>>>* refs) {
+      std::vector<std::optional<Tensor>> data,
+      std::vector<std::optional<std::weak_ptr<CellRef>>>* refs) {
     REVERB_CHECK_LE(data.size(), chunkers_.size());
 
     for (int i = 0; i < data.size(); i++) {
@@ -169,7 +169,7 @@ class FakeWriter : public ColumnWriter {
   CellRef::EpisodeInfo current_step_ = {0, 0};
   std::vector<double> priorities_;
   std::vector<std::vector<Tensor>> trajectories_;
-  std::vector<std::vector<absl::optional<Tensor>>> steps_;
+  std::vector<std::vector<std::optional<Tensor>>> steps_;
 };
 
 Tensor MakeTensor(std::vector<int> values) {
@@ -182,9 +182,9 @@ Tensor MakeTensor(std::vector<int> values) {
 
 Tensor MakeTensor(int value) { return Tensor(static_cast<int32_t>(value)); }
 
-std::vector<absl::optional<Tensor>> MakeStep(
-    std::vector<absl::optional<int>> values) {
-  std::vector<absl::optional<Tensor>> step;
+std::vector<std::optional<Tensor>> MakeStep(
+    std::vector<std::optional<int>> values) {
+  std::vector<std::optional<Tensor>> step;
   for (int i = 0; i < values.size(); i++) {
     if (values[i].has_value()) {
       step.push_back(MakeTensor(values[i].value()));

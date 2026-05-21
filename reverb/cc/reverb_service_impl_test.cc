@@ -174,7 +174,7 @@ std::unique_ptr<ReverbServiceImpl> MakeService(
         /*max_times_sampled=*/0,
         /*rate_limiter=*/MakeLimiter(),
         /*extensions=*/std::vector<std::shared_ptr<TableExtension>>(),
-        /*signature=*/absl::make_optional(MakeSignature())));
+        /*signature=*/std::make_optional(MakeSignature())));
   }
   std::unique_ptr<ReverbServiceImpl> service;
   REVERB_CHECK_OK(ReverbServiceImpl::Create(std::move(tables),
