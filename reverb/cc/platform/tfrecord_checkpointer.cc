@@ -153,7 +153,7 @@ absl::Status CheckTrajectoryFormat(const PrioritizedItem& item) {
 
 TFRecordCheckpointer::TFRecordCheckpointer(
     std::string root_dir, std::string group,
-    absl::optional<std::string> fallback_checkpoint_path)
+    std::optional<std::string> fallback_checkpoint_path)
     : root_dir_(std::move(root_dir)),
       group_(std::move(group)),
       fallback_checkpoint_path_(std::move(fallback_checkpoint_path)) {
@@ -461,10 +461,9 @@ absl::Status LoadWithCompression(absl::string_view path,
     auto remover = MakeSelector(checkpoint.remover());
     auto rate_limiter =
         std::make_shared<RateLimiter>(checkpoint.rate_limiter());
-    auto signature =
-        checkpoint.has_signature()
-            ? absl::make_optional(std::move(checkpoint.signature()))
-            : absl::nullopt;
+    auto signature = checkpoint.has_signature()
+                         ? std::make_optional(std::move(checkpoint.signature()))
+                         : absl::nullopt;
 
     std::vector<std::shared_ptr<TableExtension>> extensions =
         server_table->GetExtensions();
