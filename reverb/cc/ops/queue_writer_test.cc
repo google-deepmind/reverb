@@ -158,7 +158,7 @@ TEST(QueueWriter, AppendAcceptsPartialSteps) {
 
   // Only append to the first column.
   StepRef first_column_only;
-  REVERB_ASSERT_OK(writer.Append(Step({MakeTensor(kIntSpec), absl::nullopt}),
+  REVERB_ASSERT_OK(writer.Append(Step({MakeTensor(kIntSpec), std::nullopt}),
                                  &first_column_only));
   EXPECT_FALSE(first_column_only[1].has_value());
 }
@@ -175,7 +175,7 @@ TEST(QueueWriter, AppendPartialRejectsMultipleUsesOfSameColumn) {
   // Appending the second column only should be fine.
   StepRef second_column_only;
   REVERB_ASSERT_OK(writer.AppendPartial(
-      Step({absl::nullopt, MakeTensor(kFloatSpec)}), &second_column_only));
+      Step({std::nullopt, MakeTensor(kFloatSpec)}), &second_column_only));
 
   // Appending the first column again should not be allowed.
   StepRef first_column_again;
@@ -220,7 +220,7 @@ TEST(QueueWriter, AppendPartialDoesNotIncrementEpisodeStep) {
 
   // Append to the second column only and close the step.
   StepRef second_column_only;
-  REVERB_ASSERT_OK(writer.Append(Step({absl::nullopt, MakeTensor(kFloatSpec)}),
+  REVERB_ASSERT_OK(writer.Append(Step({std::nullopt, MakeTensor(kFloatSpec)}),
                                  &second_column_only));
 
   // Since the step was kept open after the first call the second call should
@@ -272,9 +272,7 @@ TEST(QueueWriter, ItemsAreAddedToQueue) {
   // In the second step we only write to the first column.
   StepRef second;
   REVERB_ASSERT_OK(
-      writer.Append(Step({MakeTensor(kIntSpec), absl::nullopt}), &second));
-
-
+      writer.Append(Step({MakeTensor(kIntSpec), std::nullopt}), &second));
 
   for (auto trajectory : queue){
     EXPECT_EQ(trajectory.size(), 1);
