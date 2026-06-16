@@ -67,7 +67,7 @@ class FakeWriter : public ColumnWriter {
           internal::TensorSpec{"", tensorflow::DT_INT32, {}},
           std::make_shared<ConstantChunkerOptions>(1, 100)));
     }
-    steps_.emplace_back(num_columns, absl::nullopt);
+    steps_.emplace_back(num_columns, std::nullopt);
   }
 
   absl::Status Append(
@@ -75,7 +75,7 @@ class FakeWriter : public ColumnWriter {
       std::vector<std::optional<std::weak_ptr<CellRef>>>* refs) override {
     AppendInternal(std::move(data), refs);
     current_step_.step++;
-    steps_.emplace_back(chunkers_.size(), absl::nullopt);
+    steps_.emplace_back(chunkers_.size(), std::nullopt);
     return absl::OkStatus();
   }
 
@@ -140,7 +140,7 @@ class FakeWriter : public ColumnWriter {
 
   std::vector<std::vector<std::optional<Tensor>>> steps() const {
     if (std::all_of(steps_.back().begin(), steps_.back().end(),
-                    [](const auto& c) { return c == absl::nullopt; })) {
+                    [](const auto& c) { return c == std::nullopt; })) {
       return std::vector<std::vector<std::optional<Tensor>>>(
           steps_.begin(), steps_.begin() + steps_.size() - 1);
     }
@@ -160,7 +160,7 @@ class FakeWriter : public ColumnWriter {
         REVERB_CHECK_OK(chunkers_[i]->Append(*data[i], current_step_, &ref));
         refs->push_back(std::move(ref));
       } else {
-        refs->push_back(absl::nullopt);
+        refs->push_back(std::nullopt);
       }
     }
   }
@@ -189,7 +189,7 @@ std::vector<std::optional<Tensor>> MakeStep(
     if (values[i].has_value()) {
       step.push_back(MakeTensor(values[i].value()));
     } else {
-      step.push_back(absl::nullopt);
+      step.push_back(std::nullopt);
     }
   }
   return step;
@@ -582,9 +582,9 @@ TEST(StructuredWriter, PatternFromPartialData) {
   StructuredWriter writer(std::move(fake_writer), {std::move(config)});
 
   REVERB_EXPECT_OK(writer.Append(MakeStep({10, 20})));
-  REVERB_EXPECT_OK(writer.Append(MakeStep({absl::nullopt, 21})));
+  REVERB_EXPECT_OK(writer.Append(MakeStep({std::nullopt, 21})));
   REVERB_EXPECT_OK(writer.Append(MakeStep({12, 22})));
-  REVERB_EXPECT_OK(writer.Append(MakeStep({absl::nullopt, 23})));
+  REVERB_EXPECT_OK(writer.Append(MakeStep({std::nullopt, 23})));
   REVERB_EXPECT_OK(writer.Append(MakeStep({14, 24})));
 
   ExpectTrajectoriesEqual(fake_writer_ptr->trajectories(),
@@ -615,12 +615,12 @@ TEST(StructuredWriter, PatternFromAppendPartial) {
   // Only append the third column. This should not be enough to trigger the
   // creation of the trajectory.
   REVERB_EXPECT_OK(
-      writer.AppendPartial(MakeStep({absl::nullopt, absl::nullopt, 31})));
+      writer.AppendPartial(MakeStep({std::nullopt, std::nullopt, 31})));
   EXPECT_THAT(fake_writer_ptr->trajectories(), ::testing::IsEmpty());
 
   // Only append the second column. We should now have enought to create a
   // trajectory.
-  REVERB_EXPECT_OK(writer.AppendPartial(MakeStep({absl::nullopt, 21})));
+  REVERB_EXPECT_OK(writer.AppendPartial(MakeStep({std::nullopt, 21})));
   ExpectTrajectoriesEqual(
       fake_writer_ptr->trajectories(),
       {
@@ -685,7 +685,7 @@ TEST(StructuredWriter, CanHandlePointlessSteps) {
   StructuredWriter writer(std::move(fake_writer), {std::move(config)});
 
   // Only append data for the unused column.
-  REVERB_EXPECT_OK(writer.Append(MakeStep({10, absl::nullopt})));
+  REVERB_EXPECT_OK(writer.Append(MakeStep({10, std::nullopt})));
 
   // Append all columns.
   REVERB_EXPECT_OK(writer.Append(MakeStep({11, 21})));
@@ -722,21 +722,21 @@ TEST(StructuredWriter, StepIsOpen) {
 
   // Appending a partial step should make it True.
   REVERB_EXPECT_OK(
-      writer.AppendPartial(MakeStep({absl::nullopt, 2, absl::nullopt})));
+      writer.AppendPartial(MakeStep({std::nullopt, 2, std::nullopt})));
   EXPECT_TRUE(writer.step_is_open());
 
   // Appending more partial data to the same step shouldn't change anything.
   REVERB_EXPECT_OK(
-      writer.AppendPartial(MakeStep({absl::nullopt, absl::nullopt, 2})));
+      writer.AppendPartial(MakeStep({std::nullopt, std::nullopt, 2})));
   EXPECT_TRUE(writer.step_is_open());
 
   // Completing the step should make it False.
-  REVERB_EXPECT_OK(writer.Append(MakeStep({2, absl::nullopt, absl::nullopt})));
+  REVERB_EXPECT_OK(writer.Append(MakeStep({2, std::nullopt, std::nullopt})));
   EXPECT_FALSE(writer.step_is_open());
 
   // End episode should finalize the active step if any is open.
   REVERB_EXPECT_OK(
-      writer.AppendPartial(MakeStep({absl::nullopt, 3, absl::nullopt})));
+      writer.AppendPartial(MakeStep({std::nullopt, 3, std::nullopt})));
   EXPECT_TRUE(writer.step_is_open());
   REVERB_EXPECT_OK(writer.EndEpisode(/*clear_buffers=*/true));
   EXPECT_FALSE(writer.step_is_open());

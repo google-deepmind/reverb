@@ -446,7 +446,7 @@ absl::Status StructuredWriter::AppendInternal(
   // be used.
   for (int i = 0; i < data.size(); i++) {
     if (i >= max_column_history_.size() || max_column_history_[i] == 0) {
-      data[i] = absl::nullopt;
+      data[i] = std::nullopt;
     }
   }
 
@@ -462,7 +462,7 @@ absl::Status StructuredWriter::AppendInternal(
 
   // Make sure all columns exist in the refs.
   while (refs.size() < max_column_history_.size()) {
-    refs.push_back(absl::nullopt);
+    refs.push_back(std::nullopt);
   }
 
   for (int i = 0; i < refs.size(); i++) {
