@@ -590,7 +590,7 @@ absl::Status Writer::GetFlatSignature(
     absl::string_view table,
     const internal::DtypesAndShapes** dtypes_and_shapes) const {
   static const auto* empty_dtypes_and_shapes =
-      new internal::DtypesAndShapes(absl::nullopt);
+      new internal::DtypesAndShapes(std::nullopt);
   if (!signatures_) {
     // No signatures available, return an unknown set.
     *dtypes_and_shapes = empty_dtypes_and_shapes;

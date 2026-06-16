@@ -511,7 +511,7 @@ TEST(TrajectoryWriter, AppendAcceptsPartialSteps) {
 
   // Only append to the first column.
   StepRef first_column_only;
-  REVERB_ASSERT_OK(writer.Append(Step({MakeTensor(kIntSpec), absl::nullopt}),
+  REVERB_ASSERT_OK(writer.Append(Step({MakeTensor(kIntSpec), std::nullopt}),
                                  &first_column_only));
   EXPECT_FALSE(first_column_only[1].has_value());
 }
@@ -533,7 +533,7 @@ TEST(TrajectoryWriter, AppendPartialRejectsMultipleUsesOfSameColumn) {
   // Appending the second column only should be fine.
   StepRef second_column_only;
   REVERB_ASSERT_OK(writer.AppendPartial(
-      Step({absl::nullopt, MakeTensor(kFloatSpec)}), &second_column_only));
+      Step({std::nullopt, MakeTensor(kFloatSpec)}), &second_column_only));
 
   // Appending the first column again should not be allowed.
   StepRef first_column_again;
@@ -588,7 +588,7 @@ TEST(TrajectoryWriter, AppendPartialDoesNotIncrementEpisodeStep) {
 
   // Append to the second column only and close the step.
   StepRef second_column_only;
-  REVERB_ASSERT_OK(writer.Append(Step({absl::nullopt, MakeTensor(kFloatSpec)}),
+  REVERB_ASSERT_OK(writer.Append(Step({std::nullopt, MakeTensor(kFloatSpec)}),
                                  &second_column_only));
 
   // Since the step was kept open after the first call the second call should
@@ -759,7 +759,7 @@ TEST(TrajectoryWriter, ItemIsSentWhenAllChunksDone) {
   // is being transmitted.
   StepRef second;
   REVERB_ASSERT_OK(
-      writer.Append(Step({MakeTensor(kIntSpec), absl::nullopt}), &second));
+      writer.Append(Step({MakeTensor(kIntSpec), std::nullopt}), &second));
 
   async.stream_.BlockUntilNumRequestsIs(1);
   EXPECT_THAT(async.stream_.requests(), ElementsAre(IsChunk()));
@@ -769,7 +769,7 @@ TEST(TrajectoryWriter, ItemIsSentWhenAllChunksDone) {
   for (int i = 0; i < 2; i++) {
     StepRef refs;
     REVERB_ASSERT_OK(
-        writer.Append(Step({MakeTensor(kIntSpec), absl::nullopt}), &refs));
+        writer.Append(Step({MakeTensor(kIntSpec), std::nullopt}), &refs));
   }
   EXPECT_THAT(async.stream_.requests(), ElementsAre(IsChunk()));
 
@@ -778,7 +778,7 @@ TEST(TrajectoryWriter, ItemIsSentWhenAllChunksDone) {
   // second chunk and the item.
   StepRef third;
   REVERB_ASSERT_OK(
-      writer.Append(Step({absl::nullopt, MakeTensor(kIntSpec)}), &third));
+      writer.Append(Step({std::nullopt, MakeTensor(kIntSpec)}), &third));
 
   async.stream_.BlockUntilNumRequestsIs(2);
 

@@ -394,7 +394,7 @@ absl::Status TrajectoryWriter::AppendInternal(
   // Append data to respective column chunker.
   for (int i = 0; i < data.size(); i++) {
     if (!data[i].has_value()) {
-      refs->push_back(absl::nullopt);
+      refs->push_back(std::nullopt);
       continue;
     }
 
