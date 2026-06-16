@@ -254,9 +254,9 @@ PYBIND11_MODULE(libpybind, m) {
                   const std::vector<std::shared_ptr<TableExtension>>&
                       extensions,
                   const std::optional<std::string>& serialized_signature =
-                      absl::nullopt) -> Table* {
+                      std::nullopt) -> Table* {
                  std::optional<tensorflow::StructuredValue> signature =
-                     absl::nullopt;
+                     std::nullopt;
                  if (serialized_signature) {
                    signature.emplace();
                    if (!signature->ParseFromString(*serialized_signature)) {
@@ -576,7 +576,7 @@ PYBIND11_MODULE(libpybind, m) {
               for (auto dim : spec.shape.dim_sizes()) {
                 // Replace -1 with absl::nullopt because the Python API uses
                 // None instead of -1 to represent unknown dimensions.
-                out_shape.push_back(dim == -1 ? absl::nullopt
+                out_shape.push_back(dim == -1 ? std::nullopt
                                               : std::make_optional(dim));
               }
             }
@@ -652,7 +652,7 @@ PYBIND11_MODULE(libpybind, m) {
                 weak_refs[i] =
                     std::make_shared<WeakCellRef>(std::move(refs[i].value()));
               } else {
-                weak_refs[i] = absl::nullopt;
+                weak_refs[i] = std::nullopt;
               }
             }
 
@@ -672,7 +672,7 @@ PYBIND11_MODULE(libpybind, m) {
                 weak_refs[i] =
                     std::make_shared<WeakCellRef>(std::move(refs[i].value()));
               } else {
-                weak_refs[i] = absl::nullopt;
+                weak_refs[i] = std::nullopt;
               }
             }
 
