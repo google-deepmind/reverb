@@ -294,7 +294,7 @@ absl::Status Client::NewSampler(
 absl::Status Client::NewSamplerWithoutSignatureCheck(
     const std::string& table, const Sampler::Options& options,
     std::unique_ptr<Sampler>* sampler) {
-  return NewSampler(table, options, /*dtypes_and_shapes=*/absl::nullopt,
+  return NewSampler(table, options, /*dtypes_and_shapes=*/std::nullopt,
                     sampler);
 }
 
