@@ -43,7 +43,7 @@ namespace internal {
 absl::Status FlatSignatureFromTableInfo(
     const TableInfo& info, DtypesAndShapes* dtypes_and_shapes) {
   if (!info.has_signature()) {
-    *dtypes_and_shapes = absl::nullopt;
+    *dtypes_and_shapes = std::nullopt;
   } else {
     const auto& sig = info.signature();
     *dtypes_and_shapes = DtypesAndShapes::value_type{};
