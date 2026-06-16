@@ -463,7 +463,7 @@ absl::Status LoadWithCompression(absl::string_view path,
         std::make_shared<RateLimiter>(checkpoint.rate_limiter());
     auto signature = checkpoint.has_signature()
                          ? std::make_optional(std::move(checkpoint.signature()))
-                         : absl::nullopt;
+                         : std::nullopt;
 
     std::vector<std::shared_ptr<TableExtension>> extensions =
         server_table->GetExtensions();
