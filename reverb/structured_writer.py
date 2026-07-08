@@ -41,7 +41,7 @@ Config = patterns_pb2.StructuredWriterConfig
 ConditionProto = patterns_pb2.Condition
 
 Pattern = tree.Structure[patterns_pb2.PatternNode]
-ReferenceStep = NewType('ReferenceStep', Any)
+ReferenceStep = NewType('ReferenceStep', Any)  # pyrefly: ignore[invalid-argument]
 PatternTransform = Callable[[ReferenceStep], Pattern]
 
 
@@ -151,7 +151,7 @@ class StructuredWriter:
           f'block_until_num_items must be >= 0, got {block_until_num_items}')
 
     try:
-      self._writer.Flush(block_until_num_items, timeout_ms)
+      self._writer.Flush(block_until_num_items, timeout_ms)  # pyrefly: ignore[bad-argument-type]
     except RuntimeError as e:
       if 'Timeout exceeded' in str(e) and timeout_ms is not None:
         raise errors.DeadlineExceededError(
@@ -216,7 +216,7 @@ class _RefNode:
         step=key.step)
 
 
-def create_reference_step(step_structure: tree.Structure[Any]) -> ReferenceStep:
+def create_reference_step(step_structure: tree.Structure[Any]) -> ReferenceStep:  # pyrefly: ignore[invalid-type-var]
   """Create a reference structure that can be used to build patterns.
 
   ```python
@@ -252,8 +252,8 @@ def create_reference_step(step_structure: tree.Structure[Any]) -> ReferenceStep:
 
 
 def pattern_from_transform(
-    step_structure: tree.Structure[Any],
-    transform: Callable[[ReferenceStep], Pattern]) -> Pattern:
+    step_structure: tree.Structure[Any],  # pyrefly: ignore[invalid-type-var]
+    transform: Callable[[ReferenceStep], Pattern]) -> Pattern:  # pyrefly: ignore[invalid-type-var]
   """Creates a pattern by invoking a transform from step to output structures.
 
   ```python
@@ -288,7 +288,7 @@ def pattern_from_transform(
   return transform(create_reference_step(step_structure))
 
 
-def create_config(pattern: Pattern,
+def create_config(pattern: Pattern,  # pyrefly: ignore[invalid-type-var]
                   table: str,
                   conditions: Sequence[ConditionProto] = (),
                   priority: Optional[patterns_pb2.Priority] = None):
@@ -303,9 +303,9 @@ def create_config(pattern: Pattern,
       conditions=conditions)
 
 
-def unpack_pattern(config: Config) -> Pattern:
+def unpack_pattern(config: Config) -> Pattern:  # pyrefly: ignore[invalid-type-var]
   if not config.HasField('pattern_structure'):
-    return config.flat
+    return config.flat  # pyrefly: ignore[bad-return]
   structure = nested_structure_coder.decode_proto(config.pattern_structure)
   return tree.unflatten_as(structure, config.flat)
 
@@ -449,7 +449,7 @@ class Condition:
     return ConditionProto(is_end_episode=True, eq=1)
 
   @staticmethod
-  def data(step_structure: tree.Structure[Any]):
+  def data(step_structure: tree.Structure[Any]):  # pyrefly: ignore[invalid-type-var]
     """Value of a scalar integer or bool in the source data."""
     flat = [
         _ConditionBuilder(ConditionProto(flat_source_index=i))
@@ -473,7 +473,7 @@ def constant_priority_fn(value: float) -> patterns_pb2.Priority:
 
 
 def td_error(
-    max_priority_weight: float, step_structure: tree.Structure[Any],
+    max_priority_weight: float, step_structure: tree.Structure[Any],  # pyrefly: ignore[invalid-type-var]
     get_field_from_step_fn: Callable[[tree.Structure[Any]], Any]
 ) -> patterns_pb2.Priority:
   """Builds a td_error priority function.

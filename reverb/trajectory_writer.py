@@ -231,7 +231,7 @@ class TrajectoryWriter:
 
     if path in self._path_to_column_index:
       self._writer.ConfigureChunker(self._path_to_column_index[path],
-                                    chunker_options)
+                                    chunker_options)  # pyrefly: ignore[bad-argument-type]
     else:
       self._path_to_column_config[path] = chunker_options
 
