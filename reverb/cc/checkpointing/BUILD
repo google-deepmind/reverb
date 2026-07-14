@@ -6,7 +6,6 @@ load(
 )
 
 package(
-    default_applicable_licenses = ["//third_party/reverb:license"],
     default_visibility = ["//reverb:__subpackages__"],
 )
 
@@ -33,7 +32,6 @@ reverb_py_proto_library(
     name = "checkpoint_py_pb2",
     srcs = ["checkpoint.proto"],
     visibility = [
-        "//reverb:__subpackages__",
         "//visibility:public",
     ],
     deps = [

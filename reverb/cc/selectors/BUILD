@@ -5,7 +5,6 @@ load(
 )
 
 package(
-    default_applicable_licenses = ["//third_party/reverb:license"],
     default_visibility = ["//reverb:__subpackages__"],
 )
 
