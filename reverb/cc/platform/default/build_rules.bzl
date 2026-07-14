@@ -558,7 +558,7 @@ del _tf' >$@""" % module_name,
 def reverb_py_standard_imports():
     return [
         "@pypi//absl_py",
-        "@pypi//tf_nightly",
+        "@pypi//tensorflow",
         "@pypi//dm_tree",
         "@pypi//portpicker",
         "@pypi//numpy",
@@ -598,8 +598,8 @@ def reverb_tf_ops_visibility():
 
 def reverb_tf_deps():
     return [
-        "@pypi//tf_nightly:headers_lib",
-        "@pypi//tf_nightly:framework_lib",
+        "@pypi//tensorflow:headers_lib",
+        "@pypi//tensorflow:framework_lib",
     ]
 
 def reverb_grpc_deps():
