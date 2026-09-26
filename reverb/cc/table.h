@@ -199,6 +199,10 @@ class Table {
   // Represents asynchronous sampling request processed by the table worker.
   struct SampleRequest {
     std::vector<SampledItem> samples;
+    // Number of items that should be sampled into `samples`. The worker may
+    // finalize the request with fewer items if the response size limit is
+    // reached first, but never with more.
+    int batch_size = 0;
     absl::Time deadline;
     absl::Status status;
     std::weak_ptr<SamplingCallback> on_batch_done;

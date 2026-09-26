@@ -521,8 +521,8 @@ ReverbServiceImpl::SampleStream(grpc::CallbackServerContext* context) {
                 if (!already_writing) {
                   MaybeSendNextResponse();
                 }
-                if (task_info_.requested_samples ==
-                    task_info_.fetched_samples) {
+                if (task_info_.fetched_samples >=
+                    task_info_.requested_samples) {
                   // Current request is finalized, ask for another one.
                   MaybeStartRead();
                 } else {
@@ -586,7 +586,7 @@ ReverbServiceImpl::SampleStream(grpc::CallbackServerContext* context) {
       const int next_batch_size = std::min<int>(
           2 * task_info_.last_batch_size,
           task_info_.requested_samples - task_info_.fetched_samples);
-      if (next_batch_size == 0) {
+      if (next_batch_size <= 0) {
         // Current request has been fully processed, no more sampling needed.
         return;
       }

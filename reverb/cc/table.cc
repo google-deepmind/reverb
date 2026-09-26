@@ -301,12 +301,12 @@ absl::Status Table::TableWorkerLoop() {
             request->samples.emplace_back();
             REVERB_RETURN_IF_ERROR(
                 SampleInternal(rate_limited, &request->samples.back()));
-            // Capacity of the samples collection indicates how many items
-            // should be sampled.
+            // `batch_size` indicates how many items should be sampled.
             for (const auto& chunk : request->samples.back().ref->chunks()) {
               current_sampling_response_size_bytes += chunk->DataByteSizeLong();
             }
-            if (request->samples.capacity() == request->samples.size() ||
+            if (request->samples.size() >=
+                    static_cast<size_t>(request->batch_size) ||
                 current_sampling_response_size_bytes >=
                     kMaxSampleResponseSizeBytes) {
               // Finalized request is moved out of sampling_requests.
@@ -664,8 +664,10 @@ void Table::EnqueSampleRequest(int num_samples,
   auto request = std::make_unique<SampleRequest>();
   request->on_batch_done = std::move(callback);
   request->deadline = absl::Now() + timeout;
-  // Reserved size is used to communicate sampling batch size (it eliminates the
-  // need of allocating memory inside the table worker).
+  request->batch_size = num_samples;
+  // Pre-allocating the samples vector eliminates the need of allocating memory
+  // inside the table worker. Note that the capacity may end up larger than
+  // `num_samples`; `batch_size` above is what bounds the number of samples.
   request->samples.reserve(num_samples);
   // Table worker doesn't release memory of removed items, clients do that
   // asynchronously.
