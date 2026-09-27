@@ -45,6 +45,20 @@ _REVERB_WORKSPACE_ROOT = ''
 _REVERB_BAZELRC = ''
 
 
+def _str_to_bool(value):
+  if isinstance(value, bool):
+    return value
+
+  normalized_value = value.lower()
+  if normalized_value in ('true', 't', '1', 'yes', 'y'):
+    return True
+  if normalized_value in ('false', 'f', '0', 'no', 'n'):
+    return False
+
+  raise argparse.ArgumentTypeError(
+      'expected one of: true, false, 1, 0, yes, no')
+
+
 def main():
   global _REVERB_WORKSPACE_ROOT
   global _REVERB_BAZELRC
@@ -57,7 +71,7 @@ def main():
       help='The absolute path to your active Bazel workspace.')
   parser.add_argument(
       '--force_defaults',
-      type=bool,
+      type=_str_to_bool,
       default=False,
       help='Whether to force the usage of default values, skipping manual selection. This can be useful for automated scripts'
   )
