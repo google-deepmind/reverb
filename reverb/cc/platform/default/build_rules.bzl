@@ -327,6 +327,7 @@ def reverb_gen_op_wrapper_py(name, out, kernel_lib, ops_lib = None, linkopts = [
         linkshared = 1,
         linkopts = linkopts + _rpath_linkopts(module_name) + select({
             "@platforms//os:macos": [
+                "-Wl,-undefined,dynamic_lookup",
                 "-Wl,-exported_symbols_list,$(location %s)" % exported_symbols_file,
             ],
             "//conditions:default": [
@@ -494,6 +495,7 @@ def reverb_pybind_extension(
         ],
         linkopts = linkopts + _rpath_linkopts(module_name) + select({
             "@platforms//os:macos": [
+                "-Wl,-undefined,dynamic_lookup",
                 "-Wl,-exported_symbols_list,$(location %s)" % exported_symbols_file,
             ],
             "//conditions:default": [

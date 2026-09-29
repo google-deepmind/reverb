@@ -107,6 +107,7 @@ reverb_cc_shared_library(
     ),
     user_link_flags = select({
         "@platforms//os:macos": [
+            "-Wl,-undefined,dynamic_lookup",
             "-Wl,-exported_symbols_list,$(location :reverb_exported_symbols.lds)",
             "-Wl,-install_name,@rpath/libreverb.dylib",
         ],
