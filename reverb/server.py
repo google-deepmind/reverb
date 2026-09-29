@@ -288,8 +288,8 @@ class Table:
     pick = lambda a, b: a if a is not None else b
     return Table(
         name=pick(name, self.name),
-        sampler=sampler,
-        remover=remover,
+        sampler=sampler,  # pyrefly: ignore[bad-argument-type]
+        remover=remover,  # pyrefly: ignore[bad-argument-type]
         max_size=pick(max_size, info.max_size),
         rate_limiter=rate_limiter,
         max_times_sampled=pick(max_times_sampled, info.max_times_sampled),
