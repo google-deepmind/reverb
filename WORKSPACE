@@ -255,3 +255,7 @@ load(
 nvshmem_redist_init_repository(
     nvshmem_redistributions = NVSHMEM_REDISTRIBUTIONS,
 )
+
+load("//third_party/bzlmod:repositories.bzl", "tensorflow_protos_repository")
+
+tensorflow_protos_repository(name = "reverb_tensorflow_protos")
