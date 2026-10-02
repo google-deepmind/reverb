@@ -1,0 +1,10 @@
+diff --git a/proto/cel/expr/BUILD.bazel b/proto/cel/expr/BUILD.bazel
+--- a/proto/cel/expr/BUILD.bazel
++++ b/proto/cel/expr/BUILD.bazel
+@@ -1,3 +1,6 @@
++load("@com_google_protobuf//bazel:proto_library.bzl", "proto_library")
++load("@com_google_protobuf//bazel:cc_proto_library.bzl", "cc_proto_library")
++load("@com_google_protobuf//bazel:java_proto_library.bzl", "java_proto_library")
+ package(default_visibility = ["//visibility:public"])
+ 
+ ##############################################################################
