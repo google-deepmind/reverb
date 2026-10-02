@@ -1,0 +1,23 @@
+diff --git a/bazel/grpc_build_system.bzl b/bazel/grpc_build_system.bzl
+--- a/bazel/grpc_build_system.bzl
++++ b/bazel/grpc_build_system.bzl
+@@ -179,8 +179,6 @@
+         linkopts = linkopts,
+         includes = [
+             include_prefix + "include",
+-            include_prefix + "src/core/ext/upb-gen",  # Once upb code-gen issue is resolved, remove this.
+-            include_prefix + "src/core/ext/upbdefs-gen",  # Once upb code-gen issue is resolved, remove this.
+         ],
+         alwayslink = alwayslink,
+         data = data,
+diff --git a/BUILD b/BUILD
+--- a/BUILD
++++ b/BUILD
+@@ -2563,7 +2563,6 @@
+     external_deps = [
+         "absl/strings:cord",
+         "protobuf_headers",
+-        "protobuf",
+     ],
+     public_hdrs = [
+         "include/grpc++/impl/codegen/proto_utils.h",

@@ -7,9 +7,14 @@ load("@rules_cc//cc:cc_test.bzl", "cc_test")
 load("@rules_python//python:py_binary.bzl", "py_binary")
 load("@rules_python//python:py_library.bzl", "py_library")
 load("@rules_python//python:py_test.bzl", "py_test")
+load("//third_party/bzlmod:proto.bzl", "reverb_generate_proto")
 
 def tf_copts():
-    return ["-Wno-sign-compare"]
+    return ["-Wno-sign-compare", "-std=c++17", "-DNDEBUG", "-DEIGEN_MAX_ALIGN_BYTES=64"] + select({
+        "//third_party/bzlmod:is_linux_x86_64": ["-mavx"],
+        "//third_party/bzlmod:is_macos_arm64": ["-mmacosx-version-min=12.0"],
+        "//conditions:default": [],
+    })
 
 def reverb_cc_library(
         name,
@@ -30,7 +35,7 @@ def reverb_cc_library(
         hdrs = hdrs,
         copts = tf_copts(),
         testonly = testonly,
-        deps = depset(deps + new_deps),
+        deps = depset(deps + new_deps).to_list(),
         **kwargs
     )
 
@@ -58,194 +63,63 @@ def _normalize_proto(x):
 def _filegroup_name(x):
     return _normalize_proto(x) + "_filegroup"
 
+def _generate(name, srcs, deps, language, generate_mocks = False, **kwargs):
+    proto_deps = [_filegroup_name(x) for x in deps if x.endswith("_proto")]
+    native.filegroup(name = _filegroup_name(name), srcs = srcs + proto_deps, **kwargs)
+    outputs = []
+    for i, source in enumerate(srcs):
+        stem = source.removesuffix(".proto")
+        if language == "cpp":
+            generated = [stem + ".pb.cc", stem + ".pb.h"]
+        elif language == "python":
+            generated = [stem + "_pb2.py"]
+        else:
+            generated = [stem + ".grpc.pb.cc", stem + ".grpc.pb.h"]
+            if generate_mocks:
+                generated.append(stem + "_mock.grpc.pb.h")
+        reverb_generate_proto(
+            name = name + "_generate_" + str(i),
+            src = source,
+            proto_deps = proto_deps,
+            tensorflow_protos = "//third_party/bzlmod:tensorflow_protos",
+            well_known = "@com_google_protobuf//:well_known_type_protos",
+            protoc = "@com_google_protobuf//:protoc",
+            plugin = "@com_github_grpc_grpc//src/compiler:grpc_cpp_plugin" if language == "grpc" else None,
+            language = language,
+            generate_mocks = generate_mocks,
+            outs = generated,
+            testonly = kwargs.get("testonly", False),
+        )
+        outputs.extend(generated)
+    return outputs
+
 def reverb_cc_proto_library(name, srcs = [], deps = [], **kwargs):
-    """Build a proto cc_library.
-
-    This rule does three things:
-
-    1) Create a filegroup with name `<name>_filegroup` that contains `srcs`
-       and any sources from deps named "x_proto" or "x_cc_proto".
-
-    2) Uses protoc to compile srcs to .h/.cc files, allowing any
-       tensorflow imports.
-
-    3) Creates a cc_library with name `name` building the resulting .h/.cc
-       files.
-
-    Args:
-      name: The name, should end with "_cc_proto".
-      srcs: The .proto files.
-      deps: Any reverb_cc_proto_library targets.
-      **kwargs: Any additional args for the cc_library rule.
-    """
-    gen_srcs = [_removesuffix(x, ".proto") + ".pb.cc" for x in srcs]
-    gen_hdrs = [_removesuffix(x, ".proto") + ".pb.h" for x in srcs]
-    src_paths = ["$(location {})".format(x) for x in srcs]
-    dep_srcs = []
-    for x in deps:
-        if x.endswith("_proto"):
-            dep_srcs.append(_filegroup_name(x))
-    native.filegroup(
-        name = _filegroup_name(name),
-        srcs = srcs + dep_srcs,
-        **kwargs
-    )
-    native.genrule(
-        name = name + "_gen",
-        srcs = srcs + dep_srcs + [
-            "@com_google_protobuf//:well_known_type_protos",
-            "@org_tensorflow//tensorflow/core:protos_srcs",
-        ],
-        outs = gen_srcs + gen_hdrs,
-        tools = [
-            "@com_google_protobuf//:protoc",
-        ],
-        cmd = """
-        OUTDIR=$$(echo $(RULEDIR) | sed -E -e 's#reverb(/.*|$$)##')
-        $(location @com_google_protobuf//:protoc) \
-          --proto_path=external/org_tensorflow/ \
-          --proto_path=external/com_google_protobuf/src \
-          --proto_path=. \
-          --cpp_out=$$OUTDIR {}""".format(
-            " ".join(src_paths),
-        ),
-    )
-    cc_library(
-        name = "{}".format(name),
-        srcs = gen_srcs,
-        hdrs = gen_hdrs,
+    outputs = _generate(name, srcs, deps, "cpp", **kwargs)
+    reverb_cc_library(
+        name = name,
+        srcs = [x for x in outputs if x.endswith(".cc")],
+        hdrs = [x for x in outputs if x.endswith(".h")],
         deps = deps + reverb_tf_deps(),
-        alwayslink = 1,
+        alwayslink = True,
         **kwargs
     )
 
 def reverb_py_proto_library(name, srcs = [], deps = [], **kwargs):
-    """Build a proto py_library.
-
-    This rule does three things:
-
-    1) Create a filegroup with name `<name>_filegroup` that contains `srcs`
-       and any sources from deps named "x_proto" or "x_py_proto".
-
-    2) Uses protoc to compile srcs to _pb2.py files, allowing any
-       tensorflow imports.
-
-    3) Creates a py_library with name `name` building the resulting .py
-       files.
-
-    Args:
-      name: The name, should end with "_py_pb2".
-      srcs: The .proto files.
-      deps: Any reverb_cc_proto_library targets.
-      **kwargs: Any additional args for the cc_library rule.
-    """
-    gen_srcs = [_removesuffix(x, ".proto") + "_pb2.py" for x in srcs]
-    src_paths = ["$(location {})".format(x) for x in srcs]
-    proto_deps = []
-    py_deps = []
-    for x in deps:
-        if x.endswith("_proto"):
-            proto_deps.append(_filegroup_name(x))
-        else:
-            py_deps.append(x)
-    native.filegroup(
-        name = _filegroup_name(name),
-        srcs = srcs + proto_deps,
-        **kwargs
-    )
-    native.genrule(
-        name = name + "_gen",
-        srcs = srcs + proto_deps + [
-            "@com_google_protobuf//:well_known_type_protos",
-            "@org_tensorflow//tensorflow/core:protos_srcs",
-        ],
-        outs = gen_srcs,
-        tools = [
-            "@com_google_protobuf//:protoc",
-        ],
-        cmd = """
-        OUTDIR=$$(echo $(RULEDIR) | sed -E -e 's#reverb(/.*|$$)##')
-        $(location @com_google_protobuf//:protoc) \
-          --proto_path=external/org_tensorflow \
-          --proto_path=external/com_google_protobuf/src \
-          --proto_path=. \
-          --python_out=$$OUTDIR {}""".format(
-            " ".join(src_paths),
-        ),
-    )
+    outputs = _generate(name, srcs, deps, "python", **kwargs)
     py_library(
         name = name,
-        srcs = gen_srcs,
-        deps = py_deps,
-        data = proto_deps,
+        srcs = outputs,
+        deps = [x for x in deps if not x.endswith("_proto")] + reverb_py_standard_imports(),
         **kwargs
     )
 
-def reverb_cc_grpc_library(
-        name,
-        srcs = [],
-        deps = [],
-        generate_mocks = False,
-        **kwargs):
-    """Build a grpc cc_library.
-
-    This rule does two things:
-
-    1) Uses protoc + grpc plugin to compile srcs to .h/.cc files, allowing any
-       tensorflow imports.  Also creates mock headers if requested.
-
-    2) Creates a cc_library with name `name` building the resulting .h/.cc
-       files.
-
-    Args:
-      name: The name, should end with "_cc_grpc_proto".
-      srcs: The .proto files.
-      deps: reverb_cc_proto_library targets.  Must include src + "_cc_proto",
-        the cc_proto library, for each src in srcs.
-      generate_mocks: If true, creates mock headers for each source.
-      **kwargs: Any additional args for the cc_library rule.
-    """
-    gen_srcs = [_removesuffix(x, ".proto") + ".grpc.pb.cc" for x in srcs]
-    gen_hdrs = [_removesuffix(x, ".proto") + ".grpc.pb.h" for x in srcs]
-    proto_src_deps = []
-    for x in deps:
-        if x.endswith("_proto"):
-            proto_src_deps.append(_filegroup_name(x))
-    src_paths = ["$(location {})".format(x) for x in srcs]
-
-    if generate_mocks:
-        gen_mocks = [_removesuffix(x, ".proto") + "_mock.grpc.pb.h" for x in srcs]
-    else:
-        gen_mocks = []
-
-    native.genrule(
-        name = name + "_gen",
-        srcs = srcs + proto_src_deps + [
-            "@com_google_protobuf//:well_known_type_protos",
-            "@org_tensorflow//tensorflow/core:protos_srcs",
-        ],
-        outs = gen_srcs + gen_hdrs + gen_mocks,
-        tools = [
-            "@com_google_protobuf//:protoc",
-            "@com_github_grpc_grpc//src/compiler:grpc_cpp_plugin",
-        ],
-        cmd = """
-        OUTDIR=$$(echo $(RULEDIR) | sed -e 's#reverb/.*##')
-        $(location @com_google_protobuf//:protoc) \
-          --plugin=protoc-gen-grpc=$(location @com_github_grpc_grpc//src/compiler:grpc_cpp_plugin) \
-          --proto_path=external/org_tensorflow/ \
-          --proto_path=external/com_google_protobuf/src \
-          --proto_path=. \
-          --grpc_out={} {}""".format(
-            "generate_mock_code=true:$$OUTDIR" if generate_mocks else "$$OUTDIR",
-            " ".join(src_paths),
-        ),
-    )
-    cc_library(
+def reverb_cc_grpc_library(name, srcs = [], deps = [], generate_mocks = False, **kwargs):
+    outputs = _generate(name, srcs, deps, "grpc", generate_mocks, **kwargs)
+    reverb_cc_library(
         name = name,
-        srcs = gen_srcs,
-        hdrs = gen_hdrs + gen_mocks,
-        deps = depset(deps + ["@com_github_grpc_grpc//:grpc++_codegen_proto"]),
+        srcs = [x for x in outputs if x.endswith(".cc")],
+        hdrs = [x for x in outputs if x.endswith(".h")],
+        deps = deps + ["@com_github_grpc_grpc//:grpc++_codegen_proto"],
         **kwargs
     )
 
@@ -314,7 +188,7 @@ def reverb_gen_op_wrapper_py(name, out, kernel_lib, ops_lib = None, linkopts = [
     )
     cc_binary(
         name = "{}.so".format(module_name),
-        deps = [kernel_lib] + [ops_lib] if ops_lib else [],
+        deps = [kernel_lib] + ([ops_lib] if ops_lib else []),
         copts = tf_copts() + [
             "-fno-strict-aliasing",  # allow a wider range of code [aliasing] to compile.
             "-fvisibility=hidden",  # avoid symbol clashes between DSOs.
@@ -327,6 +201,7 @@ def reverb_gen_op_wrapper_py(name, out, kernel_lib, ops_lib = None, linkopts = [
         linkshared = 1,
         linkopts = linkopts + _rpath_linkopts(module_name) + select({
             "@platforms//os:macos": [
+                "-Wl,-undefined,dynamic_lookup",
                 "-Wl,-exported_symbols_list,$(location %s)" % exported_symbols_file,
             ],
             "//conditions:default": [
@@ -353,7 +228,7 @@ del _locals' > $@""".format(name),
     )
     deps = kwargs.pop("deps", [])
     deps.append("//reverb/platform/default:load_op_library")
-    native.py_library(
+    py_library(
         name = name,
         srcs = [out],
         data = [":lib{}_gen_op.so".format(name)],
@@ -403,10 +278,12 @@ def _rpath_linkopts(name):
     levels_to_root = native.package_name().count("/") + name.count("/")
     return select({
         "@platforms//os:macos": [
+            "-Wl,-rpath,@loader_path/%s/tensorflow" % "/".join([".."] * (levels_to_root + 1)),
             "-Wl,%s" % (_make_search_paths("@loader_path", levels_to_root),),
         ],
         "//conditions:default": [
             "-Wl,%s" % (_make_search_paths("$$ORIGIN", levels_to_root),),
+            "-Wl,-rpath,$$ORIGIN/%s/tensorflow" % "/".join([".."] * (levels_to_root + 1)),
         ],
     })
 
@@ -487,13 +364,14 @@ def reverb_pybind_extension(
         name = so_file,
         srcs = srcs + hdrs,
         data = data,
-        copts = copts + [
+        copts = copts + tf_copts() + [
             "-fno-strict-aliasing",  # allow a wider range of code [aliasing] to compile.
             "-fexceptions",  # pybind relies on exceptions, required to compile.
             "-fvisibility=hidden",  # avoid pybind symbol clashes between DSOs.
         ],
         linkopts = linkopts + _rpath_linkopts(module_name) + select({
             "@platforms//os:macos": [
+                "-Wl,-undefined,dynamic_lookup",
                 "-Wl,-exported_symbols_list,$(location %s)" % exported_symbols_file,
             ],
             "//conditions:default": [
@@ -556,14 +434,7 @@ del _tf' >$@""" % module_name,
     )
 
 def reverb_py_standard_imports():
-    return [
-        "@pypi//absl_py",
-        "@pypi//tensorflow",
-        "@pypi//dm_tree",
-        "@pypi//portpicker",
-        "@pypi//numpy",
-        "@pypi//packaging",
-    ]
+    return ["//third_party/bzlmod:python_dependencies"]
 
 def reverb_py_test(
         name,
@@ -586,10 +457,7 @@ def reverb_py_test(
     return
 
 def reverb_pybind_deps():
-    return [
-        "@pybind11",
-        "@pypi//numpy:numpy_headers",
-    ]
+    return ["//third_party/bzlmod:binding_headers"]
 
 def reverb_tf_ops_visibility():
     return [
@@ -598,8 +466,7 @@ def reverb_tf_ops_visibility():
 
 def reverb_tf_deps():
     return [
-        "@pypi//tensorflow:headers_lib",
-        "@pypi//tensorflow:framework_lib",
+        "//third_party/bzlmod:tensorflow",
     ]
 
 def reverb_grpc_deps():
