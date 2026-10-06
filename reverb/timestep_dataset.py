@@ -153,12 +153,10 @@ class TimestepDataset(tf.data.Dataset):
     if _is_tf1_runtime():
       # Disabling to avoid errors given the different tf.data.Dataset init args
       # between v1 and v2 APIs.
-      # pytype: disable=wrong-arg-count
       super().__init__()
     else:
       # DatasetV2 requires the dataset as a variant tensor during init.
       super().__init__(self._as_variant_tensor())
-      # pytype: enable=wrong-arg-count
 
   @classmethod
   def from_table_signature(cls,

@@ -36,7 +36,7 @@ SelectorType = Union[Fifo, Heap, Lifo, Prioritized, Uniform]
 
 # Note that this is effectively treated as `Any`; see b/109648354.
 SpecNest = Union[
-    tf.TensorSpec, Iterable['SpecNest'], Mapping[str, 'SpecNest']]  # pytype: disable=not-supported-yet
+    tf.TensorSpec, Iterable['SpecNest'], Mapping[str, 'SpecNest']]
 
 
 @dataclasses.dataclass

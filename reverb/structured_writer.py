@@ -305,7 +305,7 @@ def create_config(pattern: Pattern,  # pyrefly: ignore[invalid-type-var]
 
 def unpack_pattern(config: Config) -> Pattern:  # pyrefly: ignore[invalid-type-var]
   if not config.HasField('pattern_structure'):
-    return config.flat  # pyrefly: ignore[bad-return]
+    return config.flat
   structure = nested_structure_coder.decode_proto(config.pattern_structure)
   return tree.unflatten_as(structure, config.flat)
 
@@ -397,8 +397,7 @@ class _ConditionBuilder:
     incomplete_condition.mod_eq.mod = cmp
     return _ConditionBuilder(incomplete_condition)
 
-  # pytype: disable=signature-mismatch  # overriding-return-type-checks
-  def __eq__(self, cmp: int) -> ConditionProto:
+  def __eq__(self, cmp: int) -> ConditionProto:  # pyrefly: ignore[bad-override]
     condition = copy.deepcopy(self._incomplete_condition)
     if condition.mod_eq.mod:
       condition.mod_eq.eq = cmp
@@ -406,7 +405,7 @@ class _ConditionBuilder:
       condition.eq = cmp
     return condition
 
-  def __ne__(self, cmp: int) -> ConditionProto:
+  def __ne__(self, cmp: int) -> ConditionProto:  # pyrefly: ignore[bad-override]
     condition = self == cmp
     condition.inverse = True
     return condition
@@ -426,8 +425,6 @@ class _ConditionBuilder:
     condition = self > cmp
     condition.inverse = True
     return condition
-
-  # pytype: enable=signature-mismatch  # overriding-return-type-checks
 
 
 class Condition:
