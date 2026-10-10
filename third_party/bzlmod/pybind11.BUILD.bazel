@@ -1,0 +1,9 @@
+load("@rules_cc//cc:defs.bzl", "cc_library")
+
+cc_library(
+    name = "reverb_headers",
+    hdrs = glob(["site-packages/pybind11/include/**"]),
+    includes = ["site-packages/pybind11/include"],
+    visibility = ["//visibility:public"],
+    deps = ["@rules_python//python/cc:current_py_cc_headers"],
+)
