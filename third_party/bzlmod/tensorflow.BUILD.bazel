@@ -1,0 +1,17 @@
+load("@rules_cc//cc:defs.bzl", "cc_import", "cc_library")
+
+cc_library(
+    name = "headers_lib",
+    hdrs = glob(["site-packages/tensorflow/include/**"]),
+    includes = ["site-packages/tensorflow/include"],
+    visibility = ["//visibility:public"],
+)
+
+cc_import(
+    name = "framework_lib",
+    shared_library = select({
+        "@platforms//os:macos": "site-packages/tensorflow/libtensorflow_framework.2.dylib",
+        "//conditions:default": "site-packages/tensorflow/libtensorflow_framework.so.2",
+    }),
+    visibility = ["//visibility:public"],
+)
