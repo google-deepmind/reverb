@@ -1,0 +1,111 @@
+diff --git python/private/pypi/whl_library_targets.bzl python/private/pypi/whl_library_targets.bzl
+index ee5c781b3d21..18e2ee5dbd55 100644
+--- python/private/pypi/whl_library_targets.bzl
++++ python/private/pypi/whl_library_targets.bzl
+@@ -100,7 +100,7 @@ def whl_library_targets(
+         **kwargs: Extra args passed to the {obj}`whl_library_deps_targets` and {obj}`whl_library_srcs`.
+     """
+     create_extra_targets = bool(requires_dist or group_name) and dep_template
+-    whl_library_srcs(
++    wrapper_srcs = whl_library_srcs(
+         name = name,
+         sdist_filename = sdist_filename,
+         data_exclude = data_exclude,
+@@ -132,6 +132,7 @@ def whl_library_targets(
+             dep_template = dep_template,  # only needed if requires_dist is present
+             repo = None,  # set aliases in the same repo
+             aliases = {},
++            srcs = wrapper_srcs,
+             **kwargs
+         )
+ 
+@@ -191,9 +192,14 @@ def whl_library_srcs(
+         pkg_name: {type}`str` The label name to use for the py_library target.
+         native: {type}`native` The native struct for overriding in tests.
+         rules: {type}`struct` A struct with references to rules for creating targets.
++
++    Returns:
++        The source labels attached to the generated `py_library`, or `None` when
++        `rules` does not define `py_library`.
+     """
+     tags = sorted(tags)
+     data = [] + data
++    wrapper_srcs = None
+ 
+     bins_for_data_label = []
+ 
+@@ -287,6 +293,7 @@ def whl_library_srcs(
+             # pure-Python code, e.g. pymssql, which is written in Cython.
+             allow_empty = True,
+         )
++        wrapper_srcs = [pkg_name] if srcs else []
+ 
+         # NOTE: pyi files should probably be excluded because they're carried
+         # by the pyi_srcs attribute. However, historical behavior included
+@@ -314,13 +321,19 @@ def whl_library_srcs(
+         )
+ 
+         if not enable_implicit_namespace_pkgs:
++            generated_namespace_package_files = rules.create_inits(
++                srcs = srcs + data + pyi_srcs,
++                ignored_dirnames = [],  # If you need to ignore certain folders, you can patch rules_python here to do so.
++                root = "site-packages",
++            )
++            if not wrapper_srcs and generated_namespace_package_files:
++                wrapper_srcs = select({
++                    _IS_VENV_SITE_PACKAGES_YES: [],
++                    "//conditions:default": [pkg_name],
++                })
+             generated_namespace_package_files = select({
+                 _IS_VENV_SITE_PACKAGES_YES: [],
+-                "//conditions:default": rules.create_inits(
+-                    srcs = srcs + data + pyi_srcs,
+-                    ignored_dirnames = [],  # If you need to ignore certain folders, you can patch rules_python here to do so.
+-                    root = "site-packages",
+-                ),
++                "//conditions:default": generated_namespace_package_files,
+             })
+             namespace_package_files += generated_namespace_package_files
+             srcs = srcs + generated_namespace_package_files
+@@ -342,6 +355,7 @@ def whl_library_srcs(
+             experimental_venvs_site_packages = _VENV_SITE_PACKAGES_FLAG,
+             namespace_package_files = namespace_package_files,
+         )
++    return wrapper_srcs
+ 
+ def whl_library_deps_targets(
+         *,
+@@ -355,6 +369,7 @@ def whl_library_deps_targets(
+         group_deps = [],
+         group_name = None,
+         dep_template,
++        srcs = None,
+         tags = [],
+         visibility = ["//visibility:public"],
+         native = native,
+@@ -382,6 +397,9 @@ def whl_library_deps_targets(
+         include: {type}`list[str]` The list of packages to include.
+         group_name: {type}`str | None` name of the dependency group (if any).
+         dep_template: {type}`str | None` The dep_template to use.
++        srcs: {type}`list[Label] | None` or a configurable expression with the
++            source labels attached to the wrapper `py_library`. If `None`, the
++            source library target is used.
+         tags: {type}`list[str]` The tags set on the targets.
+         repo: {type}`str | Label | None` The BUILD.bazel label to the parent repo that has the
+             sources. If none, then will take the targets from the current dir.
+@@ -487,10 +505,13 @@ def whl_library_deps_targets(
+         )
+ 
+     if hasattr(rules, "py_library"):
++        if srcs == None:
++            srcs = [repo_label(PY_SRCS_LABEL)]
+         rules.py_library(
+             name = py_library_label,
+-            # We include as srcs to ensure that the (locations :pkg) works as expected.
+-            srcs = [repo_label(PY_SRCS_LABEL)],
++            # Forward source-producing targets through `srcs` so downstream
++            # `$(locations :pkg)` expansion does not reject source-less wheels.
++            srcs = srcs,
+             deps = _deps(
+                 # We include as deps, so that `PyInfo` and friends (e.g. `pyi_srcs`) get
+                 # propagated. Just passing the target as `srcs` is not enough to propagate

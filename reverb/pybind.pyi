@@ -61,6 +61,8 @@ class Sampler:
   def GetNextTrajectory(self) -> List[np.ndarray]:
     ...
 
+  def Close(self) -> None: ...
+
 
 
 class Client:
@@ -81,7 +83,8 @@ class Client:
   def NewSampler(self,
       table: str,
       max_samples: int,
-      buffer_size: int) -> Sampler:
+      buffer_size: int, num_workers: int = -1,
+      rate_limiter_timeout_ms: int = -1) -> Sampler:
     ...
 
   def NewTrajectoryWriter(

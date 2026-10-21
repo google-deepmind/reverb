@@ -318,6 +318,7 @@ PYBIND11_MODULE(libpybind, m) {
            py::call_guard<py::gil_scoped_release>());
 
   py::class_<Sampler>(m, "Sampler")
+      .def("Close", &Sampler::Close, py::call_guard<py::gil_scoped_release>())
       .def("GetNextTrajectory",
            [](Sampler *sampler) {
              absl::Status status;
@@ -333,6 +334,12 @@ PYBIND11_MODULE(libpybind, m) {
                status = sampler->GetNextTrajectory(&data, &info);
              }
 
+             if (absl::IsDeadlineExceeded(status)) {
+               PyErr_SetString(py::module_::import("reverb.errors")
+                                   .attr("DeadlineExceededError").ptr(),
+                               std::string(status.message()).c_str());
+               throw py::error_already_set();
+             }
              MaybeRaiseFromStatus(status);
              return Sampler::WithInfoTensors(*info, std::move(data));
            })
@@ -365,11 +372,19 @@ PYBIND11_MODULE(libpybind, m) {
           py::arg("delta_encoded") = false, py::arg("max_in_flight_items"))
       .def("NewSampler",
            [](Client* client, const std::string& table, int64_t max_samples,
-              size_t buffer_size) {
+              size_t buffer_size, int num_workers,
+              int64_t rate_limiter_timeout_ms) {
+             if (rate_limiter_timeout_ms < -1) {
+               MaybeRaiseFromStatus(absl::InvalidArgumentError(
+                   "`rate_limiter_timeout_ms` must be `-1` or nonnegative"));
+             }
              std::unique_ptr<Sampler> sampler;
              Sampler::Options options;
              options.max_samples = max_samples;
              options.max_in_flight_samples_per_worker = buffer_size;
+             options.num_workers = num_workers;
+             options.rate_limiter_timeout =
+                 Int64MillisToNonnegativeDuration(rate_limiter_timeout_ms);
              // Release the GIL only when waiting for the call to complete. If
              // the GIL is not held when `MaybeRaiseFromStatus` is called it can
              // result in segfaults as the Python exception is populated with
@@ -382,7 +397,10 @@ PYBIND11_MODULE(libpybind, m) {
              }
              MaybeRaiseFromStatus(status);
              return sampler;
-           })
+           },
+           py::arg("table"), py::arg("max_samples"), py::arg("buffer_size"),
+           py::arg("num_workers") = -1,
+           py::arg("rate_limiter_timeout_ms") = -1)
       .def("NewTrajectoryWriter",
            [](Client* client, std::shared_ptr<ChunkerOptions> chunker_options,
               bool validate_items) {

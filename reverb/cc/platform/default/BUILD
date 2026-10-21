@@ -1,5 +1,6 @@
 # Platform-specific code for reverb
 
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load(
     "//reverb/cc/platform/default:build_rules.bzl",
     "reverb_cc_library",

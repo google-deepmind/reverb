@@ -15,14 +15,14 @@
 # ==============================================================================
 
 # Example usage after building release docker:
-#   bash oss_build.sh --python 3.9
+#   `bash oss_build.sh --python 3.13`
 
 # Exit if any process returns non-zero status.
 set -e
 set -o pipefail
 
 # Flags
-PYTHON_VERSIONS=3.11 # [3.9|3.10|3.11|3.12|3.13]
+PYTHON_VERSIONS=3.13
 OUTPUT_DIR=dist
 PYTHON_TESTS=true
 BUILD_DATE=`date '+%Y%m%d'`
@@ -38,7 +38,7 @@ fi
 if [[ $# -lt 1 ]] ; then
   echo "Usage:"
   echo "--release [true|false, indicates this is a release build. Otherwise nightly.]"
-  echo "--python [3.9|3.10|3.11|3.12|3.13]"
+  echo "--python [3.10|3.11|3.12|3.13]"
   echo "--output_dir  [location to copy .whl file.]"
   echo "--python_tests  [true|false, whether to run python tests with built wheel]"
   exit 1
@@ -74,7 +74,7 @@ mkdir -p "$OUTPUT_DIR/"
 
 for python_version in $PYTHON_VERSIONS; do
 
-  BAZEL_ARGS="--repo_env=HERMETIC_PYTHON_VERSION=$python_version"
+  BAZEL_ARGS="--@rules_python//python/config_settings:python_version=$python_version"
   if [ "$RELEASE" == "true" ]; then
     BAZEL_ARGS="$BAZEL_ARGS --repo_env=WHEEL_NAME=dm_reverb --repo_env=ML_WHEEL_TYPE=release"
   else
@@ -86,7 +86,6 @@ for python_version in $PYTHON_VERSIONS; do
   output_wheel=$($BAZEL_BIN cquery $BAZEL_ARGS --output=files //reverb/pip_package:wheel 2> /dev/null)
   $BAZEL_BIN build $BAZEL_ARGS //reverb/pip_package:wheel
 
-  # Only macOS ARM and linux x86 are currently supported.
   if [ "$(uname -s)" == "Darwin" ]; then
     # You may see error messages of the form
     # @rpath/libtensorflow_framework.2.dylib not found:
@@ -96,8 +95,8 @@ for python_version in $PYTHON_VERSIONS; do
 
     install_wheel="$OUTPUT_DIR/$(basename $output_wheel)"
   else
-    platform=linux_x86_64
-    target_platform=manylinux_2_27_x86_64
+    platform=linux_$(uname -m)
+    target_platform=manylinux_2_27_$(uname -m)
     uvx auditwheel repair --plat $target_platform --exclude libtensorflow_framework.so.2 --wheel-dir $OUTPUT_DIR $output_wheel
 
     install_wheel=$OUTPUT_DIR/"$(basename $output_wheel | sed "s/$platform/$target_platform/")"
