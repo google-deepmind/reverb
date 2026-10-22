@@ -30,7 +30,7 @@ def reverb_cc_library(
         hdrs = hdrs,
         copts = tf_copts(),
         testonly = testonly,
-        deps = depset(deps + new_deps),
+        deps = depset(deps + new_deps).to_list(),
         **kwargs
     )
 
@@ -245,7 +245,7 @@ def reverb_cc_grpc_library(
         name = name,
         srcs = gen_srcs,
         hdrs = gen_hdrs + gen_mocks,
-        deps = depset(deps + ["@com_github_grpc_grpc//:grpc++_codegen_proto"]),
+        deps = depset(deps + ["@com_github_grpc_grpc//:grpc++_codegen_proto"]).to_list(),
         **kwargs
     )
 
@@ -353,7 +353,7 @@ del _locals' > $@""".format(name),
     )
     deps = kwargs.pop("deps", [])
     deps.append("//reverb/platform/default:load_op_library")
-    native.py_library(
+    py_library(
         name = name,
         srcs = [out],
         data = [":lib{}_gen_op.so".format(name)],
