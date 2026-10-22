@@ -227,10 +227,10 @@ reverb_cc_library(
     deps = [
         "//reverb/cc/platform:logging",
         "//reverb/cc/platform:snappy",
+        "//third_party/bzlmod:tensorflow",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
-        "@local_xla//xla/tsl/platform:status",
     ] + reverb_tf_deps(),
 )
 

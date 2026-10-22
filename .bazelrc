@@ -63,7 +63,6 @@ common:apple-toolchain --host_crosstool_top=@local_config_apple_cc//:toolchain
 
 common:linux --linkopt="-lrt -lm"
 
-common:macos --linkopt="-Wl,-undefined,dynamic_lookup"
 common:macos --config=clang_local
 common:macos --config=apple-toolchain
 # The following two flags are needed to

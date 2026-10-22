@@ -1,0 +1,8 @@
+load("@rules_cc//cc:defs.bzl", "cc_library")
+
+cc_library(
+    name = "numpy_headers",
+    hdrs = glob(["site-packages/numpy/_core/include/**"]),
+    includes = ["site-packages/numpy/_core/include"],
+    visibility = ["//visibility:public"],
+)
