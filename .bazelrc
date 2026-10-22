@@ -1,79 +1,14 @@
-common --experimental_repo_remote_exec
-
-# Disable bzlmod
-common --noenable_bzlmod
-
-# Suppress all warning messages.
-build:short_logs --output_filter=DONT_MATCH_ANYTHING
-
-common --repo_env=USE_PYWRAP_RULES=True
-common --copt=-DGRPC_BAZEL_BUILD
-common --host_copt=-DGRPC_BAZEL_BUILD
-common --action_env=GRPC_BAZEL_RUNTIME=1
-common --repo_env=PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=upb
-common --action_env=PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=upb
-# gRPC using libcares in opensource has some issues.
+common --enable_bzlmod
+common --noenable_workspace
+build --compilation_mode=opt
+build --macos_minimum_os=12.0
+build --cxxopt=-std=c++17
+build --host_cxxopt=-std=c++17
 build --define=grpc_no_ares=true
-
-# Configures the wheel name
-common --repo_env WHEEL_NAME=dm_reverb_nightly  # dm_reverb or dm_reverb_nightly
-# Configures the version suffix for the built wheels. See
-# https://github.com/openxla/xla/blob/main/third_party/py/python_wheel.bzl
-common --repo_env ML_WHEEL_TYPE=snapshot
-
-common --define framework_shared_object=true
-common --define tsl_protobuf_header_only=true
-
-common --incompatible_default_to_explicit_init_py
-common --enable_platform_specific_config
-
-common --incompatible_enable_cc_toolchain_resolution
-common --@rules_ml_toolchain//common:enable_hermetic_cc=True
-common --repo_env USE_HERMETIC_CC_TOOLCHAIN=1
-
-# Print a stacktrace when a test is killed
-test --test_env="GTEST_INSTALL_FAILURE_SIGNAL_HANDLER=1"
+build --incompatible_default_to_explicit_init_py
+build --copt=-DGRPC_BAZEL_BUILD
+build --host_copt=-DGRPC_BAZEL_BUILD
+build --action_env=GRPC_BAZEL_RUNTIME=1
+build --repo_env=PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=upb
+build --action_env=PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=upb
 test --test_output=errors
-
-common -c opt
-common --cxxopt="-std=c++17"
-common --host_cxxopt="-std=c++17"
-common --copt "-Wno-deprecated-declarations"
-common --copt "-Wno-unused-command-line-argument"
-
-# We can remove this flag (we keep it explicit for now)
-build --auto_output_filter=subpackages
-common --copt="-Wno-sign-compare"
-build --copt="-DEIGEN_MAX_ALIGN_BYTES=64"
-
-test --test_env="GTEST_INSTALL_FAILURE_SIGNAL_HANDLER=1"
-
-# TF isn't built in dbg mode, so our dbg builds will segfault due to inconsistency
-# of defines when using tf's headers.  In particular in refcount.h.
-# common --cxxopt="-DNDEBUG"
-
-common:clang_local --noincompatible_enable_cc_toolchain_resolution
-common:clang_local --noincompatible_enable_android_toolchain_resolution
-common:clang_local --@rules_ml_toolchain//common:enable_hermetic_cc=False
-common:clang_local --repo_env USE_HERMETIC_CC_TOOLCHAIN=0
-
-common:apple-toolchain --apple_crosstool_top=@local_config_apple_cc//:toolchain
-common:apple-toolchain --crosstool_top=@local_config_apple_cc//:toolchain
-common:apple-toolchain --host_crosstool_top=@local_config_apple_cc//:toolchain
-
-common:linux --linkopt="-lrt -lm"
-
-common:macos --linkopt="-Wl,-undefined,dynamic_lookup"
-common:macos --config=clang_local
-common:macos --config=apple-toolchain
-# The following two flags are needed to
-# ensure that the extensions are compatible with lower versions of macOS.
-common:macos --macos_minimum_os=12.0
-common:macos --action_env=MACOSX_DEPLOYMENT_TARGET=12.0
-
-# We build with AVX and eigen byte alignment to match tensorflow's (and Eigen)
-# pip package byte alignment.  See b/186669968 for more details.
-build:linux --copt=-mavx --copt=-DEIGEN_MAX_ALIGN_BYTES=64
-
-# Options from ./configure
-try-import %workspace%/.reverb.bazelrc

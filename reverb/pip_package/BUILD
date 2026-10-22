@@ -1,84 +1,46 @@
-load("@local_xla//third_party/py:python_wheel.bzl", "collect_data_files", "transitive_py_deps")
-load("@python_version_repo//:py_version.bzl", "REQUIREMENTS")
-load("@rules_python//python:pip.bzl", "compile_pip_requirements")
 load("@rules_python//python:py_binary.bzl", "py_binary")
-load("//reverb/pip_package:reverb_wheel.bzl", "reverb_wheel")
+load("@rules_python//python:py_test.bzl", "py_test")
+load(":reverb_wheel.bzl", "reverb_wheel")
 
-licenses(["notice"])  # Apache 2.0
-
-filegroup(
-    name = "licenses",
-    data = [
-        "//:LICENSE",
-    ],
-)
-
-compile_pip_requirements(
-    name = "requirements",
-    srcs = [
-        "requirements.in",
-    ],
-    extra_args = [
-        "--allow-unsafe",
-        "--build-isolation",
-        "--rebuild",
-    ],
-    generate_hashes = True,
-    requirements_txt = REQUIREMENTS,
-    tags = ["manual"],
-)
-
-exports_files(
-    glob(["requirements*.txt"]),
-)
-
-collect_data_files(
-    name = "cc_deps",
-    deps = [
-        "//reverb",
-    ],
-)
-
-transitive_py_deps(
-    name = "py_deps",
-    deps = [
-        "//reverb",
-        "//reverb/server_executable:server_from_proto",
-        "//reverb/server_executable:server_main",
-    ],
-)
+licenses(["notice"])
 
 py_binary(
     name = "build_wheel",
     srcs = ["build_wheel.py"],
     deps = [
         "@pypi//build",
+        "@pypi//hatchling",
     ],
+)
+
+py_test(
+    name = "build_wheel_test",
+    srcs = [
+        "build_wheel.py",
+        "build_wheel_test.py",
+    ],
+    imports = ["."],
+    main = "build_wheel_test.py",
 )
 
 reverb_wheel(
     name = "wheel",
-    headers = [],
-    platform_name = select({
-        "@platforms//os:osx": "macosx",
-        "@platforms//os:macos": "macosx",
-        "@platforms//os:windows": "win",
-        "@platforms//os:linux": "linux",
-    }),
-    platform_tag = select({
-        "@platforms//cpu:aarch64": "arm64",
-        "@platforms//cpu:arm64": "arm64",
-        "@platforms//cpu:x86_64": "x86_64",
-        "@platforms//cpu:ppc": "ppc64le",
+    platform = select({
+        "//third_party/bzlmod:is_macos_arm64": "macosx_12_0_arm64",
+        "//third_party/bzlmod:is_linux_x86_64": "linux_x86_64",
+        "//third_party/bzlmod:is_linux_arm64": "linux_aarch64",
     }),
     source_files = [
+        "//:LICENSE",
         "//:README.md",
-        # "setup.py",
-        ":licenses",
-        ":cc_deps",
-        ":py_deps",
-        ":pyproject.toml",
-        ":hatch_build.py",
+        "hatch_build.py",
+        "pyproject.toml",
     ],
     tags = ["manual"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//reverb",
+        "//reverb/server_executable:server_from_proto",
+        "//reverb/server_executable:server_main",
+    ],
 )
