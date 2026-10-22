@@ -1,0 +1,63 @@
+diff --git a/MODULE.bazel b/MODULE.bazel
+--- a/MODULE.bazel
++++ b/MODULE.bazel
+@@ -34,7 +34,7 @@
+ bazel_dep(name = "openssl", version = "3.3.1.bcr.1")
+ bazel_dep(name = "opentelemetry-cpp", version = "1.19.0", repo_name = "io_opentelemetry_cpp")
+ bazel_dep(name = "platforms", version = "0.0.10")
+-bazel_dep(name = "protobuf", version = "31.1", repo_name = "com_google_protobuf")
++bazel_dep(name = "reverb_protobuf", version = "31.1", repo_name = "com_google_protobuf")
+ bazel_dep(name = "protoc-gen-validate", version = "1.2.1.bcr.1", repo_name = "com_envoyproxy_protoc_gen_validate")  # Not needed directly
+ bazel_dep(name = "re2", version = "2024-07-02", repo_name = "com_googlesource_code_re2")  # mistmached 2022-04-01
+ bazel_dep(name = "rules_apple", version = "3.16.0", repo_name = "build_bazel_rules_apple")
+@@ -95,3 +95,5 @@
+ use_repo(pip, "grpc_python_dependencies")
+ 
+ bazel_dep(name = "cython", version = "3.0.11-1")
++
++bazel_dep(name = "protobuf", version = "35.1", repo_name = "protobuf_sources")
+diff --git a/bazel/grpc_build_system.bzl b/bazel/grpc_build_system.bzl
+--- a/bazel/grpc_build_system.bzl
++++ b/bazel/grpc_build_system.bzl
+@@ -179,8 +179,6 @@
+         linkopts = linkopts,
+         includes = [
+             include_prefix + "include",
+-            include_prefix + "src/core/ext/upb-gen",  # Once upb code-gen issue is resolved, remove this.
+-            include_prefix + "src/core/ext/upbdefs-gen",  # Once upb code-gen issue is resolved, remove this.
+         ],
+         alwayslink = alwayslink,
+         data = data,
+@@ -220,7 +218,7 @@
+     proto_library(
+         name = name,
+         srcs = srcs,
+-        deps = deps,
++        deps = [x.replace("@com_google_protobuf//:", "@protobuf_sources//:") for x in deps],
+         visibility = visibility,
+     )
+ 
+@@ -811,10 +809,10 @@
+     )
+ 
+ def grpc_upb_proto_library(name, deps):
+-    upb_proto_library(name = name, deps = deps)
++    upb_proto_library(name = name, deps = [x.replace("@com_google_protobuf//:", "@protobuf_sources//:") for x in deps])
+ 
+ def grpc_upb_proto_reflection_library(name, deps):
+-    upb_proto_reflection_library(name = name, deps = deps)
++    upb_proto_reflection_library(name = name, deps = [x.replace("@com_google_protobuf//:", "@protobuf_sources//:") for x in deps])
+ 
+ # buildifier: disable=unnamed-macro
+ def python_config_settings():
+diff --git a/BUILD b/BUILD
+--- a/BUILD
++++ b/BUILD
+@@ -2563,7 +2563,6 @@
+     external_deps = [
+         "absl/strings:cord",
+         "protobuf_headers",
+-        "protobuf",
+     ],
+     public_hdrs = [
+         "include/grpc++/impl/codegen/proto_utils.h",
