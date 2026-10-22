@@ -23,6 +23,10 @@ from reverb import reverb_types
 from reverb.cc import schema_pb2
 from reverb.cc.checkpointing import checkpoint_pb2
 
+# pylint: disable=g-direct-tensorflow-import
+from tensorflow.python.saved_model import nested_structure_coder
+# pylint: enable=g-direct-tensorflow-import
+
 
 def selector_from_proto(
     s: schema_pb2.KeyDistributionOptions
@@ -68,6 +72,10 @@ def tables_from_proto(
   """Convert protobuf to reverb.Table."""
   tables = []
   for config in configs:
+    if config.HasField('signature'):
+      signature = nested_structure_coder.decode_proto(config.signature)
+    else:
+      signature = None
     tables.append(
         reverb.Table(
             name=config.table_name,
@@ -76,5 +84,6 @@ def tables_from_proto(
             max_size=config.max_size,
             rate_limiter=rate_limiter_from_proto(config.rate_limiter),
             max_times_sampled=config.max_times_sampled,
+            signature=signature,
         ))
   return tables
