@@ -207,6 +207,14 @@ class GrpcSamplerWorker : public SamplerWorker {
       }
       context_ = std::make_unique<grpc::ClientContext>();
       context_->set_wait_for_ready(false);
+
+      if (rate_limiter_timeout != absl::InfiniteDuration()) {
+          // Buffer time to account for connection overhead
+          constexpr auto CONNECTION_BUFFER_TIME = std::chrono::milliseconds(200);
+          // Setting the deadline for the gRPC context 
+          context_->set_deadline(absl::ToChronoTime(absl::Now() + rate_limiter_timeout + CONNECTION_BUFFER_TIME));
+      }
+
       stream = stub_->SampleStream(context_.get());
     }
 
