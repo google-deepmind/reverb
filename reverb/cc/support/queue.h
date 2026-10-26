@@ -48,7 +48,7 @@ namespace internal {
 // `SetLastItemPushed` or with subsequent calls to `Pop`.
 //
 template <typename T>
-class Queue {
+class ABSL_CACHELINE_ALIGNED Queue {
  public:
   // `capacity` is the maximum number of elements which the queue can hold.
   explicit Queue(int capacity)
@@ -247,7 +247,7 @@ class Queue {
 
   // The number of threads which are currently waiting on the queue.
   int num_waiting_to_pop_ ABSL_GUARDED_BY(mu_) = 0;
-} ABSL_CACHELINE_ALIGNED;
+};
 static_assert(sizeof(Queue<bool>) >= ABSL_CACHELINE_SIZE,
               "Queue has to take the entire cache line so that its lock is not "
               "colocated with other locks.");
