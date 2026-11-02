@@ -18,9 +18,14 @@ from absl.testing import absltest
 from absl.testing import parameterized
 import reverb
 from reverb.server_executable import server_from_proto
+import tensorflow as tf
 
 from reverb.cc import schema_pb2
 from reverb.cc.checkpointing import checkpoint_pb2
+
+# pylint: disable=g-direct-tensorflow-import
+from tensorflow.python.saved_model import nested_structure_coder
+# pylint: enable=g-direct-tensorflow-import
 
 
 class ServerFromProtoTest(parameterized.TestCase):
@@ -98,6 +103,22 @@ class ServerFromProtoTest(parameterized.TestCase):
                      table_proto.sampler.lifo)
     self.assertEqual(table_info.remover_options.fifo,
                      table_proto.remover.fifo)
+
+  def test_table_from_proto_preserves_signature(self):
+    signature = tf.TensorSpec([None, 3], tf.float32)
+    table_proto = checkpoint_pb2.PriorityTableCheckpoint()
+    table_proto.table_name = 'test_table'
+    table_proto.max_size = 101
+    table_proto.rate_limiter.min_diff = -100
+    table_proto.rate_limiter.max_diff = 200
+    table_proto.rate_limiter.samples_per_insert = 10
+    table_proto.rate_limiter.min_size_to_sample = 1
+    table_proto.sampler.lifo = True
+    table_proto.remover.fifo = True
+    table_proto.signature.CopyFrom(
+        nested_structure_coder.encode_structure(signature))
+    tables = server_from_proto.tables_from_proto([table_proto])
+    self.assertEqual(signature, tables[0].info.signature)
 
 
 if __name__ == '__main__':
