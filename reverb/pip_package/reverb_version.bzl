@@ -16,7 +16,7 @@
 
 # We follow Semantic Versioning (https://semver.org/)
 load(
-    "@tf_wheel_version_suffix//:wheel_version_suffix.bzl",
+    "@reverb_wheel_config//:config.bzl",
     "WHEEL_VERSION_SUFFIX",
 )
 
