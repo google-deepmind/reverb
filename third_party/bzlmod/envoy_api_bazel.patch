@@ -1,0 +1,28 @@
+diff --git a/bazel/cc_proto_descriptor_library/builddefs.bzl b/bazel/cc_proto_descriptor_library/builddefs.bzl
+--- a/bazel/cc_proto_descriptor_library/builddefs.bzl
++++ b/bazel/cc_proto_descriptor_library/builddefs.bzl
+@@ -2,6 +2,7 @@
+   - cc_proto_descriptor_library()
+ """
+ 
++load("@com_google_protobuf//bazel/common:proto_info.bzl", "ProtoInfo")
+ load("@bazel_skylib//lib:paths.bzl", "paths")
+ 
+ # begin:google_only
+diff --git a/bazel/api_build_system.bzl b/bazel/api_build_system.bzl
+--- a/bazel/api_build_system.bzl
++++ b/bazel/api_build_system.bzl
+@@ -1,3 +1,4 @@
++load("@com_google_protobuf//bazel:java_proto_library.bzl", "java_proto_library")
+ load("@com_envoyproxy_protoc_gen_validate//bazel:pgv_proto_library.bzl", "pgv_cc_proto_library")
+ load("@com_github_grpc_grpc//bazel:cc_grpc_library.bzl", "cc_grpc_library")
+ load("@com_github_grpc_grpc//bazel:python_rules.bzl", _py_proto_library = "py_proto_library")
+@@ -114,7 +115,7 @@
+     )
+ 
+     if java:
+-        native.java_proto_library(
++        java_proto_library(
+             name = name + _JAVA_PROTO_SUFFIX,
+             visibility = ["//visibility:public"],
+             deps = [relative_name],

@@ -30,8 +30,8 @@ from hatchling.metadata.plugin.interface import MetadataHookInterface
 class CustomBuildHook(BuildHookInterface):
 
   def initialize(self, version: str, build_data: dict[str, Any]):
-    build_data['infer_tag'] = True
-    build_data['platform'] = os.environ['plat_name']
+    python_tag = os.environ['python_tag']
+    build_data['tag'] = f"{python_tag}-{python_tag}-{os.environ['plat_name']}"
     build_data['pure_python'] = False
 
 
