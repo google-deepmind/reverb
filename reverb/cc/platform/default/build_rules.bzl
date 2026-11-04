@@ -314,7 +314,7 @@ def reverb_gen_op_wrapper_py(name, out, kernel_lib, ops_lib = None, linkopts = [
     )
     cc_binary(
         name = "{}.so".format(module_name),
-        deps = [kernel_lib] + [ops_lib] if ops_lib else [],
+        deps = [kernel_lib] + ([ops_lib] if ops_lib else []),
         copts = tf_copts() + [
             "-fno-strict-aliasing",  # allow a wider range of code [aliasing] to compile.
             "-fvisibility=hidden",  # avoid symbol clashes between DSOs.
