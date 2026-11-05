@@ -14,6 +14,8 @@
 
 """Sanity tests for the pybind.py."""
 
+import threading
+
 from absl.testing import absltest
 from absl.testing import parameterized
 import numpy as np
@@ -78,6 +80,82 @@ class TestNdArrayToTensorAndBack(parameterized.TestCase):
       sample = next(self._client.sample(TABLE_NAME))
       got = sample[0].data[0]
       np.testing.assert_array_equal(got, b'string_' + (b'a' * 100 * i))
+
+
+class TestSamplerControls(parameterized.TestCase):
+
+  def setUp(self):
+    super().setUp()
+    self.server = reverb.Server(tables=[reverb.Table.queue(TABLE_NAME, 100)])
+    self.client = self.server.localhost_client()
+    self.addCleanup(self.server.stop)
+
+  def sampler(self, *args, **kwargs):
+    sampler = self.client._client.NewSampler(*args, **kwargs)
+    self.addCleanup(sampler.Close)
+    return sampler
+
+  def test_positional_defaults(self):
+    self.client.insert(np.float32(3), {TABLE_NAME: 1.0})
+    sampler = self.sampler(TABLE_NAME, 1, 1)
+    np.testing.assert_array_equal(sampler.GetNextTrajectory()[5], [3])
+
+  @parameterized.parameters(1, 2)
+  def test_worker_count_and_keyword_arguments(self, num_workers):
+    for value in range(8):
+      self.client.insert(np.float32(value), {TABLE_NAME: 1.0})
+    sampler = self.sampler(
+        table=TABLE_NAME, max_samples=8, buffer_size=2,
+        num_workers=num_workers, rate_limiter_timeout_ms=10000)
+    values = [int(sampler.GetNextTrajectory()[5][0]) for _ in range(8)]
+    self.assertCountEqual(values, range(8))
+    if num_workers == 1:
+      self.assertEqual(values, list(range(8)))
+
+  @parameterized.parameters(0, -2)
+  def test_invalid_worker_count(self, num_workers):
+    with self.assertRaisesRegex(ValueError, 'num_workers'):
+      self.sampler(TABLE_NAME, 1, 1, num_workers=num_workers)
+
+  def test_invalid_timeout(self):
+    with self.assertRaisesRegex(ValueError, 'rate_limiter_timeout'):
+      self.sampler(TABLE_NAME, 1, 1, rate_limiter_timeout_ms=-2)
+
+  @parameterized.parameters(0, 20)
+  def test_timeout_exception(self, timeout_ms):
+    sampler = self.sampler(
+        TABLE_NAME, 1, 1, rate_limiter_timeout_ms=timeout_ms)
+    with self.assertRaises(reverb.DeadlineExceededError):
+      sampler.GetNextTrajectory()
+
+  def test_close_cancels_blocked_read(self):
+    sampler = self.sampler(TABLE_NAME, -1, 1)
+    entered = threading.Event()
+    finished = threading.Event()
+    outcomes = []
+
+    def read():
+      entered.set()
+      try:
+        outcomes.append(sampler.GetNextTrajectory())
+      except Exception as error:  # pylint: disable=broad-except
+        outcomes.append(error)
+      finally:
+        finished.set()
+
+    thread = threading.Thread(target=read, daemon=True)
+    thread.start()
+    try:
+      self.assertTrue(entered.wait(timeout=10))
+      self.assertFalse(finished.wait(timeout=0.05))
+    finally:
+      sampler.Close()
+      thread.join(timeout=10)
+    self.assertFalse(thread.is_alive())
+    self.assertLen(outcomes, 1)
+    self.assertIsInstance(outcomes[0], RuntimeError)
+    self.assertIn('cancelled', str(outcomes[0]).lower())
+    sampler.Close()
 
 
 if __name__ == '__main__':
