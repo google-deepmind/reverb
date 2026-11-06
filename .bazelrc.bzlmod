@@ -1,0 +1,14 @@
+common --enable_bzlmod
+common --noenable_workspace
+build --compilation_mode=opt
+build --macos_minimum_os=12.0
+build --cxxopt=-std=c++17
+build --host_cxxopt=-std=c++17
+build --define=grpc_no_ares=true
+build --incompatible_default_to_explicit_init_py
+build --copt=-DGRPC_BAZEL_BUILD
+build --host_copt=-DGRPC_BAZEL_BUILD
+build --action_env=GRPC_BAZEL_RUNTIME=1
+build --repo_env=PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=upb
+build --action_env=PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=upb
+test --test_output=errors

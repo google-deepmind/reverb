@@ -1,0 +1,68 @@
+load("@rules_cc//cc:defs.bzl", "cc_library")
+load("@rules_python//python:defs.bzl", "py_library")
+
+package(default_visibility = ["//visibility:public"])
+
+exports_files(glob([
+    "*.BUILD.bazel",
+    "*.patch",
+    "requirements*.txt",
+]))
+
+config_setting(
+    name = "is_linux_x86_64",
+    constraint_values = [
+        "@platforms//os:linux",
+        "@platforms//cpu:x86_64",
+    ],
+)
+
+config_setting(
+    name = "is_macos_arm64",
+    constraint_values = [
+        "@platforms//os:macos",
+        "@platforms//cpu:aarch64",
+    ],
+)
+
+cc_library(
+    name = "tensorflow",
+    deps = [
+        "@pypi//tensorflow:framework_lib",
+        "@pypi//tensorflow:headers_lib",
+    ],
+)
+
+filegroup(
+    name = "tensorflow_protos",
+    srcs = ["@reverb_tensorflow_protos//:protos"],
+)
+
+cc_library(
+    name = "binding_headers",
+    deps = [
+        "@pybind11",
+        "@pypi//numpy:numpy_headers",
+    ],
+)
+
+py_library(
+    name = "python_dependencies",
+    deps = [
+        "@pypi//absl_py",
+        "@pypi//dm_tree",
+        "@pypi//numpy",
+        "@pypi//packaging",
+        "@pypi//portpicker",
+        "@pypi//protobuf",
+        "@pypi//tensorflow",
+    ],
+)
+
+config_setting(
+    name = "is_linux_arm64",
+    constraint_values = [
+        "@platforms//os:linux",
+        "@platforms//cpu:aarch64",
+    ],
+)

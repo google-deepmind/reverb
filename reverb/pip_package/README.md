@@ -121,3 +121,36 @@ will need to
     work.
 3.  Update `reverb/pip_package/reverb_version.bzl` to ensure that the TensorFlow
     version used in the wheel metadata is correct.
+
+
+## Bzlmod wheels
+
+The Bzlmod wheel target uses the toolchains and dependency versions declared in
+`MODULE.bazel`. It supports Python `3.10` through `3.13`, with `3.13` as the
+default, on Linux `x86_64`, Linux `aarch64`, and macOS Apple Silicon. The native
+libraries compile against TensorFlow `2.21.0`.
+
+```sh
+bazel --noworkspace_rc --bazelrc=.bazelrc.bzlmod build \
+  --@rules_python//python/config_settings:python_version=3.13 \
+  //reverb/pip_package/bzlmod:wheel
+bazel --noworkspace_rc --bazelrc=.bazelrc.bzlmod test \
+  //reverb/pip_package/bzlmod:build_wheel_test \
+  //reverb:pybind_test //reverb:trajectory_writer_test
+```
+
+The wheel action packages declared sources and shared libraries with a
+hash-pinned build backend. It does not install packages during the action.
+Distributing the wheel requires platform repair with `auditwheel` or `delocate`.
+
+For nightly metadata, pass `--repo_env=WHEEL_NAME=dm_reverb_nightly`,
+`--repo_env=ML_WHEEL_TYPE=nightly`, and
+`--repo_env=ML_WHEEL_BUILD_DATE=YYYYMMDD`, replacing `YYYYMMDD` with the build
+date. Nightly metadata requests `tf_nightly~=2.21.0.dev`, while the native
+libraries use the TensorFlow release pinned by the module graph. Test the
+installed wheel against the intended nightly distribution before use.
+
+The `WORKSPACE` wheel target remains `//reverb/pip_package:wheel`. It uses
+`.bazelrc`, the interpreter selected by `HERMETIC_PYTHON_VERSION`, and the
+commands above. `oss_build.sh` also uses that path. Keep the Bzlmod startup
+flags out of those commands.

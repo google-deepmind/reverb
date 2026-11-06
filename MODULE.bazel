@@ -1,0 +1,130 @@
+module(
+    name = "reverb",
+    version = "0.15.0",
+)
+
+bazel_dep(name = "rules_foreign_cc", version = "0.15.1")
+bazel_dep(name = "rules_cc", version = "0.2.25")
+bazel_dep(name = "rules_python", version = "2.3.3")
+bazel_dep(name = "platforms", version = "1.1.0")
+bazel_dep(name = "abseil-cpp", version = "20250814.1", repo_name = "com_google_absl")
+bazel_dep(name = "protobuf", version = "31.1", repo_name = "com_google_protobuf")
+bazel_dep(name = "grpc", version = "1.74.0", repo_name = "com_github_grpc_grpc")
+bazel_dep(name = "googletest", version = "1.18.0", repo_name = "com_google_googletest")
+bazel_dep(name = "snappy", version = "1.2.1")
+
+# TensorFlow owns the loaded Protobuf runtime.
+single_version_override(
+    module_name = "grpc",
+    patch_strip = 1,
+    patches = ["//third_party/bzlmod:grpc_tensorflow.patch"],
+    version = "1.74.0",
+)
+
+single_version_override(
+    module_name = "protobuf",
+    version = "31.1",
+)
+
+single_version_override(
+    module_name = "abseil-cpp",
+    version = "20250814.1",
+)
+
+single_version_override(
+    module_name = "grpc-java",
+    patch_strip = 1,
+    patches = ["//third_party/bzlmod:grpc_java_module.patch"],
+    version = "1.66.0",
+)
+
+single_version_override(
+    module_name = "rules_python",
+    patch_strip = 0,
+    patches = ["//third_party/bzlmod:rules_python_sourceless.patch"],
+    version = "2.3.3",
+)
+
+python = use_extension("@rules_python//python/extensions:python.bzl", "python")
+
+[
+    python.toolchain(
+        is_default = python_version == "3.13",
+        python_version = python_version,
+    )
+    for python_version in [
+        "3.10",
+        "3.11",
+        "3.12",
+        "3.13",
+    ]
+]
+
+use_repo(python, "pythons_hub")
+
+register_toolchains("@pythons_hub//:all")
+
+pip = use_extension("@rules_python//python/extensions:pip.bzl", "pip")
+
+[
+    pip.whl_mods(
+        additive_build_content_file = "//third_party/bzlmod:" + distribution + ".BUILD.bazel",
+        hub_name = "reverb_pypi_mods",
+        whl_name = distribution,
+    )
+    for distribution in [
+        "tensorflow",
+        "numpy",
+        "pybind11",
+    ]
+]
+
+[
+    pip.parse(
+        experimental_index_url = "https://pypi.org/simple",
+        extra_hub_aliases = {
+            "tensorflow": [
+                "framework_lib",
+                "headers_lib",
+            ],
+            "numpy": ["numpy_headers"],
+            "pybind11": ["reverb_headers"],
+        },
+        hub_name = "reverb_pypi",
+        python_version = python_version,
+        requirements_lock = "//third_party/bzlmod:requirements.txt",
+        target_platforms = [
+            "linux_aarch64",
+            "linux_x86_64",
+            "osx_aarch64",
+        ],
+        whl_modifications = {
+            "@reverb_pypi_mods//:tensorflow.json": "tensorflow",
+            "@reverb_pypi_mods//:numpy.json": "numpy",
+            "@reverb_pypi_mods//:pybind11.json": "pybind11",
+        },
+    )
+    for python_version in [
+        "3.10",
+        "3.11",
+        "3.12",
+        "3.13",
+    ]
+]
+
+use_repo(pip, "reverb_pypi_mods", pypi = "reverb_pypi")
+
+tensorflow_protos_repository = use_repo_rule("//third_party/bzlmod:repositories.bzl", "tensorflow_protos_repository")
+
+tensorflow_protos_repository(name = "reverb_tensorflow_protos")
+
+pybind11_repository = use_repo_rule("//third_party/bzlmod:repositories.bzl", "pybind11_repository")
+
+pybind11_repository(
+    name = "pybind11",
+    actual = "@pypi//pybind11:reverb_headers",
+)
+
+wheel_config_repository = use_repo_rule("//reverb/pip_package/bzlmod:wheel_config.bzl", "wheel_config_repository")
+
+wheel_config_repository(name = "reverb_wheel_config")

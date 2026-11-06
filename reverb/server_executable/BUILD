@@ -54,6 +54,7 @@ reverb_py_test(
 reverb_pytype_strict_binary(
     name = "server_main",
     srcs = ["server_main.py"],
+    visibility = ["//visibility:public"],
     deps = [
         ":server_from_proto",
         "//reverb",
