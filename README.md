@@ -1,4 +1,7 @@
 # Reverb
+
+[English](README.md) | [简体中文](https://github.com/google-deepmind/reverb/blob/master/README.zh.md)
+
 ![PyPI - Python Version](https://img.shields.io/pypi/pyversions/dm-reverb)
 [![PyPI version](https://badge.fury.io/py/dm-reverb.svg)](https://badge.fury.io/py/dm-reverb)
 
